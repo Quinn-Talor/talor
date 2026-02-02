@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Talor 诊断页面</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 32px; margin-bottom: 10px; }
+        .header p { opacity: 0.9; }
+        .content { padding: 30px; }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            margin: 8px 0;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+        .status-icon {
+            width: 24px;
+            height: 24px;
+            margin-right: 12px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: white;
+        }
+        .status-icon.success { background: #10b981; }
+        .status-icon.error { background: #ef4444; }
+        .status-icon.loading { background: #f59e0b; }
+        .status-text { flex: 1; }
+        .status-detail { font-size: 12px; color: #666; margin-top: 4px; }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        button:hover { background: #5568d3; transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
+        button.secondary {
+            background: #6b7280;
+        }
+        button.secondary:hover { background: #4b5563; }
+        .log {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        .log-entry {
+            margin: 4px 0;
+            padding: 4px 0;
+            border-bottom: 1px solid #334155;
+        }
+        .log-time { color: #94a3b8; }
+        .log-success { color: #10b981; }
+        .log-error { color: #ef4444; }
+        .log-info { color: #3b82f6; }
+        .link-box {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+        .link-box a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .link-box a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Talor 诊断工具</h1>
+            <p>检查前后端服务状态和连接</p>
+        </div>
+
+        <div class="content">
+            <!-- 服务状态 -->
+            <div class="section">
+                <h2>📡 服务状态</h2>
+                <div class="status-item" id="frontend-status">
+                    <div class="status-icon loading">⏳</div>
+                    <div class="status-text">
+                        <div>前端开发服务器</div>
+                        <div class="status-detail">检查中...</div>
+                    </div>
+                </div>
+                <div class="status-item" id="backend-status">
+                    <div class="status-icon loading">⏳</div>
+                    <div class="status-text">
+                        <div>后端 API 服务器</div>
+                        <div class="status-detail">检查中...</div>
+                    </div>
+                </div>
+                <div class="status-item" id="proxy-status">
+                    <div class="status-icon loading">⏳</div>
+                    <div class="status-text">
+                        <div>API 代理</div>
+                        <div class="status-detail">检查中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 快速操作 -->
+            <div class="section">
+                <h2>🚀 快速操作</h2>
+                <div class="button-group">
+                    <button onclick="window.location.href='/'">打开主应用</button>
+                    <button onclick="testAllServices()">重新检测</button>
+                    <button class="secondary" onclick="testAPI()">测试 API</button>
+                    <button class="secondary" onclick="clearLogs()">清除日志</button>
+                </div>
+            </div>
+
+            <!-- 测试日志 -->
+            <div class="section">
+                <h2>📋 测试日志</h2>
+                <div class="log" id="log"></div>
+            </div>
+
+            <!-- 有用链接 -->
+            <div class="section">
+                <h2>🔗 有用链接</h2>
+                <div class="link-box">
+                    <div style="margin-bottom: 10px;">
+                        <strong>应用:</strong>
+                        <a href="/" target="_blank">主应用</a> |
+                        <a href="/test-simple.html" target="_blank">简单测试</a>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <strong>API:</strong>
+                        <a href="http://127.0.0.1:8000/health" target="_blank">后端健康检查</a> |
+                        <a href="/api/health" target="_blank">代理健康检查</a> |
+                        <a href="/api/sessions" target="_blank">会话列表</a>
+                    </div>
+                    <div>
+                        <strong>文档:</strong>
+                        查看项目根目录的 QUICK_START.md 和 DEBUG_GUIDE.md
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const log = document.getElementById('log');
+
+        function addLog(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">${message}</span>`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(id, success, message) {
+            const element = document.getElementById(id);
+            const icon = element.querySelector('.status-icon');
+            const detail = element.querySelector('.status-detail');
+
+            icon.className = `status-icon ${success ? 'success' : 'error'}`;
+            icon.textContent = success ? '✓' : '✗';
+            detail.textContent = message;
+        }
+
+        async function checkFrontend() {
+            try {
+                const response = await fetch('/');
+                if (response.ok) {
+                    updateStatus('frontend-status', true, '运行中 (http://localhost:5173)');
+                    addLog('✓ 前端服务器正常', 'success');
+                    return true;
+                } else {
+                    updateStatus('frontend-status', false, `HTTP ${response.status}`);
+                    addLog(`✗ 前端服务器错误: HTTP ${response.status}`, 'error');
+                    return false;
+                }
+            } catch (e) {
+                updateStatus('frontend-status', false, '无法连接');
+                addLog(`✗ 前端服务器无法连接: ${e.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function checkBackend() {
+            try {
+                const response = await fetch('http://127.0.0.1:8000/health');
+                const data = await response.json();
+                if (response.ok) {
+                    updateStatus('backend-status', true, `运行中 (版本: ${data.version})`);
+                    addLog(`✓ 后端服务器正常 (版本: ${data.version})`, 'success');
+                    return true;
+                } else {
+                    updateStatus('backend-status', false, `HTTP ${response.status}`);
+                    addLog(`✗ 后端服务器错误: HTTP ${response.status}`, 'error');
+                    return false;
+                }
+            } catch (e) {
+                updateStatus('backend-status', false, '无法连接');
+                addLog(`✗ 后端服务器无法连接: ${e.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function checkProxy() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                if (response.ok) {
+                    updateStatus('proxy-status', true, '正常工作');
+                    addLog('✓ API 代理正常', 'success');
+                    return true;
+                } else {
+                    updateStatus('proxy-status', false, `HTTP ${response.status}`);
+                    addLog(`✗ API 代理错误: HTTP ${response.status}`, 'error');
+                    return false;
+                }
+            } catch (e) {
+                updateStatus('proxy-status', false, '无法连接');
+                addLog(`✗ API 代理无法连接: ${e.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function testAllServices() {
+            addLog('开始检测服务...', 'info');
+            await checkFrontend();
+            await checkBackend();
+            await checkProxy();
+            addLog('检测完成', 'info');
+        }
+
+        async function testAPI() {
+            addLog('测试 API 端点...', 'info');
+
+            const endpoints = [
+                { name: '会话列表', url: '/api/sessions' },
+                { name: '工具列表', url: '/api/tools' },
+                { name: 'Agent 列表', url: '/api/agents' },
+                { name: 'Provider 列表', url: '/api/providers' },
+            ];
+
+            for (const endpoint of endpoints) {
+                try {
+                    const response = await fetch(endpoint.url);
+                    if (response.ok) {
+                        const data = await response.json();
+                        addLog(`✓ ${endpoint.name}: ${Array.isArray(data) ? data.length + ' 项' : 'OK'}`, 'success');
+                    } else {
+                        addLog(`✗ ${endpoint.name}: HTTP ${response.status}`, 'error');
+                    }
+                } catch (e) {
+                    addLog(`✗ ${endpoint.name}: ${e.message}`, 'error');
+                }
+            }
+
+            addLog('API 测试完成', 'info');
+        }
+
+        function clearLogs() {
+            log.innerHTML = '';
+            addLog('日志已清除', 'info');
+        }
+
+        // 页面加载时自动检测
+        window.addEventListener('load', () => {
+            addLog('诊断工具已加载', 'info');
+            testAllServices();
+        });
+    </script>
+</body>
+</html>
