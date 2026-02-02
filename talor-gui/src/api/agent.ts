@@ -4,16 +4,14 @@
  *
  * Provides agent-related API calls for the Talor GUI client,
  * including streaming prompt processing using Server-Sent Events (SSE).
- * Updated to match the new OpenCode-compatible backend API.
  * 为 Talor GUI 客户端提供代理相关的 API 调用，
  * 包括使用服务器发送事件 (SSE) 的流式提示词处理。
- * 已更新以匹配新的 OpenCode 兼容后端 API。
  *
  * @requirements 3.5 - 流式输出显示
  */
 
-import type { TalorClient } from './client';
 import type { AgentResponse, ProcessPromptParams } from '../types/api';
+import type { TalorClient } from './client';
 import { NetworkError } from './client';
 
 /**

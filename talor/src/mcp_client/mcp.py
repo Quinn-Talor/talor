@@ -27,8 +27,8 @@ from fastmcp.client.transports import StdioTransport, SSETransport, StreamableHt
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from talor.bus import Bus
-    from talor.config import Config
+    from src.bus import Bus
+    from src.config import Config
 
 
 logger = logging.getLogger(__name__)
@@ -264,7 +264,7 @@ class MCP:
             
             # Publish event
             if cls._bus and client.status.status == MCPStatusType.CONNECTED:
-                from talor.bus.events import MCPConnected, MCPConnectedData
+                from src.bus.events import MCPConnected, MCPConnectedData
                 await cls._bus.publish(
                     MCPConnected,
                     MCPConnectedData(server=name, tools_count=len(client.tools))
@@ -281,7 +281,7 @@ class MCP:
                 await client.disconnect()
                 
                 if cls._bus:
-                    from talor.bus.events import MCPDisconnected, MCPDisconnectedData
+                    from src.bus.events import MCPDisconnected, MCPDisconnectedData
                     await cls._bus.publish(
                         MCPDisconnected,
                         MCPDisconnectedData(server=name)

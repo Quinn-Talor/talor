@@ -1,7 +1,6 @@
 """Pre-defined Events for Talor.
 
-This module defines all the standard events used throughout Talor,
-following opencode's event definition patterns.
+This module defines all the standard events used throughout Talor.
 
 Events are organized by domain:
 - Session events (session.created, session.updated, etc.)
@@ -18,7 +17,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
-from talor.bus.bus_event import BusEvent
+from src.bus.bus_event import BusEvent
 
 
 # =============================================================================
@@ -208,6 +207,96 @@ AgentStarted = BusEvent.define("agent.started", AgentStartedData)
 AgentCompleted = BusEvent.define("agent.completed", AgentCompletedData)
 AgentError = BusEvent.define("agent.error", AgentErrorData)
 AgentToolCall = BusEvent.define("agent.tool_call", AgentToolCallData)
+
+
+# =============================================================================
+# ReAct Loop Events (New)
+# =============================================================================
+
+class AgentLoopStartedData(BaseModel):
+    """Data for agent.loop.started event."""
+    session_id: str
+    message_id: str
+    agent: str
+    config: dict[str, Any] = {}
+
+
+class AgentLoopPhaseData(BaseModel):
+    """Data for agent.loop.phase event."""
+    session_id: str
+    phase: str  # "reasoning", "acting", "observing", "completed", "error"
+    iteration: int
+
+
+class AgentThoughtData(BaseModel):
+    """Data for agent.thought event - reasoning output."""
+    session_id: str
+    message_id: str
+    content: str
+    requires_action: bool
+    tool_calls: list[dict[str, Any]] = []
+    is_final: bool = False
+
+
+class AgentActionData(BaseModel):
+    """Data for agent.action event - tool execution."""
+    session_id: str
+    message_id: str
+    call_id: str
+    tool: str
+    arguments: dict[str, Any]
+
+
+class AgentObservationData(BaseModel):
+    """Data for agent.observation event - tool result."""
+    session_id: str
+    message_id: str
+    call_id: str
+    tool: str
+    success: bool
+    output: str
+    error: str | None = None
+    duration_ms: float = 0
+
+
+class AgentReflectionData(BaseModel):
+    """Data for agent.reflection event - self-reflection."""
+    session_id: str
+    iteration: int
+    actions_count: int
+    success_rate: float
+    insights: str | None = None
+
+
+class AgentLoopCompletedData(BaseModel):
+    """Data for agent.loop.completed event."""
+    session_id: str
+    message_id: str
+    agent: str
+    reason: str  # "completed", "max_iterations", "cancelled", "error"
+    iterations: int
+    actions_count: int
+    elapsed_ms: float
+
+
+class AgentLoopErrorData(BaseModel):
+    """Data for agent.loop.error event."""
+    session_id: str
+    message_id: str
+    agent: str
+    error: str
+    iteration: int
+
+
+# Define ReAct loop events
+AgentLoopStarted = BusEvent.define("agent.loop.started", AgentLoopStartedData)
+AgentLoopPhase = BusEvent.define("agent.loop.phase", AgentLoopPhaseData)
+AgentThought = BusEvent.define("agent.thought", AgentThoughtData)
+AgentAction = BusEvent.define("agent.action", AgentActionData)
+AgentObservation = BusEvent.define("agent.observation", AgentObservationData)
+AgentReflection = BusEvent.define("agent.reflection", AgentReflectionData)
+AgentLoopCompleted = BusEvent.define("agent.loop.completed", AgentLoopCompletedData)
+AgentLoopError = BusEvent.define("agent.loop.error", AgentLoopErrorData)
 
 
 # =============================================================================

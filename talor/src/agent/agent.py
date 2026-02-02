@@ -1,6 +1,6 @@
 """Agent Management for Talor.
 
-This module provides agent management following opencode's Agent pattern.
+This module provides agent configuration and management for the ReAct loop.
 
 Features:
 - Agent configuration with model, prompt, permissions
@@ -16,10 +16,10 @@ from typing import Any, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from talor.agent.permission import Permission, PermissionRule, PermissionAction, Ruleset
+from src.agent.permission import Permission, PermissionRule, PermissionAction, Ruleset
 
 if TYPE_CHECKING:
-    from talor.config import Config
+    from src.config import Config
 
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,9 @@ class AgentModel(BaseModel):
 
 class AgentInfo(BaseModel):
     """Agent configuration.
-    
-    Corresponds to opencode's Agent.Info.
-    
+
+    Defines an agent's behavior, permissions, and model settings.
+
     Attributes:
         name: Agent unique identifier
         description: Agent description
@@ -55,7 +55,7 @@ class AgentInfo(BaseModel):
         options: Additional options
         steps: Maximum steps
     """
-    
+
     name: str
     description: str | None = None
     mode: str = "primary"  # "primary", "subagent", "all"
@@ -69,7 +69,7 @@ class AgentInfo(BaseModel):
     prompt: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     steps: int | None = None
-    
+
     def get_permission_ruleset(self) -> Ruleset:
         """Get permission ruleset from config."""
         rules = []
@@ -117,30 +117,30 @@ PROMPT_TITLE = """Generate a short, descriptive title for this conversation base
 
 class Agent:
     """Agent management namespace.
-    
-    Corresponds to opencode's Agent namespace.
+
+    Provides methods for agent configuration, listing, and selection.
     """
-    
+
     # Class-level state
     _config: Any | None = None
     _agents_cache: dict[str, AgentInfo] | None = None
-    
+
     @classmethod
     def configure(cls, config: Any = None) -> None:
         """Configure the agent system.
-        
+
         Args:
             config: Config instance
         """
         cls._config = config
         cls._agents_cache = None
-    
+
     @classmethod
     async def _load_agents(cls) -> dict[str, AgentInfo]:
         """Load all agents from config and defaults."""
         if cls._agents_cache is not None:
             return cls._agents_cache
-        
+
         # Default permission rules
         default_rules = Permission.from_config({
             "*": "allow",
@@ -156,7 +156,7 @@ class Agent:
                 "*.env.example": "allow",
             },
         })
-        
+
         # Built-in agents
         agents: dict[str, AgentInfo] = {
             "build": AgentInfo(
@@ -239,7 +239,7 @@ class Agent:
                 permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
             ),
         }
-        
+
         # Load custom agents from config
         if cls._config:
             config = await cls._config.get()
@@ -247,7 +247,7 @@ class Agent:
                 if agent_config.get("disable"):
                     agents.pop(name, None)
                     continue
-                
+
                 if name in agents:
                     # Update existing agent
                     agent = agents[name]
@@ -297,64 +297,64 @@ class Agent:
                             )
                         ],
                     )
-        
+
         cls._agents_cache = agents
         return agents
-    
+
     @classmethod
     async def get(cls, name: str) -> AgentInfo | None:
         """Get an agent by name.
-        
+
         Args:
             name: Agent name
-        
+
         Returns:
             AgentInfo or None
         """
         agents = await cls._load_agents()
         return agents.get(name)
-    
+
     @classmethod
     async def list(cls, include_hidden: bool = False) -> list[AgentInfo]:
         """List all agents.
-        
+
         Args:
             include_hidden: Include hidden agents
-        
+
         Returns:
             List of AgentInfo
         """
         agents = await cls._load_agents()
         result = list(agents.values())
-        
+
         if not include_hidden:
             result = [a for a in result if not a.hidden]
-        
+
         # Sort: default agent first, then by name
         default_name = "build"
         if cls._config:
             config = await cls._config.get()
             default_name = config.get("default_agent", "build")
-        
+
         result.sort(key=lambda a: (a.name != default_name, a.name))
-        
+
         return result
-    
+
     @classmethod
     async def default_agent(cls) -> str:
         """Get the default agent name.
-        
+
         Returns:
             Default agent name
         """
         default_name = "build"
-        
+
         if cls._config:
             config = await cls._config.get()
             default_name = config.get("default_agent", "build")
-        
+
         agents = await cls._load_agents()
-        
+
         if default_name in agents:
             agent = agents[default_name]
             if agent.mode == "subagent":
@@ -362,27 +362,27 @@ class Agent:
             if agent.hidden:
                 raise ValueError(f"Default agent '{default_name}' is hidden")
             return default_name
-        
+
         # Find first primary visible agent
         for agent in agents.values():
             if agent.mode != "subagent" and not agent.hidden:
                 return agent.name
-        
+
         raise ValueError("No primary visible agent found")
-    
+
     @classmethod
     async def list_for_mode(cls, mode: str) -> list[AgentInfo]:
         """List agents for a specific mode.
-        
+
         Args:
             mode: "primary" or "subagent"
-        
+
         Returns:
             List of matching agents
         """
         agents = await cls.list(include_hidden=False)
         return [a for a in agents if a.mode == mode or a.mode == "all"]
-    
+
     @classmethod
     def clear_cache(cls) -> None:
         """Clear agent cache (for testing)."""

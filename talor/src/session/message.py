@@ -1,7 +1,7 @@
 """Message Models for Talor.
 
-This module provides message models following opencode's MessageV2 pattern
-with parts-based architecture.
+This module provides message models with parts-based architecture
+for rich content support.
 
 Message types:
 - User: User input messages
@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 
 class TextPart(BaseModel):
     """Text content part."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: Literal["text"] = "text"
     text: str
@@ -41,7 +41,7 @@ class TextPart(BaseModel):
 
 class FilePart(BaseModel):
     """File attachment part."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: Literal["file"] = "file"
     url: str
@@ -53,7 +53,7 @@ class FilePart(BaseModel):
 
 class ToolPart(BaseModel):
     """Tool call and result part."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: Literal["tool"] = "tool"
     tool: str
@@ -71,7 +71,7 @@ class ToolPart(BaseModel):
 
 class AgentPart(BaseModel):
     """Agent reference part."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: Literal["agent"] = "agent"
     name: str
@@ -81,7 +81,7 @@ class AgentPart(BaseModel):
 
 class ReasoningPart(BaseModel):
     """Reasoning/thinking part."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     type: Literal["reasoning"] = "reasoning"
     text: str
@@ -99,7 +99,7 @@ MessagePart = TextPart | FilePart | ToolPart | AgentPart | ReasoningPart
 
 class UserMessage(BaseModel):
     """User message."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     role: Literal["user"] = "user"
     session_id: str
@@ -110,7 +110,7 @@ class UserMessage(BaseModel):
 
 class AssistantMessage(BaseModel):
     """Assistant message."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     role: Literal["assistant"] = "assistant"
     session_id: str
@@ -135,7 +135,7 @@ class AssistantMessage(BaseModel):
 
 class SystemMessage(BaseModel):
     """System message."""
-    
+
     id: str = Field(default_factory=lambda: str(uuid4()))
     role: Literal["system"] = "system"
     session_id: str
@@ -154,13 +154,13 @@ Message = UserMessage | AssistantMessage | SystemMessage
 @dataclass
 class MessageWithParts:
     """Message with its associated parts.
-    
-    Corresponds to opencode's MessageV2.WithParts.
+
+    Combines a message with its content parts for rich display.
     """
-    
+
     info: Message
     parts: list[MessagePart] = field(default_factory=list)
-    
+
     def get_text_content(self) -> str:
         """Get combined text content from all text parts."""
         texts = []
@@ -168,11 +168,11 @@ class MessageWithParts:
             if isinstance(part, TextPart):
                 texts.append(part.text)
         return "\n".join(texts)
-    
+
     def get_tool_parts(self) -> list[ToolPart]:
         """Get all tool parts."""
         return [p for p in self.parts if isinstance(p, ToolPart)]
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {

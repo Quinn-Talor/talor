@@ -6,7 +6,7 @@ from typing import Optional
 
 import click
 
-from talor.cli.commands import config, mcp, serve
+from src.cli.commands import config, mcp, serve
 
 
 @click.group()
@@ -36,13 +36,13 @@ def cli(
     config: Optional[Path],
     log_level: str,
 ) -> None:
-    """Talor - AI-powered coding assistant.
-    
-    A Python reimplementation of opencode with MCP integration and multi-provider LLM support.
+    """Talor - AI Agent Framework.
+
+    A ReAct-based AI agent framework with MCP integration and multi-provider LLM support.
     """
     # Ensure context object exists
     ctx.ensure_object(dict)
-    
+
     # Store global options in context
     ctx.obj["workspace"] = workspace or Path.cwd()
     ctx.obj["config"] = config

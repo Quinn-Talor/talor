@@ -1,7 +1,6 @@
 """Edit Tool for Talor.
 
-This module provides the edit tool for editing files with string replacement,
-following opencode's EditTool pattern.
+This module provides the edit tool for editing files with string replacement.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from talor.tool import Tool, ToolContext, ToolOutput
+from src.tool import Tool, ToolContext, ToolOutput
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class EditParams(BaseModel):
     """Parameters for edit tool."""
-    
+
     file_path: str = Field(
         description="Path to the file to edit (relative to workspace or absolute)"
     )
@@ -37,11 +36,11 @@ class EditParams(BaseModel):
 
 async def edit_execute(params: EditParams, ctx: ToolContext) -> ToolOutput:
     """Execute the edit tool.
-    
+
     Args:
         params: Edit parameters
         ctx: Tool execution context
-    
+
     Returns:
         ToolOutput with result
     """
@@ -49,24 +48,24 @@ async def edit_execute(params: EditParams, ctx: ToolContext) -> ToolOutput:
     file_path = Path(params.file_path)
     if not file_path.is_absolute():
         file_path = ctx.worktree / file_path
-    
+
     # Check if file exists
     if not file_path.exists():
         return ToolOutput.error(
             f"File not found: {params.file_path}",
             title="Edit Error"
         )
-    
+
     if not file_path.is_file():
         return ToolOutput.error(
             f"Not a file: {params.file_path}",
             title="Edit Error"
         )
-    
+
     try:
         # Read current content
         content = file_path.read_text(encoding="utf-8")
-        
+
         # Check if old_string exists
         if params.old_string not in content:
             return ToolOutput.error(
@@ -74,10 +73,10 @@ async def edit_execute(params: EditParams, ctx: ToolContext) -> ToolOutput:
                 title="Edit Error",
                 metadata={"reason": "string_not_found"}
             )
-        
+
         # Count occurrences
         occurrences = content.count(params.old_string)
-        
+
         # Perform replacement
         if params.replace_all:
             new_content = content.replace(params.old_string, params.new_string)
@@ -85,14 +84,14 @@ async def edit_execute(params: EditParams, ctx: ToolContext) -> ToolOutput:
         else:
             new_content = content.replace(params.old_string, params.new_string, 1)
             replaced_count = 1
-        
+
         # Write new content
         file_path.write_text(new_content, encoding="utf-8")
-        
+
         # Calculate diff info
         old_lines = len(content.splitlines())
         new_lines = len(new_content.splitlines())
-        
+
         # Build metadata
         metadata = {
             "file_path": str(file_path),
@@ -102,13 +101,13 @@ async def edit_execute(params: EditParams, ctx: ToolContext) -> ToolOutput:
             "new_lines": new_lines,
             "lines_changed": new_lines - old_lines,
         }
-        
+
         return ToolOutput(
             title=f"Edited {params.file_path} ({replaced_count} replacement{'s' if replaced_count > 1 else ''})",
             output=f"Successfully replaced {replaced_count} occurrence{'s' if replaced_count > 1 else ''} in {params.file_path}",
             metadata=metadata,
         )
-        
+
     except UnicodeDecodeError:
         return ToolOutput.error(
             f"Cannot edit binary file: {params.file_path}",

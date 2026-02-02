@@ -15,7 +15,7 @@ from typing import Any
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from talor.core.errors import TalorError
+from src.core.errors import TalorError
 
 
 class Logger:

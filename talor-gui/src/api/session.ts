@@ -3,18 +3,16 @@
  * 会话 API 模块
  *
  * Provides session management API calls for the Talor GUI client.
- * Updated to match the new OpenCode-compatible backend API.
  * 为 Talor GUI 客户端提供会话管理 API 调用。
- * 已更新以匹配新的 OpenCode 兼容后端 API。
  *
  * @requirements 2.1 - 创建新会话
  * @requirements 2.2 - 加载会话消息历史
  * @requirements 2.3 - 删除会话
  */
 
-import type { TalorClient } from './client';
-import type { Session, SessionInfo } from '../types/session';
 import type { Message, MessageRole } from '../types/message';
+import type { Session, SessionInfo } from '../types/session';
+import type { TalorClient } from './client';
 
 /**
  * Request body for creating a new session
@@ -99,8 +97,8 @@ export interface SessionApi {
 }
 
 /**
- * Backend session response (new OpenCode-compatible format)
- * 后端会话响应（新的 OpenCode 兼容格式）
+ * Backend session response
+ * 后端会话响应
  *
  * Uses `time` dict with `created` and `updated` timestamps instead of
  * `created_at` and `updated_at` strings.
@@ -131,8 +129,8 @@ interface BackendMessagePart {
 }
 
 /**
- * Backend message response (new OpenCode-compatible format)
- * 后端消息响应（新的 OpenCode 兼容格式）
+ * Backend message response
+ * 后端消息响应
  */
 interface BackendMessageResponse {
   info: {

@@ -19,14 +19,16 @@
 
 ### 项目简介
 
-**Talor** 是一个基于 Python 的 AI 驱动的 IDE 和编码助手，是 OpenCode 的 Python 重新实现版本。它提供了强大的 AI 辅助编程能力，支持多种 LLM 提供商，集成了 MCP (Model Context Protocol) 协议，并提供了现代化的 Web GUI 界面。
+**Talor** 是一个基于 ReAct (Reasoning + Acting) 架构的通用 AI Agent 框架。它通过推理/规划、工具调用、结果观察的循环，智能处理用户诉求并交付结果。支持多种 LLM 提供商，集成了 MCP (Model Context Protocol) 协议，并提供了现代化的 Web GUI 界面。
 
 ### 核心特性
 
+- **ReAct 架构**：显式的推理-行动-观察循环
 - **事件驱动架构**：基于事件总线的松耦合设计
 - **多提供商支持**：支持 OpenAI、Anthropic、Google AI、Ollama 等多个 LLM 提供商
 - **MCP 集成**：完整的 Model Context Protocol 支持
 - **工具系统**：统一的工具定义和执行框架
+- **记忆系统**：短期/长期记忆管理
 - **会话管理**：基于消息的对话管理系统
 - **权限控制**：细粒度的工具权限管理
 - **现代化 GUI**：基于 React + TypeScript 的 Web 界面
@@ -213,17 +215,17 @@ talor/                      # 项目根目录
 
 #### 3. 命名空间模式 (Namespace Pattern)
 
-遵循 OpenCode 的设计模式，使用类级别的命名空间：
+使用类级别的命名空间组织代码：
 
 ```python
 # 示例：Session 命名空间
 class Session:
     @classmethod
     async def create(...) -> SessionInfo: ...
-    
+
     @classmethod
     async def get(...) -> SessionInfo | None: ...
-    
+
     @classmethod
     async def update(...) -> SessionInfo | None: ...
 ```
@@ -250,15 +252,15 @@ class Session:
 ```python
 class Bus:
     """事件总线，提供发布-订阅功能"""
-    
+
     @classmethod
     async def publish(cls, definition: EventDefinition, properties: BaseModel):
         """发布事件到所有订阅者"""
-    
+
     @classmethod
     def subscribe(cls, definition: EventDefinition, callback: EventCallback):
         """订阅特定类型的事件"""
-    
+
     @classmethod
     def subscribe_all(cls, callback: EventCallback):
         """订阅所有事件（通配符）"""
@@ -269,7 +271,7 @@ class Bus:
 ```python
 class BusEvent:
     """事件定义工厂"""
-    
+
     @staticmethod
     def define(event_type: str, properties_model: Type[BaseModel]):
         """定义一个新的事件类型"""
@@ -374,27 +376,27 @@ class Session:
     @classmethod
     async def create(cls, parent_id=None, title=None) -> SessionInfo:
         """创建新会话"""
-    
+
     @classmethod
     async def get(cls, session_id: str) -> SessionInfo | None:
         """获取会话信息"""
-    
+
     @classmethod
     async def update(cls, session_id: str, editor: Callable) -> SessionInfo:
         """使用编辑器函数更新会话"""
-    
+
     @classmethod
     async def delete(cls, session_id: str) -> None:
         """删除会话"""
-    
+
     @classmethod
     async def list(cls) -> list[SessionInfo]:
         """列出所有会话"""
-    
+
     @classmethod
     async def messages(cls, session_id: str) -> list[MessageWithParts]:
         """获取会话的所有消息"""
-    
+
     @classmethod
     async def add_message(cls, session_id: str, message: Message) -> MessageWithParts:
         """添加消息到会话"""
@@ -748,7 +750,7 @@ mcp_servers:
     args:
       - "@playwright/mcp@latest"
     transport: "stdio"
-  
+
   filesystem:
     command: "mcp-server-filesystem"
     args:
@@ -809,7 +811,7 @@ class MCPTool(BaseModel):
 def get_tool_definitions() -> list[dict]:
     """将 MCP 工具转换为 OpenAI 工具格式"""
     definitions = []
-    
+
     for client in MCP._clients.values():
         for tool in client.tools:
             definitions.append({
@@ -820,7 +822,7 @@ def get_tool_definitions() -> list[dict]:
                     "parameters": tool.input_schema,
                 }
             })
-    
+
     return definitions
 ```
 
@@ -882,21 +884,21 @@ async def execute(
     context: ToolContext,
 ) -> ToolOutput:
     """执行任何工具（内置或 MCP）"""
-    
+
     # 检查是否是 MCP 工具
     if tool_name.startswith("mcp_"):
         # 解析服务器和工具名称
         parts = tool_name.split("_", 2)
         server_name = parts[1]
         mcp_tool_name = parts[2]
-        
+
         # 调用 MCP 工具
         result = await MCP.call_tool(
             server=server_name,
             tool_name=mcp_tool_name,
             arguments=arguments
         )
-        
+
         # 转换为标准 ToolOutput
         return ToolOutput(
             title=f"MCP: {mcp_tool_name}",
@@ -1049,7 +1051,7 @@ providers:
   openai:
     api_key: "sk-..."
     default_model: "gpt-4o"
-  
+
   ollama:
     base_url: "http://localhost:11434"
     default_model: "deepseek-v3.1:671b-cloud"
@@ -2048,11 +2050,11 @@ providers:
   openai:
     api_key: "sk-your-openai-api-key"
     default_model: "gpt-4o"
-  
+
   anthropic:
     api_key: "sk-ant-your-anthropic-api-key"
     default_model: "claude-3-5-sonnet-20241022"
-  
+
   ollama:
     api_key: "ollama"
     base_url: "http://localhost:11434"
@@ -2260,7 +2262,7 @@ class MyToolParams(BaseModel):
 async def my_tool_handler(params: MyToolParams, ctx: ToolContext) -> ToolOutput:
     # 实现工具逻辑
     result = f"Processed: {params.input_text} with {params.option}"
-    
+
     return ToolOutput(
         title="My Tool Result",
         output=result
@@ -2714,7 +2716,7 @@ location /api/ {
     proxy_cache_valid 200 5m;
     proxy_cache_key "$scheme$request_method$host$request_uri";
     add_header X-Cache-Status $upstream_cache_status;
-    
+
     proxy_pass http://localhost:8000/api/;
 }
 ```
@@ -2935,19 +2937,19 @@ permissions:
   rules:
     - tool_pattern: "*"              # 匹配所有工具
       action: "allow"
-    
+
     - tool_pattern: "read_*"         # 匹配所有 read_ 开头的工具
       action: "allow"
-    
+
     - tool_pattern: "write_*"        # 匹配所有 write_ 开头的工具
       action: "ask"
-    
+
     - tool_pattern: "execute_*"      # 匹配所有 execute_ 开头的工具
       action: "deny"
-    
+
     - tool_pattern: "mcp_*"          # 匹配所有 MCP 工具
       action: "ask"
-    
+
     - tool_pattern: "mcp_playwright_*"  # 匹配特定 MCP 服务器的工具
       action: "allow"
 ```
@@ -2978,17 +2980,17 @@ permissions:
     - tool_pattern: "mcp_playwright_*"
       action: "allow"
       scope: "session"
-    
+
     # 询问文件系统 MCP 工具
     - tool_pattern: "mcp_filesystem_*"
       action: "ask"
       scope: "once"
-    
+
     # 拒绝特定的危险 MCP 工具
     - tool_pattern: "mcp_filesystem_delete"
       action: "deny"
       scope: "always"
-    
+
     # 自动批准特定工具（在 MCP 服务器配置中）
 mcp_servers:
   playwright:
@@ -3132,14 +3134,14 @@ agent:
     permission:
       # 默认允许所有工具
       "*": "allow"
-      
+
       # MCP 工具需要询问
       "mcp_*": "ask"
-      
+
       # 但 Playwright 的只读操作自动允许
       "mcp_playwright_navigate": "allow"
       "mcp_playwright_screenshot": "allow"
-      
+
       # 危险操作拒绝
       "mcp_filesystem_delete": "deny"
 ```
@@ -3271,7 +3273,7 @@ agent:
 
 ---
 
-**文档版本**: 1.0.0  
-**最后更新**: 2024-01-XX  
+**文档版本**: 1.0.0
+**最后更新**: 2024-01-XX
 **维护者**: Talor Team
 

@@ -2,8 +2,6 @@
  * Event types for Talor GUI
  * 事件相关类型定义
  *
- * Updated to match the new OpenCode-compatible Bus event format.
- *
  * @requirements 1.2 - 后端通信（实时事件）
  */
 
@@ -43,7 +41,7 @@ export type EventType =
  * Base event structure from the backend
  * 后端返回的基础事件结构
  *
- * This matches the Bus event format from the OpenCode-compatible backend.
+ * This matches the Bus event format from the backend.
  */
 export interface Event {
   /** Event type / 事件类型 */

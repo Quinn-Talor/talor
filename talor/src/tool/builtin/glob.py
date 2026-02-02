@@ -1,7 +1,6 @@
 """Glob Tool for Talor.
 
-This module provides the glob tool for finding files by pattern,
-following opencode's GlobTool pattern.
+This module provides the glob tool for finding files by pattern.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from talor.tool import Tool, ToolContext, ToolOutput
+from src.tool import Tool, ToolContext, ToolOutput
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class GlobParams(BaseModel):
     """Parameters for glob tool."""
-    
+
     pattern: str = Field(
         description="Glob pattern to match files (e.g., '**/*.py', 'src/**/*.ts')"
     )
@@ -31,11 +30,11 @@ class GlobParams(BaseModel):
 
 async def glob_execute(params: GlobParams, ctx: ToolContext) -> ToolOutput:
     """Execute the glob tool.
-    
+
     Args:
         params: Glob parameters
         ctx: Tool execution context
-    
+
     Returns:
         ToolOutput with matching files
     """
@@ -46,27 +45,27 @@ async def glob_execute(params: GlobParams, ctx: ToolContext) -> ToolOutput:
             base_path = ctx.worktree / base_path
     else:
         base_path = ctx.worktree
-    
+
     # Validate base path
     if not base_path.exists():
         return ToolOutput.error(
             f"Path not found: {params.path or '.'}",
             title="Glob Error"
         )
-    
+
     try:
         # Find matching files
         matches = list(base_path.glob(params.pattern))
-        
+
         # Sort and format results
         matches.sort()
-        
+
         # Limit results
         max_results = 1000
         truncated = len(matches) > max_results
         if truncated:
             matches = matches[:max_results]
-        
+
         # Format output
         output_lines = []
         for match in matches:
@@ -74,15 +73,15 @@ async def glob_execute(params: GlobParams, ctx: ToolContext) -> ToolOutput:
                 rel_path = match.relative_to(ctx.worktree)
             except ValueError:
                 rel_path = match
-            
+
             # Add file type indicator
             if match.is_dir():
                 output_lines.append(f"{rel_path}/")
             else:
                 output_lines.append(str(rel_path))
-        
+
         output = "\n".join(output_lines) if output_lines else "(no matches)"
-        
+
         # Build metadata
         metadata = {
             "pattern": params.pattern,
@@ -90,16 +89,16 @@ async def glob_execute(params: GlobParams, ctx: ToolContext) -> ToolOutput:
             "matches_count": len(matches),
             "truncated": truncated,
         }
-        
+
         if truncated:
             output += f"\n\n(truncated, showing first {max_results} of {len(matches)} matches)"
-        
+
         return ToolOutput(
             title=f"Glob '{params.pattern}' ({len(matches)} matches)",
             output=output,
             metadata=metadata,
         )
-        
+
     except Exception as e:
         logger.error(f"Error in glob: {e}")
         return ToolOutput.error(

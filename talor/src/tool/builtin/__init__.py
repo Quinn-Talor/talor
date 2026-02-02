@@ -1,6 +1,6 @@
 """Built-in Tools for Talor.
 
-This module provides the built-in tools following opencode's pattern:
+This module provides the built-in tools for agent actions:
 - read: Read file content
 - write: Write file content
 - edit: Edit file with string replacement
@@ -12,13 +12,13 @@ This module provides the built-in tools following opencode's pattern:
 Each tool is defined using Tool.define() with Pydantic parameters.
 """
 
-from talor.tool.builtin.read import ReadTool
-from talor.tool.builtin.write import WriteTool
-from talor.tool.builtin.edit import EditTool
-from talor.tool.builtin.bash import BashTool
-from talor.tool.builtin.glob import GlobTool
-from talor.tool.builtin.grep import GrepTool
-from talor.tool.builtin.ls import ListTool
+from src.tool.builtin.read import ReadTool
+from src.tool.builtin.write import WriteTool
+from src.tool.builtin.edit import EditTool
+from src.tool.builtin.bash import BashTool
+from src.tool.builtin.glob import GlobTool
+from src.tool.builtin.grep import GrepTool
+from src.tool.builtin.ls import ListTool
 
 __all__ = [
     "ReadTool",
@@ -33,7 +33,7 @@ __all__ = [
 
 def get_all_builtin_tools():
     """Get all built-in tools.
-    
+
     Returns:
         List of ToolInfo instances
     """

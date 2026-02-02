@@ -18,7 +18,7 @@ from typing import Any
 
 import aiosqlite
 
-from talor.core.errors import StorageError
+from src.core.errors import StorageError
 
 
 logger = logging.getLogger(__name__)

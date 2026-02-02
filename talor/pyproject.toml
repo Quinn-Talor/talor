@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "talor"
 version = "0.1.0"
-description = "Talor - Python reimplementation of opencode, an AI-powered IDE and coding assistant"
+description = "Talor - A ReAct-based AI Agent Framework"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     {name = "Talor Team", email = "team@talor.dev"}
 ]
-keywords = ["ai", "ide", "coding-assistant", "mcp", "llm", "opencode", "agent", "litellm", "fastmcp"]
+keywords = ["ai", "agent", "react", "mcp", "llm", "litellm", "fastmcp", "reasoning"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -81,39 +81,11 @@ all = [
 ]
 
 [project.scripts]
-talor = "talor.cli.main:cli"
+talor = "src.cli.main:cli"
 
-[tool.setuptools]
-packages = [
-    "talor",
-    "talor.agent",
-    "talor.api",
-    "talor.bus",
-    "talor.cli",
-    "talor.cli.commands",
-    "talor.config",
-    "talor.core",
-    "talor.mcp",
-    "talor.provider",
-    "talor.session",
-    "talor.tool",
-    "talor.tool.builtin",
-]
-
-[tool.setuptools.package-dir]
-talor = "src"
-"talor.agent" = "src/agent"
-"talor.api" = "src/api"
-"talor.bus" = "src/bus"
-"talor.cli" = "src/cli"
-"talor.cli.commands" = "src/cli/commands"
-"talor.config" = "src/config"
-"talor.core" = "src/core"
-"talor.mcp" = "src/mcp"
-"talor.provider" = "src/provider"
-"talor.session" = "src/session"
-"talor.tool" = "src/tool"
-"talor.tool.builtin" = "src/tool/builtin"
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -129,7 +101,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["talor"]
+source = ["src"]
 omit = ["*/tests/*", "*/test_*.py"]
 
 [tool.coverage.report]

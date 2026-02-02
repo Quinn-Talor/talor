@@ -1,7 +1,6 @@
 """List Tool for Talor.
 
-This module provides the ls tool for listing directory contents,
-following opencode's ListTool pattern.
+This module provides the ls tool for listing directory contents.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from talor.tool import Tool, ToolContext, ToolOutput
+from src.tool import Tool, ToolContext, ToolOutput
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ListParams(BaseModel):
     """Parameters for list tool."""
-    
+
     path: str | None = Field(
         default=None,
         description="Path to list (relative to workspace, default: workspace root)"
@@ -64,11 +63,11 @@ def format_mode(mode: int) -> str:
 
 async def list_execute(params: ListParams, ctx: ToolContext) -> ToolOutput:
     """Execute the list tool.
-    
+
     Args:
         params: List parameters
         ctx: Tool execution context
-    
+
     Returns:
         ToolOutput with directory listing
     """
@@ -79,53 +78,53 @@ async def list_execute(params: ListParams, ctx: ToolContext) -> ToolOutput:
             list_path = ctx.worktree / list_path
     else:
         list_path = ctx.worktree
-    
+
     # Validate path
     if not list_path.exists():
         return ToolOutput.error(
             f"Path not found: {params.path or '.'}",
             title="List Error"
         )
-    
+
     if not list_path.is_dir():
         return ToolOutput.error(
             f"Not a directory: {params.path or '.'}",
             title="List Error"
         )
-    
+
     try:
         # Collect entries
         entries = []
-        
+
         def collect_entries(path: Path, current_depth: int, prefix: str = ""):
             if current_depth > params.depth:
                 return
-            
+
             try:
                 items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
             except PermissionError:
                 return
-            
+
             for item in items:
                 # Skip hidden files unless requested
                 if not params.show_hidden and item.name.startswith("."):
                     continue
-                
+
                 try:
                     stat_info = item.stat()
                     mode = format_mode(stat_info.st_mode)
                     size = format_size(stat_info.st_size) if item.is_file() else "     -"
                     mtime = datetime.fromtimestamp(stat_info.st_mtime).strftime("%Y-%m-%d %H:%M")
-                    
+
                     try:
                         rel_path = item.relative_to(ctx.worktree)
                     except ValueError:
                         rel_path = item
-                    
+
                     name = str(rel_path)
                     if item.is_dir():
                         name += "/"
-                    
+
                     entries.append({
                         "mode": mode,
                         "size": size,
@@ -133,16 +132,16 @@ async def list_execute(params: ListParams, ctx: ToolContext) -> ToolOutput:
                         "name": prefix + name,
                         "is_dir": item.is_dir(),
                     })
-                    
+
                     # Recurse into directories
                     if item.is_dir() and current_depth < params.depth:
                         collect_entries(item, current_depth + 1, prefix)
-                        
+
                 except (PermissionError, OSError):
                     continue
-        
+
         collect_entries(list_path, 1)
-        
+
         # Format output
         if not entries:
             return ToolOutput(
@@ -150,20 +149,20 @@ async def list_execute(params: ListParams, ctx: ToolContext) -> ToolOutput:
                 output="(empty directory)",
                 metadata={"path": str(list_path), "entries_count": 0},
             )
-        
+
         # Build output lines
         output_lines = []
         for entry in entries:
             output_lines.append(
                 f"{entry['mode']} {entry['size']} {entry['mtime']} {entry['name']}"
             )
-        
+
         output = "\n".join(output_lines)
-        
+
         # Count dirs and files
         dirs_count = sum(1 for e in entries if e["is_dir"])
         files_count = len(entries) - dirs_count
-        
+
         # Build metadata
         metadata = {
             "path": str(list_path),
@@ -172,13 +171,13 @@ async def list_execute(params: ListParams, ctx: ToolContext) -> ToolOutput:
             "files": files_count,
             "depth": params.depth,
         }
-        
+
         return ToolOutput(
             title=f"List {params.path or '.'} ({len(entries)} entries)",
             output=output,
             metadata=metadata,
         )
-        
+
     except Exception as e:
         logger.error(f"Error listing directory: {e}")
         return ToolOutput.error(

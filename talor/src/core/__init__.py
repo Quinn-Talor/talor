@@ -1,6 +1,6 @@
 """Core infrastructure components for Talor."""
 
-from talor.core.config import (
+from src.core.config import (
     ConfigManager,
     Config,
     ProviderConfig,
@@ -11,20 +11,21 @@ from talor.core.config import (
     StorageConfig,
     UIConfig,
 )
-from talor.core.storage import StorageSystem
-from talor.core.logging import Logger
-from talor.core.platform import (
+from src.core.storage import StorageSystem
+from src.core.logging import Logger
+from src.core.platform import (
     PlatformAdapter,
     Platform,
     PTYConfig,
     DirectoryPaths,
     get_platform_adapter,
 )
-from talor.core.errors import (
+from src.core.errors import (
     TalorError,
     ConfigError,
     StorageError,
 )
+from src.core.state import AppState, SSEClient, state
 
 __all__ = [
     # Config
@@ -51,4 +52,8 @@ __all__ = [
     "TalorError",
     "ConfigError",
     "StorageError",
+    # State
+    "AppState",
+    "SSEClient",
+    "state",
 ]

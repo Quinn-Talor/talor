@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from talor.core.storage import StorageSystem
-from talor.core.errors import StorageError
+from src.core.storage import StorageSystem
+from src.core.errors import StorageError
 
 
 class TestStorageSystemInitialization:

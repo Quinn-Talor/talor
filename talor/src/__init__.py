@@ -1,6 +1,6 @@
-"""Talor - Python reimplementation of opencode, an AI-powered IDE and coding assistant.
+"""Talor - A ReAct-based AI Agent Framework.
 
-This package provides an event-driven architecture following opencode's patterns:
+This package provides an event-driven architecture for building AI agents:
 - Event Bus: Typed event publishing and subscription
 - Tool System: Unified tool definitions with Pydantic validation
 - Session Management: Message-based conversation handling
@@ -12,15 +12,15 @@ This package provides an event-driven architecture following opencode's patterns
 
 Example:
     ```python
-    from talor import Bus, Session, SessionPrompt, Agent, Provider, Config
-    from talor.session.prompt import PromptInput
-    
+    from src import Bus, Session, SessionPrompt, Agent, Provider, Config
+    from src.session.prompt import PromptInput
+
     # Configure systems
     Config.configure(directory=".")
     Session.configure(storage=None, bus=Bus)
     Agent.configure(config=Config)
     Provider.configure(config=Config)
-    
+
     # Create session and process prompt
     session = await Session.create()
     result = await SessionPrompt.prompt(PromptInput(
@@ -34,13 +34,19 @@ Example:
 __version__ = "0.1.0"
 
 # Re-export main components
-from talor.bus import Bus, BusEvent, GlobalBus
-from talor.tool import Tool, ToolRegistry, ToolContext, ToolOutput
-from talor.session import Session, SessionPrompt, Message, MessagePart
-from talor.agent import Agent, Permission
-from talor.config import Config
-from talor.provider import Provider
-from talor.mcp import MCP
+from src.bus import Bus, BusEvent, GlobalBus
+from src.tool import Tool, ToolRegistry, ToolContext, ToolOutput
+from src.session import Session, SessionPrompt, Message, MessagePart
+from src.agent import Agent, Permission
+from src.config import Config
+from src.provider import Provider
+
+# Lazy import for MCP to avoid circular import with fastmcp
+def __getattr__(name: str):
+    if name == "MCP":
+        from src.mcp_client import MCP
+        return MCP
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     # Version

@@ -1,6 +1,6 @@
 """Configuration System for Talor.
 
-This module provides configuration management following opencode's pattern:
+This module provides configuration management:
 - Layered configuration (remote → global → project → inline)
 - JSONC format support
 - Configuration merging
@@ -8,19 +8,19 @@ This module provides configuration management following opencode's pattern:
 
 Example:
     ```python
-    from talor.config import Config
-    
+    from src.config import Config
+
     # Get merged configuration
     config = await Config.get()
-    
+
     # Get specific value
     default_agent = config.get("default_agent", "build")
-    
+
     # Get config directories
     dirs = await Config.directories()
     ```
 """
 
-from talor.config.config import Config
+from src.config.config import Config
 
 __all__ = ["Config"]

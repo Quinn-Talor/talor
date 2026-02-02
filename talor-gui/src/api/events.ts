@@ -4,16 +4,14 @@
  *
  * Provides Server-Sent Events (SSE) connection management for real-time
  * event streaming from the Talor backend.
- * Updated to match the new OpenCode-compatible Bus event format.
  * 为 Talor 后端提供服务器发送事件 (SSE) 连接管理以进行实时事件流。
- * 已更新以匹配新的 OpenCode 兼容 Bus 事件格式。
  *
  * @requirements 1.2 - 建立 WebSocket 或 SSE 连接以订阅事件流
  * @requirements 1.3 - 自动尝试重新连接并显示连接状态
  */
 
-import type { TalorClient } from './client';
 import type { Event, EventHandler, Unsubscribe } from '../types/event';
+import type { TalorClient } from './client';
 
 /**
  * Connection error class for SSE connection failures
@@ -21,7 +19,7 @@ import type { Event, EventHandler, Unsubscribe } from '../types/event';
  */
 export class ConnectionError extends Error {
   readonly retryCount: number;
-  
+
   constructor(message: string, retryCount: number) {
     super(message);
     this.name = 'ConnectionError';
@@ -159,8 +157,8 @@ export interface EventsApi {
 }
 
 /**
- * Backend Bus event format (new OpenCode-compatible format)
- * 后端 Bus 事件格式（新的 OpenCode 兼容格式）
+ * Backend Bus event format
+ * 后端 Bus 事件格式
  */
 interface BackendBusEvent {
   type: string;
@@ -221,7 +219,7 @@ function toFrontendEvent(backendEvent: BackendBusEvent): Event {
 export function parseSSEEvent(data: string): Event | null {
   try {
     const parsed = JSON.parse(data) as BackendBusEvent;
-    
+
     // Validate required fields for new Bus event format
     if (
       typeof parsed.type !== 'string' ||
@@ -291,7 +289,7 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
   let lastEventId: string | null = null;  // Track last event ID for reconnection
   const handlers: Set<EventHandler> = new Set();
   let connectionStateHandler: ConnectionStateHandler | null = null;
-  
+
   // Session subscription state (client-side filtering)
   // Events are only dispatched if the session is subscribed
   const subscribedSessions: Set<string> = new Set();
@@ -317,14 +315,14 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
   function shouldDispatchEvent(event: Event): boolean {
     // Extract session_id from event data (supports both snake_case and camelCase)
     const sessionId = event.data?.session_id ?? event.data?.sessionId;
-    
+
     console.debug('[SSE] shouldDispatchEvent:', {
       eventType: event.type,
       sessionId,
       subscribedSessions: Array.from(subscribedSessions),
       subscribedCount: subscribedSessions.size,
     });
-    
+
     // If no sessions are subscribed, don't dispatch any session-specific events
     if (subscribedSessions.size === 0) {
       // Allow global events (no session_id) to pass through
@@ -332,13 +330,13 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       console.debug('[SSE] No subscriptions, dispatch:', shouldDispatch);
       return shouldDispatch;
     }
-    
+
     // If event has no session_id, it's a global event - always dispatch
     if (sessionId === undefined || sessionId === null) {
       console.debug('[SSE] Global event, dispatching');
       return true;
     }
-    
+
     // Only dispatch if the session is subscribed
     const isSubscribed = subscribedSessions.has(sessionId as string);
     console.debug('[SSE] Session subscribed:', isSubscribed);
@@ -427,10 +425,10 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
     setConnectionState('connecting');
 
     const baseUrl = client.getBaseUrl();
-    
+
     // Simple URL - no query params, client-side filtering
     const eventUrl = `${baseUrl}/event`;
-    
+
     console.debug('[SSE] Connecting to:', eventUrl);
 
     // Build headers
@@ -623,7 +621,7 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       clearRetryTimeout();
       retryCount = 0;
       // Keep lastEventId for resuming
-      
+
       if (handlers.size > 0) {
         connect();
       }
