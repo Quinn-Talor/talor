@@ -1,6 +1,6 @@
 """Session Management for Talor.
 
-This module provides session management following opencode's pattern:
+This module provides session management for conversation tracking:
 - Session.create() for creating sessions
 - Session.update() for updating sessions
 - Session.messages() for message streaming
@@ -8,11 +8,11 @@ This module provides session management following opencode's pattern:
 
 Example:
     ```python
-    from talor.session import Session, SessionPrompt
-    
+    from src.session import Session, SessionPrompt
+
     # Create a session
     session = await Session.create()
-    
+
     # Process a prompt
     message = await SessionPrompt.prompt(
         session_id=session.id,
@@ -22,8 +22,8 @@ Example:
     ```
 """
 
-from talor.session.session import Session
-from talor.session.prompt import SessionPrompt, SSEEvent, PromptInput
-from talor.session.message import Message, MessagePart
+from src.session.session import Session
+from src.session.prompt import SessionPrompt, SSEEvent, PromptInput
+from src.session.message import Message, MessagePart
 
 __all__ = ["Session", "SessionPrompt", "SSEEvent", "PromptInput", "Message", "MessagePart"]

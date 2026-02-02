@@ -1,8 +1,8 @@
-"""API Module for Talor.
+"""Talor API Module.
 
-This module provides the FastAPI application and routes following opencode's pattern.
+Provides REST API and WebSocket endpoints for the AI agent framework.
 """
 
-from talor.api.app import create_app, app
+from src.api.app import create_app, app
 
 __all__ = ["create_app", "app"]

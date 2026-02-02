@@ -1,7 +1,6 @@
 """Bash Tool for Talor.
 
-This module provides the bash tool for executing shell commands,
-following opencode's BashTool pattern.
+This module provides the bash tool for executing shell commands.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from talor.tool import Tool, ToolContext, ToolOutput
+from src.tool import Tool, ToolContext, ToolOutput
 
 
 logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class BashParams(BaseModel):
     """Parameters for bash tool."""
-    
+
     command: str = Field(
         description="The shell command to execute"
     )
@@ -41,11 +40,11 @@ class BashParams(BaseModel):
 
 async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
     """Execute the bash tool.
-    
+
     Args:
         params: Bash parameters
         ctx: Tool execution context
-    
+
     Returns:
         ToolOutput with command result
     """
@@ -56,14 +55,14 @@ async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
             workdir = ctx.worktree / workdir
     else:
         workdir = ctx.worktree
-    
+
     # Validate working directory
     if not workdir.exists():
         return ToolOutput.error(
             f"Working directory not found: {workdir}",
             title="Bash Error"
         )
-    
+
     try:
         # Create subprocess
         process = await asyncio.create_subprocess_shell(
@@ -73,7 +72,7 @@ async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
             cwd=str(workdir),
             env={**os.environ, "TERM": "dumb"},
         )
-        
+
         # Wait for completion with timeout
         timeout = params.timeout or 120
         try:
@@ -89,20 +88,20 @@ async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
                 title="Bash Timeout",
                 metadata={"command": params.command, "timeout": timeout}
             )
-        
+
         # Decode output
         stdout_str = stdout.decode("utf-8", errors="replace")
         stderr_str = stderr.decode("utf-8", errors="replace")
-        
+
         # Build output
         output_parts = []
         if stdout_str:
             output_parts.append(f"STDOUT:\n{stdout_str}")
         if stderr_str:
             output_parts.append(f"STDERR:\n{stderr_str}")
-        
+
         output = "\n\n".join(output_parts) if output_parts else "(no output)"
-        
+
         # Build metadata
         metadata = {
             "command": params.command,
@@ -112,7 +111,7 @@ async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
             "stdout_lines": len(stdout_str.splitlines()),
             "stderr_lines": len(stderr_str.splitlines()),
         }
-        
+
         # Determine success
         if process.returncode == 0:
             return ToolOutput(
@@ -126,7 +125,7 @@ async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
                 output=output,
                 metadata={**metadata, "error": True},
             )
-        
+
     except Exception as e:
         logger.error(f"Error executing command: {e}")
         return ToolOutput.error(

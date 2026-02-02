@@ -2,7 +2,7 @@
 
 import pytest
 
-from talor.core.errors import (
+from src.core.errors import (
     ConfigError,
     FileSystemError,
     LSPError,

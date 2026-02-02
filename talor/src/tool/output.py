@@ -1,7 +1,6 @@
 """Tool Output for Talor.
 
-This module provides the ToolOutput class that corresponds to
-opencode's execute() return type.
+This module provides the ToolOutput class for tool execution results.
 
 Features:
 - Standardized output format
@@ -20,22 +19,21 @@ from typing import Any
 @dataclass
 class ToolOutput:
     """Tool execution output.
-    
-    Corresponds to opencode's execute() return type:
-    { title: string, metadata: M, output: string, attachments?: FilePart[] }
-    
+
+    Contains the result of a tool execution including title, output, and metadata.
+
     Attributes:
         title: Display title for the tool result
         output: Tool output string (for LLM)
         metadata: Result metadata dictionary
         attachments: Optional file attachments
     """
-    
+
     title: str
     output: str
     metadata: dict[str, Any] = field(default_factory=dict)
     attachments: list[dict] | None = None
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         result = {
@@ -46,7 +44,7 @@ class ToolOutput:
         if self.attachments:
             result["attachments"] = self.attachments
         return result
-    
+
     @classmethod
     def success(
         cls,
@@ -55,12 +53,12 @@ class ToolOutput:
         metadata: dict[str, Any] | None = None,
     ) -> "ToolOutput":
         """Create a successful output.
-        
+
         Args:
             output: Output string
             title: Optional title
             metadata: Optional metadata
-        
+
         Returns:
             ToolOutput instance
         """
@@ -69,7 +67,7 @@ class ToolOutput:
             output=output,
             metadata=metadata or {},
         )
-    
+
     @classmethod
     def error(
         cls,
@@ -78,12 +76,12 @@ class ToolOutput:
         metadata: dict[str, Any] | None = None,
     ) -> "ToolOutput":
         """Create an error output.
-        
+
         Args:
             error: Error message
             title: Optional title
             metadata: Optional metadata
-        
+
         Returns:
             ToolOutput instance
         """
@@ -99,19 +97,19 @@ class ToolOutput:
 @dataclass
 class FilePart:
     """File attachment for tool output.
-    
-    Corresponds to opencode's MessageV2.FilePart.
-    
+
+    Represents a file that can be attached to tool output.
+
     Attributes:
         url: File URL (file:// or data:)
         filename: Display filename
         mime: MIME type
     """
-    
+
     url: str
     filename: str
     mime: str = "text/plain"
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {

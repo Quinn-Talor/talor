@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from talor.core.platform import (
+from src.core.platform import (
     Platform,
     PlatformAdapter,
     PTYConfig,

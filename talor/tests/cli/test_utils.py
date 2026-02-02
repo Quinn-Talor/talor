@@ -3,7 +3,7 @@
 import pytest
 from click.testing import CliRunner
 
-from talor.cli.utils import (
+from src.cli.utils import (
     format_code_block,
     format_error,
     format_info,

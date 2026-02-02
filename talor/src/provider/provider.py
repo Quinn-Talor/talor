@@ -1,6 +1,6 @@
 """Provider Management for Talor.
 
-This module provides LLM provider management following opencode's Provider pattern.
+This module provides LLM provider management for multiple AI services.
 
 Features:
 - Multiple provider support (OpenAI, Anthropic, etc.)
@@ -22,7 +22,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from talor.config import Config
+    from src.config import Config
 
 
 logger = logging.getLogger(__name__)
@@ -50,8 +50,8 @@ class ModelCost(BaseModel):
 
 class ModelInfo(BaseModel):
     """Model information.
-    
-    Corresponds to opencode's Provider.Model.
+
+    Defines an LLM model's capabilities and costs.
     """
     id: str
     name: str
@@ -64,8 +64,8 @@ class ModelInfo(BaseModel):
 
 class ProviderInfo(BaseModel):
     """Provider information.
-    
-    Corresponds to opencode's Provider.Info.
+
+    Defines an LLM provider's configuration and available models.
     """
     id: str
     name: str
@@ -227,10 +227,10 @@ BUILTIN_PROVIDERS: dict[str, ProviderInfo] = {
 
 class Provider:
     """Provider management namespace.
-    
-    Corresponds to opencode's Provider namespace.
+
+    Provides methods for managing LLM providers and making completions.
     """
-    
+
     # Class-level state
     _config: Any | None = None
     _providers_cache: dict[str, ProviderInfo] | None = None
@@ -238,11 +238,11 @@ class Provider:
     _ollama_models_cache: list[ModelInfo] | None = None
     _ollama_cache_time: float = 0
     _ollama_cache_ttl: float = 300  # 5 minutes
-    
+
     @classmethod
     def configure(cls, config: Any = None) -> None:
         """Configure the provider system.
-        
+
         Args:
             config: Config instance
         """
@@ -250,14 +250,14 @@ class Provider:
         cls._providers_cache = None
         cls._ollama_models_cache = None
         cls._ollama_cache_time = 0
-    
+
     @classmethod
     async def _discover_ollama_models(cls, base_url: str = "http://localhost:11434") -> list[ModelInfo]:
         """Discover available Ollama models.
-        
+
         Args:
             base_url: Ollama API base URL
-        
+
         Returns:
             List of discovered ModelInfo
         """
@@ -266,24 +266,24 @@ class Provider:
         if cls._ollama_models_cache is not None and (current_time - cls._ollama_cache_time) < cls._ollama_cache_ttl:
             logger.debug("Using cached Ollama models")
             return cls._ollama_models_cache
-        
+
         models = []
-        
+
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{base_url}/api/tags")
                 response.raise_for_status()
                 data = response.json()
-                
+
                 for model_data in data.get("models", []):
                     model_name = model_data.get("name", "")
                     if not model_name:
                         continue
-                    
+
                     # Extract model details
                     details = model_data.get("details", {})
                     parameter_size = details.get("parameter_size", "")
-                    
+
                     # Estimate context length based on model family
                     context_length = 32768  # Default
                     if "llama3" in model_name.lower():
@@ -292,12 +292,12 @@ class Provider:
                         context_length = 32768
                     elif "deepseek" in model_name.lower():
                         context_length = 64000
-                    
+
                     # Create display name
                     display_name = model_name.replace(":", " ").title()
                     if parameter_size:
                         display_name = f"{display_name} ({parameter_size})"
-                    
+
                     models.append(ModelInfo(
                         id=model_name,
                         name=display_name,
@@ -307,20 +307,20 @@ class Provider:
                         capabilities=ModelCapabilities(function_calling=True),
                         cost=ModelCost(input=0.0, output=0.0),
                     ))
-                
+
                 logger.info(f"Discovered {len(models)} Ollama models")
-                
+
                 # Update cache
                 cls._ollama_models_cache = models
                 cls._ollama_cache_time = current_time
-                
+
         except Exception as e:
             logger.warning(f"Failed to discover Ollama models: {e}")
             # Return fallback models if discovery fails
             if cls._ollama_models_cache:
                 logger.debug("Using stale cached Ollama models")
                 return cls._ollama_models_cache
-            
+
             # Return default fallback models
             models = [
                 ModelInfo(
@@ -334,18 +334,18 @@ class Provider:
                 ),
             ]
             logger.debug("Using fallback Ollama models")
-        
+
         return models
-    
+
     @classmethod
     async def _load_providers(cls) -> dict[str, ProviderInfo]:
         """Load all providers."""
         if cls._providers_cache is not None:
             return cls._providers_cache
-        
+
         # Start with built-in providers
         providers = {k: v.model_copy() for k, v in BUILTIN_PROVIDERS.items()}
-        
+
         # Discover Ollama models if Ollama provider exists
         if "ollama" in providers:
             ollama_base_url = providers["ollama"].base_url or "http://localhost:11434"
@@ -354,7 +354,7 @@ class Provider:
             discovered_models = await cls._discover_ollama_models(api_base_url)
             if discovered_models:
                 providers["ollama"].models = discovered_models
-        
+
         # Load custom providers from config
         if cls._config:
             config = await cls._config.get()
@@ -371,64 +371,64 @@ class Provider:
                         api_key_env=provider_config.get("api_key_env"),
                         base_url=provider_config.get("base_url"),
                     )
-        
+
         cls._providers_cache = providers
         return providers
-    
+
     @classmethod
     async def list(cls) -> list[ProviderInfo]:
         """List all providers.
-        
+
         Returns:
             List of ProviderInfo
         """
         providers = await cls._load_providers()
         return list(providers.values())
-    
+
     @classmethod
     async def get(cls, provider_id: str) -> ProviderInfo | None:
         """Get a provider by ID.
-        
+
         Args:
             provider_id: Provider ID
-        
+
         Returns:
             ProviderInfo or None
         """
         providers = await cls._load_providers()
         return providers.get(provider_id)
-    
+
     @classmethod
     async def get_model(cls, provider_id: str, model_id: str) -> ModelInfo | None:
         """Get a model by provider and model ID.
-        
+
         Args:
             provider_id: Provider ID
             model_id: Model ID
-        
+
         Returns:
             ModelInfo or None
         """
         provider = await cls.get(provider_id)
         if not provider:
             return None
-        
+
         for model in provider.models:
             if model.id == model_id:
                 return model
-        
+
         return None
-    
+
     @classmethod
     async def default_model(cls) -> dict[str, str]:
         """Get the default model.
-        
+
         Returns:
             Dict with provider_id and model_id
         """
         # Default to Ollama for local development
         default = {"provider_id": "ollama", "model_id": "deepseek-v3.1:671b-cloud"}
-        
+
         if cls._config:
             config = await cls._config.get()
             default_model = config.get("default_model")
@@ -439,32 +439,32 @@ class Provider:
                     default = {"provider_id": provider_id, "model_id": model_id}
                 else:
                     default["model_id"] = default_model
-        
+
         return default
-    
+
     @classmethod
     def parse_model(cls, model_str: str) -> dict[str, str]:
         """Parse a model string.
-        
+
         Args:
             model_str: Model string like "openai/gpt-4" or "gpt-4"
-        
+
         Returns:
             Dict with provider_id and model_id
         """
         if "/" in model_str:
             provider_id, model_id = model_str.split("/", 1)
             return {"provider_id": provider_id, "model_id": model_id}
-        
+
         # Try to find the model in known providers
         for provider_id, provider in BUILTIN_PROVIDERS.items():
             for model in provider.models:
                 if model.id == model_str:
                     return {"provider_id": provider_id, "model_id": model_str}
-        
+
         # Default to Ollama for local models
         return {"provider_id": "ollama", "model_id": model_str}
-    
+
     @classmethod
     async def complete(
         cls,
@@ -475,14 +475,14 @@ class Provider:
         **kwargs,
     ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
         """Complete a chat request.
-        
+
         Args:
             model: Model ID or "provider/model"
             messages: Chat messages
             tools: Optional tool definitions
             stream: Whether to stream response
             **kwargs: Additional parameters
-        
+
         Returns:
             Response dict or async iterator of chunks
         """
@@ -490,25 +490,25 @@ class Provider:
         model_info = cls.parse_model(model)
         provider_id = model_info["provider_id"]
         model_id = model_info["model_id"]
-        
+
         # Get provider
         provider = await cls.get(provider_id)
         if not provider:
             raise ValueError(f"Provider not found: {provider_id}")
-        
+
         # Get API key (optional for some providers like Ollama)
         api_key = None
         if provider.api_key_env:
             api_key = os.environ.get(provider.api_key_env)
-        
+
         # Only require API key for providers that need it
         if provider.api_key_env and not api_key:
             raise ValueError(f"API key not found for provider: {provider_id}")
-        
+
         # For Ollama and other local providers, use a dummy key
         if not api_key:
             api_key = "ollama"  # Ollama doesn't validate API key
-        
+
         # Call appropriate provider
         if provider_id == "openai":
             return await cls._complete_openai(
@@ -540,7 +540,7 @@ class Provider:
                 stream=stream,
                 **kwargs,
             )
-    
+
     @classmethod
     async def _complete_openai(
         cls,
@@ -557,19 +557,19 @@ class Provider:
             from openai import AsyncOpenAI
         except ImportError:
             raise ImportError("openai package required: pip install openai")
-        
+
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        
+
         params: dict[str, Any] = {
             "model": model,
             "messages": messages,
         }
-        
+
         if tools:
             params["tools"] = tools
-        
+
         params.update(kwargs)
-        
+
         if stream:
             async def stream_response():
                 response = await client.chat.completions.create(**params, stream=True)
@@ -596,7 +596,7 @@ class Provider:
                     "output": response.usage.completion_tokens if response.usage else 0,
                 },
             }
-    
+
     @classmethod
     async def _complete_anthropic(
         cls,
@@ -612,13 +612,13 @@ class Provider:
             from anthropic import AsyncAnthropic
         except ImportError:
             raise ImportError("anthropic package required: pip install anthropic")
-        
+
         client = AsyncAnthropic(api_key=api_key)
-        
+
         # Convert messages to Anthropic format
         system_message = None
         anthropic_messages = []
-        
+
         for msg in messages:
             if msg["role"] == "system":
                 system_message = msg["content"]
@@ -627,16 +627,16 @@ class Provider:
                     "role": msg["role"],
                     "content": msg["content"],
                 })
-        
+
         params: dict[str, Any] = {
             "model": model,
             "messages": anthropic_messages,
             "max_tokens": kwargs.get("max_tokens", 4096),
         }
-        
+
         if system_message:
             params["system"] = system_message
-        
+
         if tools:
             # Convert OpenAI tool format to Anthropic
             anthropic_tools = []
@@ -648,7 +648,7 @@ class Provider:
                         "input_schema": tool["function"]["parameters"],
                     })
             params["tools"] = anthropic_tools
-        
+
         if stream:
             async def stream_response():
                 async with client.messages.stream(**params) as response:
@@ -666,10 +666,10 @@ class Provider:
             return stream_response()
         else:
             response = await client.messages.create(**params)
-            
+
             content = ""
             tool_calls = []
-            
+
             for block in response.content:
                 if block.type == "text":
                     content += block.text
@@ -682,7 +682,7 @@ class Provider:
                             "arguments": json.dumps(block.input),
                         },
                     })
-            
+
             return {
                 "content": content,
                 "tool_calls": tool_calls if tool_calls else None,
@@ -693,7 +693,7 @@ class Provider:
                     "output": response.usage.output_tokens,
                 },
             }
-    
+
     @classmethod
     def clear_cache(cls) -> None:
         """Clear provider cache (for testing)."""

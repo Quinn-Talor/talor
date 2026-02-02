@@ -23,6 +23,10 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.htmlcov/
+.coverage
+*.log
+
 
 # Virtual environments
 venv/

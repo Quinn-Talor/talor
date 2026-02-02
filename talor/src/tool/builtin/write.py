@@ -1,7 +1,6 @@
 """Write Tool for Talor.
 
-This module provides the write tool for writing file content,
-following opencode's WriteTool pattern.
+This module provides the write tool for writing file content.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from talor.tool import Tool, ToolContext, ToolOutput
+from src.tool import Tool, ToolContext, ToolOutput
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class WriteParams(BaseModel):
     """Parameters for write tool."""
-    
+
     file_path: str = Field(
         description="Path to the file to write (relative to workspace or absolute)"
     )
@@ -30,11 +29,11 @@ class WriteParams(BaseModel):
 
 async def write_execute(params: WriteParams, ctx: ToolContext) -> ToolOutput:
     """Execute the write tool.
-    
+
     Args:
         params: Write parameters
         ctx: Tool execution context
-    
+
     Returns:
         ToolOutput with result
     """
@@ -42,7 +41,7 @@ async def write_execute(params: WriteParams, ctx: ToolContext) -> ToolOutput:
     file_path = Path(params.file_path)
     if not file_path.is_absolute():
         file_path = ctx.worktree / file_path
-    
+
     # Check if path is within worktree
     try:
         file_path.resolve().relative_to(ctx.worktree.resolve())
@@ -51,21 +50,21 @@ async def write_execute(params: WriteParams, ctx: ToolContext) -> ToolOutput:
             f"Cannot write outside workspace: {params.file_path}",
             title="Write Error"
         )
-    
+
     try:
         # Create parent directories if needed
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Check if file exists (for metadata)
         existed = file_path.exists()
         old_size = file_path.stat().st_size if existed else 0
-        
+
         # Write content
         file_path.write_text(params.content, encoding="utf-8")
-        
+
         new_size = file_path.stat().st_size
         lines = len(params.content.splitlines())
-        
+
         # Build metadata
         metadata = {
             "file_path": str(file_path),
@@ -74,15 +73,15 @@ async def write_execute(params: WriteParams, ctx: ToolContext) -> ToolOutput:
             "new_size": new_size,
             "lines": lines,
         }
-        
+
         action = "Created" if not existed else "Updated"
-        
+
         return ToolOutput(
             title=f"{action} {params.file_path} ({lines} lines)",
             output=f"Successfully wrote {new_size} bytes to {params.file_path}",
             metadata=metadata,
         )
-        
+
     except PermissionError:
         return ToolOutput.error(
             f"Permission denied: {params.file_path}",

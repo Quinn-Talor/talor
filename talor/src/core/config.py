@@ -17,7 +17,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from talor.core.errors import ConfigError
+from src.core.errors import ConfigError
 
 
 logger = logging.getLogger(__name__)
@@ -391,7 +391,7 @@ class ConfigManager:
         - macOS: ~/Library/Application Support/talor/config.yaml
         - Windows: %APPDATA%/talor/config.yaml
         """
-        from talor.core.platform import get_platform_adapter
+        from src.core.platform import get_platform_adapter
         
         adapter = get_platform_adapter()
         dirs = adapter.get_directories()

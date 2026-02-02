@@ -6,8 +6,8 @@ from pathlib import Path
 import click
 import uvicorn
 
-from talor.cli.utils import async_command, format_error
-from talor.core.logging import Logger
+from src.cli.utils import async_command, format_error
+from src.core.logging import Logger
 
 logger = Logger(__name__)
 

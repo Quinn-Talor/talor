@@ -3,74 +3,50 @@
  * API 模块导出
  *
  * Re-exports all API client classes and types for convenient importing.
- * Updated to include all new OpenCode-compatible API modules.
  */
 
 // Client exports
 export {
-  TalorClient,
-  type TalorClientConfig,
-  NetworkError,
-  AuthenticationError,
-  NotFoundError,
-  ServerError,
+    AuthenticationError, NetworkError, NotFoundError,
+    ServerError, TalorClient,
+    type TalorClientConfig
 } from './client';
 
 // Session API exports
 export {
-  createSessionApi,
-  type SessionApi,
-  type CreateSessionRequest,
-  type ListSessionsParams,
-  type GetMessagesParams,
+    createSessionApi, type CreateSessionRequest, type GetMessagesParams, type ListSessionsParams, type SessionApi
 } from './session';
 
 // Agent API exports
 export {
-  createAgentApi,
-  type AgentApi,
-  type AgentInfo,
-  parseSSEChunk,
-  parseSSEDataLine,
+    createAgentApi, parseSSEChunk,
+    parseSSEDataLine, type AgentApi,
+    type AgentInfo
 } from './agent';
 
 // Provider API exports
 export {
-  createProviderApi,
-  type ProviderApi,
-  type ProviderInfo,
-  type ModelInfo,
-  type FullModelInfo,
+    createProviderApi, type FullModelInfo, type ModelInfo, type ProviderApi,
+    type ProviderInfo
 } from './provider';
 
 // MCP API exports
 export {
-  createMCPApi,
-  type MCPApi,
-  type MCPServerInfo,
-  type MCPServerConfig,
-  type MCPServerStatus,
-  type MCPToolInfo,
+    createMCPApi,
+    type MCPApi, type MCPServerConfig, type MCPServerInfo, type MCPServerStatus,
+    type MCPToolInfo
 } from './mcp';
 
 // Config API exports
 export {
-  createConfigApi,
-  type ConfigApi,
-  type AppConfig,
-  type ConfigScope,
+    createConfigApi, type AppConfig, type ConfigApi, type ConfigScope
 } from './config';
 
 // Events API exports
 export {
-  createEventsApi,
-  type EventsApi,
-  type EventsApiConfig,
-  ConnectionError,
-  type ConnectionState,
-  type ConnectionStateHandler,
-  parseSSEEvent,
-  calculateRetryDelay,
+    ConnectionError, calculateRetryDelay, createEventsApi, parseSSEEvent, type ConnectionState,
+    type ConnectionStateHandler, type EventsApi,
+    type EventsApiConfig
 } from './events';
 
 // Default export

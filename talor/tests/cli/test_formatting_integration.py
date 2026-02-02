@@ -2,7 +2,7 @@
 
 import pytest
 
-from talor.cli.utils import (
+from src.cli.utils import (
     format_error,
     format_stream,
     format_success,
