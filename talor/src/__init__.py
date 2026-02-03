@@ -4,30 +4,30 @@ This package provides an event-driven architecture for building AI agents:
 - Event Bus: Typed event publishing and subscription
 - Tool System: Unified tool definitions with Pydantic validation
 - Session Management: Message-based conversation handling
-- Main Event Loop: Prompt processing with tool execution
+- Agent Executor: ReAct cycle execution engine
 - Agent System: Permission-based agent management
 - Config System: Layered configuration loading
 - Provider System: Multi-provider LLM support
 - MCP Integration: Model Context Protocol support
 
-Example:
+Example (DDD Architecture):
     ```python
-    from src import Bus, Session, SessionPrompt, Agent, Provider, Config
-    from src.session.prompt import PromptInput
+    from src.core.container import get_container
 
-    # Configure systems
-    Config.configure(directory=".")
-    Session.configure(storage=None, bus=Bus)
-    Agent.configure(config=Config)
-    Provider.configure(config=Config)
+    # Configure container
+    container = get_container()
+    container.configure(workspace=Path("."), bus=Bus)
 
-    # Create session and process prompt
-    session = await Session.create()
-    result = await SessionPrompt.prompt(PromptInput(
+    # Create session via service
+    session = await container.session_service.create_session(title="New Session")
+
+    # Execute prompt via AgentExecutor
+    async for event in container.agent_executor.execute_stream(
         session_id=session.id,
         parts=[{"type": "text", "text": "Hello!"}],
         model={"provider_id": "openai", "model_id": "gpt-4"},
-    ))
+    ):
+        print(event)
     ```
 """
 
@@ -36,10 +36,11 @@ __version__ = "0.1.0"
 # Re-export main components
 from src.bus import Bus, BusEvent, GlobalBus
 from src.tool import Tool, ToolRegistry, ToolContext, ToolOutput
-from src.session import Session, SessionPrompt, Message, MessagePart
-from src.agent import Agent, Permission
+from src.session import Session, MessagePart
+from src.session.message import UserMessage, AssistantMessage, SystemMessage
+from src.agent import Agent, Permission, AgentExecutor, SSEEvent
 from src.config import Config
-from src.provider import Provider
+from src.provider import Provider, ProviderService
 
 # Lazy import for MCP to avoid circular import with fastmcp
 def __getattr__(name: str):
@@ -62,16 +63,20 @@ __all__ = [
     "ToolOutput",
     # Session
     "Session",
-    "SessionPrompt",
-    "Message",
     "MessagePart",
+    "UserMessage",
+    "AssistantMessage",
+    "SystemMessage",
     # Agent
     "Agent",
     "Permission",
+    "AgentExecutor",
+    "SSEEvent",
     # Config
     "Config",
     # Provider
     "Provider",
+    "ProviderService",
     # MCP
     "MCP",
 ]

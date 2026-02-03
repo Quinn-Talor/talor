@@ -1,4 +1,4 @@
-"""Integration tests for plugin system with SessionPrompt."""
+"""Integration tests for plugin system with AgentExecutor."""
 
 import pytest
 from pathlib import Path
@@ -10,7 +10,7 @@ from src.plugin.builtin.system import SystemPromptPlugin
 from src.plugin.builtin.agent import AgentPromptPlugin
 from src.plugin.builtin.environment import EnvironmentPlugin
 from src.plugin.builtin.llm import LLMPlugin
-from src.session.prompt import SessionPrompt
+from src.agent.executor import AgentExecutor
 
 
 class TestPluginIntegration:
@@ -85,16 +85,45 @@ class TestPluginIntegration:
         assert "os" in metadata  # From EnvironmentPlugin
 
 
-class TestSessionPromptIntegration:
-    """Tests for SessionPrompt plugin integration."""
+class TestAgentExecutorIntegration:
+    """Tests for AgentExecutor plugin integration."""
+
+    @pytest.fixture
+    def mock_session_service(self):
+        """Create mock session service."""
+        service = MagicMock()
+        service.get_session = AsyncMock(return_value=MagicMock())
+        service.get_messages = AsyncMock(return_value=[])
+        return service
+
+    @pytest.fixture
+    def mock_provider_service(self):
+        """Create mock provider service."""
+        service = MagicMock()
+        service.complete = AsyncMock(return_value={"content": "test", "finish_reason": "stop"})
+        return service
+
+    @pytest.fixture
+    def mock_tool_registry(self):
+        """Create mock tool registry."""
+        registry = MagicMock()
+        registry.get_llm_definitions = AsyncMock(return_value=[])
+        return registry
 
     @pytest.mark.asyncio
-    async def test_build_plugin_context(self):
+    async def test_build_plugin_context(
+        self, mock_session_service, mock_provider_service, mock_tool_registry
+    ):
         """Test building plugin context from session data."""
-        SessionPrompt._directory = Path("/test/cwd")
-        SessionPrompt._worktree = Path("/test/worktree")
+        executor = AgentExecutor(
+            session_service=mock_session_service,
+            provider_service=mock_provider_service,
+            tool_registry=mock_tool_registry,
+            workspace=Path("/test/cwd"),
+            worktree=Path("/test/worktree"),
+        )
 
-        context = await SessionPrompt.build_plugin_context(
+        context = await executor._build_plugin_context(
             session_id="test-session",
             agent_name="build",
             model_info={"provider_id": "anthropic", "model_id": "claude-3-opus"},
@@ -109,14 +138,19 @@ class TestSessionPromptIntegration:
         assert context.user_request == "Help me write code"
 
     @pytest.mark.asyncio
-    async def test_get_plugin_manager_creates_default(self):
+    async def test_get_plugin_manager_creates_default(
+        self, mock_session_service, mock_provider_service, mock_tool_registry
+    ):
         """Test that get_plugin_manager creates default plugins."""
-        # Reset plugin manager
-        SessionPrompt._plugin_manager = None
-        SessionPrompt._directory = Path("/test")
-        SessionPrompt._worktree = Path("/test")
+        executor = AgentExecutor(
+            session_service=mock_session_service,
+            provider_service=mock_provider_service,
+            tool_registry=mock_tool_registry,
+            workspace=Path("/test"),
+            worktree=Path("/test"),
+        )
 
-        manager = await SessionPrompt.get_plugin_manager()
+        manager = await executor.get_plugin_manager()
 
         assert manager is not None
         assert manager.plugin_count >= 5  # At least 5 default plugins

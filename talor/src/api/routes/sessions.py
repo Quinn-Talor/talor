@@ -1,18 +1,26 @@
 """Session Routes."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from src.api.models import SessionCreateRequest, SessionResponse
-from src.session import Session
+from src.core.container import get_container
+from src.session.service import SessionService
 
 
 router = APIRouter()
 
 
+def get_session_service() -> SessionService:
+    """Get session service from container."""
+    return get_container().session_service
+
+
 @router.get("", response_model=list[SessionResponse])
-async def list_sessions() -> list[SessionResponse]:
+async def list_sessions(
+    service: SessionService = Depends(get_session_service),
+) -> list[SessionResponse]:
     """List all sessions."""
-    sessions = await Session.list()
+    sessions = await service.list_sessions()
     return [
         SessionResponse(
             id=s.id,
@@ -26,9 +34,12 @@ async def list_sessions() -> list[SessionResponse]:
 
 
 @router.post("", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest) -> SessionResponse:
+async def create_session(
+    request: SessionCreateRequest,
+    service: SessionService = Depends(get_session_service),
+) -> SessionResponse:
     """Create a new session."""
-    session = await Session.create(
+    session = await service.create_session(
         title=request.title,
         parent_id=request.parent_id,
     )
@@ -42,9 +53,12 @@ async def create_session(request: SessionCreateRequest) -> SessionResponse:
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str) -> SessionResponse:
+async def get_session(
+    session_id: str,
+    service: SessionService = Depends(get_session_service),
+) -> SessionResponse:
     """Get a session by ID."""
-    session = await Session.get(session_id)
+    session = await service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -58,22 +72,28 @@ async def get_session(session_id: str) -> SessionResponse:
 
 
 @router.delete("/{session_id}")
-async def delete_session(session_id: str) -> dict:
+async def delete_session(
+    session_id: str,
+    service: SessionService = Depends(get_session_service),
+) -> dict:
     """Delete a session."""
-    session = await Session.get(session_id)
+    session = await service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    await Session.delete(session_id)
+    await service.delete_session(session_id)
     return {"status": "deleted"}
 
 
 @router.get("/{session_id}/messages")
-async def get_session_messages(session_id: str) -> list[dict]:
+async def get_session_messages(
+    session_id: str,
+    service: SessionService = Depends(get_session_service),
+) -> list[dict]:
     """Get messages for a session."""
-    session = await Session.get(session_id)
+    session = await service.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    messages = await Session.messages(session_id)
-    return [msg.to_dict() for msg in messages]
+    # Use instance property directly
+    return [msg.to_dict() for msg in session.messages]

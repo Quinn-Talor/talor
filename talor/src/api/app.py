@@ -1,6 +1,20 @@
 """FastAPI Application for Talor Backend.
 
 Provides REST API and WebSocket endpoints for the AI agent framework.
+
+Architecture:
+    Uses DI Container for service management following DDD principles.
+
+    ```python
+    from src.core.container import get_container
+
+    container = get_container()
+    container.configure(workspace=workspace, storage=storage, bus=Bus)
+
+    # Then use services
+    session = await container.session_service.create_session(...)
+    result = await container.agent_executor.execute_stream(...)
+    ```
 """
 
 from __future__ import annotations
@@ -19,12 +33,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.bus import Bus
 from src.tool import ToolRegistry
 from src.tool.builtin import get_all_builtin_tools
-from src.session import Session, SessionPrompt
-from src.agent import Agent
 from src.config import Config
-from src.provider import Provider
 from src.mcp_client import MCP, register_mcp_tools
 from src.core.state import state
+from src.core.container import get_container
 from src.api.routes import create_api_router, create_events_router
 
 
@@ -78,28 +90,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state.workspace = workspace
     state.worktree = workspace
 
-    # Configure systems
-    Config.configure(bus=Bus, directory=workspace, worktree=workspace)
-    Session.configure(storage=None, bus=Bus)
-    Agent.configure(config=Config)
-    Provider.configure(config=Config)
-    MCP.configure(bus=Bus, config=Config)
+    # Configure DI Container
+    container = get_container()
+    bus = Bus(directory=str(workspace))
+    container.configure(
+        workspace=workspace,
+        worktree=workspace,
+        storage=None,
+        bus=bus,
+    )
 
-    # Create tool registry
-    state.tool_registry = ToolRegistry(bus=Bus)
+    # Configure other systems (still using static API for now)
+    Config.configure(bus=bus, directory=workspace, worktree=workspace)
+    MCP.configure(bus=bus, config=Config)
+
+    # Create tool registry (use container's registry)
+    state.tool_registry = container.tool_registry
 
     # Register built-in tools
     for tool in get_all_builtin_tools():
         await state.tool_registry.register(tool, source="builtin")
-
-    # Configure session prompt
-    SessionPrompt.configure(
-        bus=Bus,
-        tool_registry=state.tool_registry,
-        provider=Provider,
-        directory=workspace,
-        worktree=workspace,
-    )
 
     # Connect to MCP servers
     try:
@@ -109,7 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning(f"Failed to connect MCP servers: {e}")
 
     # Subscribe to events for broadcasting
-    Bus.subscribe_all(_broadcast_event)
+    bus.subscribe_all(_broadcast_event)
 
     logger.info(f"Workspace: {workspace}")
     logger.info(f"Tools registered: {state.tool_registry.tool_count}")

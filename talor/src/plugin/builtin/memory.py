@@ -1,105 +1,156 @@
 """Memory Plugin for Talor.
 
-This plugin manages conversation history and context.
+This plugin retrieves conversation history from short-term memory
+and provides it to the prompt building pipeline.
 
-Features:
-- Conversation history retrieval
-- Token-aware truncation
-- Tool call history tracking
-- Summary inclusion
+Responsibilities:
+- Get messages from ShortTermMemory (singleton per session)
+- Provide token-aware, summarized context
+- Pass messages to prompt builder via metadata
+
+Note: This plugin does NOT build LLM messages directly.
+The prompt building pipeline handles message formatting.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from src.plugin.base import PromptPlugin, PluginPriority
 from src.plugin.context import PluginContext
 from src.plugin.result import PluginResult
 
+logger = logging.getLogger(__name__)
+
 
 class MemoryPlugin(PromptPlugin):
-    """Memory Plugin - Conversation history and context.
+    """Memory Plugin - Retrieves conversation history from short-term memory.
 
-    Responsibilities:
-    - Retrieve conversation history from session
-    - Respect token limits when building context
-    - Include tool call history and results
-    - Include conversation summary if available
+    This plugin:
+    1. Gets the singleton ShortTermMemory for the session
+    2. Configures it with model-specific token limits
+    3. Retrieves messages (with auto-summarization at 80% threshold)
+    4. Passes messages to the prompt builder via metadata
+
+    The actual LLM message formatting is done by the prompt builder,
+    not by this plugin.
     """
 
-    def __init__(self, max_tokens: int = 32000) -> None:
-        """Initialize the memory plugin.
-
-        Args:
-            max_tokens: Maximum tokens for context
-        """
+    def __init__(self) -> None:
+        """Initialize the memory plugin."""
         super().__init__(
             name="memory",
             priority=PluginPriority.MEMORY,
             enabled=True,
             required=True,
         )
-        self._max_tokens = max_tokens
 
     async def build(self, context: PluginContext) -> PluginResult | None:
-        """Build conversation history.
+        """Retrieve conversation history from short-term memory.
 
         Args:
             context: Plugin execution context
 
         Returns:
-            PluginResult with conversation history, or None if no messages
+            PluginResult with messages in metadata
         """
-        if not context.messages:
-            return None
+        from src.core.container import get_container
 
-        # Use ShortTermMemory for token-aware truncation
-        from src.memory.short_term import ShortTermMemory
+        try:
+            # Get session via service
+            session_service = get_container().session_service
+            session = await session_service.get_session(context.session_id)
+            if not session:
+                return PluginResult(
+                    content="",
+                    section="memory",
+                    metadata={"messages": [], "error": "Session not found"},
+                )
 
-        memory = ShortTermMemory(
-            session_id=context.session_id,
-            max_tokens=self._max_tokens,
-        )
+            # Get model context length and configure memory
+            model_context_length = await self._get_model_context_length(
+                context.provider_id,
+                context.model_id,
+            )
+            session.memory.configure(model_context_length=model_context_length)
 
-        # Add messages to memory
-        for msg in context.messages:
-            memory.add_message(msg)
+            # Get messages with auto-summarization at 80% threshold
+            messages = await session.memory.get_messages_for_llm(
+                include_system=False,  # System prompt handled by SystemPlugin
+                auto_summarize=True,
+            )
 
-        # Get messages within token limit
-        messages = memory.get_messages(include_system=False)
+            # Get memory stats
+            stats = session.memory.get_stats()
 
-        # Format messages for output
-        formatted = self._format_messages(messages)
+            # Log memory status
+            if stats["has_summary"]:
+                logger.info(
+                    f"Memory for session {context.session_id}: "
+                    f"{stats['message_count']} messages, "
+                    f"{stats['utilization']:.1%} utilization, "
+                    f"summarized {stats['summary_covered_messages']} messages"
+                )
 
-        return PluginResult(
-            content=formatted,
-            section="memory",
-            metadata={
-                "message_count": len(messages),
-                "total_messages": memory.total_messages,
-                "has_pending_tool_calls": memory.has_pending_tool_calls,
-            },
-        )
+            return PluginResult(
+                content="",  # No content - messages passed via metadata
+                section="memory",
+                metadata={
+                    "messages": messages,
+                    "message_count": stats["message_count"],
+                    "total_messages": stats["total_messages"],
+                    "current_tokens": stats["current_tokens"],
+                    "model_context_length": stats["model_context_length"],
+                    "token_utilization": stats["utilization"],
+                    "has_summary": stats["has_summary"],
+                    "summary_covered_messages": stats.get("summary_covered_messages", 0),
+                    "key_nodes_count": stats["key_nodes_count"],
+                    "pending_tool_calls": stats["pending_tool_calls"],
+                },
+            )
 
-    def _format_messages(self, messages: list[dict[str, Any]]) -> str:
-        """Format messages for prompt inclusion.
+        except Exception as e:
+            logger.error(f"Memory plugin error: {e}", exc_info=True)
+            return PluginResult(
+                content="",
+                section="memory",
+                metadata={
+                    "messages": [],
+                    "error": str(e),
+                    "fallback": True,
+                },
+            )
+
+    async def _get_model_context_length(
+        self,
+        provider_id: str,
+        model_id: str,
+    ) -> int:
+        """Get model's context length from provider.
 
         Args:
-            messages: List of message dictionaries
+            provider_id: Provider ID
+            model_id: Model ID
 
         Returns:
-            Formatted message string
+            Context length in tokens
         """
-        # Return JSON representation for now
-        # In actual implementation, this would be handled by the LLM provider
-        import json
-        return json.dumps(messages, ensure_ascii=False, indent=2)
+        try:
+            from src.core.container import get_container
 
-    def set_max_tokens(self, max_tokens: int) -> None:
-        """Set the maximum tokens for context.
+            provider_service = get_container().provider_service
+            model = await provider_service.get_model(provider_id, model_id)
+            if model:
+                return model.context_length
+        except Exception as e:
+            logger.warning(f"Failed to get model context length: {e}")
 
-        Args:
-            max_tokens: Maximum tokens
-        """
-        self._max_tokens = max_tokens
+        # Default fallbacks by provider
+        defaults = {
+            "openai": 128000,
+            "anthropic": 200000,
+            "google": 1000000,
+            "ollama": 32000,
+        }
+        return defaults.get(provider_id, 32000)

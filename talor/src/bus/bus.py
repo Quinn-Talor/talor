@@ -1,7 +1,7 @@
 """Event Bus for Talor.
 
-This module provides the Bus namespace for event publishing and subscription
-with instance-scoped state.
+This module provides the Bus class for event publishing and subscription
+following DDD principles with proper instance-based state management.
 
 Example:
     ```python
@@ -13,14 +13,17 @@ Example:
 
     SessionCreated = BusEvent.define("session.created", SessionData)
 
+    # Create bus instance
+    bus = Bus(directory="/workspace")
+
     # Subscribe
     async def handler(event):
         print(f"Created: {event.properties.session_id}")
 
-    unsub = Bus.subscribe(SessionCreated, handler)
+    unsub = bus.subscribe(SessionCreated, handler)
 
     # Publish
-    await Bus.publish(SessionCreated, SessionData(session_id="123"))
+    await bus.publish(SessionCreated, SessionData(session_id="123"))
 
     # Unsubscribe
     unsub()
@@ -50,37 +53,58 @@ EventCallback = Callable[[EventPayload[P]], Awaitable[None] | None]
 
 
 class Bus:
-    """Event bus for component communication.
+    """Event bus for component communication (DDD-compliant).
 
-    Provides publish/subscribe functionality with typed events.
+    A proper domain service with instance-based state management.
+    Each Bus instance maintains its own subscriptions and directory context.
 
     Features:
     - Typed event definitions with Pydantic models
     - Async event delivery
     - Wildcard subscription ("*")
-    - Instance-scoped state
+    - Instance-scoped state (no class variables)
     - GlobalBus integration for cross-instance events
+
+    Example:
+        ```python
+        # Create bus instance (typically via DI container)
+        bus = Bus(directory="/workspace")
+
+        # Subscribe to events
+        unsub = bus.subscribe(SessionCreated, my_handler)
+
+        # Publish events
+        await bus.publish(SessionCreated, SessionData(session_id="123"))
+        ```
     """
 
-    # Instance-scoped subscriptions
-    _subscriptions: dict[str, list[EventCallback]] = {}
-    _lock = asyncio.Lock()
-    _instance_directory: str | None = None
+    def __init__(self, directory: str | None = None) -> None:
+        """Initialize the event bus.
 
-    @classmethod
-    def set_instance(cls, directory: str) -> None:
-        """Set the current instance directory.
+        Args:
+            directory: Instance working directory for GlobalBus routing
+        """
+        self._subscriptions: dict[str, list[EventCallback]] = {}
+        self._lock = asyncio.Lock()
+        self._directory = directory
+
+    @property
+    def directory(self) -> str | None:
+        """Get the instance directory."""
+        return self._directory
+
+    def set_directory(self, directory: str) -> None:
+        """Set the instance directory.
 
         Used for GlobalBus event routing.
 
         Args:
             directory: Instance working directory
         """
-        cls._instance_directory = directory
+        self._directory = directory
 
-    @classmethod
     async def publish(
-        cls,
+        self,
         definition: EventDefinition[P],
         properties: P,
     ) -> None:
@@ -92,7 +116,7 @@ class Bus:
 
         Example:
             ```python
-            await Bus.publish(SessionCreated, SessionData(session_id="123"))
+            await bus.publish(SessionCreated, SessionData(session_id="123"))
             ```
         """
         payload = EventPayload(type=definition.type, properties=properties)
@@ -102,34 +126,33 @@ class Bus:
         # Collect handlers for this event type and wildcard
         handlers: list[EventCallback] = []
 
-        async with cls._lock:
+        async with self._lock:
             # Specific type handlers
-            if definition.type in cls._subscriptions:
-                handlers.extend(cls._subscriptions[definition.type])
+            if definition.type in self._subscriptions:
+                handlers.extend(self._subscriptions[definition.type])
 
             # Wildcard handlers
-            if "*" in cls._subscriptions:
-                handlers.extend(cls._subscriptions["*"])
+            if "*" in self._subscriptions:
+                handlers.extend(self._subscriptions["*"])
 
         # Execute handlers concurrently
         if handlers:
             tasks = []
             for handler in handlers:
-                task = asyncio.create_task(cls._call_handler(handler, payload))
+                task = asyncio.create_task(self._call_handler(handler, payload))
                 tasks.append(task)
 
             await asyncio.gather(*tasks, return_exceptions=True)
 
         # Emit to GlobalBus for cross-instance communication
-        if cls._instance_directory:
+        if self._directory:
             GlobalBus.emit("event", {
-                "directory": cls._instance_directory,
+                "directory": self._directory,
                 "payload": payload.to_dict(),
             })
 
-    @classmethod
     def subscribe(
-        cls,
+        self,
         definition: EventDefinition[P],
         callback: EventCallback[P],
     ) -> Callable[[], None]:
@@ -147,16 +170,15 @@ class Bus:
             async def handler(event):
                 print(event.properties.session_id)
 
-            unsub = Bus.subscribe(SessionCreated, handler)
+            unsub = bus.subscribe(SessionCreated, handler)
             # Later...
             unsub()
             ```
         """
-        return cls._raw_subscribe(definition.type, callback)
+        return self._raw_subscribe(definition.type, callback)
 
-    @classmethod
     def once(
-        cls,
+        self,
         definition: EventDefinition[P],
         callback: Callable[[EventPayload[P]], str | None],
     ) -> Callable[[], None]:
@@ -179,12 +201,11 @@ class Bus:
             if result == "done" and unsub:
                 unsub()
 
-        unsub = cls.subscribe(definition, wrapper)
+        unsub = self.subscribe(definition, wrapper)
         return unsub
 
-    @classmethod
     def subscribe_all(
-        cls,
+        self,
         callback: EventCallback[Any],
     ) -> Callable[[], None]:
         """Subscribe to all events (wildcard).
@@ -195,11 +216,10 @@ class Bus:
         Returns:
             Unsubscribe function
         """
-        return cls._raw_subscribe("*", callback)
+        return self._raw_subscribe("*", callback)
 
-    @classmethod
     def _raw_subscribe(
-        cls,
+        self,
         event_type: str,
         callback: EventCallback,
     ) -> Callable[[], None]:
@@ -214,24 +234,23 @@ class Bus:
         """
         logger.debug(f"Subscribing to: {event_type}")
 
-        if event_type not in cls._subscriptions:
-            cls._subscriptions[event_type] = []
+        if event_type not in self._subscriptions:
+            self._subscriptions[event_type] = []
 
-        cls._subscriptions[event_type].append(callback)
+        self._subscriptions[event_type].append(callback)
 
         def unsubscribe() -> None:
             logger.debug(f"Unsubscribing from: {event_type}")
-            if event_type in cls._subscriptions:
+            if event_type in self._subscriptions:
                 try:
-                    cls._subscriptions[event_type].remove(callback)
+                    self._subscriptions[event_type].remove(callback)
                 except ValueError:
                     pass  # Already removed
 
         return unsubscribe
 
-    @classmethod
     async def _call_handler(
-        cls,
+        self,
         handler: EventCallback,
         payload: EventPayload,
     ) -> None:
@@ -248,9 +267,8 @@ class Bus:
         except Exception as e:
             logger.error(f"Error in event handler for {payload.type}: {e}", exc_info=True)
 
-    @classmethod
     async def publish_raw(
-        cls,
+        self,
         event_type: str,
         properties: dict[str, Any],
     ) -> None:
@@ -273,7 +291,7 @@ class Bus:
             # Use typed definition
             try:
                 typed_props = definition.properties_class.model_validate(properties)
-                await cls.publish(definition, typed_props)
+                await self.publish(definition, typed_props)
                 return
             except Exception as e:
                 logger.warning(f"Failed to validate properties for {event_type}: {e}")
@@ -288,30 +306,33 @@ class Bus:
 
         handlers: list[EventCallback] = []
 
-        async with cls._lock:
-            if event_type in cls._subscriptions:
-                handlers.extend(cls._subscriptions[event_type])
-            if "*" in cls._subscriptions:
-                handlers.extend(cls._subscriptions["*"])
+        async with self._lock:
+            if event_type in self._subscriptions:
+                handlers.extend(self._subscriptions[event_type])
+            if "*" in self._subscriptions:
+                handlers.extend(self._subscriptions["*"])
 
         if handlers:
             tasks = [
-                asyncio.create_task(cls._call_handler(handler, payload))
+                asyncio.create_task(self._call_handler(handler, payload))
                 for handler in handlers
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        if cls._instance_directory:
+        if self._directory:
             GlobalBus.emit("event", {
-                "directory": cls._instance_directory,
+                "directory": self._directory,
                 "payload": payload.to_dict(),
             })
 
-    @classmethod
-    def clear(cls) -> None:
+    def clear(self) -> None:
         """Clear all subscriptions (for testing)."""
-        cls._subscriptions.clear()
-        cls._instance_directory = None
+        self._subscriptions.clear()
+
+    @property
+    def subscription_count(self) -> int:
+        """Get total number of subscriptions."""
+        return sum(len(handlers) for handlers in self._subscriptions.values())
 
 
 # =============================================================================

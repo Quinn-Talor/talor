@@ -229,7 +229,7 @@ class Config:
         """Load global configuration."""
         global_dir = cls._global_path or Path.home() / ".talor"
 
-        for filename in ["talor.jsonc", "talor.json", "config.yaml", "config.yml"]:
+        for filename in ["talor.jsonc", "talor.json"]:
             config_path = global_dir / filename
             if config_path.exists():
                 try:
@@ -255,12 +255,8 @@ class Config:
             "talor.json",
             "talor-config.jsonc",
             "talor-config.json",
-            "talor-config.yaml",
-            "talor-config.yml",
             ".talor/config.jsonc",
             ".talor/config.json",
-            ".talor/config.yaml",
-            ".talor/config.yml",
         ]
 
         for search_dir in search_dirs:
@@ -312,13 +308,6 @@ class Config:
 
         if path.suffix in [".jsonc", ".json"]:
             return parse_jsonc(content)
-        elif path.suffix in [".yaml", ".yml"]:
-            try:
-                import yaml
-                return yaml.safe_load(content) or {}
-            except ImportError:
-                logger.warning("PyYAML not installed, skipping YAML config")
-                return {}
         else:
             return {}
 

@@ -3,7 +3,8 @@
 This module tests the new event-driven architecture components:
 - Event Bus (Bus, BusEvent, GlobalBus)
 - Tool System (Tool, ToolRegistry, ToolContext, ToolOutput)
-- Session Management (Session, SessionPrompt, Message)
+- Session Management (Session, Message)
+- Agent Executor (AgentExecutor)
 """
 
 import asyncio
@@ -24,8 +25,9 @@ from src.bus.events import (
 )
 from src.tool import Tool, ToolRegistry, ToolContext, ToolOutput
 from src.tool.builtin import get_all_builtin_tools, ReadTool, WriteTool, EditTool
-from src.session import Session, SessionPrompt
+from src.session import Session
 from src.session.message import TextPart, ToolPart, UserMessage, AssistantMessage
+from src.agent import AgentExecutor
 
 
 # =============================================================================
@@ -69,14 +71,14 @@ class TestBusEvent:
 
 
 class TestBus:
-    """Tests for Bus publish/subscribe."""
+    """Tests for Bus publish/subscribe (DDD-compliant instance-based)."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
-        """Clear bus state before each test."""
-        Bus.clear()
+        """Create fresh bus instance for each test."""
+        self.bus = Bus(directory="/test")
         yield
-        Bus.clear()
+        self.bus.clear()
 
     @pytest.mark.asyncio
     async def test_publish_subscribe(self):
@@ -91,9 +93,9 @@ class TestBus:
         async def handler(event):
             received.append(event.properties.value)
 
-        Bus.subscribe(TestEvent, handler)
-        await Bus.publish(TestEvent, TestData(value="test1"))
-        await Bus.publish(TestEvent, TestData(value="test2"))
+        self.bus.subscribe(TestEvent, handler)
+        await self.bus.publish(TestEvent, TestData(value="test1"))
+        await self.bus.publish(TestEvent, TestData(value="test2"))
 
         # Allow async handlers to complete
         await asyncio.sleep(0.1)
@@ -113,11 +115,11 @@ class TestBus:
         async def handler(event):
             received.append(event.properties.value)
 
-        unsub = Bus.subscribe(TestEvent, handler)
-        await Bus.publish(TestEvent, TestData(value="before"))
+        unsub = self.bus.subscribe(TestEvent, handler)
+        await self.bus.publish(TestEvent, TestData(value="before"))
 
         unsub()
-        await Bus.publish(TestEvent, TestData(value="after"))
+        await self.bus.publish(TestEvent, TestData(value="after"))
 
         await asyncio.sleep(0.1)
 
@@ -137,15 +139,14 @@ class TestBus:
         async def handler(event):
             received.append(event.type)
 
-        Bus.subscribe_all(handler)
-        await Bus.publish(TestEvent1, TestData(value="a"))
-        await Bus.publish(TestEvent2, TestData(value="b"))
+        self.bus.subscribe_all(handler)
+        await self.bus.publish(TestEvent1, TestData(value="a"))
+        await self.bus.publish(TestEvent2, TestData(value="b"))
 
         await asyncio.sleep(0.1)
 
         assert "test.all.1" in received
         assert "test.all.2" in received
-
 
 class TestGlobalBus:
     """Tests for GlobalBus."""
@@ -386,19 +387,22 @@ class TestBuiltinTools:
 # =============================================================================
 
 class TestSession:
-    """Tests for Session management."""
+    """Tests for Session management using DDD architecture."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
         """Clear session state."""
-        Session.clear_cache()
+        from src.core.container import get_container, Container
+        Container.reset()
         yield
-        Session.clear_cache()
+        Container.reset()
 
     @pytest.mark.asyncio
     async def test_create_session(self):
         """Test creating a session."""
-        session = await Session.create(title="Test Session")
+        from src.core.container import get_container
+        service = get_container().session_service
+        session = await service.create_session(title="Test Session")
 
         assert session.id.startswith("session_")
         assert session.title == "Test Session"
@@ -407,9 +411,11 @@ class TestSession:
     @pytest.mark.asyncio
     async def test_get_session(self):
         """Test getting a session."""
-        created = await Session.create(title="Get Test")
+        from src.core.container import get_container
+        service = get_container().session_service
+        created = await service.create_session(title="Get Test")
 
-        retrieved = await Session.get(created.id)
+        retrieved = await service.get_session(created.id)
 
         assert retrieved is not None
         assert retrieved.id == created.id
@@ -418,9 +424,11 @@ class TestSession:
     @pytest.mark.asyncio
     async def test_update_session(self):
         """Test updating a session."""
-        session = await Session.create(title="Original")
+        from src.core.container import get_container
+        service = get_container().session_service
+        session = await service.create_session(title="Original")
 
-        updated = await Session.update(
+        updated = await service.update_session(
             session.id,
             lambda s: setattr(s, "title", "Updated"),
         )
@@ -430,17 +438,21 @@ class TestSession:
     @pytest.mark.asyncio
     async def test_list_sessions(self):
         """Test listing sessions."""
-        await Session.create(title="Session 1")
-        await Session.create(title="Session 2")
+        from src.core.container import get_container
+        service = get_container().session_service
+        await service.create_session(title="Session 1")
+        await service.create_session(title="Session 2")
 
-        sessions = await Session.list()
+        sessions = await service.list_sessions()
 
         assert len(sessions) >= 2
 
     @pytest.mark.asyncio
     async def test_add_message(self):
         """Test adding messages."""
-        session = await Session.create()
+        from src.core.container import get_container
+        service = get_container().session_service
+        session = await service.create_session()
 
         message = UserMessage(
             session_id=session.id,
@@ -449,7 +461,7 @@ class TestSession:
 
         text_part = TextPart(text="Hello!")
 
-        msg_with_parts = await Session.add_message(
+        msg_with_parts = await service.add_message(
             session.id,
             message,
             [text_part],
@@ -470,31 +482,35 @@ class TestIntegration:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup for integration tests."""
-        Bus.clear()
-        Session.clear_cache()
+        from src.core.container import Container
+        self.bus = Bus(directory="/test")
+        Container.reset()
         yield
-        Bus.clear()
-        Session.clear_cache()
+        self.bus.clear()
+        Container.reset()
 
     @pytest.mark.asyncio
     async def test_event_flow(self):
         """Test event flow through the system."""
+        from src.core.container import get_container
+
         events_received = []
 
         async def handler(event):
             events_received.append(event.type)
 
-        Bus.subscribe(SessionCreated, handler)
-        Bus.subscribe(ToolRegistered, handler)
+        self.bus.subscribe(SessionCreated, handler)
+        self.bus.subscribe(ToolRegistered, handler)
 
-        # Configure session with bus
-        Session._bus = Bus
+        # Configure container with bus
+        container = get_container()
+        container.configure(bus=self.bus)
 
         # Create session (should emit event)
-        session = await Session.create(title="Event Test")
+        session = await container.session_service.create_session(title="Event Test")
 
         # Create registry with bus
-        registry = ToolRegistry(bus=Bus)
+        registry = ToolRegistry(bus=self.bus)
         await registry.register(ReadTool, source="builtin")
 
         await asyncio.sleep(0.1)
@@ -513,9 +529,9 @@ class TestIntegration:
                 "tool": getattr(event.properties, "tool_name", None),
             })
 
-        Bus.subscribe_all(handler)
+        self.bus.subscribe_all(handler)
 
-        registry = ToolRegistry(bus=Bus)
+        registry = ToolRegistry(bus=self.bus)
         await registry.register(ReadTool, source="builtin")
 
         # Create test file

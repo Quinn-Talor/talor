@@ -36,5 +36,8 @@ class PluginResult:
     tool_restrictions: list[str] | None = None
 
     def __bool__(self) -> bool:
-        """Check if the result has content."""
-        return bool(self.content)
+        """Check if the result has content or metadata.
+
+        Returns True if there's content OR meaningful metadata (like messages).
+        """
+        return bool(self.content) or bool(self.metadata)
