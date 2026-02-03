@@ -1,12 +1,12 @@
-"""Agent Management for Talor.
+"""Agent Domain Model for Talor.
 
-This module provides agent configuration and management for the ReAct loop.
+This module provides the Agent entity - a rich domain object
+with both state and behavior for agent configuration.
 
-Features:
-- Agent configuration with model, prompt, permissions
-- Built-in agents (build, plan, general, explore)
-- Agent listing and selection
-- Custom agent support
+Following DDD principles:
+- Agent is a rich entity with business logic
+- Permission checking is encapsulated in the entity
+- Model selection logic is part of the entity
 """
 
 from __future__ import annotations
@@ -26,34 +26,31 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Agent Info
+# Value Objects
 # =============================================================================
 
-class AgentModel(BaseModel):
-    """Agent model configuration."""
+class ModelConfig(BaseModel):
+    """Model configuration for an agent (Value Object)."""
     model_id: str
     provider_id: str
 
+    def to_string(self) -> str:
+        """Convert to provider/model string format."""
+        return f"{self.provider_id}/{self.model_id}"
 
-class AgentInfo(BaseModel):
-    """Agent configuration.
 
-    Defines an agent's behavior, permissions, and model settings.
+# =============================================================================
+# Agent Entity (Rich Domain Model)
+# =============================================================================
 
-    Attributes:
-        name: Agent unique identifier
-        description: Agent description
-        mode: Agent mode (primary, subagent, all)
-        native: Whether this is a built-in agent
-        hidden: Whether agent is hidden from UI
-        top_p: Top-p sampling parameter
-        temperature: Temperature parameter
-        color: Display color
-        permission: Permission ruleset
-        model: Optional model override
-        prompt: Optional system prompt
-        options: Additional options
-        steps: Maximum steps
+class Agent(BaseModel):
+    """Agent entity with state and behavior.
+
+    A rich domain model that encapsulates:
+    - Agent configuration (state)
+    - Permission checking (behavior)
+    - Model selection (behavior)
+    - Validation rules (behavior)
     """
 
     name: str
@@ -65,10 +62,43 @@ class AgentInfo(BaseModel):
     temperature: float | None = None
     color: str | None = None
     permission: list[dict[str, Any]] = Field(default_factory=list)
-    model: AgentModel | None = None
+    model: ModelConfig | None = None
     prompt: str | None = None
     options: dict[str, Any] = Field(default_factory=dict)
     steps: int | None = None
+
+    # =========================================================================
+    # Properties
+    # =========================================================================
+
+    @property
+    def is_primary(self) -> bool:
+        """Check if this is a primary agent."""
+        return self.mode in ("primary", "all")
+
+    @property
+    def is_subagent(self) -> bool:
+        """Check if this is a subagent."""
+        return self.mode in ("subagent", "all")
+
+    @property
+    def is_visible(self) -> bool:
+        """Check if agent is visible in UI."""
+        return not self.hidden
+
+    @property
+    def has_custom_model(self) -> bool:
+        """Check if agent has a custom model override."""
+        return self.model is not None
+
+    @property
+    def max_steps(self) -> int:
+        """Get maximum steps (default 50)."""
+        return self.steps or 50
+
+    # =========================================================================
+    # Permission Behavior
+    # =========================================================================
 
     def get_permission_ruleset(self) -> Ruleset:
         """Get permission ruleset from config."""
@@ -76,6 +106,248 @@ class AgentInfo(BaseModel):
         for rule_dict in self.permission:
             rules.append(PermissionRule(**rule_dict))
         return rules
+
+    def check_permission(self, tool_name: str, path: str | None = None) -> PermissionAction:
+        """Check permission for a tool.
+
+        Args:
+            tool_name: Name of the tool
+            path: Optional file path for path-based rules
+
+        Returns:
+            PermissionAction (allow, deny, ask)
+        """
+        ruleset = self.get_permission_ruleset()
+        return Permission.check(ruleset, tool_name, path)
+
+    def is_tool_allowed(self, tool_name: str, path: str | None = None) -> bool:
+        """Check if a tool is allowed.
+
+        Args:
+            tool_name: Name of the tool
+            path: Optional file path
+
+        Returns:
+            True if allowed
+        """
+        action = self.check_permission(tool_name, path)
+        return action == PermissionAction.ALLOW
+
+    def is_tool_denied(self, tool_name: str, path: str | None = None) -> bool:
+        """Check if a tool is denied.
+
+        Args:
+            tool_name: Name of the tool
+            path: Optional file path
+
+        Returns:
+            True if denied
+        """
+        action = self.check_permission(tool_name, path)
+        return action == PermissionAction.DENY
+
+    def requires_permission(self, tool_name: str, path: str | None = None) -> bool:
+        """Check if a tool requires user permission.
+
+        Args:
+            tool_name: Name of the tool
+            path: Optional file path
+
+        Returns:
+            True if requires asking
+        """
+        action = self.check_permission(tool_name, path)
+        return action == PermissionAction.ASK
+
+    def merge_permissions(self, additional_rules: dict[str, Any]) -> "Agent":
+        """Create a new agent with merged permissions.
+
+        Args:
+            additional_rules: Additional permission rules
+
+        Returns:
+            New Agent with merged permissions
+        """
+        current_rules = self.get_permission_ruleset()
+        new_rules = Permission.from_config(additional_rules)
+        merged = Permission.merge(current_rules, new_rules)
+
+        return self.model_copy(update={
+            "permission": [r.model_dump() for r in merged]
+        })
+
+    # =========================================================================
+    # Model Selection Behavior
+    # =========================================================================
+
+    def get_model_string(self, default_model: str = "ollama/deepseek-v3.1:671b-cloud") -> str:
+        """Get the model string for LLM calls.
+
+        Args:
+            default_model: Default model if none configured
+
+        Returns:
+            Model string in "provider/model" format
+        """
+        if self.model:
+            return self.model.to_string()
+        return default_model
+
+    def with_model(self, provider_id: str, model_id: str) -> "Agent":
+        """Create a new agent with a different model.
+
+        Args:
+            provider_id: Provider ID
+            model_id: Model ID
+
+        Returns:
+            New Agent with updated model
+        """
+        return self.model_copy(update={
+            "model": ModelConfig(provider_id=provider_id, model_id=model_id)
+        })
+
+    # =========================================================================
+    # Configuration Behavior
+    # =========================================================================
+
+    def with_prompt(self, prompt: str) -> "Agent":
+        """Create a new agent with a different prompt.
+
+        Args:
+            prompt: New system prompt
+
+        Returns:
+            New Agent with updated prompt
+        """
+        return self.model_copy(update={"prompt": prompt})
+
+    def with_temperature(self, temperature: float) -> "Agent":
+        """Create a new agent with different temperature.
+
+        Args:
+            temperature: New temperature value
+
+        Returns:
+            New Agent with updated temperature
+
+        Raises:
+            ValueError: If temperature out of range
+        """
+        if not 0.0 <= temperature <= 2.0:
+            raise ValueError("Temperature must be between 0.0 and 2.0")
+        return self.model_copy(update={"temperature": temperature})
+
+    def with_max_steps(self, steps: int) -> "Agent":
+        """Create a new agent with different max steps.
+
+        Args:
+            steps: Maximum steps
+
+        Returns:
+            New Agent with updated steps
+
+        Raises:
+            ValueError: If steps invalid
+        """
+        if steps < 1:
+            raise ValueError("Steps must be at least 1")
+        return self.model_copy(update={"steps": steps})
+
+    # =========================================================================
+    # Validation Behavior
+    # =========================================================================
+
+    def validate_as_default(self) -> None:
+        """Validate that this agent can be used as default.
+
+        Raises:
+            ValueError: If agent cannot be default
+        """
+        if self.mode == "subagent":
+            raise ValueError(f"Agent '{self.name}' is a subagent and cannot be default")
+        if self.hidden:
+            raise ValueError(f"Agent '{self.name}' is hidden and cannot be default")
+
+    def validate_for_mode(self, required_mode: str) -> None:
+        """Validate that agent matches required mode.
+
+        Args:
+            required_mode: Required mode ("primary" or "subagent")
+
+        Raises:
+            ValueError: If mode doesn't match
+        """
+        if self.mode != "all" and self.mode != required_mode:
+            raise ValueError(
+                f"Agent '{self.name}' has mode '{self.mode}', "
+                f"but '{required_mode}' is required"
+            )
+
+    # =========================================================================
+    # Configuration Update Behavior
+    # =========================================================================
+
+    def update_from_config(self, config: dict[str, Any]) -> "Agent":
+        """Update agent from configuration dict.
+
+        Creates a new Agent with updated values from config.
+        This is the proper DDD way to apply configuration changes.
+
+        Args:
+            config: Configuration dict with optional keys:
+                - model: {"provider_id": str, "model_id": str}
+                - prompt: str
+                - description: str
+                - temperature: float
+                - top_p: float
+                - mode: str
+                - color: str
+                - hidden: bool
+                - steps: int
+                - permission: dict
+
+        Returns:
+            New Agent with updated configuration
+        """
+        updates: dict[str, Any] = {}
+
+        if "model" in config:
+            updates["model"] = ModelConfig(**config["model"])
+
+        if "prompt" in config:
+            updates["prompt"] = config["prompt"]
+
+        if "description" in config:
+            updates["description"] = config["description"]
+
+        if "temperature" in config:
+            updates["temperature"] = config["temperature"]
+
+        if "top_p" in config:
+            updates["top_p"] = config["top_p"]
+
+        if "mode" in config:
+            updates["mode"] = config["mode"]
+
+        if "color" in config:
+            updates["color"] = config["color"]
+
+        if "hidden" in config:
+            updates["hidden"] = config["hidden"]
+
+        if "steps" in config:
+            updates["steps"] = config["steps"]
+
+        if "permission" in config:
+            # Merge permissions using entity's method
+            merged_agent = self.merge_permissions(config["permission"])
+            updates["permission"] = merged_agent.permission
+
+        if not updates:
+            return self
+
+        return self.model_copy(update=updates)
 
 
 # =============================================================================
@@ -129,281 +401,3 @@ You are a read-only planning agent that analyzes and designs solutions WITHOUT m
 PROMPT_SUMMARY = """Summarize the conversation and key findings concisely."""
 
 PROMPT_TITLE = """Generate a short, descriptive title for this conversation based on the user's request."""
-
-
-# =============================================================================
-# Agent Namespace
-# =============================================================================
-
-class Agent:
-    """Agent management namespace.
-
-    Provides methods for agent configuration, listing, and selection.
-    """
-
-    # Class-level state
-    _config: Any | None = None
-    _agents_cache: dict[str, AgentInfo] | None = None
-
-    @classmethod
-    def configure(cls, config: Any = None) -> None:
-        """Configure the agent system.
-
-        Args:
-            config: Config instance
-        """
-        cls._config = config
-        cls._agents_cache = None
-
-    @classmethod
-    async def _load_agents(cls) -> dict[str, AgentInfo]:
-        """Load all agents from config and defaults."""
-        if cls._agents_cache is not None:
-            return cls._agents_cache
-
-        # Default permission rules
-        default_rules = Permission.from_config({
-            "*": "allow",
-            "doom_loop": "ask",
-            "external_directory": "ask",
-            "question": "deny",
-            "plan_enter": "deny",
-            "plan_exit": "deny",
-            "read": {
-                "*": "allow",
-                "*.env": "ask",
-                "*.env.*": "ask",
-                "*.env.example": "allow",
-            },
-        })
-
-        # Built-in agents
-        agents: dict[str, AgentInfo] = {
-            "build": AgentInfo(
-                name="build",
-                description="The default agent. Executes tools based on configured permissions.",
-                mode="primary",
-                native=True,
-                permission=[r.model_dump() for r in Permission.merge(
-                    default_rules,
-                    Permission.from_config({
-                        "question": "allow",
-                        "plan_enter": "allow",
-                    }),
-                )],
-            ),
-            "plan": AgentInfo(
-                name="plan",
-                description="Plan mode. Disallows all edit tools.",
-                mode="primary",
-                native=True,
-                prompt=PROMPT_PLAN,
-                permission=[r.model_dump() for r in Permission.merge(
-                    default_rules,
-                    Permission.from_config({
-                        "question": "allow",
-                        "plan_exit": "allow",
-                        "edit": "deny",
-                        "write": "deny",
-                    }),
-                )],
-            ),
-            "general": AgentInfo(
-                name="general",
-                description="General-purpose agent for researching complex questions and executing multi-step tasks.",
-                mode="subagent",
-                native=True,
-                permission=[r.model_dump() for r in Permission.merge(
-                    default_rules,
-                    Permission.from_config({
-                        "todoread": "deny",
-                        "todowrite": "deny",
-                    }),
-                )],
-            ),
-            "explore": AgentInfo(
-                name="explore",
-                description="Fast agent specialized for exploring and gathering information.",
-                mode="subagent",
-                native=True,
-                prompt=PROMPT_EXPLORE,
-                permission=[r.model_dump() for r in Permission.merge(
-                    default_rules,
-                    Permission.from_config({
-                        "*": "deny",
-                        "grep": "allow",
-                        "glob": "allow",
-                        "ls": "allow",
-                        "bash": "allow",
-                        "read": "allow",
-                    }),
-                )],
-            ),
-            "title": AgentInfo(
-                name="title",
-                description="Generate conversation titles.",
-                mode="primary",
-                native=True,
-                hidden=True,
-                temperature=0.5,
-                prompt=PROMPT_TITLE,
-                permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
-            ),
-            "summary": AgentInfo(
-                name="summary",
-                description="Summarize conversations.",
-                mode="primary",
-                native=True,
-                hidden=True,
-                prompt=PROMPT_SUMMARY,
-                permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
-            ),
-        }
-
-        # Load custom agents from config
-        if cls._config:
-            config = await cls._config.get()
-            for name, agent_config in config.get("agent", {}).items():
-                if agent_config.get("disable"):
-                    agents.pop(name, None)
-                    continue
-
-                if name in agents:
-                    # Update existing agent
-                    agent = agents[name]
-                    if "model" in agent_config:
-                        agent.model = AgentModel(**agent_config["model"])
-                    if "prompt" in agent_config:
-                        agent.prompt = agent_config["prompt"]
-                    if "description" in agent_config:
-                        agent.description = agent_config["description"]
-                    if "temperature" in agent_config:
-                        agent.temperature = agent_config["temperature"]
-                    if "top_p" in agent_config:
-                        agent.top_p = agent_config["top_p"]
-                    if "mode" in agent_config:
-                        agent.mode = agent_config["mode"]
-                    if "color" in agent_config:
-                        agent.color = agent_config["color"]
-                    if "hidden" in agent_config:
-                        agent.hidden = agent_config["hidden"]
-                    if "steps" in agent_config:
-                        agent.steps = agent_config["steps"]
-                    if "permission" in agent_config:
-                        user_rules = Permission.from_config(agent_config["permission"])
-                        agent.permission = [
-                            r.model_dump() for r in Permission.merge(
-                                agent.get_permission_ruleset(),
-                                user_rules,
-                            )
-                        ]
-                else:
-                    # Create new agent
-                    agents[name] = AgentInfo(
-                        name=name,
-                        description=agent_config.get("description"),
-                        mode=agent_config.get("mode", "all"),
-                        native=False,
-                        prompt=agent_config.get("prompt"),
-                        temperature=agent_config.get("temperature"),
-                        top_p=agent_config.get("top_p"),
-                        color=agent_config.get("color"),
-                        hidden=agent_config.get("hidden", False),
-                        steps=agent_config.get("steps"),
-                        permission=[
-                            r.model_dump() for r in Permission.merge(
-                                default_rules,
-                                Permission.from_config(agent_config.get("permission", {})),
-                            )
-                        ],
-                    )
-
-        cls._agents_cache = agents
-        return agents
-
-    @classmethod
-    async def get(cls, name: str) -> AgentInfo | None:
-        """Get an agent by name.
-
-        Args:
-            name: Agent name
-
-        Returns:
-            AgentInfo or None
-        """
-        agents = await cls._load_agents()
-        return agents.get(name)
-
-    @classmethod
-    async def list(cls, include_hidden: bool = False) -> list[AgentInfo]:
-        """List all agents.
-
-        Args:
-            include_hidden: Include hidden agents
-
-        Returns:
-            List of AgentInfo
-        """
-        agents = await cls._load_agents()
-        result = list(agents.values())
-
-        if not include_hidden:
-            result = [a for a in result if not a.hidden]
-
-        # Sort: default agent first, then by name
-        default_name = "build"
-        if cls._config:
-            config = await cls._config.get()
-            default_name = config.get("default_agent", "build")
-
-        result.sort(key=lambda a: (a.name != default_name, a.name))
-
-        return result
-
-    @classmethod
-    async def default_agent(cls) -> str:
-        """Get the default agent name.
-
-        Returns:
-            Default agent name
-        """
-        default_name = "build"
-
-        if cls._config:
-            config = await cls._config.get()
-            default_name = config.get("default_agent", "build")
-
-        agents = await cls._load_agents()
-
-        if default_name in agents:
-            agent = agents[default_name]
-            if agent.mode == "subagent":
-                raise ValueError(f"Default agent '{default_name}' is a subagent")
-            if agent.hidden:
-                raise ValueError(f"Default agent '{default_name}' is hidden")
-            return default_name
-
-        # Find first primary visible agent
-        for agent in agents.values():
-            if agent.mode != "subagent" and not agent.hidden:
-                return agent.name
-
-        raise ValueError("No primary visible agent found")
-
-    @classmethod
-    async def list_for_mode(cls, mode: str) -> list[AgentInfo]:
-        """List agents for a specific mode.
-
-        Args:
-            mode: "primary" or "subagent"
-
-        Returns:
-            List of matching agents
-        """
-        agents = await cls.list(include_hidden=False)
-        return [a for a in agents if a.mode == mode or a.mode == "all"]
-
-    @classmethod
-    def clear_cache(cls) -> None:
-        """Clear agent cache (for testing)."""
-        cls._agents_cache = None

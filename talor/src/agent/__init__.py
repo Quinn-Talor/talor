@@ -1,38 +1,33 @@
 """Agent System for Talor.
 
-This module provides the agent system with ReAct loop support:
-- Agent configuration and management
-- Built-in agents (build, plan, general, explore)
-- Permission system for tool access control
-- ReAct loop for reasoning-acting-observing cycle
+This module provides the agent system with ReAct loop support.
 
-Example:
+DDD Architecture:
+- Agent: Rich domain entity for agent configuration
+- AgentService: Application service for agent management
+- AgentExecutor: Core execution engine for ReAct cycle
+- AgentLoop: ReAct loop implementation
+
+Usage:
     ```python
-    from src.agent import Agent, Permission, AgentLoop
+    from src.core.container import get_container
 
-    # Get default agent
-    agent = await Agent.default_agent()
+    container = get_container()
 
-    # List all agents
-    agents = await Agent.list()
+    # Agent management
+    agents = await container.agent_service.list_agents()
+    agent = await container.agent_service.get_agent("build")
 
-    # Get specific agent
-    build_agent = await Agent.get("build")
-
-    # Run agent loop
-    loop = AgentLoop(
-        session_id="session_123",
-        message_id="msg_456",
-        agent=build_agent,
-        provider=provider,
-        tool_registry=registry,
+    # Execute prompts
+    result = await container.agent_executor.execute_stream(
+        session_id="...",
+        parts=[{"type": "text", "text": "Hello"}],
+        model={"provider_id": "...", "model_id": "..."},
     )
-    async for event in loop.run("Help me with this"):
-        print(event)
     ```
 """
 
-from src.agent.agent import Agent, AgentInfo, AgentModel
+from src.agent.agent import Agent, ModelConfig
 from src.agent.permission import Permission, PermissionRule, PermissionAction
 from src.agent.loop import (
     AgentLoop,
@@ -45,14 +40,18 @@ from src.agent.loop import (
     Action,
     Observation,
 )
+from src.agent.service import AgentService
+from src.agent.executor import AgentExecutor, SSEEvent, ExecutionStatus
 
 __all__ = [
+    # Domain entities
     "Agent",
-    "AgentInfo",
-    "AgentModel",
+    "ModelConfig",
+    # Permission
     "Permission",
     "PermissionRule",
     "PermissionAction",
+    # Loop
     "AgentLoop",
     "LoopConfig",
     "LoopContext",
@@ -62,4 +61,10 @@ __all__ = [
     "ToolCall",
     "Action",
     "Observation",
+    # Services
+    "AgentService",
+    "AgentExecutor",
+    # Types
+    "SSEEvent",
+    "ExecutionStatus",
 ]

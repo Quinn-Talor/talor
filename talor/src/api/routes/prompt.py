@@ -1,4 +1,7 @@
-"""Prompt Routes."""
+"""Prompt Routes.
+
+Uses AgentExecutor service for prompt processing following DDD principles.
+"""
 
 from __future__ import annotations
 
@@ -6,47 +9,66 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from starlette.responses import StreamingResponse
 from ulid import ULID
 
 from src.api.models import PromptRequest
 from src.bus import Bus
-from src.session import Session, SessionPrompt
-from src.session.prompt import PromptInput
-from src.provider import Provider
+from src.core.container import get_container
+from src.session.service import SessionService
+from src.agent.executor import AgentExecutor
+from src.provider.service import ProviderService
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def get_session_service() -> SessionService:
+    """Get session service from container."""
+    return get_container().session_service
+
+
+def get_agent_executor() -> AgentExecutor:
+    """Get agent executor from container."""
+    return get_container().agent_executor
+
+
+def get_provider_service() -> ProviderService:
+    """Get provider service from container."""
+    return get_container().provider_service
+
+
 @router.post("/prompt")
-async def send_prompt(request: PromptRequest) -> StreamingResponse:
+async def send_prompt(
+    request: PromptRequest,
+    service: SessionService = Depends(get_session_service),
+    executor: AgentExecutor = Depends(get_agent_executor),
+    provider_service: ProviderService = Depends(get_provider_service),
+) -> StreamingResponse:
     """Send a prompt to the agent with SSE streaming response."""
-    session = await Session.get(request.session_id)
+    session = await service.get_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     model = request.model
     if not model:
-        model = await Provider.default_model()
+        model = await provider_service.get_default_model()
 
     parts = [p.model_dump() for p in request.parts]
-
-    prompt_input = PromptInput(
-        session_id=request.session_id,
-        parts=parts,
-        model=model,
-        agent=request.agent,
-        no_reply=request.no_reply,
-    )
 
     event_counter = [0]
 
     async def generate_sse():
         try:
-            async for event in SessionPrompt.prompt_stream(prompt_input):
+            async for event in executor.execute_stream(
+                session_id=request.session_id,
+                parts=parts,
+                model=model,
+                agent=request.agent,
+                no_reply=request.no_reply,
+            ):
                 event_counter[0] += 1
                 data = json.dumps({
                     "event": event.event,
@@ -74,31 +96,34 @@ async def send_prompt(request: PromptRequest) -> StreamingResponse:
 
 
 @router.post("/prompt/async")
-async def send_prompt_async(request: PromptRequest) -> dict:
+async def send_prompt_async(
+    request: PromptRequest,
+    service: SessionService = Depends(get_session_service),
+    executor: AgentExecutor = Depends(get_agent_executor),
+    provider_service: ProviderService = Depends(get_provider_service),
+) -> dict:
     """Send a prompt asynchronously (fire-and-forget)."""
-    session = await Session.get(request.session_id)
+    session = await service.get_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     model = request.model
     if not model:
-        model = await Provider.default_model()
+        model = await provider_service.get_default_model()
 
     parts = [p.model_dump() for p in request.parts]
-
-    prompt_input = PromptInput(
-        session_id=request.session_id,
-        parts=parts,
-        model=model,
-        agent=request.agent,
-        no_reply=request.no_reply,
-    )
 
     message_id = f"message_{ULID()}"
 
     async def process_in_background():
         try:
-            async for event in SessionPrompt.prompt_stream(prompt_input):
+            async for event in executor.execute_stream(
+                session_id=request.session_id,
+                parts=parts,
+                model=model,
+                agent=request.agent,
+                no_reply=request.no_reply,
+            ):
                 pass
         except Exception as e:
             logger.error(f"Background prompt error: {e}", exc_info=True)
@@ -123,28 +148,31 @@ async def send_prompt_async(request: PromptRequest) -> dict:
 
 
 @router.post("/prompt/sync")
-async def send_prompt_sync(request: PromptRequest) -> dict:
+async def send_prompt_sync(
+    request: PromptRequest,
+    service: SessionService = Depends(get_session_service),
+    executor: AgentExecutor = Depends(get_agent_executor),
+    provider_service: ProviderService = Depends(get_provider_service),
+) -> dict:
     """Send a prompt to the agent (synchronous, non-streaming)."""
-    session = await Session.get(request.session_id)
+    session = await service.get_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     model = request.model
     if not model:
-        model = await Provider.default_model()
+        model = await provider_service.get_default_model()
 
     parts = [p.model_dump() for p in request.parts]
 
-    prompt_input = PromptInput(
-        session_id=request.session_id,
-        parts=parts,
-        model=model,
-        agent=request.agent,
-        no_reply=request.no_reply,
-    )
-
     try:
-        result = await SessionPrompt.prompt(prompt_input)
+        result = await executor.execute(
+            session_id=request.session_id,
+            parts=parts,
+            model=model,
+            agent=request.agent,
+            no_reply=request.no_reply,
+        )
 
         return {
             "session_id": request.session_id,
@@ -158,7 +186,10 @@ async def send_prompt_sync(request: PromptRequest) -> dict:
 
 
 @router.post("/{session_id}/cancel")
-async def cancel_session(session_id: str) -> dict:
+async def cancel_session(
+    session_id: str,
+    executor: AgentExecutor = Depends(get_agent_executor),
+) -> dict:
     """Cancel processing for a session."""
-    SessionPrompt.cancel(session_id)
+    executor.cancel(session_id)
     return {"status": "cancelled"}

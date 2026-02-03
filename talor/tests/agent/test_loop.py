@@ -18,13 +18,13 @@ from src.agent.loop import (
     Action,
     Observation,
 )
-from src.agent.agent import AgentInfo
+from src.agent.agent import Agent
 
 
 @pytest.fixture
 def mock_agent():
     """Create a mock agent."""
-    return AgentInfo(
+    return Agent(
         name="test_agent",
         description="Test agent",
         mode="primary",

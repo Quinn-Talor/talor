@@ -38,9 +38,9 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from src.agent.agent import AgentInfo
+    from src.agent.agent import Agent
     from src.bus import Bus
-    from src.provider import Provider
+    from src.provider.service import ProviderService
     from src.tool.registry import ToolRegistry
 
 
@@ -225,7 +225,7 @@ class AgentLoop:
         self,
         session_id: str,
         message_id: str,
-        agent: "AgentInfo",
+        agent: "Agent",
         provider: Any,  # Provider class
         tool_registry: "ToolRegistry",
         bus: "Bus | None" = None,

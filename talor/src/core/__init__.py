@@ -26,8 +26,12 @@ from src.core.errors import (
     StorageError,
 )
 from src.core.state import AppState, SSEClient, state
+from src.core.container import Container, get_container
 
 __all__ = [
+    # DI Container
+    "Container",
+    "get_container",
     # Config
     "ConfigManager",
     "Config",

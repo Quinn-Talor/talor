@@ -1,31 +1,37 @@
 """Provider System for Talor.
 
-This module provides LLM provider management:
-- Provider abstraction for multiple LLM services
-- Model definitions with capabilities and costs
-- Provider selection and configuration
+This module provides LLM provider management.
 
-Example:
+DDD Architecture:
+- Provider/Model: Rich domain entities with behavior
+- ProviderService: Application service (object instance)
+
+Usage:
     ```python
-    from src.provider import Provider
+    from src.core.container import get_container
 
-    # Get default model
-    model = await Provider.default_model()
-
-    # List available providers
-    providers = await Provider.list()
-
-    # Get specific model
-    model = await Provider.get_model("openai", "gpt-4")
-
-    # Complete with model
-    response = await Provider.complete(
-        model="gpt-4",
-        messages=[{"role": "user", "content": "Hello"}],
-    )
+    container = get_container()
+    providers = await container.provider_service.list_providers()
+    response = await container.provider_service.complete(model="openai/gpt-4", messages=[...])
     ```
 """
 
-from src.provider.provider import Provider, ProviderInfo, ModelInfo
+from src.provider.provider import (
+    Provider,
+    Model,
+    ModelCapabilities,
+    ModelCost,
+    BUILTIN_PROVIDERS,
+)
+from src.provider.service import ProviderService
 
-__all__ = ["Provider", "ProviderInfo", "ModelInfo"]
+__all__ = [
+    # Domain entities
+    "Provider",
+    "Model",
+    "ModelCapabilities",
+    "ModelCost",
+    "BUILTIN_PROVIDERS",
+    # Service
+    "ProviderService",
+]

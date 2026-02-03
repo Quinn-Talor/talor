@@ -1,10 +1,22 @@
 """Tests for ShortTermMemory.
 
-Tests the short-term memory implementation.
+Tests the short-term memory implementation with:
+- Singleton pattern
+- Token-aware context management
+- Auto-summarization at 80% threshold
+- Key node preservation
 """
 
 import pytest
-from src.memory.short_term import ShortTermMemory, MessageEntry
+from src.memory.short_term import (
+    ShortTermMemory,
+    MessageEntry,
+    MessageImportance,
+    ConversationSummary,
+    DEFAULT_MAX_MESSAGES,
+    DEFAULT_CONTEXT_LENGTH,
+    SUMMARIZATION_THRESHOLD,
+)
 
 
 class TestMessageEntry:
@@ -44,16 +56,40 @@ class TestMessageEntry:
         assert result["tool_call_id"] == "call_1"
         assert result["name"] == "read_file"
 
+    def test_is_key_node(self):
+        """Test key node detection."""
+        normal = MessageEntry(role="user", content="Hello")
+        assert normal.is_key_node is False
+
+        tool_call = MessageEntry(
+            role="assistant",
+            content="",
+            importance=MessageImportance.TOOL_CALL,
+        )
+        assert tool_call.is_key_node is True
+
+        error = MessageEntry(
+            role="assistant",
+            content="Error occurred",
+            importance=MessageImportance.ERROR,
+        )
+        assert error.is_key_node is True
+
 
 class TestShortTermMemory:
     """Test ShortTermMemory class."""
+
+    def setup_method(self):
+        """Create a fresh memory instance for each test."""
+        # No longer using singleton pattern - just create fresh instances
+        pass
 
     def test_init(self):
         """Test initialization."""
         memory = ShortTermMemory(session_id="test_session")
 
         assert memory.session_id == "test_session"
-        assert memory.max_messages == 50
+        assert memory.max_messages == DEFAULT_MAX_MESSAGES
         assert memory.message_count == 0
 
     def test_add_message(self):
@@ -151,9 +187,10 @@ class TestShortTermMemory:
         # Custom token counter: 1 token per character
         memory = ShortTermMemory(
             session_id="test",
-            max_tokens=100,
             token_counter=lambda x: len(x),
         )
+        # Configure with small context length
+        memory.configure(model_context_length=100)
 
         # Add messages that exceed token limit
         memory.add_user_message("A" * 50)  # 50 tokens
@@ -203,20 +240,25 @@ class TestShortTermMemory:
         assert summary_msg is not None
 
     def test_needs_summarization(self):
-        """Test summarization threshold."""
-        memory = ShortTermMemory(session_id="test")
+        """Test summarization threshold (80% of context)."""
+        memory = ShortTermMemory(
+            session_id="test",
+            token_counter=lambda x: len(x),
+        )
+        # Set small context for testing
+        memory.configure(model_context_length=1000)
 
-        # Below threshold
-        for i in range(20):
-            memory.add_user_message(f"Message {i}")
+        # Add messages below threshold (< 800 tokens = 80%)
+        for i in range(10):
+            memory.add_user_message(f"Msg{i}")  # ~5 tokens each = 50 total
 
-        assert memory.needs_summarization(threshold=30) is False
+        assert memory.needs_summarization() is False
 
-        # Above threshold
-        for i in range(15):
-            memory.add_user_message(f"More {i}")
+        # Add more messages to exceed threshold
+        for i in range(100):
+            memory.add_user_message("X" * 10)  # 10 tokens each = 1000 total
 
-        assert memory.needs_summarization(threshold=30) is True
+        assert memory.needs_summarization() is True
 
     def test_clear(self):
         """Test clearing memory."""
@@ -229,7 +271,8 @@ class TestShortTermMemory:
         memory.clear()
 
         assert memory.message_count == 0
-        # System message should be preserved
+        assert memory.has_summary is False
+        # System message is NOT cleared by clear()
         messages = memory.get_messages(include_system=True)
         assert len(messages) == 1
         assert messages[0]["role"] == "system"
@@ -241,7 +284,147 @@ class TestShortTermMemory:
             token_counter=lambda x: len(x),
         )
 
-        memory.set_system_message("System")  # 6 tokens
-        memory.add_user_message("Hello")     # 5 tokens
+        memory.set_system_message("System")  # 6 tokens + overhead
+        memory.add_user_message("Hello")     # 5 tokens + overhead
 
-        assert memory.get_token_count() == 11
+        # Token count includes overhead for message structure
+        assert memory.get_current_token_count() > 11
+
+    def test_configure(self):
+        """Test configuration."""
+        memory = ShortTermMemory(session_id="test")
+
+        memory.configure(
+            model_context_length=64000,
+            summarization_threshold=0.7,
+        )
+
+        assert memory._model_context_length == 64000
+        assert memory._summarization_threshold == 0.7
+        assert memory.summarization_trigger == int(64000 * 0.7)
+
+    def test_key_node_preservation(self):
+        """Test that key nodes are preserved."""
+        memory = ShortTermMemory(session_id="test")
+
+        # Add tool call (key node)
+        memory.add_assistant_message(
+            content="Calling tool",
+            tool_calls=[{"id": "1", "function": {"name": "read"}}],
+        )
+
+        # Add tool result (key node)
+        memory.add_tool_result("1", "Result content")
+
+        key_nodes = memory.get_key_nodes()
+        assert len(key_nodes) == 2
+
+    def test_mark_milestone(self):
+        """Test milestone marking."""
+        memory = ShortTermMemory(session_id="test")
+
+        memory.add_user_message("Important decision")
+        memory.mark_milestone("User made key decision")
+
+        key_nodes = memory.get_key_nodes()
+        assert len(key_nodes) == 1
+
+    def test_get_stats(self):
+        """Test statistics retrieval."""
+        memory = ShortTermMemory(session_id="test")
+        memory.configure(model_context_length=32000)
+
+        memory.add_user_message("Hello")
+        memory.add_assistant_message("Hi there!")
+
+        stats = memory.get_stats()
+
+        assert stats["session_id"] == "test"
+        assert stats["message_count"] == 2
+        assert stats["model_context_length"] == 32000
+        assert "utilization" in stats
+        assert "has_summary" in stats
+
+
+class TestShortTermMemoryInstantiation:
+    """Test instance creation (DDD-compliant - no singleton)."""
+
+    def test_create_multiple_instances(self):
+        """Test that multiple instances can be created independently."""
+        memory1 = ShortTermMemory(session_id="session_1")
+        memory2 = ShortTermMemory(session_id="session_1")
+        memory3 = ShortTermMemory(session_id="session_2")
+
+        # Each call creates a new instance (no singleton)
+        assert memory1 is not memory2
+        assert memory1 is not memory3
+
+        # But they have the same session_id
+        assert memory1.session_id == memory2.session_id
+        assert memory1.session_id != memory3.session_id
+
+    def test_instance_isolation(self):
+        """Test that instances are isolated from each other."""
+        memory1 = ShortTermMemory(session_id="session_1")
+        memory2 = ShortTermMemory(session_id="session_1")
+
+        memory1.add_user_message("Hello from memory1")
+
+        # memory2 should not have the message
+        assert memory1.message_count == 1
+        assert memory2.message_count == 0
+
+    def test_instance_with_custom_config(self):
+        """Test creating instance with custom configuration."""
+        def custom_counter(text: str) -> int:
+            return len(text)
+
+        memory = ShortTermMemory(
+            session_id="test",
+            max_messages=50,
+            token_counter=custom_counter,
+        )
+
+        assert memory.max_messages == 50
+        # Token counter should use custom function
+        memory.add_user_message("Hello")
+        # Custom counter counts chars, not tokens
+
+
+class TestShortTermMemoryAsync:
+    """Test async methods."""
+
+    def setup_method(self):
+        """Create fresh memory instance for each test."""
+        pass
+
+    @pytest.mark.asyncio
+    async def test_get_messages_for_llm(self):
+        """Test async message retrieval."""
+        memory = ShortTermMemory(session_id="test")
+
+        memory.add_user_message("Hello")
+        memory.add_assistant_message("Hi!")
+
+        messages = await memory.get_messages_for_llm(include_system=False)
+
+        assert len(messages) == 2
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "assistant"
+
+    @pytest.mark.asyncio
+    async def test_load_from_session(self):
+        """Test loading messages from session."""
+        memory = ShortTermMemory(session_id="test")
+
+        session_messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi!"},
+            {"role": "user", "content": "How are you?"},
+        ]
+
+        memory.load_from_session(session_messages)
+
+        assert memory.message_count == 3
+        messages = memory.get_messages(include_system=False)
+        assert messages[0]["content"] == "Hello"

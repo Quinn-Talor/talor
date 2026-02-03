@@ -2,19 +2,27 @@
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from src.api.models import ProviderResponse
-from src.provider import Provider
+from src.core.container import get_container
+from src.provider.service import ProviderService
 
 
 router = APIRouter()
 
 
+def get_provider_service() -> ProviderService:
+    """Get provider service from container."""
+    return get_container().provider_service
+
+
 @router.get("", response_model=list[ProviderResponse])
-async def list_providers() -> list[ProviderResponse]:
+async def list_providers(
+    service: ProviderService = Depends(get_provider_service),
+) -> list[ProviderResponse]:
     """List available providers."""
-    providers = await Provider.list()
+    providers = await service.list_providers()
     return [
         ProviderResponse(
             id=p.id,
@@ -26,9 +34,11 @@ async def list_providers() -> list[ProviderResponse]:
 
 
 @router.get("/models")
-async def list_models() -> list[dict]:
+async def list_models(
+    service: ProviderService = Depends(get_provider_service),
+) -> list[dict]:
     """List all available models."""
-    providers = await Provider.list()
+    providers = await service.list_providers()
     models = []
 
     for provider in providers:
@@ -45,10 +55,12 @@ async def list_models() -> list[dict]:
 
 
 @router.post("/refresh")
-async def refresh_providers() -> dict[str, Any]:
+async def refresh_providers(
+    service: ProviderService = Depends(get_provider_service),
+) -> dict[str, Any]:
     """Refresh provider cache and rediscover models."""
-    Provider.clear_cache()
-    providers = await Provider.list()
+    service.clear_cache()
+    providers = await service.list_providers()
 
     return {
         "success": True,

@@ -1,26 +1,47 @@
 """Memory System for Talor.
 
 This module provides memory management for the agent system:
-- Short-term memory: Current session context
-- Long-term memory: Cross-session knowledge (optional)
-- Memory retrieval: Context-aware memory access
+- ShortTermMemory: Token-aware conversation context with auto-summarization
+- MemoryContext: Legacy context wrapper
+
+Memory is owned by Session instances. Access via session.memory property.
+
+Features:
+- Model-aware token limits (configure via memory.configure())
+- 80% threshold auto-summarization with key node preservation
+- Tool call tracking and milestone marking
 
 Example:
     ```python
-    from src.memory import Memory, ShortTermMemory
+    from src.session import Session
 
-    # Create short-term memory for session
-    memory = ShortTermMemory(session_id="session_123", max_messages=20)
+    # Get session - memory is automatically created
+    session = await Session.get("session_123")
+
+    # Configure with model context length
+    session.memory.configure(model_context_length=128000)
 
     # Add messages
-    memory.add_message({"role": "user", "content": "Hello"})
+    session.memory.add_user_message("Hello")
+    session.memory.add_assistant_message("Hi there!")
 
-    # Get context for LLM
-    context = memory.get_context(max_tokens=4000)
+    # Get context for LLM (auto-summarizes at 80% threshold)
+    messages = await session.memory.get_messages_for_llm()
     ```
 """
 
-from src.memory.short_term import ShortTermMemory
+from src.memory.short_term import (
+    ShortTermMemory,
+    MessageEntry,
+    MessageImportance,
+    ConversationSummary,
+)
 from src.memory.context import MemoryContext
 
-__all__ = ["ShortTermMemory", "MemoryContext"]
+__all__ = [
+    "ShortTermMemory",
+    "MessageEntry",
+    "MessageImportance",
+    "ConversationSummary",
+    "MemoryContext",
+]

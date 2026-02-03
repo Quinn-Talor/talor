@@ -149,33 +149,67 @@ class TestEnvironmentPlugin:
 class TestMemoryPlugin:
     """Tests for MemoryPlugin."""
 
+    def setup_method(self):
+        """Clear session cache before each test."""
+        from src.session import Session
+        from src.core.container import get_container
+        get_container().session_repository.clear_cache()
+
     @pytest.mark.asyncio
     async def test_no_messages(self, context):
-        """Test with no messages."""
-        plugin = MemoryPlugin()
-        result = await plugin.build(context)
+        """Test with no messages - returns empty result with metadata."""
+        from src.core.container import get_container
 
-        assert result is None
+        # Create session for the context
+        service = get_container().session_service
+        await service.create_session(title="Test")
+        # Update context to use the created session
+        sessions = await service.list_sessions()
+        context.session_id = sessions[0].id
 
-    @pytest.mark.asyncio
-    async def test_with_messages(self, context):
-        """Test with messages."""
-        context.messages = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there"},
-        ]
         plugin = MemoryPlugin()
         result = await plugin.build(context)
 
         assert result is not None
         assert result.section == "memory"
-        assert "message_count" in result.metadata
+        assert result.metadata["messages"] == []
+        assert result.metadata["message_count"] == 0
 
-    def test_set_max_tokens(self):
-        """Test setting max tokens."""
-        plugin = MemoryPlugin(max_tokens=16000)
-        plugin.set_max_tokens(32000)
-        assert plugin._max_tokens == 32000
+    @pytest.mark.asyncio
+    async def test_with_messages(self, context):
+        """Test with messages in session memory."""
+        from src.core.container import get_container
+
+        # Create session and add messages to its memory
+        service = get_container().session_service
+        session = await service.create_session(title="Test")
+        context.session_id = session.id
+
+        session.memory.add_user_message("Hello")
+        session.memory.add_assistant_message("Hi there")
+
+        plugin = MemoryPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert result.section == "memory"
+        assert result.metadata["message_count"] == 2
+        assert len(result.metadata["messages"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_model_context_configuration(self, context):
+        """Test that memory is configured with model context length."""
+        from src.core.container import get_container
+
+        service = get_container().session_service
+        session = await service.create_session(title="Test")
+        context.session_id = session.id
+
+        plugin = MemoryPlugin()
+        await plugin.build(context)
+
+        # Memory should be configured with default context length
+        assert session.memory._model_context_length > 0
 
     def test_priority(self):
         """Test plugin priority."""

@@ -1,29 +1,44 @@
 """Session Management for Talor.
 
-This module provides session management for conversation tracking:
-- Session.create() for creating sessions
-- Session.update() for updating sessions
-- Session.messages() for message streaming
-- SessionPrompt.loop() for the main event loop
+This module provides session management for conversation tracking.
 
-Example:
+DDD Architecture:
+- Session: Pure domain entity with business logic
+- SessionRepository: Data persistence
+- SessionService: Application service (orchestrates use cases, publishes events)
+
+Usage:
     ```python
-    from src.session import Session, SessionPrompt
+    from src.core.container import get_container
 
-    # Create a session
-    session = await Session.create()
+    container = get_container()
+    session = await container.session_service.create_session(title="New Session")
 
-    # Process a prompt
-    message = await SessionPrompt.prompt(
-        session_id=session.id,
-        parts=[{"type": "text", "text": "Hello!"}],
-        model={"provider_id": "openai", "model_id": "gpt-4"},
-    )
+    # Use entity methods
+    session.add_user_message("Hello")
+    session.update_title("New Title")
+
+    # Execute prompts using AgentExecutor
+    async for event in container.agent_executor.execute_stream(...):
+        ...
     ```
 """
 
-from src.session.session import Session
-from src.session.prompt import SessionPrompt, SSEEvent, PromptInput
-from src.session.message import Message, MessagePart
+from src.session.session import Session, SessionBusyError
+from src.session.message import MessagePart, MessageWithParts
+from src.session.repository import SessionRepository, SessionRepositoryImpl
+from src.session.service import SessionService
 
-__all__ = ["Session", "SessionPrompt", "SSEEvent", "PromptInput", "Message", "MessagePart"]
+__all__ = [
+    # Domain
+    "Session",
+    "SessionBusyError",
+    # Repository
+    "SessionRepository",
+    "SessionRepositoryImpl",
+    # Service
+    "SessionService",
+    # Message
+    "MessagePart",
+    "MessageWithParts",
+]
