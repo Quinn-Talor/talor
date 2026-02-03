@@ -236,6 +236,7 @@ class ToolRegistry:
     async def get_llm_definitions(
         self,
         agent: str | None = None,
+        allowed_tools: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get LLM-compatible tool definitions.
 
@@ -243,6 +244,7 @@ class ToolRegistry:
 
         Args:
             agent: Optional agent for permission filtering
+            allowed_tools: Optional list of allowed tool names (from skills)
 
         Returns:
             List of tool definitions in OpenAI format
@@ -251,6 +253,10 @@ class ToolRegistry:
 
         definitions = []
         for tool in tools_metadata:
+            # Filter by allowed_tools if specified
+            if allowed_tools is not None and tool["name"] not in allowed_tools:
+                continue
+
             definitions.append({
                 "type": "function",
                 "function": {

@@ -1,0 +1,430 @@
+"""Tests for built-in plugins."""
+
+import pytest
+from pathlib import Path
+from unittest.mock import MagicMock, AsyncMock
+
+from src.plugin.base import PluginPriority
+from src.plugin.context import PluginContext
+from src.plugin.builtin.system import SystemPromptPlugin
+from src.plugin.builtin.agent import AgentPromptPlugin
+from src.plugin.builtin.environment import EnvironmentPlugin
+from src.plugin.builtin.memory import MemoryPlugin
+from src.plugin.builtin.llm import LLMPlugin
+from src.plugin.builtin.tool import ToolPlugin
+
+
+@pytest.fixture
+def context():
+    """Create a test context."""
+    return PluginContext(
+        session_id="test-session",
+        agent_name="build",
+        cwd=Path("/test/cwd"),
+        worktree=Path("/test/worktree"),
+    )
+
+
+class TestSystemPromptPlugin:
+    """Tests for SystemPromptPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_default_prompt(self, context):
+        """Test default system prompt."""
+        plugin = SystemPromptPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert "system_identity" in result.content
+        assert "Talor" in result.content
+        assert result.section == "system"
+
+    @pytest.mark.asyncio
+    async def test_custom_prompt(self, context):
+        """Test custom system prompt."""
+        plugin = SystemPromptPlugin()
+        plugin.set_custom_prompt("Custom identity prompt")
+        result = await plugin.build(context)
+
+        assert "Custom identity prompt" in result.content
+
+    @pytest.mark.asyncio
+    async def test_template_variables(self, context):
+        """Test template variable replacement."""
+        plugin = SystemPromptPlugin()
+        plugin.set_custom_prompt("Session: {{session_id}}, Agent: {{agent_name}}")
+        result = await plugin.build(context)
+
+        assert "test-session" in result.content
+        assert "build" in result.content
+
+    def test_priority(self):
+        """Test plugin priority."""
+        plugin = SystemPromptPlugin()
+        assert plugin.priority == PluginPriority.SYSTEM
+        assert plugin.required is True
+
+
+class TestAgentPromptPlugin:
+    """Tests for AgentPromptPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_default_agent_prompt(self, context):
+        """Test default prompt for built-in agent."""
+        plugin = AgentPromptPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert "agent_role" in result.content
+        assert "Executor Agent" in result.content
+        assert result.section == "agent"
+
+    @pytest.mark.asyncio
+    async def test_custom_agent_prompt(self, context):
+        """Test custom agent prompt from context."""
+        context.agent_prompt = "Custom agent instructions"
+        plugin = AgentPromptPlugin()
+        result = await plugin.build(context)
+
+        assert "Custom agent instructions" in result.content
+
+    @pytest.mark.asyncio
+    async def test_unknown_agent(self):
+        """Test prompt for unknown agent."""
+        context = PluginContext(
+            session_id="test",
+            agent_name="custom-agent",
+        )
+        plugin = AgentPromptPlugin()
+        result = await plugin.build(context)
+
+        assert "Custom-Agent Agent" in result.content
+
+    def test_get_default_prompt(self):
+        """Test getting default prompt by name."""
+        plugin = AgentPromptPlugin()
+
+        assert plugin.get_default_prompt("build") is not None
+        assert plugin.get_default_prompt("plan") is not None
+        assert plugin.get_default_prompt("nonexistent") is None
+
+    def test_priority(self):
+        """Test plugin priority."""
+        plugin = AgentPromptPlugin()
+        assert plugin.priority == PluginPriority.AGENT
+        assert plugin.required is True
+
+
+class TestEnvironmentPlugin:
+    """Tests for EnvironmentPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_environment_info(self, context):
+        """Test environment information."""
+        plugin = EnvironmentPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert "environment" in result.content
+        assert "Operating System" in result.content
+        assert "/test/cwd" in result.content
+        assert result.section == "environment"
+
+    @pytest.mark.asyncio
+    async def test_custom_variable(self, context):
+        """Test custom environment variable."""
+        plugin = EnvironmentPlugin()
+        plugin.set_custom_variable("Custom_Var", "custom_value")
+        result = await plugin.build(context)
+
+        assert "Custom_Var: custom_value" in result.content
+
+    def test_priority(self):
+        """Test plugin priority."""
+        plugin = EnvironmentPlugin()
+        assert plugin.priority == PluginPriority.ENVIRONMENT
+        assert plugin.required is True
+
+
+class TestMemoryPlugin:
+    """Tests for MemoryPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_no_messages(self, context):
+        """Test with no messages."""
+        plugin = MemoryPlugin()
+        result = await plugin.build(context)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_with_messages(self, context):
+        """Test with messages."""
+        context.messages = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there"},
+        ]
+        plugin = MemoryPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert result.section == "memory"
+        assert "message_count" in result.metadata
+
+    def test_set_max_tokens(self):
+        """Test setting max tokens."""
+        plugin = MemoryPlugin(max_tokens=16000)
+        plugin.set_max_tokens(32000)
+        assert plugin._max_tokens == 32000
+
+    def test_priority(self):
+        """Test plugin priority."""
+        plugin = MemoryPlugin()
+        assert plugin.priority == PluginPriority.MEMORY
+        assert plugin.required is True
+
+
+class TestLLMPlugin:
+    """Tests for LLMPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_model_config(self, context):
+        """Test model configuration."""
+        context.provider_id = "anthropic"
+        context.model_id = "claude-3-opus"
+
+        plugin = LLMPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert "model_config" in result.metadata
+        assert result.metadata["model_config"]["max_tokens"] == 200000
+
+    @pytest.mark.asyncio
+    async def test_unknown_model(self, context):
+        """Test unknown model uses default config."""
+        context.provider_id = "unknown"
+        context.model_id = "unknown-model"
+
+        plugin = LLMPlugin()
+        result = await plugin.build(context)
+
+        assert result.metadata["model_config"]["max_tokens"] == 8192
+
+    def test_get_max_tokens(self):
+        """Test getting max tokens."""
+        plugin = LLMPlugin()
+
+        assert plugin.get_max_tokens("anthropic", "claude-3-opus") == 200000
+        assert plugin.get_max_tokens("openai", "gpt-4") == 8192
+        assert plugin.get_max_tokens("unknown", "unknown") == 8192
+
+    def test_supports_tools(self):
+        """Test tool support check."""
+        plugin = LLMPlugin()
+
+        assert plugin.supports_tools("anthropic", "claude-3-opus") is True
+        assert plugin.supports_tools("openai", "gpt-4") is True
+
+    def test_supports_vision(self):
+        """Test vision support check."""
+        plugin = LLMPlugin()
+
+        assert plugin.supports_vision("anthropic", "claude-3-opus") is True
+        assert plugin.supports_vision("openai", "gpt-4") is False
+
+    def test_priority(self):
+        """Test plugin priority."""
+        plugin = LLMPlugin()
+        assert plugin.priority == PluginPriority.LLM
+        assert plugin.required is True
+
+    @pytest.mark.asyncio
+    async def test_model_specific_prompt(self, context):
+        """Test model-specific prompt guidance is included."""
+        context.provider_id = "anthropic"
+        context.model_id = "claude-3-opus"
+
+        plugin = LLMPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert "model_guidance" in result.content
+        assert "Claude" in result.content
+        assert result.metadata["model_family"] == "claude3"
+
+    def test_get_model_family(self):
+        """Test getting model family."""
+        plugin = LLMPlugin()
+
+        assert plugin.get_model_family("anthropic", "claude-3-opus") == "claude3"
+        assert plugin.get_model_family("anthropic", "claude-opus-4.5") == "claude4"
+        assert plugin.get_model_family("openai", "gpt-4") == "gpt4"
+        assert plugin.get_model_family("openai", "gpt-5.2") == "gpt5"
+        assert plugin.get_model_family("openai", "o1") == "o1"
+        assert plugin.get_model_family("openai", "o3") == "o3"
+        assert plugin.get_model_family("deepseek", "deepseek-r1") == "deepseek-r1"
+        assert plugin.get_model_family("google", "gemini-3-pro") == "gemini3"
+        assert plugin.get_model_family("unknown", "unknown") == "default"
+
+
+class TestToolPlugin:
+    """Tests for ToolPlugin."""
+
+    @pytest.mark.asyncio
+    async def test_no_registry(self, context):
+        """Test with no registry."""
+        plugin = ToolPlugin()
+        result = await plugin.build(context)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_with_registry(self, context):
+        """Test with mock registry."""
+        mock_registry = MagicMock()
+        mock_registry.get_llm_definitions = AsyncMock(return_value=[
+            {"function": {"name": "read", "description": "Read a file"}},
+            {"function": {"name": "write", "description": "Write a file"}},
+        ])
+
+        plugin = ToolPlugin(tool_registry=mock_registry)
+        result = await plugin.build(context)
+
+        assert result is not None
+        assert "available_tools" in result.content
+        assert "read" in result.content
+        assert "write" in result.content
+        assert result.metadata["tool_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_empty_tools(self, context):
+        """Test with empty tool list."""
+        mock_registry = MagicMock()
+        mock_registry.get_llm_definitions = AsyncMock(return_value=[])
+
+        plugin = ToolPlugin(tool_registry=mock_registry)
+        result = await plugin.build(context)
+
+        assert result is None
+
+    def test_set_registry(self):
+        """Test setting registry."""
+        plugin = ToolPlugin()
+        mock_registry = MagicMock()
+        plugin.set_registry(mock_registry)
+
+        assert plugin._registry is mock_registry
+
+    def test_priority(self):
+        """Test plugin priority."""
+        plugin = ToolPlugin()
+        assert plugin.priority == PluginPriority.TOOL
+        assert plugin.required is True
+
+
+
+class TestSkillPlugin:
+    """Tests for SkillPlugin."""
+
+    @pytest.fixture
+    def skill_context(self, tmp_path):
+        """Create context with skill directory."""
+        # Create skill directory
+        skill_dir = tmp_path / ".talor" / "skills" / "test-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("""---
+name: test-skill
+description: A test skill for python testing
+allowed-tools: read, write
+---
+
+# Test Skill
+
+Use pytest for testing.
+""")
+
+        return PluginContext(
+            session_id="test",
+            agent_name="build",
+            worktree=tmp_path,
+            user_request="help me with python testing",
+        )
+
+    @pytest.mark.asyncio
+    async def test_skill_matching(self, skill_context):
+        """Test skill matching based on request."""
+        from src.plugin.builtin.skill import SkillPlugin
+
+        plugin = SkillPlugin()
+        result = await plugin.build(skill_context)
+
+        assert result is not None
+        assert "test-skill" in result.content
+        assert result.section == "skill"
+
+    @pytest.mark.asyncio
+    async def test_tool_restrictions(self, skill_context):
+        """Test tool restrictions from skill."""
+        from src.plugin.builtin.skill import SkillPlugin
+
+        plugin = SkillPlugin()
+        result = await plugin.build(skill_context)
+
+        assert result is not None
+        assert result.tool_restrictions is not None
+        assert "read" in result.tool_restrictions
+        assert "write" in result.tool_restrictions
+
+    @pytest.mark.asyncio
+    async def test_no_matching_skills(self, tmp_path):
+        """Test with no matching skills."""
+        from src.plugin.builtin.skill import SkillPlugin
+
+        context = PluginContext(
+            session_id="test",
+            agent_name="build",
+            worktree=tmp_path,
+            user_request="completely unrelated request xyz",
+        )
+
+        plugin = SkillPlugin()
+        result = await plugin.build(context)
+
+        # May return None or result with no matches
+        if result:
+            assert result.section == "skill"
+
+    @pytest.mark.asyncio
+    async def test_list_skills(self, skill_context):
+        """Test listing skills."""
+        from src.plugin.builtin.skill import SkillPlugin
+
+        plugin = SkillPlugin()
+        await plugin.initialize(skill_context.worktree)
+
+        skills = await plugin.list_skills()
+
+        assert len(skills) >= 1
+        assert any(s["name"] == "test-skill" for s in skills)
+
+    @pytest.mark.asyncio
+    async def test_get_skill(self, skill_context):
+        """Test getting skill by name."""
+        from src.plugin.builtin.skill import SkillPlugin
+
+        plugin = SkillPlugin()
+        await plugin.initialize(skill_context.worktree)
+
+        skill = await plugin.get_skill("test-skill")
+
+        assert skill is not None
+        assert skill["name"] == "test-skill"
+
+    def test_priority(self):
+        """Test plugin priority."""
+        from src.plugin.builtin.skill import SkillPlugin
+
+        plugin = SkillPlugin()
+        assert plugin.priority == PluginPriority.SKILL
+        assert plugin.required is True

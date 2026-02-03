@@ -47,6 +47,36 @@ class ProviderConfig(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class PluginConfig(BaseModel):
+    """Plugin configuration.
+
+    Supports both built-in and custom plugins.
+    """
+    # Plugin name (for built-in) or path (for custom)
+    name: str
+
+    # Whether the plugin is enabled
+    enabled: bool = True
+
+    # Plugin-specific options
+    options: dict[str, Any] = Field(default_factory=dict)
+
+    # Priority override (optional)
+    priority: int | None = None
+
+
+class PluginsConfig(BaseModel):
+    """Plugins section configuration."""
+    # Built-in plugin overrides
+    builtin: dict[str, PluginConfig] = Field(default_factory=dict)
+
+    # Custom plugin paths
+    custom: list[str] = Field(default_factory=list)
+
+    # Global plugin options
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class ConfigInfo(BaseModel):
     """Full configuration schema.
 
@@ -72,8 +102,11 @@ class ConfigInfo(BaseModel):
     # Permission overrides
     permission: dict[str, Any] = Field(default_factory=dict)
 
-    # Plugin paths
+    # Plugin paths (legacy, use plugins.custom instead)
     plugin: list[str] = Field(default_factory=list)
+
+    # Plugins configuration (new)
+    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
 
     # Instruction files
     instructions: list[str] = Field(default_factory=list)
@@ -183,6 +216,7 @@ class Config:
         result.setdefault("mcp", {})
         result.setdefault("permission", {})
         result.setdefault("plugin", [])
+        result.setdefault("plugins", {"builtin": {}, "custom": [], "options": {}})
         result.setdefault("instructions", [])
         result.setdefault("keybinds", {})
         result.setdefault("experimental", {})
@@ -394,3 +428,57 @@ class Config:
     def clear_cache(cls) -> None:
         """Clear configuration cache (for testing)."""
         cls._cache = None
+
+    @classmethod
+    async def get_plugin_config(cls) -> dict[str, Any]:
+        """Get plugin configuration.
+
+        Returns:
+            Plugin configuration dictionary with:
+            - builtin: dict of built-in plugin configs
+            - custom: list of custom plugin paths
+            - options: global plugin options
+        """
+        config = await cls.get()
+
+        # Get plugins section
+        plugins = config.get("plugins", {})
+
+        # Merge legacy plugin paths
+        legacy_plugins = config.get("plugin", [])
+        custom_plugins = plugins.get("custom", [])
+
+        return {
+            "builtin": plugins.get("builtin", {}),
+            "custom": list(dict.fromkeys(legacy_plugins + custom_plugins)),
+            "options": plugins.get("options", {}),
+        }
+
+    @classmethod
+    async def get_builtin_plugin_config(cls, plugin_name: str) -> dict[str, Any] | None:
+        """Get configuration for a specific built-in plugin.
+
+        Args:
+            plugin_name: Plugin name (e.g., "system", "agent", "skill")
+
+        Returns:
+            Plugin configuration or None if not configured
+        """
+        plugin_config = await cls.get_plugin_config()
+        builtin = plugin_config.get("builtin", {})
+        return builtin.get(plugin_name)
+
+    @classmethod
+    async def is_plugin_enabled(cls, plugin_name: str) -> bool:
+        """Check if a plugin is enabled.
+
+        Args:
+            plugin_name: Plugin name
+
+        Returns:
+            True if enabled (default), False if explicitly disabled
+        """
+        config = await cls.get_builtin_plugin_config(plugin_name)
+        if config is None:
+            return True  # Enabled by default
+        return config.get("enabled", True)
