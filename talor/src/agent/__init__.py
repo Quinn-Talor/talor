@@ -2,24 +2,42 @@
 
 This module provides the agent system with ReAct loop support.
 
-DDD Architecture:
+Architecture:
 - Agent: Rich domain entity for agent configuration
-- AgentService: Application service for agent management
 - AgentExecutor: Core execution engine for ReAct cycle
-- AgentLoop: ReAct loop implementation
+- Module-level functions for agent management (get_agent, list_agents, etc.)
 
 Usage:
     ```python
-    from src.core.container import get_container
+    from src.agent import (
+        # Entity classes
+        Agent,
+        ModelConfig,
+        Permission,
+        PermissionRule,
+        PermissionAction,
+        Ruleset,
+        # Executor
+        AgentExecutor,
+        # Module-level functions
+        configure,
+        clear_cache,
+        get_agent,
+        list_agents,
+        get_default_agent,
+        list_agents_for_mode,
+    )
 
-    container = get_container()
+    # Configure module (typically done at startup)
+    configure(config_getter=my_config_getter)
 
     # Agent management
-    agents = await container.agent_service.list_agents()
-    agent = await container.agent_service.get_agent("build")
+    agents = await list_agents()
+    agent = await get_agent("build")
+    default = await get_default_agent()
 
     # Execute prompts
-    result = await container.agent_executor.execute_stream(
+    result = await executor.execute_stream(
         session_id="...",
         parts=[{"type": "text", "text": "Hello"}],
         model={"provider_id": "...", "model_id": "..."},
@@ -27,9 +45,36 @@ Usage:
     ```
 """
 
-from src.agent.agent import Agent, ModelConfig
-from src.agent.permission import Permission, PermissionRule, PermissionAction
-from src.agent.loop import (
+# Entity classes and permission system
+from src.agent.agent import (
+    Agent,
+    ModelConfig,
+    Permission,
+    PermissionRule,
+    PermissionAction,
+    Ruleset,
+)
+
+# Module-level functions (merged from service.py)
+from src.agent.agent import (
+    configure,
+    clear_cache,
+    get_agent,
+    list_agents,
+    get_default_agent,
+    list_agents_for_mode,
+)
+
+# Backward-compatible AgentService class
+from src.agent.agent import AgentService
+
+# Executor and loop types
+from src.agent.executor import (
+    # Executor
+    AgentExecutor,
+    SSEEvent,
+    ExecutionStatus,
+    # Loop types (merged from loop.py)
     AgentLoop,
     LoopConfig,
     LoopContext,
@@ -40,18 +85,24 @@ from src.agent.loop import (
     Action,
     Observation,
 )
-from src.agent.service import AgentService
-from src.agent.executor import AgentExecutor, SSEEvent, ExecutionStatus
 
 __all__ = [
     # Domain entities
     "Agent",
     "ModelConfig",
-    # Permission
+    # Permission system
     "Permission",
     "PermissionRule",
     "PermissionAction",
-    # Loop
+    "Ruleset",
+    # Module-level functions
+    "configure",
+    "clear_cache",
+    "get_agent",
+    "list_agents",
+    "get_default_agent",
+    "list_agents_for_mode",
+    # Loop types
     "AgentLoop",
     "LoopConfig",
     "LoopContext",
@@ -61,7 +112,7 @@ __all__ = [
     "ToolCall",
     "Action",
     "Observation",
-    # Services
+    # Services (backward compatibility)
     "AgentService",
     "AgentExecutor",
     # Types

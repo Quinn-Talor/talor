@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from starlette.responses import StreamingResponse
 
-from src.core.state import state, SSEClient
+from src.core.state import state
 
 
 logger = logging.getLogger(__name__)
@@ -57,51 +58,65 @@ def get_events_since(last_event_id: int, session_id: str | None = None) -> list[
     return events
 
 
-async def sse_event_generator(client: SSEClient, last_event_id: int | None = None):
-    """Generate SSE events from queue with reconnection support."""
-    if last_event_id is not None:
-        if client.subscribe_all:
-            missed_events = get_events_since(last_event_id)
-        else:
-            missed_events = []
-            for session_id in client.subscribed_sessions:
-                missed_events.extend(get_events_since(last_event_id, session_id))
-            missed_events.extend(get_events_since(last_event_id, "_global"))
-            missed_events.sort(key=lambda e: e.get("id", 0))
-
-        for event in missed_events:
-            event_id = event.get("id", 0)
-            event_data = {k: v for k, v in event.items() if k != "id"}
-            yield f"id: {event_id}\ndata: {json.dumps(event_data)}\n\n"
-
-    try:
-        while True:
-            try:
-                event = await asyncio.wait_for(client.queue.get(), timeout=30.0)
-                event_id = await store_event(event)
-                yield f"id: {event_id}\ndata: {json.dumps(event)}\n\n"
-            except asyncio.TimeoutError:
-                yield ": keep-alive\n\n"
-    except asyncio.CancelledError:
-        pass
-
-
 @router.get("/event")
-async def event_stream(request: Request):
-    """SSE event stream for real-time updates."""
-    last_event_id_str = request.headers.get("Last-Event-ID")
-    last_event_id = int(last_event_id_str) if last_event_id_str else None
+async def event_stream(
+    request: Request,
+    session_id: str = Query(..., description="Session ID to subscribe to"),
+):
+    """SSE event stream for a specific session.
 
-    client = SSEClient()
-    state.sse_clients.append(client)
+    Args:
+        request: FastAPI request object
+        session_id: Required session ID to subscribe to
+
+    Returns:
+        StreamingResponse with SSE events
+
+    Raises:
+        HTTPException: 404 if session not found
+    """
+    from src.session import get_session
+    from src.bus import manager as bus_manager
+    from src.api.sse import register_client
+
+    # Validate session exists
+    session = await get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+    bus = bus_manager.get_bus(session_id)
+
+    # Create client queue and register
+    queue: asyncio.Queue = asyncio.Queue()
+    unregister = register_client(session_id, queue)
+
+    # Subscribe to bus events
+    async def event_handler(event):
+        event_data = {
+            "type": event.type,
+            "properties": event.properties.model_dump()
+            if hasattr(event.properties, "model_dump")
+            else event.properties,
+            "timestamp": int(time.time() * 1000),
+        }
+        await queue.put(event_data)
+
+    unsub = bus.subscribe_all(event_handler)
 
     async def generate():
         try:
-            async for event in sse_event_generator(client, last_event_id):
-                yield event
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event_id = await store_event(event)
+                    yield f"id: {event_id}\ndata: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        except asyncio.CancelledError:
+            pass
         finally:
-            if client in state.sse_clients:
-                state.sse_clients.remove(client)
+            unsub()
+            unregister()
 
     return StreamingResponse(
         generate(),

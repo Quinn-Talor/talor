@@ -1,13 +1,14 @@
 """Tests for AgentLoop.
 
 Tests the ReAct loop implementation.
+Note: AgentLoop and related classes have been merged into executor.py
 """
 
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.agent.loop import (
+from src.agent.executor import (
     AgentLoop,
     LoopConfig,
     LoopContext,

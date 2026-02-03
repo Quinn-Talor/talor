@@ -2,43 +2,138 @@
 
 This module provides session management for conversation tracking.
 
-DDD Architecture:
-- Session: Pure domain entity with business logic
-- SessionRepository: Data persistence
-- SessionService: Application service (orchestrates use cases, publishes events)
+Simplified Architecture:
+- Session: Rich domain entity with business logic
+- Message types: UserMessage, AssistantMessage, SystemMessage, etc.
+- Module-level functions: create_session, get_session, list_sessions, etc.
+- Event publishing: Handled internally via SessionBusManager
 
 Usage:
     ```python
-    from src.core.container import get_container
+    from src.session import session
 
-    container = get_container()
-    session = await container.session_service.create_session(title="New Session")
+    # Configure module (typically done at app startup)
+    session.configure(workspace=Path("."), storage=storage)
 
-    # Use entity methods
-    session.add_user_message("Hello")
-    session.update_title("New Title")
+    # Create and manage sessions
+    sess = await session.create_session(title="New Session")
+    await session.add_user_message(sess.id, "Hello")
 
-    # Execute prompts using AgentExecutor
-    async for event in container.agent_executor.execute_stream(...):
-        ...
+    # Use entity methods directly
+    sess.update_title("New Title")
+    print(sess.message_count)
     ```
+
+For backward compatibility, SessionService class is still available:
+    ```python
+    from src.session import SessionService
+
+    service = SessionService()
+    session = await service.create_session(title="New Session")
+    ```
+
+Note:
+    Event bus is now managed by SessionBusManager internally.
+    Each session gets its own isolated Bus instance.
 """
 
-from src.session.session import Session, SessionBusyError
-from src.session.message import MessagePart, MessageWithParts
-from src.session.repository import SessionRepository, SessionRepositoryImpl
-from src.session.service import SessionService
+# Session entity and errors
+from src.session.session import (
+    Session,
+    SessionBusyError,
+    SessionService,
+    # Module configuration
+    configure,
+    clear_cache,
+    # Session operations
+    create_session,
+    get_session,
+    list_sessions,
+    delete_session,
+    update_session,
+    update_session_title,
+    touch_session,
+    # Message operations
+    get_messages,
+    add_user_message,
+    add_assistant_message,
+    add_tool_message,
+    add_tool_result,
+    add_message,
+    update_message,
+    add_part,
+    # Session state operations
+    mark_busy,
+    mark_idle,
+    clear_messages,
+    # Memory operations
+    get_memory,
+    get_conversation_for_llm,
+)
+
+# Message types
+from src.session.message import (
+    # Part types
+    MessagePart,
+    TextPart,
+    FilePart,
+    ToolPart,
+    AgentPart,
+    ReasoningPart,
+    # Message types
+    Message,
+    UserMessage,
+    AssistantMessage,
+    SystemMessage,
+    # Message with parts
+    MessageWithParts,
+)
 
 __all__ = [
-    # Domain
+    # Session entity and errors
     "Session",
     "SessionBusyError",
-    # Repository
-    "SessionRepository",
-    "SessionRepositoryImpl",
-    # Service
+    # Backward compatibility
     "SessionService",
-    # Message
+    # Module configuration
+    "configure",
+    "clear_cache",
+    # Session operations
+    "create_session",
+    "get_session",
+    "list_sessions",
+    "delete_session",
+    "update_session",
+    "update_session_title",
+    "touch_session",
+    # Message operations
+    "get_messages",
+    "add_user_message",
+    "add_assistant_message",
+    "add_tool_message",
+    "add_tool_result",
+    "add_message",
+    "update_message",
+    "add_part",
+    # Session state operations
+    "mark_busy",
+    "mark_idle",
+    "clear_messages",
+    # Memory operations
+    "get_memory",
+    "get_conversation_for_llm",
+    # Part types
     "MessagePart",
+    "TextPart",
+    "FilePart",
+    "ToolPart",
+    "AgentPart",
+    "ReasoningPart",
+    # Message types
+    "Message",
+    "UserMessage",
+    "AssistantMessage",
+    "SystemMessage",
+    # Message with parts
     "MessageWithParts",
 ]

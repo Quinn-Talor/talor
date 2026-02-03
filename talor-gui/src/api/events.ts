@@ -290,9 +290,9 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
   const handlers: Set<EventHandler> = new Set();
   let connectionStateHandler: ConnectionStateHandler | null = null;
 
-  // Session subscription state (client-side filtering)
-  // Events are only dispatched if the session is subscribed
-  const subscribedSessions: Set<string> = new Set();
+  // Session subscription state
+  // Only one session can be subscribed at a time (backend requires session_id)
+  let currentSessionId: string | null = null;
 
   /**
    * Updates the connection state and notifies the handler
@@ -319,15 +319,14 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
     console.debug('[SSE] shouldDispatchEvent:', {
       eventType: event.type,
       sessionId,
-      subscribedSessions: Array.from(subscribedSessions),
-      subscribedCount: subscribedSessions.size,
+      currentSessionId,
     });
 
-    // If no sessions are subscribed, don't dispatch any session-specific events
-    if (subscribedSessions.size === 0) {
+    // If no session is subscribed, don't dispatch any session-specific events
+    if (!currentSessionId) {
       // Allow global events (no session_id) to pass through
       const shouldDispatch = sessionId === undefined || sessionId === null;
-      console.debug('[SSE] No subscriptions, dispatch:', shouldDispatch);
+      console.debug('[SSE] No subscription, dispatch:', shouldDispatch);
       return shouldDispatch;
     }
 
@@ -337,10 +336,10 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       return true;
     }
 
-    // Only dispatch if the session is subscribed
-    const isSubscribed = subscribedSessions.has(sessionId as string);
-    console.debug('[SSE] Session subscribed:', isSubscribed);
-    return isSubscribed;
+    // Only dispatch if the session matches
+    const isMatch = sessionId === currentSessionId;
+    console.debug('[SSE] Session match:', isMatch);
+    return isMatch;
   }
 
   /**
@@ -422,12 +421,19 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       abortController = null;
     }
 
+    // Don't connect if no session is subscribed
+    if (!currentSessionId) {
+      console.debug('[SSE] No session subscribed, skipping connection');
+      setConnectionState('disconnected');
+      return;
+    }
+
     setConnectionState('connecting');
 
     const baseUrl = client.getBaseUrl();
 
-    // Simple URL - no query params, client-side filtering
-    const eventUrl = `${baseUrl}/event`;
+    // Build URL with session_id query parameter
+    const eventUrl = `${baseUrl}/event?session_id=${encodeURIComponent(currentSessionId)}`;
 
     console.debug('[SSE] Connecting to:', eventUrl);
 
@@ -634,45 +640,71 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
     disconnect,
 
     /**
-     * Subscribe to a specific session's events (client-side filtering)
-     * 订阅特定会话的事件（客户端过滤）
+     * Subscribe to a specific session's events
+     * 订阅特定会话的事件
      *
-     * Events for this session will be dispatched to handlers.
-     * No reconnection needed - filtering is done client-side.
-     * 此会话的事件将被分发给处理函数。
-     * 无需重新连接 - 过滤在客户端完成。
+     * This will disconnect from any existing session and reconnect
+     * with the new session_id parameter.
+     * 这将断开任何现有会话的连接，并使用新的 session_id 参数重新连接。
      *
      * @param sessionId - Session ID to subscribe to / 要订阅的会话 ID
      */
     subscribeToSession(sessionId: string): void {
-      subscribedSessions.add(sessionId);
-      console.debug('[SSE] Subscribed to session:', sessionId, 'Total:', subscribedSessions.size);
+      // If already subscribed to this session, do nothing
+      if (currentSessionId === sessionId) {
+        console.debug('[SSE] Already subscribed to session:', sessionId);
+        return;
+      }
+
+      console.debug('[SSE] Subscribing to session:', sessionId, 'Previous:', currentSessionId);
+
+      // Update current session
+      currentSessionId = sessionId;
+
+      // Reset last event ID for new session
+      lastEventId = null;
+
+      // Reconnect with new session_id if we have handlers
+      if (handlers.size > 0) {
+        clearRetryTimeout();
+        retryCount = 0;
+        connect();
+      }
     },
 
     /**
-     * Unsubscribe from a specific session's events (client-side filtering)
-     * 取消订阅特定会话的事件（客户端过滤）
+     * Unsubscribe from a specific session's events
+     * 取消订阅特定会话的事件
      *
-     * Events for this session will no longer be dispatched to handlers.
-     * No reconnection needed - filtering is done client-side.
-     * 此会话的事件将不再被分发给处理函数。
-     * 无需重新连接 - 过滤在客户端完成。
+     * This will disconnect from the event stream if the session matches.
+     * 如果会话匹配，这将断开事件流连接。
      *
      * @param sessionId - Session ID to unsubscribe from / 要取消订阅的会话 ID
      */
     unsubscribeFromSession(sessionId: string): void {
-      subscribedSessions.delete(sessionId);
-      console.debug('[SSE] Unsubscribed from session:', sessionId, 'Total:', subscribedSessions.size);
+      // Only unsubscribe if it's the current session
+      if (currentSessionId !== sessionId) {
+        console.debug('[SSE] Not subscribed to session:', sessionId);
+        return;
+      }
+
+      console.debug('[SSE] Unsubscribing from session:', sessionId);
+
+      currentSessionId = null;
+      lastEventId = null;
+
+      // Disconnect since we're no longer subscribed to any session
+      disconnect();
     },
 
     /**
-     * Get currently subscribed session IDs
+     * Get currently subscribed session ID
      * 获取当前订阅的会话 ID
      *
-     * @returns Array of subscribed session IDs / 订阅的会话 ID 数组
+     * @returns Current session ID or null / 当前会话 ID 或 null
      */
     getSubscribedSessions(): string[] {
-      return Array.from(subscribedSessions);
+      return currentSessionId ? [currentSessionId] : [];
     },
 
     /**
@@ -683,7 +715,7 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
      * @returns True if subscribed / 如果已订阅则返回 true
      */
     isSubscribedToSession(sessionId: string): boolean {
-      return subscribedSessions.has(sessionId);
+      return currentSessionId === sessionId;
     },
   };
 }
