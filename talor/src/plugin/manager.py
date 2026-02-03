@@ -19,7 +19,6 @@ from typing import Any, TYPE_CHECKING
 
 from src.plugin.base import PromptPlugin
 from src.plugin.context import PluginContext
-from src.plugin.result import PluginResult
 
 if TYPE_CHECKING:
     from src.bus import Bus
@@ -153,16 +152,26 @@ class PluginManager:
         ]
 
     async def build_prompt(self, context: PluginContext) -> dict[str, Any]:
-        """Build complete prompt from all plugins.
+        """Build complete LLM messages list from all plugins.
+
+        Executes plugins in priority order and builds a complete messages list
+        ready for LLM API calls.
 
         Args:
             context: Plugin execution context
 
         Returns:
-            Dictionary with system_prompt, messages, and tool_restrictions
+            Dictionary with:
+            - messages: list[dict] - Complete LLM messages, ready for API call
+            - tools: list[dict] - Tool definitions list
+            - tool_restrictions: list[str] | None - Tool restrictions from Skills
+            - metadata: dict - Plugin metadata
         """
-        results: list[PluginResult] = []
+        system_parts: list[str] = []
+        conversation_messages: list[dict[str, Any]] = []
+        tools: list[dict[str, Any]] = []
         tool_restrictions: set[str] | None = None
+        all_metadata: dict[str, Any] = {}
 
         # Sort plugins by priority
         sorted_plugins = sorted(
@@ -179,7 +188,22 @@ class PluginManager:
             try:
                 result = await plugin.build(context)
                 if result:
-                    results.append(result)
+                    # Handle different section types
+                    if result.section == "memory":
+                        # Memory plugin returns conversation messages list
+                        if result.metadata and "messages" in result.metadata:
+                            conversation_messages = result.metadata["messages"]
+                    elif result.section == "tool":
+                        # Tool plugin returns tool definitions
+                        if result.metadata and "tools" in result.metadata:
+                            tools = result.metadata["tools"]
+                        # Tool plugin may also contribute to system prompt
+                        if result.content:
+                            system_parts.append(result.content)
+                    else:
+                        # Other plugins contribute to system prompt content
+                        if result.content:
+                            system_parts.append(result.content)
 
                     # Collect tool restrictions (intersection)
                     if result.tool_restrictions:
@@ -187,6 +211,10 @@ class PluginManager:
                             tool_restrictions = set(result.tool_restrictions)
                         else:
                             tool_restrictions &= set(result.tool_restrictions)
+
+                    # Merge metadata
+                    if result.metadata:
+                        all_metadata.update(result.metadata)
 
                     logger.debug(f"Plugin {plugin.name} produced result")
 
@@ -197,45 +225,22 @@ class PluginManager:
                 if plugin.required:
                     raise
 
-        return self._aggregate_results(results, tool_restrictions)
+        # Build final messages list
+        messages: list[dict[str, Any]] = []
 
-    def _aggregate_results(
-        self,
-        results: list[PluginResult],
-        tool_restrictions: set[str] | None,
-    ) -> dict[str, Any]:
-        """Aggregate plugin results into final prompt structure.
+        # 1. Add system message (merged from all system content)
+        if system_parts:
+            messages.append({
+                "role": "system",
+                "content": "\n\n".join(system_parts),
+            })
 
-        Args:
-            results: List of plugin results
-            tool_restrictions: Combined tool restrictions
-
-        Returns:
-            Dictionary with system_prompt, messages, and tool_restrictions
-        """
-        sections: dict[str, list[str]] = {}
-        all_metadata: dict[str, Any] = {}
-
-        for result in results:
-            if result.section not in sections:
-                sections[result.section] = []
-            sections[result.section].append(result.content)
-
-            # Merge metadata
-            if result.metadata:
-                all_metadata.update(result.metadata)
-
-        # Build system prompt from sections in order
-        system_parts = []
-        section_order = ["system", "agent", "llm", "environment", "skill", "tool"]
-
-        for section in section_order:
-            if section in sections:
-                system_parts.extend(sections[section])
+        # 2. Add conversation history (user/assistant/tool messages)
+        messages.extend(conversation_messages)
 
         return {
-            "system_prompt": "\n\n".join(system_parts),
-            "messages": sections.get("memory", []),
+            "messages": messages,
+            "tools": tools,
             "tool_restrictions": list(tool_restrictions) if tool_restrictions else None,
             "metadata": all_metadata,
         }

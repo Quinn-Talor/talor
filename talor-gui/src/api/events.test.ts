@@ -8,21 +8,21 @@
  * @requirements 1.3 - 自动尝试重新连接并显示连接状态
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  createEventsApi,
-  parseSSEEvent,
-  calculateRetryDelay,
-  ConnectionError,
-  type EventsApi,
-} from './events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TalorClient } from './client';
+import {
+    calculateRetryDelay,
+    ConnectionError,
+    createEventsApi,
+    parseSSEEvent,
+    type EventsApi,
+} from './events';
 
 // Mock fetch for SSE testing
 function createMockSSEResponse(events: Array<{ id?: string; data: string }>) {
   let eventIndex = 0;
   const encoder = new TextEncoder();
-  
+
   const stream = new ReadableStream({
     async pull(controller) {
       if (eventIndex < events.length) {
@@ -242,13 +242,13 @@ describe('createEventsApi', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    
+
     client = new TalorClient({ baseUrl: 'http://localhost:8000' });
-    
+
     // Mock fetch
     fetchMock = vi.fn();
     globalThis.fetch = fetchMock;
-    
+
     eventsApi = createEventsApi(client, {
       maxRetryCount: 3,
       initialRetryDelay: 100,
@@ -264,9 +264,12 @@ describe('createEventsApi', () => {
   });
 
   describe('subscribe', () => {
-    it('should create fetch connection on first subscribe', async () => {
+    it('should create fetch connection on first subscribe when session is subscribed', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
+      // Must subscribe to a session first (backend requires session_id)
+      eventsApi.subscribeToSession('test-session');
+
       const handler = vi.fn();
       eventsApi.subscribe(handler);
 
@@ -275,7 +278,7 @@ describe('createEventsApi', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(
-        'http://localhost:8000/event',
+        'http://localhost:8000/event?session_id=test-session',
         expect.objectContaining({
           method: 'GET',
           headers: expect.objectContaining({
@@ -285,15 +288,30 @@ describe('createEventsApi', () => {
       );
     });
 
+    it('should not connect without session subscription', async () => {
+      const handler = vi.fn();
+      eventsApi.subscribe(handler);
+
+      // Allow async operations to complete
+      await vi.advanceTimersByTimeAsync(10);
+
+      // No fetch call should be made without session subscription
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(eventsApi.getConnectionState()).toBe('disconnected');
+    });
+
     it('should not create new connection for additional subscribers', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
+
       const handler1 = vi.fn();
       const handler2 = vi.fn();
 
       eventsApi.subscribe(handler1);
       await vi.advanceTimersByTimeAsync(10);
-      
+
       eventsApi.subscribe(handler2);
       await vi.advanceTimersByTimeAsync(10);
 
@@ -307,17 +325,17 @@ describe('createEventsApi', () => {
         properties: { session_id: '123' },
         timestamp: 1234567890,
       });
-      
+
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([
         { id: '1', data: eventData },
       ]));
-      
+
       const handler1 = vi.fn();
       const handler2 = vi.fn();
 
       eventsApi.subscribe(handler1);
       eventsApi.subscribe(handler2);
-      
+
       // Subscribe to session to receive events
       eventsApi.subscribeToSession('123');
 
@@ -329,8 +347,6 @@ describe('createEventsApi', () => {
     });
 
     it('should return unsubscribe function', () => {
-      fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
       const handler = vi.fn();
       const unsubscribe = eventsApi.subscribe(handler);
 
@@ -339,7 +355,10 @@ describe('createEventsApi', () => {
 
     it('should disconnect when last subscriber unsubscribes', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
+
       const handler = vi.fn();
       const unsubscribe = eventsApi.subscribe(handler);
 
@@ -356,19 +375,23 @@ describe('createEventsApi', () => {
       expect(eventsApi.getConnectionState()).toBe('disconnected');
     });
 
-    it('should transition to connecting when subscribing', async () => {
+    it('should transition to connecting when subscribing with session', async () => {
       fetchMock.mockImplementation(() => new Promise(() => {})); // Never resolves
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
       eventsApi.subscribe(vi.fn());
-      
+
       expect(eventsApi.getConnectionState()).toBe('connecting');
     });
 
     it('should transition to connected on successful response', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
       eventsApi.subscribe(vi.fn());
-      
+
       await vi.advanceTimersByTimeAsync(10);
 
       expect(eventsApi.getConnectionState()).toBe('connected');
@@ -376,12 +399,15 @@ describe('createEventsApi', () => {
 
     it('should notify state change handler', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
       const stateHandler = vi.fn();
       eventsApi.onConnectionStateChange(stateHandler);
 
       // Should be called immediately with current state
       expect(stateHandler).toHaveBeenCalledWith('disconnected', 0);
+
+      // Subscribe to a session first (required for connection)
+      eventsApi.subscribeToSession('test-session');
 
       eventsApi.subscribe(vi.fn());
       expect(stateHandler).toHaveBeenCalledWith('connecting', 0);
@@ -392,9 +418,11 @@ describe('createEventsApi', () => {
 
     it('should reset retry count on successful connection', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
       eventsApi.subscribe(vi.fn());
-      
+
       await vi.advanceTimersByTimeAsync(10);
 
       expect(eventsApi.getRetryCount()).toBe(0);
@@ -413,15 +441,15 @@ describe('createEventsApi', () => {
         properties: { session_id: 'session-2', message_id: 'msg-2' },
         timestamp: Date.now(),
       });
-      
+
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([
         { id: '1', data: event1 },
         { id: '2', data: event2 },
       ]));
-      
+
       const handler = vi.fn();
       eventsApi.subscribe(handler);
-      
+
       // Only subscribe to session-1
       eventsApi.subscribeToSession('session-1');
 
@@ -430,29 +458,38 @@ describe('createEventsApi', () => {
       // Should only receive event for session-1
       const calls = handler.mock.calls;
       const receivedSessionIds = calls.map(call => call[0]?.data?.session_id);
-      
+
       expect(receivedSessionIds).toContain('session-1');
       expect(receivedSessionIds).not.toContain('session-2');
     });
 
-    it('should allow subscribing to multiple sessions', async () => {
+    it('should only allow one session subscription at a time', async () => {
       eventsApi.subscribeToSession('session-1');
-      eventsApi.subscribeToSession('session-2');
+      expect(eventsApi.getSubscribedSessions()).toEqual(['session-1']);
 
-      expect(eventsApi.getSubscribedSessions()).toContain('session-1');
-      expect(eventsApi.getSubscribedSessions()).toContain('session-2');
-      expect(eventsApi.getSubscribedSessions()).toHaveLength(2);
+      // Subscribing to another session replaces the previous one
+      eventsApi.subscribeToSession('session-2');
+      expect(eventsApi.getSubscribedSessions()).toEqual(['session-2']);
+      expect(eventsApi.getSubscribedSessions()).toHaveLength(1);
     });
 
-    it('should allow unsubscribing from sessions', async () => {
+    it('should allow unsubscribing from current session', async () => {
       eventsApi.subscribeToSession('session-1');
-      eventsApi.subscribeToSession('session-2');
-      
+      expect(eventsApi.getSubscribedSessions()).toEqual(['session-1']);
+
       eventsApi.unsubscribeFromSession('session-1');
 
-      expect(eventsApi.getSubscribedSessions()).not.toContain('session-1');
-      expect(eventsApi.getSubscribedSessions()).toContain('session-2');
-      expect(eventsApi.getSubscribedSessions()).toHaveLength(1);
+      expect(eventsApi.getSubscribedSessions()).toEqual([]);
+      expect(eventsApi.getSubscribedSessions()).toHaveLength(0);
+    });
+
+    it('should ignore unsubscribe for non-current session', async () => {
+      eventsApi.subscribeToSession('session-1');
+
+      // Unsubscribing from a different session should have no effect
+      eventsApi.unsubscribeFromSession('session-2');
+
+      expect(eventsApi.getSubscribedSessions()).toEqual(['session-1']);
     });
 
     it('should check if subscribed to a session', () => {
@@ -462,43 +499,35 @@ describe('createEventsApi', () => {
       expect(eventsApi.isSubscribedToSession('session-2')).toBe(false);
     });
 
-    it('should not dispatch events when no sessions are subscribed', async () => {
-      const eventData = JSON.stringify({
-        type: 'message.created',
-        properties: { session_id: 'session-1', message_id: 'msg-1' },
-        timestamp: Date.now(),
-      });
-      
-      fetchMock.mockResolvedValueOnce(createMockSSEResponse([
-        { id: '1', data: eventData },
-      ]));
-      
+    it('should not connect when no sessions are subscribed', async () => {
       const handler = vi.fn();
       eventsApi.subscribe(handler);
-      
+
       // Don't subscribe to any session
 
       await vi.advanceTimersByTimeAsync(200);
 
-      // Should not receive any session-specific events
-      expect(handler).not.toHaveBeenCalled();
+      // Should not connect without session subscription
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(eventsApi.getConnectionState()).toBe('disconnected');
     });
 
-    it('should dispatch global events (no session_id) regardless of subscription', async () => {
+    it('should dispatch global events (no session_id) when connected', async () => {
       const globalEvent = JSON.stringify({
         type: 'mcp.server_connected',
         properties: { serverName: 'test-server' },
         timestamp: Date.now(),
       });
-      
+
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([
         { id: '1', data: globalEvent },
       ]));
-      
+
       const handler = vi.fn();
+
+      // Must subscribe to a session to establish connection
+      eventsApi.subscribeToSession('test-session');
       eventsApi.subscribe(handler);
-      
-      // Don't subscribe to any session
 
       await vi.advanceTimersByTimeAsync(200);
 
@@ -510,7 +539,9 @@ describe('createEventsApi', () => {
   describe('disconnect', () => {
     it('should reset state on disconnect', async () => {
       fetchMock.mockResolvedValueOnce(createMockSSEResponse([]));
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
       eventsApi.subscribe(vi.fn());
       await vi.advanceTimersByTimeAsync(10);
 
@@ -524,7 +555,9 @@ describe('createEventsApi', () => {
   describe('manual reconnection', () => {
     it('should allow manual reconnection', async () => {
       fetchMock.mockResolvedValue(createMockSSEResponse([]));
-      
+
+      // Subscribe to session first
+      eventsApi.subscribeToSession('test-session');
       eventsApi.subscribe(vi.fn());
       await vi.advanceTimersByTimeAsync(10);
 
@@ -540,6 +573,64 @@ describe('createEventsApi', () => {
     it('should not reconnect if no subscribers', () => {
       eventsApi.reconnect();
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('session subscription triggers reconnection', () => {
+    it('should reconnect when switching sessions', async () => {
+      fetchMock.mockResolvedValue(createMockSSEResponse([]));
+
+      // Subscribe to first session
+      eventsApi.subscribeToSession('session-1');
+      eventsApi.subscribe(vi.fn());
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        'http://localhost:8000/event?session_id=session-1',
+        expect.anything()
+      );
+
+      // Switch to another session - should trigger reconnection
+      eventsApi.subscribeToSession('session-2');
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        'http://localhost:8000/event?session_id=session-2',
+        expect.anything()
+      );
+    });
+
+    it('should not reconnect when subscribing to same session', async () => {
+      fetchMock.mockResolvedValue(createMockSSEResponse([]));
+
+      eventsApi.subscribeToSession('session-1');
+      eventsApi.subscribe(vi.fn());
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Subscribe to same session again - should not reconnect
+      eventsApi.subscribeToSession('session-1');
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should disconnect when unsubscribing from current session', async () => {
+      fetchMock.mockResolvedValue(createMockSSEResponse([]));
+
+      eventsApi.subscribeToSession('session-1');
+      eventsApi.subscribe(vi.fn());
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(eventsApi.getConnectionState()).toBe('connected');
+
+      // Unsubscribe from current session
+      eventsApi.unsubscribeFromSession('session-1');
+
+      expect(eventsApi.getConnectionState()).toBe('disconnected');
     });
   });
 });

@@ -22,14 +22,22 @@ class PluginPriority(IntEnum):
     """Plugin priority enum (lower number = higher priority).
 
     Determines the execution order of plugins during prompt building.
+
+    Execution order: System → Environment → LLM → Agent → Tool → Skill → Memory
+    This order ensures:
+    1. System identity and environment info are injected first
+    2. LLM-specific config before Agent (may affect Agent behavior)
+    3. Agent role definition before tools and skills
+    4. Tool and Skill provide capability extensions
+    5. Memory (user message history) last, as conversation context
     """
     SYSTEM = 100       # System Prompt (global identity)
-    AGENT = 150        # Agent Prompt (specialized role)
-    LLM = 200          # LLM-specific configuration
-    ENVIRONMENT = 300  # Environment information
-    SKILL = 400        # Skill plugins
+    ENVIRONMENT = 200  # Environment information
+    LLM = 300          # LLM-specific configuration
+    AGENT = 400        # Agent Prompt (specialized role)
     TOOL = 500         # Tool definitions
-    MEMORY = 600       # Memory/history
+    SKILL = 600        # Skill plugins
+    MEMORY = 700       # Memory/history (user messages)
     CUSTOM = 1000      # Custom plugins
 
 

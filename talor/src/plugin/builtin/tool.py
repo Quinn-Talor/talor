@@ -57,7 +57,10 @@ class ToolPlugin(PromptPlugin):
             context: Plugin execution context
 
         Returns:
-            PluginResult with tool definitions, or None if no registry
+            PluginResult with:
+            - content: Tool descriptions for system prompt
+            - metadata["tools"]: Tool definitions list for LLM API
+            - metadata["tool_count"]: Number of tools
         """
         if not self._registry:
             return None
@@ -68,9 +71,13 @@ class ToolPlugin(PromptPlugin):
         )
 
         if not tools:
-            return None
+            return PluginResult(
+                content="",
+                section="tool",
+                metadata={"tools": [], "tool_count": 0},
+            )
 
-        # Format tool descriptions
+        # Format tool descriptions for system prompt
         tool_descriptions = []
         for tool in tools:
             func = tool.get("function", {})
@@ -85,5 +92,5 @@ class ToolPlugin(PromptPlugin):
         return PluginResult(
             content=content,
             section="tool",
-            metadata={"tool_count": len(tools)},
+            metadata={"tools": tools, "tool_count": len(tools)},
         )

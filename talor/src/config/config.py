@@ -7,10 +7,12 @@ Features:
 - JSONC format support
 - Configuration merging
 - Directory discovery
+- Module-level async functions (replacing ConfigService)
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -148,67 +150,99 @@ def parse_jsonc(content: str) -> dict[str, Any]:
 
 
 # =============================================================================
-# Config Namespace
+# Default Configuration
 # =============================================================================
 
-class Config:
-    """Configuration management namespace.
+DEFAULT_CONFIG: dict[str, Any] = {
+    "default_model": "ollama/deepseek-v3.1:671b-cloud",
+    "default_agent": "build",
+    "provider": {},
+    "agent": {},
+    "mcp": {},
+}
 
-    Provides methods for loading and managing configuration.
+
+# =============================================================================
+# Module-level State
+# =============================================================================
+
+_workspace: Path = Path(".")
+_worktree: Path = Path(".")
+_bus: Any = None
+_cache: dict[str, Any] | None = None
+_global_path: Path | None = None
+_lock = asyncio.Lock()
+
+
+def configure(
+    workspace: Path | str | None = None,
+    worktree: Path | str | None = None,
+    bus: Any = None,
+    global_path: Path | str | None = None,
+) -> None:
+    """Configure the config module.
+
+    Args:
+        workspace: Working directory
+        worktree: Project worktree root
+        bus: Bus instance for events
+        global_path: Global config directory
     """
+    global _workspace, _worktree, _bus, _cache, _global_path
 
-    # Class-level state
-    _bus: Any | None = None
-    _directory: Path = Path(".")
-    _worktree: Path = Path(".")
-    _cache: dict[str, Any] | None = None
-    _global_path: Path | None = None
+    if workspace is not None:
+        _workspace = Path(workspace)
+    if worktree is not None:
+        _worktree = Path(worktree)
+    else:
+        _worktree = _workspace
+    if bus is not None:
+        _bus = bus
+    if global_path is not None:
+        _global_path = Path(global_path)
+    # Clear cache when configuration changes
+    _cache = None
 
-    @classmethod
-    def configure(
-        cls,
-        bus: Any | None = None,
-        directory: Path | str = ".",
-        worktree: Path | str | None = None,
-        global_path: Path | str | None = None,
-    ) -> None:
-        """Configure the config system.
 
-        Args:
-            bus: Bus instance for events
-            directory: Working directory
-            worktree: Project worktree root
-            global_path: Global config directory
-        """
-        cls._bus = bus
-        cls._directory = Path(directory)
-        cls._worktree = Path(worktree) if worktree else cls._directory
-        cls._global_path = Path(global_path) if global_path else None
-        cls._cache = None
+def clear_cache() -> None:
+    """Clear configuration cache (for testing)."""
+    global _cache
+    _cache = None
 
-    @classmethod
-    async def get(cls) -> dict[str, Any]:
-        """Get merged configuration.
 
-        Returns:
-            Merged configuration dictionary
-        """
-        if cls._cache is not None:
-            return cls._cache
+# =============================================================================
+# Module-level Functions (replacing ConfigService)
+# =============================================================================
 
-        result: dict[str, Any] = {}
+async def get() -> dict[str, Any]:
+    """Get merged configuration.
+
+    Returns:
+        Merged configuration dictionary
+    """
+    global _cache
+
+    if _cache is not None:
+        return _cache
+
+    async with _lock:
+        # Double-check after acquiring lock
+        if _cache is not None:
+            return _cache
+
+        result: dict[str, Any] = dict(DEFAULT_CONFIG)
 
         # 1. Load global config (lowest precedence)
-        global_config = await cls._load_global()
-        result = cls._merge_config(result, global_config)
+        global_config = await _load_global()
+        result = _merge_config(result, global_config)
 
         # 2. Load project config (higher precedence)
-        project_config = await cls._load_project()
-        result = cls._merge_config(result, project_config)
+        project_config = await _load_project()
+        result = _merge_config(result, project_config)
 
         # 3. Load from environment variable (highest precedence)
-        env_config = cls._load_env()
-        result = cls._merge_config(result, env_config)
+        env_config = _load_env()
+        result = _merge_config(result, env_config)
 
         # Set defaults
         result.setdefault("agent", {})
@@ -221,253 +255,437 @@ class Config:
         result.setdefault("keybinds", {})
         result.setdefault("experimental", {})
 
-        cls._cache = result
+        _cache = result
         return result
 
-    @classmethod
-    async def _load_global(cls) -> dict[str, Any]:
-        """Load global configuration."""
-        global_dir = cls._global_path or Path.home() / ".talor"
 
-        for filename in ["talor.jsonc", "talor.json"]:
-            config_path = global_dir / filename
+async def reload() -> dict[str, Any]:
+    """Reload configuration from files.
+
+    Returns:
+        Reloaded configuration dict
+    """
+    global _cache
+
+    async with _lock:
+        _cache = None
+
+    config = await get()
+
+    if _bus:
+        from src.bus.events import ConfigReloaded, ConfigReloadedData
+        await _bus.publish(ConfigReloaded, ConfigReloadedData(config=config))
+
+    return config
+
+
+async def set_value(key: str, value: Any, scope: str = "project") -> None:
+    """Set a configuration value.
+
+    Args:
+        key: Configuration key (dot-separated for nested)
+        value: Value to set
+        scope: "global" or "project"
+    """
+    global _cache
+
+    # Determine config file path
+    if scope == "global":
+        config_dir = _global_path or Path.home() / ".talor"
+        config_path = config_dir / "talor.json"
+    else:
+        config_dir = _worktree / ".talor"
+        config_path = config_dir / "config.json"
+
+    # Ensure directory exists
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load existing config
+    if config_path.exists():
+        config = _load_file(config_path)
+    else:
+        config = {}
+
+    # Set value (support dot notation)
+    keys = key.split(".")
+    current = config
+    for k in keys[:-1]:
+        if k not in current:
+            current[k] = {}
+        current = current[k]
+    current[keys[-1]] = value
+
+    # Save config
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    # Clear cache
+    _cache = None
+
+    # Publish event
+    if _bus:
+        from src.bus.events import ConfigChanged, ConfigChangedData
+        await _bus.publish(
+            ConfigChanged,
+            ConfigChangedData(path=str(config_path), source=scope)
+        )
+
+
+async def directories() -> list[Path]:
+    """Get configuration directories.
+
+    Returns directories that may contain config files, plugins, etc.
+
+    Returns:
+        List of directory paths
+    """
+    dirs = []
+
+    # Global config directory
+    global_dir = _global_path or Path.home() / ".talor"
+    if global_dir.exists():
+        dirs.append(global_dir)
+
+    # Project .talor directory
+    project_dir = _worktree / ".talor"
+    if project_dir.exists():
+        dirs.append(project_dir)
+
+    # Current directory .talor
+    if _workspace != _worktree:
+        current_dir = _workspace / ".talor"
+        if current_dir.exists():
+            dirs.append(current_dir)
+
+    return dirs
+
+
+async def get_plugin_config() -> dict[str, Any]:
+    """Get plugin configuration.
+
+    Returns:
+        Plugin configuration dictionary with:
+        - builtin: dict of built-in plugin configs
+        - custom: list of custom plugin paths
+        - options: global plugin options
+    """
+    config = await get()
+
+    # Get plugins section
+    plugins = config.get("plugins", {})
+
+    # Merge legacy plugin paths
+    legacy_plugins = config.get("plugin", [])
+    custom_plugins = plugins.get("custom", [])
+
+    return {
+        "builtin": plugins.get("builtin", {}),
+        "custom": list(dict.fromkeys(legacy_plugins + custom_plugins)),
+        "options": plugins.get("options", {}),
+    }
+
+
+async def get_builtin_plugin_config(plugin_name: str) -> dict[str, Any] | None:
+    """Get configuration for a specific built-in plugin.
+
+    Args:
+        plugin_name: Plugin name (e.g., "system", "agent", "skill")
+
+    Returns:
+        Plugin configuration or None if not configured
+    """
+    plugin_config = await get_plugin_config()
+    builtin = plugin_config.get("builtin", {})
+    return builtin.get(plugin_name)
+
+
+async def is_plugin_enabled(plugin_name: str) -> bool:
+    """Check if a plugin is enabled.
+
+    Args:
+        plugin_name: Plugin name
+
+    Returns:
+        True if enabled (default), False if explicitly disabled
+    """
+    config = await get_builtin_plugin_config(plugin_name)
+    if config is None:
+        return True  # Enabled by default
+    return config.get("enabled", True)
+
+
+# =============================================================================
+# Internal Functions
+# =============================================================================
+
+async def _load_global() -> dict[str, Any]:
+    """Load global configuration."""
+    global_dir = _global_path or Path.home() / ".talor"
+
+    for filename in ["talor.jsonc", "talor.json"]:
+        config_path = global_dir / filename
+        if config_path.exists():
+            try:
+                return _load_file(config_path)
+            except Exception as e:
+                logger.warning(f"Failed to load global config {config_path}: {e}")
+
+    return {}
+
+
+async def _load_project() -> dict[str, Any]:
+    """Load project configuration."""
+    result: dict[str, Any] = {}
+
+    # Search for config files
+    search_dirs = [_workspace]
+    if _worktree != _workspace:
+        search_dirs.append(_worktree)
+
+    # Config file patterns to search
+    config_patterns = [
+        "talor.jsonc",
+        "talor.json",
+        "talor-config.jsonc",
+        "talor-config.json",
+        ".talor/config.jsonc",
+        ".talor/config.json",
+    ]
+
+    for search_dir in search_dirs:
+        for filename in config_patterns:
+            config_path = search_dir / filename
             if config_path.exists():
                 try:
-                    return cls._load_file(config_path)
+                    file_config = _load_file(config_path)
+                    result = _merge_config(result, file_config)
+                    logger.info(f"Loaded config from {config_path}")
                 except Exception as e:
-                    logger.warning(f"Failed to load global config {config_path}: {e}")
+                    logger.warning(f"Failed to load project config {config_path}: {e}")
 
+    return result
+
+
+def _load_env() -> dict[str, Any]:
+    """Load configuration from environment variables."""
+    result: dict[str, Any] = {}
+
+    # TALOR_CONFIG_CONTENT - inline JSON config
+    config_content = os.environ.get("TALOR_CONFIG_CONTENT")
+    if config_content:
+        try:
+            result = json.loads(config_content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse TALOR_CONFIG_CONTENT: {e}")
+
+    # Individual environment variables
+    if os.environ.get("TALOR_DEFAULT_AGENT"):
+        result["default_agent"] = os.environ["TALOR_DEFAULT_AGENT"]
+
+    if os.environ.get("TALOR_DEFAULT_MODEL"):
+        result["default_model"] = os.environ["TALOR_DEFAULT_MODEL"]
+
+    return result
+
+
+def _load_file(path: Path) -> dict[str, Any]:
+    """Load configuration from a file.
+
+    Args:
+        path: Path to config file
+
+    Returns:
+        Configuration dictionary
+    """
+    content = path.read_text(encoding="utf-8")
+
+    if path.suffix in [".jsonc", ".json"]:
+        return parse_jsonc(content)
+    else:
         return {}
 
-    @classmethod
-    async def _load_project(cls) -> dict[str, Any]:
-        """Load project configuration."""
-        result: dict[str, Any] = {}
 
-        # Search for config files
-        search_dirs = [cls._directory]
-        if cls._worktree != cls._directory:
-            search_dirs.append(cls._worktree)
+def _merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge two configuration dictionaries.
 
-        # Config file patterns to search
-        config_patterns = [
-            "talor.jsonc",
-            "talor.json",
-            "talor-config.jsonc",
-            "talor-config.json",
-            ".talor/config.jsonc",
-            ".talor/config.json",
-        ]
+    Args:
+        base: Base configuration
+        override: Override configuration
 
-        for search_dir in search_dirs:
-            for filename in config_patterns:
-                config_path = search_dir / filename
-                if config_path.exists():
-                    try:
-                        file_config = cls._load_file(config_path)
-                        result = cls._merge_config(result, file_config)
-                        logger.info(f"Loaded config from {config_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to load project config {config_path}: {e}")
+    Returns:
+        Merged configuration
+    """
+    result = base.copy()
 
-        return result
-
-    @classmethod
-    def _load_env(cls) -> dict[str, Any]:
-        """Load configuration from environment variables."""
-        result: dict[str, Any] = {}
-
-        # TALOR_CONFIG_CONTENT - inline JSON config
-        config_content = os.environ.get("TALOR_CONFIG_CONTENT")
-        if config_content:
-            try:
-                result = json.loads(config_content)
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse TALOR_CONFIG_CONTENT: {e}")
-
-        # Individual environment variables
-        if os.environ.get("TALOR_DEFAULT_AGENT"):
-            result["default_agent"] = os.environ["TALOR_DEFAULT_AGENT"]
-
-        if os.environ.get("TALOR_DEFAULT_MODEL"):
-            result["default_model"] = os.environ["TALOR_DEFAULT_MODEL"]
-
-        return result
-
-    @classmethod
-    def _load_file(cls, path: Path) -> dict[str, Any]:
-        """Load configuration from a file.
-
-        Args:
-            path: Path to config file
-
-        Returns:
-            Configuration dictionary
-        """
-        content = path.read_text(encoding="utf-8")
-
-        if path.suffix in [".jsonc", ".json"]:
-            return parse_jsonc(content)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _merge_config(result[key], value)
+        elif key in result and isinstance(result[key], list) and isinstance(value, list):
+            # Concatenate lists and deduplicate
+            result[key] = list(dict.fromkeys(result[key] + value))
         else:
-            return {}
+            result[key] = value
+
+    return result
+
+
+# =============================================================================
+# Legacy Config Class (for backward compatibility)
+# =============================================================================
+
+class Config:
+    """Configuration management namespace.
+
+    DEPRECATED: Use module-level functions instead.
+    This class is kept for backward compatibility during migration.
+    """
 
     @classmethod
-    def _merge_config(cls, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-        """Merge two configuration dictionaries.
+    def configure(
+        cls,
+        bus: Any | None = None,
+        directory: Path | str = ".",
+        worktree: Path | str | None = None,
+        global_path: Path | str | None = None,
+    ) -> None:
+        """Configure the config system.
 
-        Args:
-            base: Base configuration
-            override: Override configuration
-
-        Returns:
-            Merged configuration
+        DEPRECATED: Use module-level configure() instead.
         """
-        result = base.copy()
+        configure(
+            workspace=directory,
+            worktree=worktree,
+            bus=bus,
+            global_path=global_path,
+        )
 
-        for key, value in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-                result[key] = cls._merge_config(result[key], value)
-            elif key in result and isinstance(result[key], list) and isinstance(value, list):
-                # Concatenate lists and deduplicate
-                result[key] = list(dict.fromkeys(result[key] + value))
-            else:
-                result[key] = value
+    @classmethod
+    async def get(cls) -> dict[str, Any]:
+        """Get merged configuration.
 
-        return result
+        DEPRECATED: Use module-level get() instead.
+        """
+        return await get()
 
     @classmethod
     async def directories(cls) -> list[Path]:
         """Get configuration directories.
 
-        Returns directories that may contain config files, plugins, etc.
-
-        Returns:
-            List of directory paths
+        DEPRECATED: Use module-level directories() instead.
         """
-        dirs = []
-
-        # Global config directory
-        global_dir = cls._global_path or Path.home() / ".talor"
-        if global_dir.exists():
-            dirs.append(global_dir)
-
-        # Project .talor directory
-        project_dir = cls._worktree / ".talor"
-        if project_dir.exists():
-            dirs.append(project_dir)
-
-        # Current directory .talor
-        if cls._directory != cls._worktree:
-            current_dir = cls._directory / ".talor"
-            if current_dir.exists():
-                dirs.append(current_dir)
-
-        return dirs
+        return await directories()
 
     @classmethod
     async def set(cls, key: str, value: Any, scope: str = "project") -> None:
         """Set a configuration value.
 
-        Args:
-            key: Configuration key (dot-separated for nested)
-            value: Value to set
-            scope: "global" or "project"
+        DEPRECATED: Use module-level set_value() instead.
         """
-        # Determine config file path
-        if scope == "global":
-            config_dir = cls._global_path or Path.home() / ".talor"
-            config_path = config_dir / "talor.json"
-        else:
-            config_dir = cls._worktree / ".talor"
-            config_path = config_dir / "config.json"
-
-        # Ensure directory exists
-        config_dir.mkdir(parents=True, exist_ok=True)
-
-        # Load existing config
-        if config_path.exists():
-            config = cls._load_file(config_path)
-        else:
-            config = {}
-
-        # Set value (support dot notation)
-        keys = key.split(".")
-        current = config
-        for k in keys[:-1]:
-            if k not in current:
-                current[k] = {}
-            current = current[k]
-        current[keys[-1]] = value
-
-        # Save config
-        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-
-        # Clear cache
-        cls._cache = None
-
-        # Publish event
-        if cls._bus:
-            from src.bus.events import ConfigChanged, ConfigChangedData
-            await cls._bus.publish(
-                ConfigChanged,
-                ConfigChangedData(path=str(config_path), source=scope)
-            )
+        await set_value(key, value, scope)
 
     @classmethod
     def clear_cache(cls) -> None:
-        """Clear configuration cache (for testing)."""
-        cls._cache = None
+        """Clear configuration cache.
+
+        DEPRECATED: Use module-level clear_cache() instead.
+        """
+        clear_cache()
 
     @classmethod
     async def get_plugin_config(cls) -> dict[str, Any]:
         """Get plugin configuration.
 
-        Returns:
-            Plugin configuration dictionary with:
-            - builtin: dict of built-in plugin configs
-            - custom: list of custom plugin paths
-            - options: global plugin options
+        DEPRECATED: Use module-level get_plugin_config() instead.
         """
-        config = await cls.get()
-
-        # Get plugins section
-        plugins = config.get("plugins", {})
-
-        # Merge legacy plugin paths
-        legacy_plugins = config.get("plugin", [])
-        custom_plugins = plugins.get("custom", [])
-
-        return {
-            "builtin": plugins.get("builtin", {}),
-            "custom": list(dict.fromkeys(legacy_plugins + custom_plugins)),
-            "options": plugins.get("options", {}),
-        }
+        return await get_plugin_config()
 
     @classmethod
     async def get_builtin_plugin_config(cls, plugin_name: str) -> dict[str, Any] | None:
         """Get configuration for a specific built-in plugin.
 
-        Args:
-            plugin_name: Plugin name (e.g., "system", "agent", "skill")
-
-        Returns:
-            Plugin configuration or None if not configured
+        DEPRECATED: Use module-level get_builtin_plugin_config() instead.
         """
-        plugin_config = await cls.get_plugin_config()
-        builtin = plugin_config.get("builtin", {})
-        return builtin.get(plugin_name)
+        return await get_builtin_plugin_config(plugin_name)
 
     @classmethod
     async def is_plugin_enabled(cls, plugin_name: str) -> bool:
         """Check if a plugin is enabled.
 
+        DEPRECATED: Use module-level is_plugin_enabled() instead.
+        """
+        return await is_plugin_enabled(plugin_name)
+
+
+# =============================================================================
+# Legacy ConfigService Class (for backward compatibility)
+# =============================================================================
+
+class ConfigService:
+    """Application service for configuration management.
+
+    DEPRECATED: Use module-level functions instead.
+    This class is kept for backward compatibility during migration.
+
+    Example (deprecated):
+        ```python
+        service = ConfigService(directory=Path("/workspace"))
+        config = await service.get()
+        await service.set("default_model", "openai/gpt-4")
+        ```
+
+    New code should use:
+        ```python
+        from src.config import config
+        config.configure(workspace=Path("/workspace"))
+        cfg = await config.get()
+        await config.set_value("default_model", "openai/gpt-4")
+        ```
+    """
+
+    def __init__(
+        self,
+        directory: Path | None = None,
+        worktree: Path | None = None,
+        bus: Any = None,
+    ) -> None:
+        """Initialize service.
+
         Args:
-            plugin_name: Plugin name
+            directory: Workspace directory
+            worktree: Working tree directory
+            bus: Event bus for publishing config changes
+        """
+        # Configure the module-level state
+        configure(
+            workspace=directory,
+            worktree=worktree,
+            bus=bus,
+        )
+
+    def clear_cache(self) -> None:
+        """Clear config cache."""
+        clear_cache()
+
+    async def get(self) -> dict[str, Any]:
+        """Get merged configuration.
 
         Returns:
-            True if enabled (default), False if explicitly disabled
+            Merged configuration dict
         """
-        config = await cls.get_builtin_plugin_config(plugin_name)
-        if config is None:
-            return True  # Enabled by default
-        return config.get("enabled", True)
+        return await get()
+
+    async def reload(self) -> dict[str, Any]:
+        """Reload configuration from files.
+
+        Returns:
+            Reloaded configuration dict
+        """
+        return await reload()
+
+    async def set(self, key: str, value: Any) -> None:
+        """Set a configuration value.
+
+        Args:
+            key: Configuration key (dot-separated for nested)
+            value: Value to set
+        """
+        await set_value(key, value, scope="project")

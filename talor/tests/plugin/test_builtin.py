@@ -151,21 +151,18 @@ class TestMemoryPlugin:
 
     def setup_method(self):
         """Clear session cache before each test."""
-        from src.session import Session
-        from src.core.container import get_container
-        get_container().session_repository.clear_cache()
+        from src.session import clear_cache
+        clear_cache()
 
     @pytest.mark.asyncio
     async def test_no_messages(self, context):
         """Test with no messages - returns empty result with metadata."""
-        from src.core.container import get_container
+        from src.session import create_session
 
         # Create session for the context
-        service = get_container().session_service
-        await service.create_session(title="Test")
+        session = await create_session(title="Test")
         # Update context to use the created session
-        sessions = await service.list_sessions()
-        context.session_id = sessions[0].id
+        context.session_id = session.id
 
         plugin = MemoryPlugin()
         result = await plugin.build(context)
@@ -178,11 +175,10 @@ class TestMemoryPlugin:
     @pytest.mark.asyncio
     async def test_with_messages(self, context):
         """Test with messages in session memory."""
-        from src.core.container import get_container
+        from src.session import create_session
 
         # Create session and add messages to its memory
-        service = get_container().session_service
-        session = await service.create_session(title="Test")
+        session = await create_session(title="Test")
         context.session_id = session.id
 
         session.memory.add_user_message("Hello")
@@ -197,12 +193,82 @@ class TestMemoryPlugin:
         assert len(result.metadata["messages"]) == 2
 
     @pytest.mark.asyncio
+    async def test_message_format_llm_api_compatible(self, context):
+        """Test that returned messages are LLM API compatible.
+
+        Validates: Requirements 11.5 - Messages must be in LLM API format.
+        """
+        from src.session import create_session
+
+        # Create session and add various message types
+        session = await create_session(title="Test")
+        context.session_id = session.id
+
+        # Add user message
+        session.memory.add_user_message("Hello, can you help me?")
+
+        # Add assistant message with tool call
+        session.memory.add_assistant_message(
+            content=None,
+            tool_calls=[{
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": '{"path": "test.txt"}'
+                }
+            }]
+        )
+
+        # Add tool result
+        session.memory.add_tool_result(
+            tool_call_id="call_123",
+            content="File content here",
+            name="read_file"
+        )
+
+        # Add final assistant response
+        session.memory.add_assistant_message("Here's what I found in the file.")
+
+        plugin = MemoryPlugin()
+        result = await plugin.build(context)
+
+        assert result is not None
+        messages = result.metadata["messages"]
+        assert len(messages) == 4
+
+        # Verify user message format
+        user_msg = messages[0]
+        assert user_msg["role"] == "user"
+        assert "content" in user_msg
+        assert user_msg["content"] == "Hello, can you help me?"
+
+        # Verify assistant message with tool call format
+        assistant_tool_msg = messages[1]
+        assert assistant_tool_msg["role"] == "assistant"
+        assert "tool_calls" in assistant_tool_msg
+        assert len(assistant_tool_msg["tool_calls"]) == 1
+        assert assistant_tool_msg["tool_calls"][0]["id"] == "call_123"
+        assert assistant_tool_msg["tool_calls"][0]["function"]["name"] == "read_file"
+
+        # Verify tool result format
+        tool_msg = messages[2]
+        assert tool_msg["role"] == "tool"
+        assert tool_msg["tool_call_id"] == "call_123"
+        assert tool_msg["content"] == "File content here"
+        assert tool_msg["name"] == "read_file"
+
+        # Verify final assistant message format
+        final_msg = messages[3]
+        assert final_msg["role"] == "assistant"
+        assert final_msg["content"] == "Here's what I found in the file."
+
+    @pytest.mark.asyncio
     async def test_model_context_configuration(self, context):
         """Test that memory is configured with model context length."""
-        from src.core.container import get_container
+        from src.session import create_session
 
-        service = get_container().session_service
-        session = await service.create_session(title="Test")
+        session = await create_session(title="Test")
         context.session_id = session.id
 
         plugin = MemoryPlugin()
@@ -317,19 +383,23 @@ class TestToolPlugin:
     async def test_with_registry(self, context):
         """Test with mock registry."""
         mock_registry = MagicMock()
-        mock_registry.get_llm_definitions = AsyncMock(return_value=[
+        tool_definitions = [
             {"function": {"name": "read", "description": "Read a file"}},
             {"function": {"name": "write", "description": "Write a file"}},
-        ])
+        ]
+        mock_registry.get_llm_definitions = AsyncMock(return_value=tool_definitions)
 
         plugin = ToolPlugin(tool_registry=mock_registry)
         result = await plugin.build(context)
 
         assert result is not None
+        # Verify tool descriptions in content (for system prompt)
         assert "available_tools" in result.content
         assert "read" in result.content
         assert "write" in result.content
+        # Verify tool definitions in metadata (for LLM API)
         assert result.metadata["tool_count"] == 2
+        assert result.metadata["tools"] == tool_definitions
 
     @pytest.mark.asyncio
     async def test_empty_tools(self, context):
@@ -340,7 +410,11 @@ class TestToolPlugin:
         plugin = ToolPlugin(tool_registry=mock_registry)
         result = await plugin.build(context)
 
-        assert result is None
+        # Should return result with empty tools list
+        assert result is not None
+        assert result.content == ""
+        assert result.metadata["tools"] == []
+        assert result.metadata["tool_count"] == 0
 
     def test_set_registry(self):
         """Test setting registry."""

@@ -3,26 +3,29 @@
 Provides REST API and WebSocket endpoints for the AI agent framework.
 
 Architecture:
-    Uses DI Container for service management following DDD principles.
+    Uses module-level initialization for simplified dependency management.
 
     ```python
-    from src.core.container import get_container
+    from src import initialize, shutdown
+    from src.bus import Bus
 
-    container = get_container()
-    container.configure(workspace=workspace, storage=storage, bus=Bus)
+    # Initialize all modules
+    bus = Bus(directory=str(workspace))
+    await initialize(workspace=workspace, storage=None, bus=bus)
 
-    # Then use services
-    session = await container.session_service.create_session(...)
-    result = await container.agent_executor.execute_stream(...)
+    # Use module-level functions directly
+    from src.session import create_session
+    session = await create_session(title="New Session")
+
+    # Cleanup on shutdown
+    shutdown()
     ```
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -30,51 +33,18 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src import initialize, shutdown
 from src.bus import Bus
+from src.bus import manager as bus_manager
 from src.tool import ToolRegistry
 from src.tool.builtin import get_all_builtin_tools
 from src.config import Config
 from src.mcp_client import MCP, register_mcp_tools
 from src.core.state import state
-from src.core.container import get_container
 from src.api.routes import create_api_router, create_events_router
 
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Event Broadcasting
-# =============================================================================
-
-async def _broadcast_event(event) -> None:
-    """Broadcast event to SSE and WebSocket clients."""
-    event_data = {
-        "type": event.type,
-        "properties": event.properties.model_dump() if hasattr(event.properties, "model_dump") else event.properties,
-        "timestamp": int(time.time() * 1000),
-    }
-
-    session_id = event_data.get("properties", {}).get("session_id")
-
-    for client in state.sse_clients:
-        if client.should_receive(session_id):
-            try:
-                await client.queue.put(event_data)
-            except Exception:
-                pass
-
-    message = json.dumps(event_data)
-    disconnected = []
-    for ws in state.websockets:
-        try:
-            await ws.send_text(message)
-        except Exception:
-            disconnected.append(ws)
-
-    for ws in disconnected:
-        if ws in state.websockets:
-            state.websockets.remove(ws)
 
 
 # =============================================================================
@@ -90,10 +60,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     state.workspace = workspace
     state.worktree = workspace
 
-    # Configure DI Container
-    container = get_container()
-    bus = Bus(directory=str(workspace))
-    container.configure(
+    # Create a temporary bus for module initialization (config events only)
+    bus = Bus()
+
+    # Initialize all modules using simplified architecture
+    await initialize(
         workspace=workspace,
         worktree=workspace,
         storage=None,
@@ -104,8 +75,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Config.configure(bus=bus, directory=workspace, worktree=workspace)
     MCP.configure(bus=bus, config=Config)
 
-    # Create tool registry (use container's registry)
-    state.tool_registry = container.tool_registry
+    # Create tool registry directly
+    tool_registry = ToolRegistry(bus=bus)
+    state.tool_registry = tool_registry
 
     # Register built-in tools
     for tool in get_all_builtin_tools():
@@ -118,8 +90,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as e:
         logger.warning(f"Failed to connect MCP servers: {e}")
 
-    # Subscribe to events for broadcasting
-    bus.subscribe_all(_broadcast_event)
+    # Create AgentExecutor with module-level services
+    from src.session import SessionService
+    from src.provider import ProviderService
+    from src.agent import AgentService, AgentExecutor
+
+    session_service = SessionService(bus=bus)
+    provider_service = ProviderService()
+    agent_service = AgentService()
+
+    state.agent_executor = AgentExecutor(
+        session_service=session_service,
+        provider_service=provider_service,
+        tool_registry=tool_registry,
+        agent_service=agent_service,
+        workspace=workspace,
+        worktree=workspace,
+    )
 
     logger.info(f"Workspace: {workspace}")
     logger.info(f"Tools registered: {state.tool_registry.tool_count}")
@@ -130,10 +117,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown
     logger.info("Shutting down Talor API server...")
 
+    # Shutdown all session buses
+    await bus_manager.shutdown()
+
     await MCP.disconnect_all()
 
     if state.tool_registry:
         await state.tool_registry.clear()
+
+    # Clear module caches
+    shutdown()
 
     for ws in state.websockets:
         try:

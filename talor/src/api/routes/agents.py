@@ -1,26 +1,24 @@
-"""Agent Routes."""
+"""Agent Routes.
 
-from fastapi import APIRouter, HTTPException, Depends
+Uses module-level functions from src.agent for agent management.
+"""
+
+from fastapi import APIRouter, HTTPException
 
 from src.api.models import AgentResponse
-from src.core.container import get_container
-from src.agent.service import AgentService
+from src.agent import (
+    get_agent as agent_get,
+    list_agents as agent_list,
+)
 
 
 router = APIRouter()
 
 
-def get_agent_service() -> AgentService:
-    """Get agent service from container."""
-    return get_container().agent_service
-
-
 @router.get("", response_model=list[AgentResponse])
-async def list_agents(
-    service: AgentService = Depends(get_agent_service),
-) -> list[AgentResponse]:
+async def list_agents() -> list[AgentResponse]:
     """List available agents."""
-    agents = await service.list_agents()
+    agents = await agent_list()
     return [
         AgentResponse(
             name=a.name,
@@ -36,10 +34,9 @@ async def list_agents(
 @router.get("/{agent_name}", response_model=AgentResponse)
 async def get_agent(
     agent_name: str,
-    service: AgentService = Depends(get_agent_service),
 ) -> AgentResponse:
     """Get an agent by name."""
-    agent = await service.get_agent(agent_name)
+    agent = await agent_get(agent_name)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 

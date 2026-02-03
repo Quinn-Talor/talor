@@ -10,28 +10,136 @@ This package provides an event-driven architecture for building AI agents:
 - Provider System: Multi-provider LLM support
 - MCP Integration: Model Context Protocol support
 
-Example (DDD Architecture):
+Example (Simplified Architecture):
     ```python
-    from src.core.container import get_container
+    from pathlib import Path
+    from src import initialize, shutdown
+    from src.session import create_session
+    from src.agent import AgentExecutor
 
-    # Configure container
-    container = get_container()
-    container.configure(workspace=Path("."), bus=Bus)
+    # Initialize all modules
+    storage = ...  # Your storage instance
+    await initialize(workspace=Path("."), storage=storage)
 
-    # Create session via service
-    session = await container.session_service.create_session(title="New Session")
+    # Create session via module function
+    # Each session automatically gets its own isolated Bus via SessionBusManager
+    session = await create_session(title="New Session")
 
     # Execute prompt via AgentExecutor
-    async for event in container.agent_executor.execute_stream(
+    executor = AgentExecutor(workspace=Path("."))
+    async for event in executor.execute_stream(
         session_id=session.id,
         parts=[{"type": "text", "text": "Hello!"}],
         model={"provider_id": "openai", "model_id": "gpt-4"},
     ):
         print(event)
+
+    # Cleanup on shutdown
+    shutdown()
     ```
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.bus import Bus
+
 __version__ = "0.1.0"
+
+
+# =============================================================================
+# Module Initialization Functions
+# =============================================================================
+
+async def initialize(
+    workspace: Path,
+    storage: Any = None,
+    bus: Any = None,
+    worktree: Path | None = None,
+) -> None:
+    """Initialize all Talor modules.
+
+    This function configures all core modules with the provided dependencies.
+    Should be called once at application startup.
+
+    Note: The bus parameter is only used for config module events (ConfigReloaded,
+    ConfigChanged). Session events use SessionBusManager for per-session isolation.
+
+    Args:
+        workspace: Working directory path
+        storage: Storage instance for persistence (e.g., aiosqlite connection)
+        bus: Event bus instance for config events (optional)
+        worktree: Project worktree root (defaults to workspace if not provided)
+
+    Example:
+        ```python
+        from pathlib import Path
+        from src import initialize
+
+        storage = await create_storage()
+        await initialize(workspace=Path("."), storage=storage)
+        ```
+    """
+    from src.config import config
+    from src import provider
+    from src import session
+    from src import agent
+
+    # Use workspace as worktree if not provided
+    effective_worktree = worktree or workspace
+
+    # 1. Configure config module
+    config.configure(
+        workspace=workspace,
+        worktree=effective_worktree,
+        bus=bus,
+    )
+
+    # Create config getter for other modules
+    async def config_getter() -> dict[str, Any]:
+        return await config.get()
+
+    # 2. Configure provider module
+    provider.configure(config_getter=config_getter)
+
+    # 3. Configure session module
+    # Note: bus parameter removed - session module now uses SessionBusManager internally
+    session.configure(
+        workspace=workspace,
+        storage=storage,
+    )
+
+    # 4. Configure agent module
+    agent.configure(config_getter=config_getter)
+
+
+def shutdown() -> None:
+    """Shutdown and clear all module caches.
+
+    This function clears all cached state in the modules.
+    Should be called on application shutdown or when reinitializing.
+
+    Example:
+        ```python
+        from src import shutdown
+
+        # On application exit
+        shutdown()
+        ```
+    """
+    from src.config import config
+    from src import provider
+    from src import session
+    from src import agent
+
+    # Clear all module caches
+    config.clear_cache()
+    provider.clear_cache()
+    session.clear_cache()
+    agent.clear_cache()
 
 # Re-export main components
 from src.bus import Bus, BusEvent, GlobalBus
@@ -52,6 +160,9 @@ def __getattr__(name: str):
 __all__ = [
     # Version
     "__version__",
+    # Module initialization
+    "initialize",
+    "shutdown",
     # Bus
     "Bus",
     "BusEvent",

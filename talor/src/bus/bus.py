@@ -14,7 +14,7 @@ Example:
     SessionCreated = BusEvent.define("session.created", SessionData)
 
     # Create bus instance
-    bus = Bus(directory="/workspace")
+    bus = Bus()
 
     # Subscribe
     async def handler(event):
@@ -39,7 +39,6 @@ from typing import Any, Callable, Awaitable, TypeVar, Generic
 from pydantic import BaseModel
 
 from src.bus.bus_event import BusEvent, EventDefinition, EventPayload
-from src.bus.global_bus import GlobalBus
 
 
 logger = logging.getLogger(__name__)
@@ -56,19 +55,18 @@ class Bus:
     """Event bus for component communication (DDD-compliant).
 
     A proper domain service with instance-based state management.
-    Each Bus instance maintains its own subscriptions and directory context.
+    Each Bus instance maintains its own subscriptions.
 
     Features:
     - Typed event definitions with Pydantic models
     - Async event delivery
     - Wildcard subscription ("*")
     - Instance-scoped state (no class variables)
-    - GlobalBus integration for cross-instance events
 
     Example:
         ```python
-        # Create bus instance (typically via DI container)
-        bus = Bus(directory="/workspace")
+        # Create bus instance
+        bus = Bus()
 
         # Subscribe to events
         unsub = bus.subscribe(SessionCreated, my_handler)
@@ -78,30 +76,10 @@ class Bus:
         ```
     """
 
-    def __init__(self, directory: str | None = None) -> None:
-        """Initialize the event bus.
-
-        Args:
-            directory: Instance working directory for GlobalBus routing
-        """
+    def __init__(self) -> None:
+        """Initialize the event bus."""
         self._subscriptions: dict[str, list[EventCallback]] = {}
         self._lock = asyncio.Lock()
-        self._directory = directory
-
-    @property
-    def directory(self) -> str | None:
-        """Get the instance directory."""
-        return self._directory
-
-    def set_directory(self, directory: str) -> None:
-        """Set the instance directory.
-
-        Used for GlobalBus event routing.
-
-        Args:
-            directory: Instance working directory
-        """
-        self._directory = directory
 
     async def publish(
         self,
@@ -143,13 +121,6 @@ class Bus:
                 tasks.append(task)
 
             await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Emit to GlobalBus for cross-instance communication
-        if self._directory:
-            GlobalBus.emit("event", {
-                "directory": self._directory,
-                "payload": payload.to_dict(),
-            })
 
     def subscribe(
         self,
@@ -318,12 +289,6 @@ class Bus:
                 for handler in handlers
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
-
-        if self._directory:
-            GlobalBus.emit("event", {
-                "directory": self._directory,
-                "payload": payload.to_dict(),
-            })
 
     def clear(self) -> None:
         """Clear all subscriptions (for testing)."""

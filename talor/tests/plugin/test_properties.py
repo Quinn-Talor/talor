@@ -127,14 +127,15 @@ class TestPluginExecutionOrder:
         context = PluginContext(session_id="test", agent_name="build")
         result = await manager.build_prompt(context)
 
-        # Verify order in output
-        system_prompt = result["system_prompt"]
+        # Verify order in output - new format uses messages list
+        assert len(result["messages"]) >= 1
+        system_content = result["messages"][0]["content"]
         sorted_priorities = sorted(priorities)
 
         positions = []
         for i, priority in enumerate(priorities):
             tag = f"<plugin-{i}/>"
-            pos = system_prompt.find(tag)
+            pos = system_content.find(tag)
             if pos >= 0:
                 positions.append((priority, pos))
 

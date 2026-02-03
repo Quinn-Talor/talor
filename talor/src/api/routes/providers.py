@@ -1,28 +1,26 @@
-"""Provider Routes."""
+"""Provider Routes.
+
+Uses module-level functions from src.provider for provider management.
+"""
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
 from src.api.models import ProviderResponse
-from src.core.container import get_container
-from src.provider.service import ProviderService
+from src.provider import (
+    list_providers as provider_list,
+    clear_cache as provider_clear_cache,
+)
 
 
 router = APIRouter()
 
 
-def get_provider_service() -> ProviderService:
-    """Get provider service from container."""
-    return get_container().provider_service
-
-
 @router.get("", response_model=list[ProviderResponse])
-async def list_providers(
-    service: ProviderService = Depends(get_provider_service),
-) -> list[ProviderResponse]:
+async def list_providers() -> list[ProviderResponse]:
     """List available providers."""
-    providers = await service.list_providers()
+    providers = await provider_list()
     return [
         ProviderResponse(
             id=p.id,
@@ -34,11 +32,9 @@ async def list_providers(
 
 
 @router.get("/models")
-async def list_models(
-    service: ProviderService = Depends(get_provider_service),
-) -> list[dict]:
+async def list_models() -> list[dict]:
     """List all available models."""
-    providers = await service.list_providers()
+    providers = await provider_list()
     models = []
 
     for provider in providers:
@@ -55,12 +51,10 @@ async def list_models(
 
 
 @router.post("/refresh")
-async def refresh_providers(
-    service: ProviderService = Depends(get_provider_service),
-) -> dict[str, Any]:
+async def refresh_providers() -> dict[str, Any]:
     """Refresh provider cache and rediscover models."""
-    service.clear_cache()
-    providers = await service.list_providers()
+    provider_clear_cache()
+    providers = await provider_list()
 
     return {
         "success": True,

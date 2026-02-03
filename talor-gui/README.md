@@ -1,73 +1,76 @@
-# React + TypeScript + Vite
+# Talor GUI
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Talor 的 Web 前端界面，基于 React 19 + TypeScript + Vite 构建。
 
-Currently, two official plugins are available:
+## 功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 会话管理（创建、切换、删除）
+- 实时聊天界面
+- Markdown 渲染（代码高亮）
+- 工具调用可视化
+- 多语言支持（中/英）
+- 深色/浅色主题
 
-## React Compiler
+## 快速开始
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# 安装依赖
+npm install
 
-## Expanding the ESLint configuration
+# 启动开发服务器
+npm run dev
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# 构建生产版本
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 开发命令
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+# 测试
+npm run test:run          # 单次运行
+npm run test:coverage     # 带覆盖率
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# 代码质量
+npm run format            # Prettier 格式化
+npm run lint:fix          # ESLint 修复
 ```
+
+## 技术栈
+
+- **React 19** - UI 框架
+- **TypeScript** - 类型安全
+- **Vite** - 构建工具
+- **Zustand** - 状态管理
+- **TailwindCSS v4** - 样式
+- **i18next** - 国际化
+- **react-markdown + shiki** - Markdown 渲染
+- **Vitest + fast-check** - 测试
+
+## 项目结构
+
+```
+src/
+├── api/          # API 客户端（REST + SSE）
+├── components/   # React 组件
+│   ├── chat/     # 聊天 UI
+│   ├── common/   # 共享组件
+│   ├── session/  # 会话管理
+│   └── settings/ # 设置界面
+├── hooks/        # 自定义 Hooks
+├── i18n/         # 国际化资源
+├── pages/        # 页面组件
+├── store/        # Zustand 状态
+├── types/        # TypeScript 类型
+└── utils/        # 工具函数
+```
+
+## 配置
+
+开发服务器通过 Vite 代理将 API 请求转发到后端：
+
+- `/api/*` → `http://127.0.0.1:8000`
+- `/event` → `http://127.0.0.1:8000`（SSE）
+- `/ws` → `ws://127.0.0.1:8000`（WebSocket）
+
+确保后端服务运行在 8000 端口。

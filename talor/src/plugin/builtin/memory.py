@@ -20,6 +20,8 @@ from typing import Any
 from src.plugin.base import PromptPlugin, PluginPriority
 from src.plugin.context import PluginContext
 from src.plugin.result import PluginResult
+from src.session import get_session
+from src.provider import get_model
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +57,9 @@ class MemoryPlugin(PromptPlugin):
         Returns:
             PluginResult with messages in metadata
         """
-        from src.core.container import get_container
-
         try:
-            # Get session via service
-            session_service = get_container().session_service
-            session = await session_service.get_session(context.session_id)
+            # Get session via module-level function
+            session = await get_session(context.session_id)
             if not session:
                 return PluginResult(
                     content="",
@@ -137,10 +136,7 @@ class MemoryPlugin(PromptPlugin):
             Context length in tokens
         """
         try:
-            from src.core.container import get_container
-
-            provider_service = get_container().provider_service
-            model = await provider_service.get_model(provider_id, model_id)
+            model = await get_model(provider_id, model_id)
             if model:
                 return model.context_length
         except Exception as e:

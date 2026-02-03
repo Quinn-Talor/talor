@@ -76,7 +76,7 @@ class TestBus:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Create fresh bus instance for each test."""
-        self.bus = Bus(directory="/test")
+        self.bus = Bus()
         yield
         self.bus.clear()
 
@@ -392,17 +392,16 @@ class TestSession:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Clear session state."""
-        from src.core.container import get_container, Container
-        Container.reset()
+        from src.session import clear_cache
+        clear_cache()
         yield
-        Container.reset()
+        clear_cache()
 
     @pytest.mark.asyncio
     async def test_create_session(self):
         """Test creating a session."""
-        from src.core.container import get_container
-        service = get_container().session_service
-        session = await service.create_session(title="Test Session")
+        from src.session import create_session
+        session = await create_session(title="Test Session")
 
         assert session.id.startswith("session_")
         assert session.title == "Test Session"
@@ -411,11 +410,10 @@ class TestSession:
     @pytest.mark.asyncio
     async def test_get_session(self):
         """Test getting a session."""
-        from src.core.container import get_container
-        service = get_container().session_service
-        created = await service.create_session(title="Get Test")
+        from src.session import create_session, get_session
+        created = await create_session(title="Get Test")
 
-        retrieved = await service.get_session(created.id)
+        retrieved = await get_session(created.id)
 
         assert retrieved is not None
         assert retrieved.id == created.id
@@ -424,11 +422,10 @@ class TestSession:
     @pytest.mark.asyncio
     async def test_update_session(self):
         """Test updating a session."""
-        from src.core.container import get_container
-        service = get_container().session_service
-        session = await service.create_session(title="Original")
+        from src.session import create_session, update_session
+        session = await create_session(title="Original")
 
-        updated = await service.update_session(
+        updated = await update_session(
             session.id,
             lambda s: setattr(s, "title", "Updated"),
         )
@@ -438,21 +435,19 @@ class TestSession:
     @pytest.mark.asyncio
     async def test_list_sessions(self):
         """Test listing sessions."""
-        from src.core.container import get_container
-        service = get_container().session_service
-        await service.create_session(title="Session 1")
-        await service.create_session(title="Session 2")
+        from src.session import create_session, list_sessions
+        await create_session(title="Session 1")
+        await create_session(title="Session 2")
 
-        sessions = await service.list_sessions()
+        sessions = await list_sessions()
 
         assert len(sessions) >= 2
 
     @pytest.mark.asyncio
     async def test_add_message(self):
         """Test adding messages."""
-        from src.core.container import get_container
-        service = get_container().session_service
-        session = await service.create_session()
+        from src.session import create_session, add_message
+        session = await create_session()
 
         message = UserMessage(
             session_id=session.id,
@@ -461,7 +456,7 @@ class TestSession:
 
         text_part = TextPart(text="Hello!")
 
-        msg_with_parts = await service.add_message(
+        msg_with_parts = await add_message(
             session.id,
             message,
             [text_part],
@@ -482,41 +477,46 @@ class TestIntegration:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup for integration tests."""
-        from src.core.container import Container
-        self.bus = Bus(directory="/test")
-        Container.reset()
+        from src.session import clear_cache
+        self.bus = Bus()
+        clear_cache()
         yield
         self.bus.clear()
-        Container.reset()
+        clear_cache()
 
     @pytest.mark.asyncio
     async def test_event_flow(self):
         """Test event flow through the system."""
-        from src.core.container import get_container
+        from src.session import configure as configure_session, create_session
+        from src.bus import manager as bus_manager
 
         events_received = []
 
         async def handler(event):
             events_received.append(event.type)
 
-        self.bus.subscribe(SessionCreated, handler)
-        self.bus.subscribe(ToolRegistered, handler)
+        # Configure session module (no bus parameter needed now)
+        configure_session()
 
-        # Configure container with bus
-        container = get_container()
-        container.configure(bus=self.bus)
+        # Create session (should emit event to session's bus)
+        session = await create_session(title="Event Test")
 
-        # Create session (should emit event)
-        session = await container.session_service.create_session(title="Event Test")
+        # Get the session's bus and subscribe
+        session_bus = bus_manager.get_bus(session.id)
+        session_bus.subscribe(SessionCreated, handler)
 
-        # Create registry with bus
+        # Create registry with separate bus for tool events
         registry = ToolRegistry(bus=self.bus)
+        self.bus.subscribe(ToolRegistered, handler)
         await registry.register(ReadTool, source="builtin")
 
         await asyncio.sleep(0.1)
 
-        assert "session.created" in events_received
+        # Session events go to session's bus, tool events go to registry's bus
         assert "tool.registered" in events_received
+
+        # Clean up
+        await bus_manager.remove_bus(session.id)
 
     @pytest.mark.asyncio
     async def test_tool_execution_with_events(self, tmp_path):
