@@ -35,6 +35,8 @@ from src.session.message import (
     TextPart,
     ToolPart,
 )
+from src.plugin.manager import PluginManager
+from src.plugin.context import PluginContext
 
 if TYPE_CHECKING:
     from src.bus import Bus
@@ -100,6 +102,7 @@ class SessionPrompt:
     _provider: Any | None = None
     _directory: Path = Path(".")
     _worktree: Path = Path(".")
+    _plugin_manager: PluginManager | None = None
 
     # Active sessions
     _active: dict[str, dict] = {}  # session_id -> {abort, callbacks}
@@ -114,6 +117,7 @@ class SessionPrompt:
         provider: Any | None = None,
         directory: Path | str = ".",
         worktree: Path | str | None = None,
+        plugin_manager: PluginManager | None = None,
     ) -> None:
         """Configure the prompt system.
 
@@ -123,12 +127,100 @@ class SessionPrompt:
             provider: Provider instance for LLM calls
             directory: Working directory
             worktree: Project worktree root
+            plugin_manager: PluginManager instance for prompt building
         """
         cls._bus = bus
         cls._tool_registry = tool_registry
         cls._provider = provider
         cls._directory = Path(directory)
         cls._worktree = Path(worktree) if worktree else cls._directory
+        cls._plugin_manager = plugin_manager
+
+    @classmethod
+    async def get_plugin_manager(cls) -> PluginManager:
+        """Get or create the plugin manager with default plugins.
+
+        Returns:
+            Configured PluginManager instance
+        """
+        if cls._plugin_manager is None:
+            cls._plugin_manager = PluginManager()
+            await cls._setup_default_plugins()
+        return cls._plugin_manager
+
+    @classmethod
+    async def _setup_default_plugins(cls) -> None:
+        """Setup default built-in plugins."""
+        if cls._plugin_manager is None:
+            return
+
+        from src.plugin.builtin.system import SystemPromptPlugin
+        from src.plugin.builtin.agent import AgentPromptPlugin
+        from src.plugin.builtin.environment import EnvironmentPlugin
+        from src.plugin.builtin.memory import MemoryPlugin
+        from src.plugin.builtin.llm import LLMPlugin
+        from src.plugin.builtin.tool import ToolPlugin
+        from src.plugin.builtin.skill import SkillPlugin
+
+        # Register built-in plugins
+        await cls._plugin_manager.register(SystemPromptPlugin())
+        await cls._plugin_manager.register(AgentPromptPlugin())
+        await cls._plugin_manager.register(EnvironmentPlugin())
+        await cls._plugin_manager.register(MemoryPlugin())
+        await cls._plugin_manager.register(LLMPlugin())
+
+        # Tool plugin with registry
+        tool_plugin = ToolPlugin(tool_registry=cls._tool_registry)
+        await cls._plugin_manager.register(tool_plugin)
+
+        # Skill plugin
+        skill_plugin = SkillPlugin()
+        await skill_plugin.initialize(cls._worktree)
+        await cls._plugin_manager.register(skill_plugin)
+
+    @classmethod
+    async def build_plugin_context(
+        cls,
+        session_id: str,
+        agent_name: str,
+        model_info: dict[str, str],
+        messages: list[MessageWithParts],
+        user_request: str = "",
+        agent_prompt: str | None = None,
+    ) -> PluginContext:
+        """Build plugin context from session data.
+
+        Args:
+            session_id: Session ID
+            agent_name: Agent name
+            model_info: Model info dict with provider_id and model_id
+            messages: Session messages
+            user_request: Current user request text
+            agent_prompt: Optional custom agent prompt
+
+        Returns:
+            PluginContext for plugin execution
+        """
+        # Convert messages to dict format
+        message_dicts = []
+        for msg in messages:
+            msg_dict = {
+                "role": msg.info.role,
+                "content": msg.get_text_content() or "",
+            }
+            message_dicts.append(msg_dict)
+
+        return PluginContext(
+            session_id=session_id,
+            agent_name=agent_name,
+            cwd=cls._directory,
+            worktree=cls._worktree,
+            provider_id=model_info.get("provider_id", ""),
+            model_id=model_info.get("model_id", ""),
+            messages=message_dicts,
+            user_request=user_request,
+            agent_prompt=agent_prompt,
+        )
 
     @classmethod
     def assert_not_busy(cls, session_id: str) -> None:
@@ -492,6 +584,9 @@ class SessionPrompt:
         model_info = last_user.info.model
         agent = last_user.info.agent or "build"
 
+        # Get user request text
+        user_request = last_user.get_text_content() or ""
+
         # Create assistant message
         now = int(time.time() * 1000)
         assistant_msg = AssistantMessage(
@@ -521,13 +616,33 @@ class SessionPrompt:
             )
 
         try:
-            # Build LLM messages
+            # Build prompt using plugin system
+            plugin_manager = await cls.get_plugin_manager()
+            plugin_context = await cls.build_plugin_context(
+                session_id=session_id,
+                agent_name=agent,
+                model_info=model_info,
+                messages=messages,
+                user_request=user_request,
+            )
+            prompt_result = await plugin_manager.build_prompt(plugin_context)
+
+            # Build LLM messages with system prompt from plugins
             llm_messages = cls._build_llm_messages(messages)
 
-            # Get tool definitions
+            # Prepend system prompt if available
+            system_prompt = prompt_result.get("system_prompt", "")
+            if system_prompt:
+                llm_messages.insert(0, {"role": "system", "content": system_prompt})
+
+            # Get tool definitions (may be restricted by skills)
             tool_defs = []
             if cls._tool_registry:
-                tool_defs = await cls._tool_registry.get_llm_definitions(agent=agent)
+                tool_restrictions = prompt_result.get("tool_restrictions")
+                tool_defs = await cls._tool_registry.get_llm_definitions(
+                    agent=agent,
+                    allowed_tools=tool_restrictions,
+                )
 
             # Call LLM
             response = await cls._provider.complete(
@@ -647,6 +762,9 @@ class SessionPrompt:
         model_info = last_user.info.model
         agent = last_user.info.agent or "build"
 
+        # Get user request text
+        user_request = last_user.get_text_content() or ""
+
         # Create assistant message
         now = int(time.time() * 1000)
         assistant_msg = AssistantMessage(
@@ -695,13 +813,33 @@ class SessionPrompt:
             )
 
         try:
-            # Build LLM messages
+            # Build prompt using plugin system
+            plugin_manager = await cls.get_plugin_manager()
+            plugin_context = await cls.build_plugin_context(
+                session_id=session_id,
+                agent_name=agent,
+                model_info=model_info,
+                messages=messages,
+                user_request=user_request,
+            )
+            prompt_result = await plugin_manager.build_prompt(plugin_context)
+
+            # Build LLM messages with system prompt from plugins
             llm_messages = cls._build_llm_messages(messages)
 
-            # Get tool definitions
+            # Prepend system prompt if available
+            system_prompt = prompt_result.get("system_prompt", "")
+            if system_prompt:
+                llm_messages.insert(0, {"role": "system", "content": system_prompt})
+
+            # Get tool definitions (may be restricted by skills)
             tool_defs = []
             if cls._tool_registry:
-                tool_defs = await cls._tool_registry.get_llm_definitions(agent=agent)
+                tool_restrictions = prompt_result.get("tool_restrictions")
+                tool_defs = await cls._tool_registry.get_llm_definitions(
+                    agent=agent,
+                    allowed_tools=tool_restrictions,
+                )
 
             # Call LLM with streaming
             stream_response = await cls._provider.complete(
