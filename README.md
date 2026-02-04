@@ -1,143 +1,190 @@
 # Talor
 
-Talor 是一个基于 ReAct（推理 + 行动）架构的通用 AI Agent 框架，通过推理、工具执行、结果观察的迭代循环来处理用户请求。
+Talor is a universal AI Agent framework based on the ReAct (Reasoning + Acting) architecture, processing user requests through an iterative loop of reasoning, tool execution, and result observation.
 
-## 核心特性
+## Core Features
 
-- **ReAct 架构** - 显式的推理-行动-观察循环，智能处理复杂任务
-- **多 LLM 支持** - 通过 LiteLLM 支持 OpenAI、Anthropic、Ollama 等多种模型
-- **MCP 集成** - Model Context Protocol 工具扩展协议
-- **事件驱动** - 通过事件总线实现组件松耦合和实时通信
-- **插件系统** - 可扩展的 Prompt 构建插件
-- **记忆系统** - 短期和长期记忆管理
+- **ReAct Architecture** - Explicit reasoning-action-observation loop for intelligent handling of complex tasks
+- **Multi-LLM Support** - Support for OpenAI, Anthropic, Ollama, and more via LiteLLM
+- **MCP Integration** - Model Context Protocol for tool extension
+- **Event-Driven** - Loosely coupled components and real-time communication via event bus
+- **Plugin System** - Extensible prompt building plugins
+- **Memory System** - Short-term and long-term memory management
 
-## 项目结构
+## Project Structure
 
 ```
-talor/          # Python 后端 - Agent 核心、API 服务、工具、记忆、插件
-talor-gui/      # React 前端 - 与 Agent 交互的 Web 界面
+talor/          # Python backend - Agent core, API service, tools, memory, plugins
+talor-gui/      # React frontend - Web interface for Agent interaction
 ```
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Requirements
 
 - Python 3.11+
 - Node.js 18+
 
-### 后端启动
+### Backend Setup
 
 ```bash
 cd talor
 
-# 创建虚拟环境
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate
 
-# 安装依赖
+# Install dependencies
 pip install -e ".[dev]"
 
-# 配置（复制示例配置并编辑）
+# Configure (copy example config and edit)
 cp config.example.yaml config.yaml
 
-# 启动服务
+# Start service
 talor serve    # http://127.0.0.1:8000
 ```
 
-### 前端启动
+### Frontend Setup
 
 ```bash
 cd talor-gui
 
-# 安装依赖
+# Install dependencies
 npm install
 
-# 启动开发服务器
+# Start development server
 npm run dev    # http://localhost:5173
 ```
 
-## 技术栈
+## Tech Stack
 
-### 后端
+### Backend
 
-| 类别 | 技术 |
-|------|------|
-| 语言 | Python 3.11+ |
-| 框架 | FastAPI + Uvicorn |
+| Category | Technology |
+|----------|------------|
+| Language | Python 3.11+ |
+| Framework | FastAPI + Uvicorn |
 | LLM | LiteLLM |
 | MCP | FastMCP |
-| 数据验证 | Pydantic v2 |
-| 存储 | aiosqlite |
-| 测试 | pytest, hypothesis |
+| Validation | Pydantic v2 |
+| Storage | aiosqlite |
+| Testing | pytest, hypothesis |
 
-### 前端
+### Frontend
 
-| 类别 | 技术 |
-|------|------|
-| 语言 | TypeScript |
-| 框架 | React 19 |
-| 构建 | Vite |
-| 状态管理 | Zustand |
-| 样式 | TailwindCSS v4 |
-| 国际化 | i18next |
-| 测试 | Vitest, fast-check |
+| Category | Technology |
+|----------|------------|
+| Language | TypeScript |
+| Framework | React 19 |
+| Build | Vite |
+| State | Zustand |
+| Styling | TailwindCSS v4 |
+| i18n | i18next |
+| Testing | Vitest, fast-check |
 
-## 核心概念
+## Core Concepts
 
-- **Session（会话）** - 包含消息和记忆的对话上下文
-- **Agent（代理）** - 配置了模型、权限和能力的 AI 实体
-- **Tool（工具）** - 可执行的操作（bash、文件操作等）
-- **Plugin（插件）** - 贡献系统提示词的构建器
-- **Bus（事件总线）** - 组件间通信的事件系统
+- **Session** - Conversation context containing messages and memory
+- **Agent** - AI entity configured with model, permissions, and capabilities
+- **Tool** - Executable operations (bash, file operations, etc.)
+- **Plugin** - Builder that contributes to system prompts
+- **Bus** - Event system for inter-component communication
 
-## 开发命令
+## Development Commands
 
-### 后端
+### Backend
 
 ```bash
 cd talor
 source venv/bin/activate
 
-# 测试
+# Testing
 pytest tests/ -v
 pytest --cov=talor
 
-# 代码质量
+# Code quality
 black src/ tests/
 ruff check src/ tests/
 mypy src/
 make check
 ```
 
-### 前端
+### Frontend
 
 ```bash
 cd talor-gui
 
-# 测试
+# Testing
 npm run test:run
 npm run test:coverage
 
-# 代码质量
+# Code quality
 npm run format
 npm run lint:fix
 ```
 
-## API 端点
+## API Endpoints
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| GET | `/api/session` | 获取会话列表 |
-| POST | `/api/session` | 创建新会话 |
-| GET | `/api/session/{id}` | 获取会话详情 |
-| DELETE | `/api/session/{id}` | 删除会话 |
-| POST | `/api/session/prompt` | 发送消息给 Agent |
-| GET | `/event?session_id={id}` | SSE 事件流 |
-| GET | `/api/agent` | 获取 Agent 列表 |
-| GET | `/api/provider` | 获取 LLM 提供商列表 |
-| GET | `/api/config` | 获取配置 |
-| PUT | `/api/config` | 更新配置 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/session` | List sessions |
+| POST | `/api/session` | Create new session |
+| GET | `/api/session/{id}` | Get session details |
+| DELETE | `/api/session/{id}` | Delete session |
+| POST | `/api/session/prompt` | Send message to Agent |
+| GET | `/event?session_id={id}` | SSE event stream |
+| GET | `/api/agent` | List agents |
+| GET | `/api/provider` | List LLM providers |
+| GET | `/api/config` | Get configuration |
+| PUT | `/api/config` | Update configuration |
 
-## 许可证
+## Architecture
 
-MIT
+### Plugin System
+
+Talor uses a layered plugin system with priority-based prompt construction:
+
+- **System Layer** (Priority 100) - ReAct framework and universal rules
+- **Environment Layer** (Priority 200) - Environment information
+- **LLM Layer** (Priority 300) - Model-specific configurations
+- **Agent Layer** (Priority 400) - Agent roles and capabilities
+- **Tool Layer** (Priority 500) - Tool definitions
+- **Skill Layer** (Priority 600) - Skill-specific prompts
+- **Memory Layer** (Priority 700) - Conversation history
+
+### Built-in Agents
+
+- **build** (Executor) - Main execution agent with full tool access
+- **plan** (Planner) - Read-only planning agent for analysis and design
+- **explore** (Explorer) - Quick exploration agent for information gathering
+- **general** (General) - General research agent for complex reasoning
+
+### Memory System
+
+- Automatic summarization at 80% token threshold
+- Preserves key nodes (tool calls, errors)
+- Token budget control
+- Sliding window mechanism
+
+## License
+
+Apache 2.0 with Commons Clause - see [LICENSE](LICENSE) file for details
+
+### License Summary
+
+- ✅ **Free for personal and internal use** - Use, modify, and distribute for personal projects and within your organization
+- ✅ **Open source code** - Full source code available under Apache 2.0
+- ✅ **Commercial use allowed** - Use in your own commercial products
+- ❌ **SaaS/Cloud services require authorization** - Providing the software as a hosted service to third parties requires a commercial license
+
+**Commons Clause Restriction**: You cannot provide Talor as a cloud service (SaaS) to third parties without a commercial license.
+
+For commercial licensing inquiries, please contact: contact@talor.ai
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Support
+
+For issues and questions, please open an issue on GitHub.
