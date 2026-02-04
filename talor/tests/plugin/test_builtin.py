@@ -35,9 +35,12 @@ class TestSystemPromptPlugin:
         result = await plugin.build(context)
 
         assert result is not None
-        assert "system_identity" in result.content
-        assert "Talor" in result.content
+        assert "ReAct" in result.content
+        assert "Reason" in result.content
+        assert "Act" in result.content
+        assert "Observe" in result.content
         assert result.section == "system"
+        assert result.metadata.get("type") == "framework"
 
     @pytest.mark.asyncio
     async def test_custom_prompt(self, context):
@@ -75,9 +78,11 @@ class TestAgentPromptPlugin:
         result = await plugin.build(context)
 
         assert result is not None
-        assert "agent_role" in result.content
-        assert "Executor Agent" in result.content
+        assert "Your Role" in result.content
+        assert "Executor" in result.content
         assert result.section == "agent"
+        assert result.metadata.get("agent_name") == "build"
+        assert result.metadata.get("type") == "role_definition"
 
     @pytest.mark.asyncio
     async def test_custom_agent_prompt(self, context):
@@ -98,7 +103,8 @@ class TestAgentPromptPlugin:
         plugin = AgentPromptPlugin()
         result = await plugin.build(context)
 
-        assert "Custom-Agent Agent" in result.content
+        assert "Your Role: Custom-Agent" in result.content
+        assert "custom-agent agent" in result.content
 
     def test_get_default_prompt(self):
         """Test getting default prompt by name."""

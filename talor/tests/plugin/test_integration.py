@@ -53,9 +53,9 @@ class TestPluginIntegration:
         # Verify system message contains expected sections
         assert len(result["messages"]) >= 1
         system_content = result["messages"][0]["content"]
-        assert "system_identity" in system_content
-        assert "agent_role" in system_content
-        assert "environment" in system_content
+        assert "ReAct" in system_content  # From SystemPromptPlugin
+        assert "Your Role" in system_content  # From AgentPromptPlugin
+        assert "environment" in system_content  # From EnvironmentPlugin
 
     @pytest.mark.asyncio
     async def test_plugin_order(self, configured_manager):
@@ -72,8 +72,9 @@ class TestPluginIntegration:
         system_content = result["messages"][0]["content"]
 
         # System (100) should come before Agent (400)
-        system_pos = system_content.find("system_identity")
-        agent_pos = system_content.find("agent_role")
+        # Look for ReAct Framework (from System) and Your Role (from Agent)
+        system_pos = system_content.find("ReAct Framework")
+        agent_pos = system_content.find("Your Role")
         assert system_pos < agent_pos
 
     @pytest.mark.asyncio
@@ -410,8 +411,8 @@ class TestEndToEndPromptBuilding:
 
         # Verify system content contains expected sections
         system_content = system_msg["content"]
-        assert "system_identity" in system_content  # From SystemPromptPlugin
-        assert "agent_role" in system_content  # From AgentPromptPlugin
+        assert "ReAct" in system_content  # From SystemPromptPlugin
+        assert "Your Role" in system_content  # From AgentPromptPlugin
         assert "environment" in system_content  # From EnvironmentPlugin
 
         # Verify tools are returned separately
@@ -543,10 +544,10 @@ class TestEndToEndPromptBuilding:
         system_content = result["messages"][0]["content"]
 
         # Find positions of each section
-        system_pos = system_content.find("system_identity")
-        env_pos = system_content.find("environment")
-        llm_pos = system_content.find("model_guidance")
-        agent_pos = system_content.find("agent_role")
+        system_pos = system_content.find("ReAct Framework")  # From SystemPromptPlugin
+        env_pos = system_content.find("environment")  # From EnvironmentPlugin
+        llm_pos = system_content.find("model_guidance")  # From LLMPlugin
+        agent_pos = system_content.find("Your Role")  # From AgentPromptPlugin
 
         # Verify order: System (100) < Environment (200) < LLM (300) < Agent (400)
         assert system_pos < env_pos, "System should come before Environment"
