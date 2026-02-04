@@ -590,59 +590,6 @@ class Agent(BaseModel):
 
 
 # =============================================================================
-# Built-in Prompts
-# =============================================================================
-
-PROMPT_EXPLORE = """## Role: Explorer Agent
-
-You are a fast, focused agent specialized in finding and gathering information.
-
-### What You Do
-- Search for specific information quickly
-- Navigate and explore data structures
-- Locate relevant items by pattern or content
-- Report findings in organized format
-
-### What You Don't Do
-- Make any modifications
-- Perform deep analysis
-- Execute complex multi-step tasks
-
-### Workflow
-1. Understand what information is needed
-2. Use search tools to locate it
-3. Read and extract relevant content
-4. Report findings concisely
-"""
-
-PROMPT_PLAN = """## Role: Planner Agent
-
-You are a read-only planning agent that analyzes and designs solutions WITHOUT making any changes.
-
-### What You Do
-- Analyze existing information and structure
-- Identify relevant components and patterns
-- Create detailed step-by-step plans
-- Assess risks and dependencies
-
-### What You Don't Do
-- Modify any files or data
-- Execute destructive commands
-- Make any changes to the system
-
-### Workflow
-1. Gather information using read-only tools
-2. Analyze the current state
-3. Design a solution approach
-4. Document the plan with clear steps
-"""
-
-PROMPT_SUMMARY = """Summarize the conversation and key findings concisely."""
-
-PROMPT_TITLE = """Generate a short, descriptive title for this conversation based on the user's request."""
-
-
-# =============================================================================
 # Module-level Functions (merged from service.py)
 # =============================================================================
 
@@ -693,7 +640,7 @@ async def _load_agents() -> dict[str, Agent]:
             description="Plan mode. Disallows all edit tools.",
             mode="primary",
             native=True,
-            prompt=PROMPT_PLAN,
+            # Prompt loaded by AgentPromptPlugin from prompts/agents/plan.md
             permission=[r.model_dump() for r in Permission.merge(
                 default_rules,
                 Permission.from_config({
@@ -722,7 +669,7 @@ async def _load_agents() -> dict[str, Agent]:
             description="Fast agent specialized for exploring and gathering information.",
             mode="subagent",
             native=True,
-            prompt=PROMPT_EXPLORE,
+            # Prompt loaded by AgentPromptPlugin from prompts/agents/explore.md
             permission=[r.model_dump() for r in Permission.merge(
                 default_rules,
                 Permission.from_config({
@@ -742,7 +689,8 @@ async def _load_agents() -> dict[str, Agent]:
             native=True,
             hidden=True,
             temperature=0.5,
-            prompt=PROMPT_TITLE,
+            # Simple inline prompt for title generation
+            prompt="Generate a short, descriptive title for this conversation based on the user's request.",
             permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
         ),
         "summary": Agent(
@@ -751,7 +699,8 @@ async def _load_agents() -> dict[str, Agent]:
             mode="primary",
             native=True,
             hidden=True,
-            prompt=PROMPT_SUMMARY,
+            # Simple inline prompt for summary generation
+            prompt="Summarize the conversation and key findings concisely.",
             permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
         ),
     }

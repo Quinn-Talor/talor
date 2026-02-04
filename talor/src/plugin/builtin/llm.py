@@ -13,11 +13,15 @@ Updated: February 2026 with latest model specifications.
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from src.plugin.base import PromptPlugin, PluginPriority
 from src.plugin.context import PluginContext
 from src.plugin.result import PluginResult
+
+logger = logging.getLogger(__name__)
 
 
 class LLMPlugin(PromptPlugin):
@@ -713,6 +717,7 @@ Best Practices:
             enabled=True,
             required=True,
         )
+        self._prompt_cache: dict[str, str] = {}  # Cache for loaded prompts
 
     async def build(self, context: PluginContext) -> PluginResult | None:
         """Build LLM-specific configuration and prompt guidance.
@@ -729,14 +734,143 @@ Best Practices:
         config = self._get_model_config(provider, model)
         family = config.get("family", "default")
 
-        # Get model-specific prompt guidance
-        prompt = self.MODEL_PROMPTS.get(family, self.DEFAULT_PROMPT)
+        # Get model-specific prompt guidance (from file or fallback)
+        prompt = await self._load_model_prompt(family)
 
         return PluginResult(
             content=f"<model_guidance>\n{prompt}\n</model_guidance>",
             section="llm",
             metadata={"model_config": config, "model_family": family},
         )
+
+    def _infer_family_from_model(self, provider: str, model: str) -> str:
+        """Infer model family from provider and model name using rules.
+
+        Args:
+            provider: Provider ID (e.g., "anthropic", "openai")
+            model: Model ID (e.g., "claude-opus-4.5", "gpt-5.2")
+
+        Returns:
+            Inferred family name
+        """
+        model_lower = model.lower()
+
+        # Anthropic Claude rules
+        if provider == "anthropic":
+            if "claude-4" in model_lower or "claude-opus-4" in model_lower or "claude-sonnet-4" in model_lower or "claude-haiku-4" in model_lower:
+                return "claude4"
+            elif "claude-3.5" in model_lower or "claude-3-5" in model_lower:
+                return "claude35"
+            elif "claude-3" in model_lower:
+                return "claude3"
+
+        # OpenAI rules
+        elif provider == "openai":
+            # GPT-5 series
+            if model_lower.startswith("gpt-5"):
+                return "gpt5"
+            # GPT-4o series
+            elif "gpt-4o" in model_lower:
+                return "gpt4o"
+            # GPT-4 series
+            elif model_lower.startswith("gpt-4"):
+                return "gpt4"
+            # o3 reasoning series
+            elif model_lower.startswith("o3") or model_lower.startswith("o4"):
+                return "o3"
+            # o1 reasoning series
+            elif model_lower.startswith("o1"):
+                return "o1"
+
+        # Google Gemini rules
+        elif provider == "google":
+            if "gemini-3" in model_lower or "gemini-3.0" in model_lower:
+                return "gemini3"
+            elif "gemini-2.0" in model_lower and "thinking" in model_lower:
+                return "gemini2-thinking"
+            elif "gemini-2" in model_lower or "gemini-2.0" in model_lower:
+                return "gemini2"
+            elif "gemini-1.5" in model_lower:
+                return "gemini15"
+
+        # DeepSeek rules
+        elif provider == "deepseek":
+            if "r1" in model_lower or "reasoner" in model_lower:
+                return "deepseek-r1"
+            elif "v3" in model_lower or "chat" in model_lower or "coder" in model_lower:
+                return "deepseek-v3"
+
+        # Meta Llama rules
+        elif provider == "meta":
+            if "llama-4" in model_lower or "llama4" in model_lower:
+                return "llama4"
+            elif "llama-3" in model_lower or "llama3" in model_lower:
+                return "llama3"
+
+        # Mistral rules
+        elif provider == "mistral":
+            if "codestral" in model_lower:
+                return "mistral-code"
+            else:
+                return "mistral"
+
+        # Alibaba Qwen rules
+        elif provider == "alibaba":
+            if "coder" in model_lower:
+                return "qwen-code"
+            else:
+                return "qwen"
+
+        # xAI Grok rules
+        elif provider == "xai":
+            return "grok"
+
+        # Ollama local models - prefix matching
+        elif provider == "ollama":
+            if model_lower.startswith("llama"):
+                return "llama3"
+            elif model_lower.startswith("qwen"):
+                return "qwen"
+            elif model_lower.startswith("deepseek"):
+                return "deepseek-v3"
+            elif model_lower.startswith("mistral"):
+                return "mistral"
+            elif model_lower.startswith("codestral"):
+                return "mistral-code"
+
+        # Default fallback
+        return "default"
+
+    async def _load_model_prompt(self, family: str) -> str:
+        """Load model prompt from file with caching.
+
+        Args:
+            family: Model family identifier (e.g., "claude4", "gpt5")
+
+        Returns:
+            Model prompt content
+        """
+        # Check cache first
+        if family in self._prompt_cache:
+            return self._prompt_cache[family]
+
+        # Try to load from file
+        prompt_file = Path(__file__).parent.parent.parent.parent / "prompts" / "llm" / f"{family}.md"
+
+        try:
+            if prompt_file.exists():
+                content = prompt_file.read_text(encoding="utf-8").strip()
+                self._prompt_cache[family] = content
+                logger.debug(f"Loaded LLM prompt for family '{family}' from {prompt_file}")
+                return content
+        except Exception as e:
+            logger.warning(f"Failed to load LLM prompt from {prompt_file}: {e}")
+
+        # Fallback to hardcoded prompt
+        fallback = self.MODEL_PROMPTS.get(family, self.DEFAULT_PROMPT)
+        self._prompt_cache[family] = fallback
+        logger.debug(f"Using fallback LLM prompt for family '{family}'")
+        return fallback
 
     def _get_model_config(
         self,
@@ -745,6 +879,8 @@ Best Practices:
     ) -> dict[str, Any]:
         """Get configuration for a specific model.
 
+        Uses rule-based inference to determine model family and configuration.
+
         Args:
             provider: Provider ID (e.g., "anthropic", "openai")
             model: Model ID (e.g., "claude-opus-4.5", "gpt-5.2")
@@ -752,19 +888,23 @@ Best Practices:
         Returns:
             Model configuration dictionary
         """
+        # Try exact match first in MODEL_CONFIGS
         provider_configs = self.MODEL_CONFIGS.get(provider, {})
-
-        # Try exact match first
         if model in provider_configs:
             return provider_configs[model]
 
-        # Try prefix match
+        # Try prefix match in MODEL_CONFIGS
         for model_prefix, config in provider_configs.items():
             if model.startswith(model_prefix):
                 return config
 
-        # Return default config
-        return self.DEFAULT_CONFIG.copy()
+        # Infer family from rules and create default config
+        family = self._infer_family_from_model(provider, model)
+        config = self.DEFAULT_CONFIG.copy()
+        config["family"] = family
+
+        logger.debug(f"Inferred family '{family}' for {provider}/{model}")
+        return config
 
     def get_max_tokens(self, provider: str, model: str) -> int:
         """Get maximum input tokens for a model.

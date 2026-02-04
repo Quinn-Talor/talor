@@ -41,6 +41,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Awaitable
 from collections import deque
 
@@ -130,6 +131,74 @@ class SummarizerFactory:
     Provides a way to create summarizers without coupling to specific providers.
     """
 
+    # Cache for loaded prompt template
+    _cached_prompt_template: str | None = None
+
+    @staticmethod
+    def _load_summarize_prompt() -> str:
+        """Load summarize prompt from file.
+
+        Returns:
+            Prompt template with {{conversation}} placeholder
+        """
+        if SummarizerFactory._cached_prompt_template:
+            return SummarizerFactory._cached_prompt_template
+
+        try:
+            # Get the project root (talor/)
+            # This file is at: talor/src/memory/short_term.py
+            # We need to go up 2 levels to reach talor/
+            current_file = Path(__file__)
+            project_root = current_file.parent.parent.parent
+            prompt_file = project_root / "prompts" / "memory" / "summarize.md"
+
+            if prompt_file.exists():
+                content = prompt_file.read_text(encoding="utf-8")
+                # Strip markdown header if present
+                if content.startswith("# "):
+                    lines = content.split("\n", 1)
+                    content = lines[1].strip() if len(lines) > 1 else content
+                SummarizerFactory._cached_prompt_template = content
+                logger.info(f"Loaded summarize prompt from {prompt_file}")
+                return content
+            else:
+                logger.warning(f"Summarize prompt file not found: {prompt_file}, using fallback")
+                return SummarizerFactory._get_fallback_prompt()
+
+        except Exception as e:
+            logger.error(f"Failed to load summarize prompt from file: {e}, using fallback")
+            return SummarizerFactory._get_fallback_prompt()
+
+    @staticmethod
+    def _get_fallback_prompt() -> str:
+        """Get fallback summarize prompt.
+
+        Returns:
+            Fallback prompt template
+        """
+        return """Summarize the following conversation concisely.
+
+## Focus Areas
+
+1. **Main topics discussed** - What were the primary subjects of conversation?
+2. **Key decisions made** - What important choices or conclusions were reached?
+3. **Important tool calls and their results** - Which tools were used and what did they accomplish?
+4. **Any errors or issues encountered** - Were there any problems or failures?
+5. **Current state/progress** - Where are we now in the task?
+
+## Guidelines
+
+- Keep the summary under 500 words
+- Be concise but preserve critical information
+- Maintain chronological order when relevant
+- Highlight any unresolved issues or next steps
+
+## Conversation
+
+{{conversation}}
+
+## Summary"""
+
     @staticmethod
     def create_llm_summarizer(
         provider: Any,
@@ -167,20 +236,9 @@ class SummarizerFactory:
 
             conversation_text = "\n".join(lines)
 
-            summary_prompt = f"""Summarize the following conversation concisely.
-Focus on:
-1. Main topics discussed
-2. Key decisions made
-3. Important tool calls and their results
-4. Any errors or issues encountered
-5. Current state/progress
-
-Keep the summary under 500 words.
-
-Conversation:
-{conversation_text}
-
-Summary:"""
+            # Load prompt template and replace placeholder
+            prompt_template = SummarizerFactory._load_summarize_prompt()
+            summary_prompt = prompt_template.replace("{{conversation}}", conversation_text)
 
             use_model = model or "ollama/deepseek-v3.1:671b-cloud"
 

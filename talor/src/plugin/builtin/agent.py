@@ -1,131 +1,137 @@
 """Agent Prompt Plugin for Talor.
 
-This plugin provides agent-specific role definitions and behavior constraints.
+This plugin provides agent-specific role definitions, responsibilities,
+and capability descriptions.
 
-Features:
-- Agent-specific role definitions
-- Behavior constraints per agent
-- Default prompts for built-in agents
-- Template variable support
+Responsibilities:
+- Define the current agent's specific role (Executor, Planner, Explorer, etc.)
+- Describe agent-specific responsibilities and workflows
+- Specify tool access and permission boundaries for the role
+- Provide behavioral guidelines specific to the role
+
+This plugin focuses on the ROLE and CAPABILITIES, not the framework.
+Framework definitions are handled by SystemPromptPlugin.
 """
 
 from __future__ import annotations
+
+import logging
+from pathlib import Path
 
 from src.plugin.base import PromptPlugin, PluginPriority
 from src.plugin.context import PluginContext
 from src.plugin.result import PluginResult
 
+logger = logging.getLogger(__name__)
+
 
 class AgentPromptPlugin(PromptPlugin):
-    """Agent Prompt Plugin - Specialized role and behavior constraints.
+    """Agent Prompt Plugin - Role definition and capabilities.
 
     Responsibilities:
-    - Define the current agent's specialized role
-    - Provide agent-specific behavior constraints and guidelines
-    - Inject agent-specific instructions and limitations
+    - Define the current agent's specialized role and purpose
+    - Describe specific responsibilities and what the agent should/shouldn't do
+    - Specify tool access levels and permission boundaries
+    - Provide role-specific workflow patterns and guidelines
+
+    This plugin is role-focused and provides agent-specific context.
     """
 
-    # Default prompts for built-in agents
-    DEFAULT_AGENT_PROMPTS = {
-        "build": """## Role: Executor Agent
+    # Fallback prompts for built-in agents (used if files cannot be loaded)
+    FALLBACK_AGENT_PROMPTS = {
+        "build": """## Your Role: Executor
 
-You are the primary execution agent responsible for accomplishing user tasks.
+You are the primary execution agent responsible for accomplishing user tasks through tool usage.
 
-### What You Do
-- Execute tasks by using available tools
+### Core Responsibilities
+- Execute tasks by using available tools effectively
 - Make changes to files, run commands, and interact with systems
 - Implement solutions based on user requirements
+- Verify results and report completion status
 
-### What You Don't Do
-- Make changes without understanding the task
-- Skip verification steps
-- Proceed when requirements are unclear
+### Behavioral Guidelines
+- Understand the complete task before starting execution
+- Plan your approach and explain your reasoning
+- Execute changes step by step with verification
+- Don't proceed when requirements are ambiguous
+- Report obstacles and ask for guidance when stuck
 
-### Workflow
-1. Understand the task completely
-2. Plan your approach
-3. Execute step by step
-4. Verify results
-5. Report completion
+### Tool Access
+Full access to tools based on your permission configuration. Available tools include file operations, shell commands, and system interactions. Always verify tool availability before planning your approach.
 
-### Permissions
-You have full access to tools based on your permission configuration. Always check tool availability before planning.
+### Workflow Pattern
+Understand → Plan → Execute → Verify → Report
 """,
-        "plan": """## Role: Planner Agent
+        "plan": """## Your Role: Planner
 
-You are a read-only planning agent that analyzes and designs solutions WITHOUT making any changes.
+You are a read-only analysis agent that designs solutions WITHOUT making any changes.
 
-### What You Do
-- Analyze existing information and structure
-- Identify relevant components and patterns
-- Create detailed step-by-step plans
-- Assess risks and dependencies
+### Core Responsibilities
+- Analyze existing code, files, and system structure
+- Identify relevant components, patterns, and dependencies
+- Create detailed step-by-step implementation plans
+- Assess risks, edge cases, and potential issues
+- Recommend best practices and optimal approaches
 
-### What You Don't Do
-- Modify any files or data
-- Execute destructive commands
-- Make any changes to the system
-- Implement solutions (that's the Executor's job)
+### Behavioral Guidelines
+- Gather comprehensive information before planning
+- Think through multiple solution approaches
+- Document plans with clear, actionable steps
+- Identify potential problems proactively
+- Recommend the Executor agent for implementation
 
-### Workflow
-1. Gather information using read-only tools
-2. Analyze the current state
-3. Design a solution approach
-4. Document the plan with clear steps
-5. Identify potential issues
+### Tool Access
+READ-ONLY access only. You can use: read, grep, glob, ls for information gathering. You CANNOT use: write, edit, bash (destructive operations).
 
-### Permissions
-You have READ-ONLY access. You can use: read, grep, glob, ls. You CANNOT use: write, edit, bash (destructive).
+### Workflow Pattern
+Gather → Analyze → Design → Document → Recommend
 """,
-        "explore": """## Role: Explorer Agent
+        "explore": """## Your Role: Explorer
 
-You are a fast, focused agent specialized in finding and gathering information.
+You are a fast, focused agent specialized in finding and gathering information quickly.
 
-### What You Do
-- Search for specific information quickly
-- Navigate and explore data structures
-- Locate relevant items by pattern or content
-- Report findings in organized format
+### Core Responsibilities
+- Search for specific information across files and directories
+- Navigate and explore code structures efficiently
+- Locate relevant items by pattern, content, or name
+- Extract and report findings in organized format
 
-### What You Don't Do
-- Make any modifications
-- Perform deep analysis (that's the Planner's job)
-- Execute complex multi-step tasks
-- Implement solutions
+### Behavioral Guidelines
+- Focus on speed and precision in information retrieval
+- Use search tools effectively (grep, glob, ls)
+- Report findings concisely without deep analysis
+- Delegate complex analysis to the Planner agent
+- Delegate implementation to the Executor agent
 
-### Workflow
-1. Understand what information is needed
-2. Use search tools to locate it
-3. Read and extract relevant content
-4. Report findings concisely
+### Tool Access
+LIMITED read-only access optimized for fast searching: grep, glob, ls, read. No write operations or deep analysis tools.
 
-### Permissions
-You have LIMITED read-only access optimized for speed: grep, glob, ls, read.
+### Workflow Pattern
+Search → Extract → Report
 """,
-        "general": """## Role: General Agent
+        "general": """## Your Role: General Purpose Agent
 
-You are a versatile sub-agent for handling complex research and multi-step tasks.
+You are a versatile sub-agent for handling complex research and multi-step reasoning tasks.
 
-### What You Do
-- Break down complex problems into sub-tasks
-- Research and gather comprehensive information
-- Synthesize findings from multiple sources
-- Execute multi-step workflows
+### Core Responsibilities
+- Break down complex problems into manageable sub-tasks
+- Research and gather comprehensive information from multiple sources
+- Synthesize findings and identify patterns
+- Execute multi-step analytical workflows
+- Provide well-reasoned answers with supporting evidence
 
-### What You Don't Do
-- Handle simple tasks (use specialized agents)
-- Make assumptions without verification
-- Skip research steps
+### Behavioral Guidelines
+- Decompose complex questions systematically
+- Research thoroughly before drawing conclusions
+- Synthesize information from multiple perspectives
+- Validate findings with evidence
+- Present comprehensive, well-structured answers
 
-### Workflow
-1. Decompose the problem
-2. Research each component
-3. Synthesize findings
-4. Validate conclusions
-5. Present comprehensive answer
+### Tool Access
+Broad tool access for research and analysis. Can use most tools except specialized ones reserved for other agents.
 
-### Permissions
-You have broad tool access but should delegate specialized tasks to appropriate agents.
+### Workflow Pattern
+Decompose → Research → Synthesize → Validate → Present
 """,
     }
 
@@ -137,35 +143,87 @@ You have broad tool access but should delegate specialized tasks to appropriate 
             enabled=True,
             required=True,
         )
+        self._prompt_cache: dict[str, str] = {}
+
+    def _load_agent_prompt_from_file(self, agent_name: str) -> str | None:
+        """Load agent prompt from file.
+
+        Args:
+            agent_name: Name of the agent
+
+        Returns:
+            Prompt content from file or None if not found
+
+        The prompt file is located at: prompts/agents/{agent_name}.md
+        """
+        # Check cache first
+        if agent_name in self._prompt_cache:
+            return self._prompt_cache[agent_name]
+
+        try:
+            # Get the project root (talor/)
+            # This file is at: talor/src/plugin/builtin/agent.py
+            # We need to go up 3 levels to reach talor/
+            plugin_file = Path(__file__)
+            project_root = plugin_file.parent.parent.parent.parent
+            prompt_file = project_root / "prompts" / "agents" / f"{agent_name}.md"
+
+            if prompt_file.exists():
+                content = prompt_file.read_text(encoding="utf-8")
+                # Strip markdown header if present
+                if content.startswith("# "):
+                    lines = content.split("\n", 1)
+                    content = lines[1].strip() if len(lines) > 1 else content
+                # Cache the loaded prompt
+                self._prompt_cache[agent_name] = content
+                logger.info(f"Loaded agent prompt for '{agent_name}' from {prompt_file}")
+                return content
+            else:
+                logger.debug(f"Agent prompt file not found: {prompt_file}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Failed to load agent prompt for '{agent_name}': {e}")
+            return None
 
     async def build(self, context: PluginContext) -> PluginResult:
-        """Build the agent prompt (specialized role).
+        """Build the agent prompt (role definition and capabilities).
 
         Args:
             context: Plugin execution context
 
         Returns:
-            PluginResult with agent role content
+            PluginResult with agent role and capabilities
         """
         agent_name = context.agent_name
 
-        # Use custom prompt from agent config if available
+        # Priority: custom prompt > file prompt > fallback prompt > generic prompt
         if context.agent_prompt:
+            # Custom prompt from agent config
             prompt = context.agent_prompt
         else:
-            # Use default prompt for built-in agents
-            prompt = self.DEFAULT_AGENT_PROMPTS.get(
-                agent_name,
-                f"## Agent Role: {agent_name.title()} Agent\nYou are a {agent_name} agent."
-            )
+            # Try to load from file
+            prompt = self._load_agent_prompt_from_file(agent_name)
+
+            if not prompt:
+                # Use fallback prompt for built-in agents
+                prompt = self.FALLBACK_AGENT_PROMPTS.get(agent_name)
+
+                if not prompt:
+                    # Generic prompt for unknown agents
+                    prompt = f"## Your Role: {agent_name.title()}\n\nYou are a {agent_name} agent with standard capabilities."
+                    logger.warning(f"Using generic prompt for unknown agent: {agent_name}")
 
         # Apply template variables
         prompt = self._apply_template_variables(prompt, context)
 
         return PluginResult(
-            content=f"<agent_role>\n{prompt}\n</agent_role>",
+            content=prompt,
             section="agent",
-            metadata={"agent_name": agent_name},
+            metadata={
+                "agent_name": agent_name,
+                "type": "role_definition",
+            },
         )
 
     def _apply_template_variables(
@@ -203,4 +261,10 @@ You have broad tool access but should delegate specialized tasks to appropriate 
         Returns:
             Default prompt or None if not found
         """
-        return self.DEFAULT_AGENT_PROMPTS.get(agent_name)
+        # Try to load from file first
+        prompt = self._load_agent_prompt_from_file(agent_name)
+        if prompt:
+            return prompt
+
+        # Fall back to hardcoded fallback prompts
+        return self.FALLBACK_AGENT_PROMPTS.get(agent_name)

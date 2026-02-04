@@ -1,68 +1,72 @@
 """System Prompt Plugin for Talor.
 
-This plugin provides the global system identity and universal rules
-that apply to all agents.
+This plugin provides the universal ReAct framework definition and
+system-level rules that apply to all agents.
 
-Features:
-- Global AI identity definition
-- ReAct architecture guidance
-- Universal behavior rules
-- Security and formatting guidelines
-- Template variable support
+Responsibilities:
+- Define the ReAct (Reasoning + Acting) framework
+- Provide universal behavioral principles
+- Establish system-level boundaries and constraints
+- Set communication guidelines
+
+This plugin focuses on the FRAMEWORK, not the role.
+Role-specific definitions are handled by AgentPromptPlugin.
 """
 
 from __future__ import annotations
+
+import logging
+from pathlib import Path
 
 from src.plugin.base import PromptPlugin, PluginPriority
 from src.plugin.context import PluginContext
 from src.plugin.result import PluginResult
 
+logger = logging.getLogger(__name__)
+
 
 class SystemPromptPlugin(PromptPlugin):
-    """System Prompt Plugin - Global identity and universal rules.
+    """System Prompt Plugin - ReAct framework and universal rules.
 
     Responsibilities:
-    - Define the AI's base identity (e.g., "You are Talor, a general-purpose AI Agent")
-    - Provide universal behavior rules shared by all agents
-    - Inject global security rules and response formatting requirements
+    - Define the ReAct framework (Reason → Act → Observe → Repeat)
+    - Provide universal behavioral principles shared by all agents
+    - Establish system-level boundaries (tools, permissions, sessions)
+    - Set communication guidelines (clarity, structure, transparency)
+
+    This plugin is framework-focused and agent-agnostic.
     """
 
-    DEFAULT_SYSTEM_PROMPT = """You are Talor, a general-purpose AI Agent powered by the ReAct (Reasoning + Acting) architecture.
+    # Fallback prompt if file cannot be loaded
+    FALLBACK_SYSTEM_PROMPT = """You are an AI Agent powered by the ReAct (Reasoning + Acting) architecture.
 
-## Identity
-You are an autonomous agent that accomplishes tasks by iteratively reasoning about problems and taking actions through tools.
+## ReAct Framework
+You operate in an iterative loop to accomplish tasks:
 
-## How You Work
-You operate in a loop:
-1. **Think** - Analyze the current situation and decide what to do next
+1. **Reason** - Analyze the current situation and plan your next action
 2. **Act** - Execute a tool to gather information or make changes
-3. **Observe** - Review the result and update your understanding
-4. **Repeat** - Continue until the task is complete
+3. **Observe** - Review the tool result and update your understanding
+4. **Repeat** - Continue the loop until the task is complete
 
-## Core Principles
-- Always think before acting
-- Use tools to verify assumptions rather than guessing
-- Break complex tasks into smaller steps
-- Acknowledge when you don't know something
-- Ask for clarification when requirements are unclear
+## Universal Principles
+- **Think before acting** - Always explain your reasoning process
+- **Verify with tools** - Use tools to verify assumptions, don't guess
+- **Break down complexity** - Decompose complex tasks into manageable steps
+- **Acknowledge uncertainty** - Ask for clarification when requirements are unclear
+- **Learn from results** - Adapt your approach based on tool outputs
 
-## Capabilities
-You can accomplish tasks by using the tools provided to you. Your capabilities are defined by:
-- The tools available in your current session
-- The permissions granted to your current agent role
-- The skills loaded for the current context
+## System Boundaries
+- **Tool-based capabilities** - You can only act through the tools provided to you
+- **Permission constraints** - You must respect the permission boundaries of your role
+- **Session isolation** - You cannot remember information across different sessions
+- **No external access** - You cannot access external resources without appropriate tools
 
-## Limitations
-- You cannot access the internet unless given a web tool
-- You cannot remember information across sessions
-- You can only perform actions through the tools provided
-- You must respect the permission boundaries of your agent role
-
-## Communication Style
-- Be direct and concise
-- Explain your reasoning when it helps understanding
-- Use structured formats (lists, tables) for complex information
-- Summarize results clearly when completing tasks
+## Communication Guidelines
+- Be direct and concise in your responses
+- Explain your reasoning when it aids understanding
+- Use structured formats (lists, tables, code blocks) for clarity
+- Provide clear summaries when completing tasks
+- Report errors and obstacles transparently
 """
 
     def __init__(self) -> None:
@@ -74,6 +78,7 @@ You can accomplish tasks by using the tools provided to you. Your capabilities a
             required=True,
         )
         self._custom_prompt: str | None = None
+        self._cached_prompt: str | None = None
 
     def set_custom_prompt(self, prompt: str) -> None:
         """Set a custom system prompt.
@@ -83,23 +88,64 @@ You can accomplish tasks by using the tools provided to you. Your capabilities a
         """
         self._custom_prompt = prompt
 
+    def _load_prompt_from_file(self) -> str:
+        """Load system prompt from file.
+
+        Returns:
+            Prompt content from file or fallback prompt
+
+        The prompt file is located at: prompts/system.md
+        """
+        if self._cached_prompt:
+            return self._cached_prompt
+
+        try:
+            # Get the project root (talor/)
+            # This file is at: talor/src/plugin/builtin/system.py
+            # We need to go up 3 levels to reach talor/
+            plugin_file = Path(__file__)
+            project_root = plugin_file.parent.parent.parent.parent
+            prompt_file = project_root / "prompts" / "system.md"
+
+            if prompt_file.exists():
+                content = prompt_file.read_text(encoding="utf-8")
+                # Strip markdown header if present
+                if content.startswith("# "):
+                    lines = content.split("\n", 1)
+                    content = lines[1].strip() if len(lines) > 1 else content
+                self._cached_prompt = content
+                logger.info(f"Loaded system prompt from {prompt_file}")
+                return content
+            else:
+                logger.warning(f"System prompt file not found: {prompt_file}, using fallback")
+                return self.FALLBACK_SYSTEM_PROMPT
+
+        except Exception as e:
+            logger.error(f"Failed to load system prompt from file: {e}, using fallback")
+            return self.FALLBACK_SYSTEM_PROMPT
+
     async def build(self, context: PluginContext) -> PluginResult:
-        """Build the system prompt (global identity).
+        """Build the system prompt (framework and universal rules).
 
         Args:
             context: Plugin execution context
 
         Returns:
-            PluginResult with system identity content
+            PluginResult with system framework content
         """
-        prompt = self._custom_prompt or self.DEFAULT_SYSTEM_PROMPT
+        # Priority: custom prompt > file prompt > fallback prompt
+        if self._custom_prompt:
+            prompt = self._custom_prompt
+        else:
+            prompt = self._load_prompt_from_file()
 
         # Apply template variables if needed
         prompt = self._apply_template_variables(prompt, context)
 
         return PluginResult(
-            content=f"<system_identity>\n{prompt}\n</system_identity>",
+            content=prompt,
             section="system",
+            metadata={"type": "framework"},
         )
 
     def _apply_template_variables(
