@@ -31,8 +31,8 @@ from src.provider.provider import (
     Model,
     ModelCapabilities,
     ModelCost,
-    # Built-in providers
-    BUILTIN_PROVIDERS,
+    # Default providers config (fallback when no config file)
+    DEFAULT_PROVIDERS_CONFIG,
     # Module-level functions
     configure,
     clear_cache,
@@ -52,8 +52,8 @@ __all__ = [
     "Model",
     "ModelCapabilities",
     "ModelCost",
-    # Built-in providers
-    "BUILTIN_PROVIDERS",
+    # Default providers config
+    "DEFAULT_PROVIDERS_CONFIG",
     # Module-level functions
     "configure",
     "clear_cache",

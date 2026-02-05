@@ -37,7 +37,8 @@ class PluginContext:
 
     # Agent configuration
     agent_name: str
-    agent_prompt: str | None = None
+    agent_prompt: str | None = None  # Inline prompt content (deprecated, use agent_prompt_path)
+    agent_prompt_path: str | None = None  # Path to prompt file
     agent_permissions: list[dict[str, Any]] = field(default_factory=list)
 
     # Model information

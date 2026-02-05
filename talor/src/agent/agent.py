@@ -165,6 +165,8 @@ class Permission:
         """Merge multiple rulesets.
 
         Later rulesets override earlier ones.
+        When a simple rule (pattern=*) is added, it removes all existing rules
+        for that permission to ensure complete override.
 
         Args:
             *rulesets: Rulesets to merge
@@ -176,11 +178,16 @@ class Permission:
 
         for ruleset in rulesets:
             for rule in ruleset:
-                # Remove conflicting rules
-                result = [
-                    r for r in result
-                    if not (r.permission == rule.permission and r.pattern == rule.pattern)
-                ]
+                # If this is a simple rule (pattern=*), remove ALL rules for this permission
+                # This ensures "read": "allow" completely overrides default read rules
+                if rule.pattern == "*":
+                    result = [r for r in result if r.permission != rule.permission]
+                else:
+                    # Remove only exact matches (same permission and pattern)
+                    result = [
+                        r for r in result
+                        if not (r.permission == rule.permission and r.pattern == rule.pattern)
+                    ]
                 result.append(rule)
 
         return result
@@ -282,6 +289,19 @@ class ModelConfig(BaseModel):
 # Agent Entity (Rich Domain Model)
 # =============================================================================
 
+class AgentPluginConfig(BaseModel):
+    """Single plugin configuration for an agent (Value Object).
+
+    Attributes:
+        enabled: Whether the plugin is enabled
+        priority: Optional priority override
+        path: Path to custom plugin file (for custom plugins)
+    """
+    enabled: bool = True
+    priority: int | None = None
+    path: str | None = None
+
+
 class Agent(BaseModel):
     """Agent entity with state and behavior.
 
@@ -302,13 +322,25 @@ class Agent(BaseModel):
     color: str | None = None
     permission: list[dict[str, Any]] = Field(default_factory=list)
     model: ModelConfig | None = None
-    prompt: str | None = None
+    prompt: str | None = None  # Path to prompt file (e.g., "prompts/agents/build.md")
     options: dict[str, Any] = Field(default_factory=dict)
     steps: int | None = None
+    plugins: dict[str, AgentPluginConfig] | None = None
 
     # =========================================================================
     # Properties
     # =========================================================================
+
+    @property
+    def prompt_path(self) -> str:
+        """Get prompt file path.
+
+        Returns default path for native agents if not specified.
+        """
+        if self.prompt:
+            return self.prompt
+        # Default path for native agents
+        return f"prompts/agents/{self.name}.md"
 
     @property
     def is_primary(self) -> bool:
@@ -334,6 +366,53 @@ class Agent(BaseModel):
     def max_steps(self) -> int:
         """Get maximum steps (default 50)."""
         return self.steps or 50
+
+    @property
+    def has_custom_plugins(self) -> bool:
+        """Check if agent has custom plugin configuration."""
+        return self.plugins is not None and len(self.plugins) > 0
+
+    @property
+    def custom_plugin_paths(self) -> dict[str, str]:
+        """Get custom plugin paths for this agent.
+
+        Returns:
+            Dict of plugin_name -> path for plugins with custom paths
+        """
+        if not self.plugins:
+            return {}
+        return {
+            name: cfg.path
+            for name, cfg in self.plugins.items()
+            if cfg.path is not None
+        }
+
+    @property
+    def disabled_plugins(self) -> list[str]:
+        """Get list of disabled plugin names for this agent."""
+        if not self.plugins:
+            return []
+        return [name for name, cfg in self.plugins.items() if not cfg.enabled]
+
+    @property
+    def enabled_plugins(self) -> list[str]:
+        """Get list of explicitly enabled plugin names for this agent."""
+        if not self.plugins:
+            return []
+        return [name for name, cfg in self.plugins.items() if cfg.enabled]
+
+    def get_plugin_config(self, plugin_name: str) -> AgentPluginConfig | None:
+        """Get plugin configuration for a specific plugin.
+
+        Args:
+            plugin_name: Name of the plugin
+
+        Returns:
+            Plugin config or None if not configured
+        """
+        if not self.plugins:
+            return None
+        return self.plugins.get(plugin_name)
 
     # =========================================================================
     # Permission Behavior
@@ -545,6 +624,7 @@ class Agent(BaseModel):
                 - hidden: bool
                 - steps: int
                 - permission: dict
+                - plugins: {"enabled": [], "disabled": [], "custom": []}
 
         Returns:
             New Agent with updated configuration
@@ -582,6 +662,15 @@ class Agent(BaseModel):
             # Merge permissions using entity's method
             merged_agent = self.merge_permissions(config["permission"])
             updates["permission"] = merged_agent.permission
+
+        if "plugins" in config:
+            plugins_dict = {}
+            for name, cfg in config["plugins"].items():
+                if isinstance(cfg, dict):
+                    plugins_dict[name] = AgentPluginConfig(**cfg)
+                else:
+                    plugins_dict[name] = AgentPluginConfig(enabled=bool(cfg))
+            updates["plugins"] = plugins_dict
 
         if not updates:
             return self
@@ -717,6 +806,23 @@ async def _load_agents() -> dict[str, Agent]:
                 # Use entity's update_from_config method (DDD pattern)
                 agents[name] = agents[name].update_from_config(agent_config)
             else:
+                # Parse plugins config if present
+                plugins_dict = None
+                if "plugins" in agent_config:
+                    plugins_dict = {}
+                    for pname, pcfg in agent_config["plugins"].items():
+                        if isinstance(pcfg, dict):
+                            plugins_dict[pname] = AgentPluginConfig(**pcfg)
+                        else:
+                            plugins_dict[pname] = AgentPluginConfig(enabled=bool(pcfg))
+
+                # Parse model config if present
+                model_config = None
+                if "model" in agent_config:
+                    model_cfg = agent_config["model"]
+                    if isinstance(model_cfg, dict):
+                        model_config = ModelConfig(**model_cfg)
+
                 agents[name] = Agent(
                     name=name,
                     description=agent_config.get("description"),
@@ -728,6 +834,8 @@ async def _load_agents() -> dict[str, Agent]:
                     color=agent_config.get("color"),
                     hidden=agent_config.get("hidden", False),
                     steps=agent_config.get("steps"),
+                    model=model_config,
+                    plugins=plugins_dict,
                     permission=[
                         r.model_dump() for r in Permission.merge(
                             default_rules,

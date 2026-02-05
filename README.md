@@ -1,60 +1,112 @@
 # Talor
 
-Talor is a universal AI Agent framework based on the ReAct (Reasoning + Acting) architecture, processing user requests through an iterative loop of reasoning, tool execution, and result observation.
+**Your Local AI Agent Assistant**
 
-## Core Features
+Talor is a local AI assistant that runs entirely on your machine. Built on the ReAct (Reasoning + Acting) architecture, it helps you with coding, file management, automation, and more - all while keeping your data private and local.
 
-- **ReAct Architecture** - Explicit reasoning-action-observation loop for intelligent handling of complex tasks
-- **Multi-LLM Support** - Support for OpenAI, Anthropic, Ollama, and more via LiteLLM
-- **MCP Integration** - Model Context Protocol for tool extension
-- **Event-Driven** - Loosely coupled components and real-time communication via event bus
-- **Plugin System** - Extensible prompt building plugins
-- **Memory System** - Short-term and long-term memory management
+## Why Talor?
 
-## Project Structure
+- 🏠 **100% Local** - Runs on your machine, your data never leaves
+- 🧠 **Smart ReAct Loop** - Thinks, acts, and learns from results iteratively
+- 🔌 **Bring Your Own LLM** - Works with OpenAI, Anthropic, Claude, local models (Ollama), and more
+- 🛠️ **Powerful Tools** - File operations, bash commands, git integration, and extensible via MCP
+- 💬 **Natural Interaction** - Chat-based interface with real-time feedback
+- 🎯 **Multiple Agents** - Specialized agents for different tasks (coding, planning, exploration)
+
+## Use Cases
+
+- **Coding Assistant** - Write, refactor, and debug code with AI help
+- **File Management** - Search, organize, and manipulate files intelligently
+- **Automation** - Automate repetitive tasks with natural language
+- **Research** - Gather and analyze information from your local files
+- **DevOps Helper** - Manage deployments, logs, and configurations
+
+## How It Works
 
 ```
-talor/          # Python backend - Agent core, API service, tools, memory, plugins
-talor-gui/      # React frontend - Web interface for Agent interaction
+You: "Add error handling to auth.py"
+  ↓
+Talor: [Thinks] Need to read the file first
+  ↓
+Talor: [Acts] Reads auth.py
+  ↓
+Talor: [Observes] Found 3 functions without try-catch
+  ↓
+Talor: [Acts] Adds error handling
+  ↓
+Talor: "Done! Added error handling to login(), register(), and verify_token()"
 ```
+
+## Architecture
+
+Talor consists of two components that run locally:
+
+- **Backend** (`talor/`) - Python service handling AI logic, tools, and memory
+- **Desktop Client** (`talor-gui/`) - React-based desktop application for interaction
+
+Both run on `localhost` - no external servers involved.
+
+### Deployment Options
+
+- **Desktop App** (Primary) - Standalone desktop application (Electron/Tauri)
+  - Current: Web-based UI (development mode)
+  - Planned: Native desktop packaging
+- **CLI Mode** (Planned) - Terminal-only interface for headless usage
+- **IDE Extension** (Future) - VS Code/JetBrains plugin integration
 
 ## Quick Start
 
-### Requirements
+### Prerequisites
 
 - Python 3.11+
 - Node.js 18+
+- An LLM API key (OpenAI, Anthropic, etc.) or local model (Ollama)
 
-### Backend Setup
+### 1. Install Backend
 
 ```bash
 cd talor
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
+# Install
 pip install -e ".[dev]"
 
-# Configure (copy example config and edit)
+# Configure
 cp config.example.yaml config.yaml
-
-# Start service
-talor serve    # http://127.0.0.1:8000
+# Edit config.yaml with your LLM API keys
 ```
 
-### Frontend Setup
+### 2. Install Desktop Client
 
 ```bash
 cd talor-gui
-
-# Install dependencies
 npm install
-
-# Start development server
-npm run dev    # http://localhost:5173
 ```
+
+### 3. Start Talor
+
+```bash
+# Terminal 1: Start backend
+cd talor
+source venv/bin/activate
+talor serve    # Runs on http://127.0.0.1:8000
+
+# Terminal 2: Start desktop client (development mode)
+cd talor-gui
+npm run dev    # Opens desktop UI at http://localhost:5173
+```
+
+### 4. Start Chatting!
+
+The desktop client will open automatically and connect to the local backend.
+
+**First-time tips:**
+- Try: "List all Python files in this project"
+- Try: "Explain what the agent/executor.py file does"
+- Try: "Create a hello.py file that prints 'Hello, Talor!'"
 
 ## Tech Stack
 
@@ -82,13 +134,38 @@ npm run dev    # http://localhost:5173
 | i18n | i18next |
 | Testing | Vitest, fast-check |
 
-## Core Concepts
+## Key Features Explained
 
-- **Session** - Conversation context containing messages and memory
-- **Agent** - AI entity configured with model, permissions, and capabilities
-- **Tool** - Executable operations (bash, file operations, etc.)
-- **Plugin** - Builder that contributes to system prompts
-- **Bus** - Event system for inter-component communication
+### ReAct Architecture
+
+Talor doesn't just respond - it thinks and acts:
+1. **Reason** - Analyzes your request and plans next steps
+2. **Act** - Executes tools (read files, run commands, etc.)
+3. **Observe** - Reviews results and adjusts approach
+4. **Repeat** - Continues until task is complete
+
+### Multiple Agents
+
+Choose the right agent for your task:
+- **build** - Full-featured coding agent (default)
+- **plan** - Read-only planner for analysis and design
+- **explore** - Quick file exploration and search
+- **general** - General-purpose research and reasoning
+
+### Memory System
+
+Talor remembers your conversation:
+- Automatically summarizes long conversations
+- Keeps context relevant and within token limits
+- Preserves important information (errors, tool results)
+
+### Tool System
+
+Built-in tools for common tasks:
+- **File Operations** - read, write, edit, search
+- **Shell Commands** - Execute bash/shell commands
+- **Git Integration** - Version control operations
+- **Extensible** - Add custom tools via MCP protocol
 
 ## Development Commands
 
@@ -138,48 +215,106 @@ npm run lint:fix
 | GET | `/api/config` | Get configuration |
 | PUT | `/api/config` | Update configuration |
 
-## Architecture
+## Configuration
 
-### Plugin System
+Edit `talor/config.yaml` to customize:
 
-Talor uses a layered plugin system with priority-based prompt construction:
+```yaml
+# LLM Providers
+providers:
+  - name: openai
+    api_key: sk-...
+    models: [gpt-4o, gpt-4o-mini]
 
-- **System Layer** (Priority 100) - ReAct framework and universal rules
-- **Environment Layer** (Priority 200) - Environment information
-- **LLM Layer** (Priority 300) - Model-specific configurations
-- **Agent Layer** (Priority 400) - Agent roles and capabilities
-- **Tool Layer** (Priority 500) - Tool definitions
-- **Skill Layer** (Priority 600) - Skill-specific prompts
-- **Memory Layer** (Priority 700) - Conversation history
+  - name: anthropic
+    api_key: sk-ant-...
+    models: [claude-3-5-sonnet-20241022]
 
-### Built-in Agents
+  - name: ollama
+    base_url: http://localhost:11434
+    models: [llama3.1, qwen2.5-coder]
 
-- **build** (Executor) - Main execution agent with full tool access
-- **plan** (Planner) - Read-only planning agent for analysis and design
-- **explore** (Explorer) - Quick exploration agent for information gathering
-- **general** (General) - General research agent for complex reasoning
+# Default Agent
+default_agent: build
+default_model: openai/gpt-4o
 
-### Memory System
+# Storage
+storage:
+  path: ~/.talor/data.db
+```
 
-- Automatic summarization at 80% token threshold
-- Preserves key nodes (tool calls, errors)
-- Token budget control
-- Sliding window mechanism
+## Privacy & Security
+
+### What Stays Local
+
+✅ All your files and data
+✅ Conversation history
+✅ Tool execution results
+✅ Configuration and settings
+
+### What Goes to LLM Providers
+
+⚠️ Your messages and file contents you explicitly share
+⚠️ Tool execution results (as context for the AI)
+
+**Using local models?** With Ollama or similar, everything stays 100% on your machine.
+
+### Security Notes
+
+- Talor has full access to your file system (by design)
+- Only run Talor in directories you trust
+- Review tool executions in the UI before confirming (if using supervised mode)
+- Don't expose the backend port (8000) to the internet
+
+## Roadmap
+
+### Near Term
+- [ ] Native desktop app packaging (Electron/Tauri)
+- [ ] System tray integration
+- [ ] Global keyboard shortcuts
+- [ ] More built-in tools (Docker, Kubernetes, database)
+- [ ] Improved memory management
+
+### Mid Term
+- [ ] CLI mode (terminal-only interface)
+- [ ] IDE extensions (VS Code, JetBrains)
+- [ ] Agent collaboration (multiple agents working together)
+- [ ] Workflow automation (scheduled tasks)
+- [ ] Auto-update mechanism
+
+### Long Term
+- [ ] Voice input/output
+- [ ] Visual UI for workflow building
+- [ ] Plugin marketplace
+- [ ] Cross-device sync (optional)
+- [ ] Team collaboration features
+
+## FAQ
+
+**Q: Do I need an internet connection?**
+A: Only if using cloud LLM providers (OpenAI, Anthropic). With Ollama, you can run 100% offline.
+
+**Q: Can I use this for work projects?**
+A: Yes! Talor is designed for developers. Just be mindful of what data you share with cloud LLMs.
+
+**Q: How is this different from ChatGPT/Claude?**
+A: Talor can execute tools on your machine (read/write files, run commands), has memory across sessions, and is fully customizable.
+
+**Q: Can I add custom tools?**
+A: Yes! Use the MCP (Model Context Protocol) to add custom tools without modifying Talor's code.
+
+**Q: Is this production-ready?**
+A: Talor is in active development. It's stable for personal use but expect breaking changes.
 
 ## License
 
-Apache 2.0 with Commons Clause - see [LICENSE](LICENSE) file for details
+Apache 2.0 with Commons Clause - see [LICENSE](LICENSE)
 
-### License Summary
-
-- ✅ **Free for personal and internal use** - Use, modify, and distribute for personal projects and within your organization
-- ✅ **Open source code** - Full source code available under Apache 2.0
-- ✅ **Commercial use allowed** - Use in your own commercial products
-- ❌ **SaaS/Cloud services require authorization** - Providing the software as a hosted service to third parties requires a commercial license
-
-**Commons Clause Restriction**: You cannot provide Talor as a cloud service (SaaS) to third parties without a commercial license.
-
-For commercial licensing inquiries, please contact: contact@talor.ai
+**TL;DR:**
+- ✅ Free for personal and internal use
+- ✅ Modify and distribute freely
+- ✅ Use in your own products
+- ❌ Can't sell Talor as a hosted service without permission
 
 ## Contributing
 

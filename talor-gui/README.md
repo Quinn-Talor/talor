@@ -1,6 +1,13 @@
-# Talor GUI
+# Talor Desktop Client
 
-Talor 的 Web 前端界面，基于 React 19 + TypeScript + Vite 构建。
+Talor 的桌面客户端，基于 React 19 + TypeScript + Vite 构建。
+
+## 定位
+
+**桌面应用** - 本地运行的 AI Agent 助手客户端
+
+- 当前：Web 技术栈（开发模式）
+- 计划：打包为原生桌面应用（Electron/Tauri）
 
 ## 功能
 
@@ -17,22 +24,28 @@ Talor 的 Web 前端界面，基于 React 19 + TypeScript + Vite 构建。
 # 安装依赖
 npm install
 
-# 启动开发服务器
+# 启动开发服务器（开发模式）
 npm run dev
 
 # 构建生产版本
 npm run build
+
+# 预览生产构建
+npm run preview
 ```
 
 ## 开发命令
 
 ```bash
 # 测试
+npm run test              # 监听模式
 npm run test:run          # 单次运行
 npm run test:coverage     # 带覆盖率
 
 # 代码质量
 npm run format            # Prettier 格式化
+npm run format:check      # 检查格式
+npm run lint              # ESLint 检查
 npm run lint:fix          # ESLint 修复
 ```
 
@@ -67,6 +80,8 @@ src/
 
 ## 配置
 
+### 开发模式
+
 开发服务器通过 Vite 代理将 API 请求转发到后端：
 
 - `/api/*` → `http://127.0.0.1:8000`
@@ -74,3 +89,19 @@ src/
 - `/ws` → `ws://127.0.0.1:8000`（WebSocket）
 
 确保后端服务运行在 8000 端口。
+
+### 桌面打包（计划）
+
+未来将支持打包为原生桌面应用：
+
+- **Electron** - 跨平台桌面应用
+- **Tauri** - 轻量级原生应用
+
+## 路线图
+
+- [ ] 原生桌面打包（Electron/Tauri）
+- [ ] 系统托盘集成
+- [ ] 全局快捷键
+- [ ] 自动更新
+- [ ] 离线模式优化
+- [ ] 性能优化（虚拟滚动等）

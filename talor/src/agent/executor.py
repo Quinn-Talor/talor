@@ -46,6 +46,7 @@ from src.plugin.context import PluginContext
 
 if TYPE_CHECKING:
     from src.bus import Bus
+    from src.bus.global_bus import GlobalBus
     from src.tool import ToolRegistry
     from src.session import SessionService
     from src.provider import ProviderService
@@ -354,7 +355,7 @@ class AgentExecutor:
             model_info: Model info dict with provider_id and model_id
             messages: Session messages
             user_request: Current user request text
-            agent_prompt: Optional custom agent prompt
+            agent_prompt: Optional custom agent prompt (deprecated)
 
         Returns:
             PluginContext for plugin execution
@@ -368,6 +369,25 @@ class AgentExecutor:
             }
             message_dicts.append(msg_dict)
 
+        # Get agent object to retrieve prompt_path and plugin config
+        agent_prompt_path: str | None = None
+        agent_plugins: dict[str, dict] = {}
+
+        if self._agent_service:
+            agent_obj = await self._agent_service.get_agent(agent_name)
+            if agent_obj:
+                # Get prompt path from agent config
+                agent_prompt_path = agent_obj.prompt_path
+
+                # Get agent-level plugin config
+                if agent_obj.plugins:
+                    for name, cfg in agent_obj.plugins.items():
+                        agent_plugins[name] = {
+                            "enabled": cfg.enabled,
+                            "priority": cfg.priority,
+                            "path": cfg.path,
+                        }
+
         return PluginContext(
             session_id=session_id,
             agent_name=agent_name,
@@ -378,6 +398,8 @@ class AgentExecutor:
             messages=message_dicts,
             user_request=user_request,
             agent_prompt=agent_prompt,
+            agent_prompt_path=agent_prompt_path,
+            extra={"agent_plugins": agent_plugins},
         )
 
     # =========================================================================
@@ -1288,14 +1310,14 @@ class AgentExecutor:
 
         # Create context
         from src.tool.context import ToolContext
-        from src.bus import manager as bus_manager
+        from src import get_global_bus
         context = ToolContext(
             session_id=session_id,
             message_id=message_id,
             agent="build",
             abort=abort,
             call_id=call_id,
-            _bus=bus_manager.get_bus(session_id),
+            _bus=get_global_bus(),
             _workspace=self._workspace,
             _worktree=self._worktree,
         )
@@ -1386,14 +1408,14 @@ class AgentExecutor:
 
         # Create context
         from src.tool.context import ToolContext
-        from src.bus import manager as bus_manager
+        from src import get_global_bus
         context = ToolContext(
             session_id=session_id,
             message_id=message_id,
             agent="build",
             abort=abort,
             call_id=call_id,
-            _bus=bus_manager.get_bus(session_id),
+            _bus=get_global_bus(),
             _workspace=self._workspace,
             _worktree=self._worktree,
         )
@@ -1458,23 +1480,20 @@ class AgentExecutor:
     # Event Publishing
     # =========================================================================
 
-    def _get_session_bus(self, session_id: str) -> "Bus":
-        """Get the Bus for a session.
-
-        Args:
-            session_id: Session ID
+    def _get_global_bus(self) -> "GlobalBus":
+        """Get the global event bus.
 
         Returns:
-            Bus instance for the session
+            GlobalBus instance
         """
-        from src.bus import manager as bus_manager
-        return bus_manager.get_bus(session_id)
+        from src import get_global_bus
+        return get_global_bus()
 
     async def _publish_agent_started(
         self, session_id: str, agent: str, model_info: dict[str, str]
     ) -> None:
         """Publish agent started event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import AgentStarted, AgentStartedData
         await bus.publish(
             AgentStarted,
@@ -1490,7 +1509,7 @@ class AgentExecutor:
         self, session_id: str, agent: str, reason: str
     ) -> None:
         """Publish agent completed event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import AgentCompleted, AgentCompletedData
         await bus.publish(
             AgentCompleted,
@@ -1506,7 +1525,7 @@ class AgentExecutor:
         self, session_id: str, agent: str, error: str
     ) -> None:
         """Publish agent error event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import AgentError, AgentErrorData
         await bus.publish(
             AgentError,
@@ -1521,7 +1540,7 @@ class AgentExecutor:
         self, session_id: str, message_id: str
     ) -> None:
         """Publish message created event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import MessageCreated, MessageCreatedData
         await bus.publish(
             MessageCreated,
@@ -1537,7 +1556,7 @@ class AgentExecutor:
         self, session_id: str, message_id: str, content: str
     ) -> None:
         """Publish stream text event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import StreamText, StreamTextData
         await bus.publish(
             StreamText,
@@ -1552,7 +1571,7 @@ class AgentExecutor:
         self, session_id: str, message_id: str, tool_call: dict[str, Any]
     ) -> None:
         """Publish stream tool call event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         tool_name = tool_call.get("function", {}).get("name", "")
         call_id = tool_call.get("id", str(uuid4()))
         try:
@@ -1585,7 +1604,7 @@ class AgentExecutor:
         error: str | None = None,
     ) -> None:
         """Publish stream tool result event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import StreamToolResult, StreamToolResultData
         await bus.publish(
             StreamToolResult,
@@ -1605,7 +1624,7 @@ class AgentExecutor:
         self, session_id: str, message_id: str, reason: str
     ) -> None:
         """Publish stream done event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import StreamDone, StreamDoneData
         await bus.publish(
             StreamDone,
@@ -1620,7 +1639,7 @@ class AgentExecutor:
         self, session_id: str, message_id: str, error: str
     ) -> None:
         """Publish stream error event."""
-        bus = self._get_session_bus(session_id)
+        bus = self._get_global_bus()
         from src.bus.events import StreamError, StreamErrorData
         await bus.publish(
             StreamError,

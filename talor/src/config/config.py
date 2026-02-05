@@ -43,40 +43,30 @@ class MCPServerConfig(BaseModel):
 
 
 class ProviderConfig(BaseModel):
-    """Provider configuration."""
-    api_key: str | None = None
-    base_url: str | None = None
-    options: dict[str, Any] = Field(default_factory=dict)
+    """Provider configuration.
 
-
-class PluginConfig(BaseModel):
-    """Plugin configuration.
-
-    Supports both built-in and custom plugins.
+    Matches the structure expected by provider.py for full provider loading.
     """
-    # Plugin name (for built-in) or path (for custom)
-    name: str
+    name: str | None = None
+    api_key_env: str | None = None
+    base_url: str | None = None
+    auto_discover: bool = False
+    models: list[dict[str, Any]] = Field(default_factory=list)
 
-    # Whether the plugin is enabled
+
+class PluginItemConfig(BaseModel):
+    """Single plugin configuration.
+
+    Used for both built-in and custom plugins in k-v structure.
+    """
+    # Whether the plugin is enabled (default True for builtin)
     enabled: bool = True
-
-    # Plugin-specific options
-    options: dict[str, Any] = Field(default_factory=dict)
 
     # Priority override (optional)
     priority: int | None = None
 
-
-class PluginsConfig(BaseModel):
-    """Plugins section configuration."""
-    # Built-in plugin overrides
-    builtin: dict[str, PluginConfig] = Field(default_factory=dict)
-
-    # Custom plugin paths
-    custom: list[str] = Field(default_factory=list)
-
-    # Global plugin options
-    options: dict[str, Any] = Field(default_factory=dict)
+    # Path to custom plugin file (only for custom plugins)
+    path: str | None = None
 
 
 class ConfigInfo(BaseModel):
@@ -95,8 +85,8 @@ class ConfigInfo(BaseModel):
     # Agent configurations
     agent: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
-    # Provider configurations
-    provider: dict[str, ProviderConfig] = Field(default_factory=dict)
+    # Provider configurations (new key)
+    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
     # MCP server configurations
     mcp: dict[str, MCPServerConfig] = Field(default_factory=dict)
@@ -104,11 +94,15 @@ class ConfigInfo(BaseModel):
     # Permission overrides
     permission: dict[str, Any] = Field(default_factory=dict)
 
-    # Plugin paths (legacy, use plugins.custom instead)
+    # Plugin paths (legacy, use plugins instead)
     plugin: list[str] = Field(default_factory=list)
 
-    # Plugins configuration (new)
-    plugins: PluginsConfig = Field(default_factory=PluginsConfig)
+    # Plugins configuration (k-v structure)
+    # Format: {"plugin_name": {"enabled": bool, "priority": int, "path": str}}
+    plugins: dict[str, PluginItemConfig] = Field(default_factory=dict)
+
+    # Workspace directories (security feature)
+    workspace: list[str] = Field(default_factory=list)
 
     # Instruction files
     instructions: list[str] = Field(default_factory=list)
@@ -156,9 +150,10 @@ def parse_jsonc(content: str) -> dict[str, Any]:
 DEFAULT_CONFIG: dict[str, Any] = {
     "default_model": "ollama/deepseek-v3.1:671b-cloud",
     "default_agent": "build",
-    "provider": {},
+    "providers": {},
     "agent": {},
     "mcp": {},
+    "workspace": [],
 }
 
 
@@ -246,14 +241,28 @@ async def get() -> dict[str, Any]:
 
         # Set defaults
         result.setdefault("agent", {})
-        result.setdefault("provider", {})
+        result.setdefault("providers", {})
         result.setdefault("mcp", {})
         result.setdefault("permission", {})
         result.setdefault("plugin", [])
-        result.setdefault("plugins", {"builtin": {}, "custom": [], "options": {}})
+        result.setdefault("plugins", {})
         result.setdefault("instructions", [])
         result.setdefault("keybinds", {})
         result.setdefault("experimental", {})
+        result.setdefault("workspace", [])
+
+        # Resolve API key references from keyring
+        _resolve_api_keys(result)
+
+        # Initialize workspace module with configured directories
+        workspace_dirs = result.get("workspace", [])
+        if workspace_dirs:
+            from src.core import workspace
+            workspace.configure(workspace_dirs)
+            logger.info(f"Initialized workspace with {len(workspace_dirs)} directories")
+        else:
+            # No workspace configured - backward compatibility mode
+            logger.debug("No workspace directories configured, workspace restrictions disabled")
 
         _cache = result
         return result
@@ -276,6 +285,7 @@ async def reload() -> dict[str, Any]:
         from src.bus.events import ConfigReloaded, ConfigReloadedData
         await _bus.publish(ConfigReloaded, ConfigReloadedData(config=config))
 
+    logger.info("Configuration reloaded")
     return config
 
 
@@ -363,29 +373,28 @@ async def get_plugin_config() -> dict[str, Any]:
     """Get plugin configuration.
 
     Returns:
-        Plugin configuration dictionary with:
-        - builtin: dict of built-in plugin configs
-        - custom: list of custom plugin paths
-        - options: global plugin options
+        Plugin configuration dictionary in k-v format:
+        {"plugin_name": {"enabled": bool, "priority": int, "path": str}}
     """
     config = await get()
 
-    # Get plugins section
+    # Get plugins section (k-v structure)
     plugins = config.get("plugins", {})
 
-    # Merge legacy plugin paths
+    # Merge legacy plugin paths as custom plugins
     legacy_plugins = config.get("plugin", [])
-    custom_plugins = plugins.get("custom", [])
+    for path in legacy_plugins:
+        # Extract plugin name from path
+        from pathlib import Path
+        name = Path(path).stem
+        if name not in plugins:
+            plugins[name] = {"enabled": True, "path": path}
 
-    return {
-        "builtin": plugins.get("builtin", {}),
-        "custom": list(dict.fromkeys(legacy_plugins + custom_plugins)),
-        "options": plugins.get("options", {}),
-    }
+    return plugins
 
 
 async def get_builtin_plugin_config(plugin_name: str) -> dict[str, Any] | None:
-    """Get configuration for a specific built-in plugin.
+    """Get configuration for a specific plugin.
 
     Args:
         plugin_name: Plugin name (e.g., "system", "agent", "skill")
@@ -394,8 +403,7 @@ async def get_builtin_plugin_config(plugin_name: str) -> dict[str, Any] | None:
         Plugin configuration or None if not configured
     """
     plugin_config = await get_plugin_config()
-    builtin = plugin_config.get("builtin", {})
-    return builtin.get(plugin_name)
+    return plugin_config.get(plugin_name)
 
 
 async def is_plugin_enabled(plugin_name: str) -> bool:
@@ -443,6 +451,8 @@ async def _load_project() -> dict[str, Any]:
 
     # Config file patterns to search
     config_patterns = [
+        "config.json",
+        "config.jsonc",
         "talor.jsonc",
         "talor.json",
         "talor-config.jsonc",
@@ -526,6 +536,56 @@ def _merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, A
             result[key] = value
 
     return result
+
+
+def _resolve_api_keys(config: dict[str, Any]) -> None:
+    """Resolve API key references from keyring.
+
+    Looks for api_key_ref fields in provider configs and loads the actual
+    API keys from the system keyring.
+
+    Args:
+        config: Configuration dictionary (modified in place)
+    """
+    providers = config.get("providers", {})
+    if not providers:
+        return
+
+    from src.config.keyring_manager import get_key
+
+    for provider_name, provider_config in providers.items():
+        if not isinstance(provider_config, dict):
+            continue
+
+        # Check for api_key_ref
+        api_key_ref = provider_config.get("api_key_ref")
+        if not api_key_ref:
+            continue
+
+        # Parse reference format: "keyring:key_name"
+        if not api_key_ref.startswith("keyring:"):
+            logger.warning(
+                f"Invalid api_key_ref format for provider '{provider_name}': {api_key_ref}. "
+                "Expected format: 'keyring:key_name'"
+            )
+            continue
+
+        key_name = api_key_ref[8:]  # Remove "keyring:" prefix
+
+        # Load from keyring
+        try:
+            api_key = get_key(key_name)
+            if api_key:
+                provider_config["api_key"] = api_key
+                logger.debug(f"Loaded API key for provider '{provider_name}' from keyring")
+            else:
+                logger.warning(
+                    f"API key '{key_name}' not found in keyring for provider '{provider_name}'"
+                )
+        except Exception as e:
+            logger.error(
+                f"Failed to load API key for provider '{provider_name}' from keyring: {e}"
+            )
 
 
 # =============================================================================

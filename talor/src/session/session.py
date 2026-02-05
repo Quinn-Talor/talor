@@ -799,15 +799,16 @@ async def _touch_session(session_id: str) -> None:
 # =============================================================================
 
 async def _publish_session_created(session: Session) -> None:
-    """Publish session created event to session's bus."""
-    from src.bus import manager as bus_manager
+    """Publish session created event to global bus."""
+    from src import get_global_bus
     from src.bus.events import SessionCreated, SessionCreatedData, SessionInfo as EventSessionInfo
 
-    bus = bus_manager.get_bus(session.id)
+    bus = get_global_bus()
 
     await bus.publish(
         SessionCreated,
         SessionCreatedData(
+            session_id=session.id,
             info=EventSessionInfo(
                 id=session.id,
                 title=session.title,
@@ -820,15 +821,16 @@ async def _publish_session_created(session: Session) -> None:
 
 
 async def _publish_session_updated(session: Session) -> None:
-    """Publish session updated event to session's bus."""
-    from src.bus import manager as bus_manager
+    """Publish session updated event to global bus."""
+    from src import get_global_bus
     from src.bus.events import SessionUpdated, SessionUpdatedData, SessionInfo as EventSessionInfo
 
-    bus = bus_manager.get_bus(session.id)
+    bus = get_global_bus()
 
     await bus.publish(
         SessionUpdated,
         SessionUpdatedData(
+            session_id=session.id,
             info=EventSessionInfo(
                 id=session.id,
                 title=session.title,
@@ -841,15 +843,16 @@ async def _publish_session_updated(session: Session) -> None:
 
 
 async def _publish_session_deleted(session: Session) -> None:
-    """Publish session deleted event to session's bus."""
-    from src.bus import manager as bus_manager
+    """Publish session deleted event to global bus."""
+    from src import get_global_bus
     from src.bus.events import SessionDeleted, SessionDeletedData, SessionInfo as EventSessionInfo
 
-    bus = bus_manager.get_bus(session.id)
+    bus = get_global_bus()
 
     await bus.publish(
         SessionDeleted,
         SessionDeletedData(
+            session_id=session.id,
             info=EventSessionInfo(
                 id=session.id,
                 title=session.title,
@@ -865,11 +868,11 @@ async def _publish_message_created(
     session_id: str,
     msg: MessageWithParts,
 ) -> None:
-    """Publish message created event to session's bus."""
-    from src.bus import manager as bus_manager
+    """Publish message created event to global bus."""
+    from src import get_global_bus
     from src.bus.events import MessageCreated, MessageCreatedData
 
-    bus = bus_manager.get_bus(session_id)
+    bus = get_global_bus()
 
     await bus.publish(
         MessageCreated,
@@ -888,11 +891,11 @@ async def _publish_message_updated(
     role: str,
     content: str | None,
 ) -> None:
-    """Publish message updated event to session's bus."""
-    from src.bus import manager as bus_manager
+    """Publish message updated event to global bus."""
+    from src import get_global_bus
     from src.bus.events import MessageUpdated, MessageUpdatedData
 
-    bus = bus_manager.get_bus(session_id)
+    bus = get_global_bus()
 
     await bus.publish(
         MessageUpdated,
@@ -910,11 +913,11 @@ async def _publish_part_created(
     message_id: str,
     part: MessagePart,
 ) -> None:
-    """Publish message part created event to session's bus."""
-    from src.bus import manager as bus_manager
+    """Publish message part created event to global bus."""
+    from src import get_global_bus
     from src.bus.events import MessagePartCreated, MessagePartCreatedData
 
-    bus = bus_manager.get_bus(session_id)
+    bus = get_global_bus()
 
     await bus.publish(
         MessagePartCreated,
@@ -952,10 +955,6 @@ async def create_session(
         permission=permission,
     )
 
-    # Explicitly create Bus for this session
-    from src.bus import manager as bus_manager
-    bus_manager.create_bus(session.id)
-
     await _publish_session_created(session)
     logger.info(f"Created session: {session.id}")
 
@@ -975,26 +974,22 @@ async def get_session(session_id: str) -> Session | None:
 
 
 async def delete_session(session_id: str) -> None:
-    """Delete a session and its associated Bus.
+    """Delete a session.
 
     Args:
         session_id: Session identifier
     """
-    from src.bus.manager import SessionBusManager
-
     session = await _delete_session_from_storage(session_id)
 
     if session:
-        # Publish deletion event before removing bus
+        # Publish deletion event
         await _publish_session_deleted(session)
 
-        # Remove the session's bus and clear SSE clients
-        from src.bus import manager as bus_manager
+        # Clear SSE clients
         from src.api.sse import clear_session as clear_sse_clients
-        await bus_manager.remove_bus(session_id)
         clear_sse_clients(session_id)
 
-        logger.info(f"Deleted session and bus: {session_id}")
+        logger.info(f"Deleted session: {session_id}")
 
 
 async def list_sessions() -> list[Session]:

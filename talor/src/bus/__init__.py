@@ -4,12 +4,11 @@ This module provides the event-driven architecture:
 - BusEvent.define() for typed event definitions
 - Bus.publish() for event publishing
 - Bus.subscribe() for event subscription
-- manager module for session-specific bus management
+- GlobalBus for application-wide event communication
 
 Example:
     ```python
-    from src.bus import Bus, BusEvent
-    from src.bus import manager as bus_manager
+    from src.bus import Bus, BusEvent, GlobalBus
     from pydantic import BaseModel
 
     # Define typed event
@@ -19,14 +18,15 @@ Example:
 
     SessionCreated = BusEvent.define("session.created", SessionCreatedData)
 
-    # Get session bus
-    bus = bus_manager.get_bus("session_123")
+    # Get global bus
+    from src import get_global_bus
+    bus = get_global_bus()
 
-    # Subscribe to event
+    # Subscribe to event (with optional session_id filter)
     async def handler(event):
         print(f"Session created: {event.properties.session_id}")
 
-    bus.subscribe(SessionCreated, handler)
+    bus.subscribe(SessionCreated, handler, session_id="session_123")
 
     # Publish event
     await bus.publish(SessionCreated, SessionCreatedData(session_id="123", title="Test"))
@@ -36,6 +36,5 @@ Example:
 from src.bus.bus_event import BusEvent
 from src.bus.bus import Bus
 from src.bus.global_bus import GlobalBus
-from src.bus import manager
 
-__all__ = ["BusEvent", "Bus", "GlobalBus", "manager"]
+__all__ = ["BusEvent", "Bus", "GlobalBus"]

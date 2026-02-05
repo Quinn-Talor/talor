@@ -9,23 +9,23 @@
  * @requirements 8.3 - MCP 服务器连接状态变化时实时更新显示
  */
 
-import { useEffect, useCallback, useRef } from 'react';
-import type { EventsApi, ConnectionState } from '../api/events';
+import { useCallback, useEffect, useRef } from 'react';
+import type { ConnectionState, EventsApi } from '../api/events';
 import type {
-  Event,
-  SessionEventData,
-  MessageEventData,
-  PermissionRequestEventData,
-  MCPServerEventData,
-  StreamTextEventData,
-  StreamToolCallEventData,
-  StreamToolResultEventData,
-  StreamDoneEventData,
-  StreamErrorEventData,
+    Event,
+    MCPServerEventData,
+    MessageEventData,
+    PermissionRequestEventData,
+    SessionEventData,
+    StreamDoneEventData,
+    StreamErrorEventData,
+    StreamTextEventData,
+    StreamToolCallEventData,
+    StreamToolResultEventData,
 } from '../types/event';
-import type { SessionInfo } from '../types/session';
 import type { Message } from '../types/message';
 import type { PermissionRequest } from '../types/permission';
+import type { SessionInfo } from '../types/session';
 
 /**
  * Event handler callbacks interface
@@ -139,7 +139,7 @@ export function extractSessionEventData(data: Record<string, unknown>): SessionE
   const info = data.info as Record<string, unknown> | undefined;
   const sessionId = (info?.id ?? data.session_id ?? data.sessionId) as string | undefined;
   const title = (info?.title ?? data.title) as string | undefined;
-  
+
   if (typeof sessionId !== 'string') {
     return null;
   }
@@ -161,7 +161,7 @@ export function extractMessageEventData(data: Record<string, unknown>): MessageE
   // Support both snake_case (from backend) and camelCase
   const messageId = (data.message_id ?? data.messageId) as string | undefined;
   const sessionId = (data.session_id ?? data.sessionId) as string | undefined;
-  
+
   if (typeof messageId !== 'string' || typeof sessionId !== 'string') {
     return null;
   }
@@ -213,9 +213,9 @@ export function extractPermissionRequestEventData(
  */
 export function extractMCPServerEventData(data: Record<string, unknown>): MCPServerEventData | null {
   // Accept either serverId or serverName as the identifier
-  const serverName = typeof data.serverName === 'string' ? data.serverName : 
+  const serverName = typeof data.serverName === 'string' ? data.serverName :
                      typeof data.serverId === 'string' ? data.serverId : null;
-  
+
   if (!serverName) {
     return null;
   }
@@ -357,7 +357,7 @@ export function createEventHandler(
 ): (event: Event) => void {
   return (event: Event) => {
     const { type, data, timestamp } = event;
-    
+
     // Debug log for streaming events
     if (type.startsWith('stream.')) {
       console.debug('[EventHandler] Processing streaming event:', type, data);
@@ -408,6 +408,7 @@ export function createEventHandler(
       case 'session.deleted': {
         const sessionData = extractSessionEventData(data);
         if (sessionData) {
+          console.debug('[EventHandler] Session deleted event:', sessionData.sessionId);
           // Call custom handler
           handlers.onSessionDeleted?.(sessionData);
 
@@ -426,7 +427,7 @@ export function createEventHandler(
           // Update store
           if (storeCallbacks.addMessage) {
             const role = messageData.role ?? (data.role as string) ?? 'assistant';
-            
+
             // Extract content from parts if available
             let content = '';
             if (messageData.parts) {
@@ -437,7 +438,7 @@ export function createEventHandler(
             } else if (typeof data.content === 'string') {
               content = data.content;
             }
-            
+
             const newMessage: Message = {
               id: messageData.messageId,
               sessionId: messageData.sessionId,
@@ -469,7 +470,7 @@ export function createEventHandler(
             } else if (typeof data.content === 'string') {
               content = data.content;
             }
-            
+
             if (content !== undefined) {
               storeCallbacks.updateMessage(messageData.messageId, { content });
             }

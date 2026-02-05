@@ -6,6 +6,9 @@
  * event streaming from the Talor backend.
  * 为 Talor 后端提供服务器发送事件 (SSE) 连接管理以进行实时事件流。
  *
+ * Desktop client uses a single global SSE connection.
+ * 桌面客户端使用单一全局 SSE 连接。
+ *
  * @requirements 1.2 - 建立 WebSocket 或 SSE 连接以订阅事件流
  * @requirements 1.3 - 自动尝试重新连接并显示连接状态
  */
@@ -117,43 +120,10 @@ export interface EventsApi {
   disconnect(): void;
 
   /**
-   * Subscribe to a specific session's events (client-side filtering)
-   * 订阅特定会话的事件（客户端过滤）
-   *
-   * Events for this session will be dispatched to handlers.
-   * 此会话的事件将被分发给处理函数。
-   *
-   * @param sessionId - Session ID to subscribe to / 要订阅的会话 ID
+   * Connects to the event stream
+   * 连接到事件流
    */
-  subscribeToSession(sessionId: string): void;
-
-  /**
-   * Unsubscribe from a specific session's events (client-side filtering)
-   * 取消订阅特定会话的事件（客户端过滤）
-   *
-   * Events for this session will no longer be dispatched to handlers.
-   * 此会话的事件将不再被分发给处理函数。
-   *
-   * @param sessionId - Session ID to unsubscribe from / 要取消订阅的会话 ID
-   */
-  unsubscribeFromSession(sessionId: string): void;
-
-  /**
-   * Get currently subscribed session IDs
-   * 获取当前订阅的会话 ID
-   *
-   * @returns Array of subscribed session IDs / 订阅的会话 ID 数组
-   */
-  getSubscribedSessions(): string[];
-
-  /**
-   * Check if subscribed to a specific session
-   * 检查是否订阅了特定会话
-   *
-   * @param sessionId - Session ID to check / 要检查的会话 ID
-   * @returns True if subscribed / 如果已订阅则返回 true
-   */
-  isSubscribedToSession(sessionId: string): boolean;
+  connect(): void;
 }
 
 /**
@@ -171,7 +141,6 @@ interface BackendBusEvent {
  * 将后端 Bus 事件类型映射到前端 Event 类型
  */
 function mapEventType(backendType: string): Event['type'] {
-  // Map Bus event types to frontend event types
   const typeMap: Record<string, Event['type']> = {
     'session.created': 'session.created',
     'session.updated': 'session.updated',
@@ -186,7 +155,6 @@ function mapEventType(backendType: string): Event['type'] {
     'permission.requested': 'permission.requested',
     'mcp.connected': 'mcp.server_connected',
     'mcp.disconnected': 'mcp.server_disconnected',
-    // Streaming events (方案 B)
     'stream.text': 'stream.text',
     'stream.tool_call': 'stream.tool_call',
     'stream.tool_result': 'stream.tool_result',
@@ -249,12 +217,6 @@ export function parseSSEEvent(data: string): Event | null {
 /**
  * Calculates the retry delay using exponential backoff
  * 使用指数退避计算重试延迟
- *
- * @param retryCount - Current retry attempt number / 当前重试次数
- * @param initialDelay - Initial delay in milliseconds / 初始延迟（毫秒）
- * @param maxDelay - Maximum delay in milliseconds / 最大延迟（毫秒）
- * @param multiplier - Delay multiplier / 延迟乘数
- * @returns Calculated delay in milliseconds / 计算后的延迟（毫秒）
  */
 export function calculateRetryDelay(
   retryCount: number,
@@ -286,17 +248,12 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
   let connectionState: ConnectionState = 'disconnected';
   let retryCount = 0;
   let retryTimeoutId: ReturnType<typeof setTimeout> | null = null;
-  let lastEventId: string | null = null;  // Track last event ID for reconnection
+  let lastEventId: string | null = null;
   const handlers: Set<EventHandler> = new Set();
   let connectionStateHandler: ConnectionStateHandler | null = null;
 
-  // Session subscription state
-  // Only one session can be subscribed at a time (backend requires session_id)
-  let currentSessionId: string | null = null;
-
   /**
    * Updates the connection state and notifies the handler
-   * 更新连接状态并通知处理函数
    */
   function setConnectionState(state: ConnectionState): void {
     connectionState = state;
@@ -306,53 +263,9 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
   }
 
   /**
-   * Checks if an event should be dispatched based on session subscription
-   * 根据会话订阅检查是否应该分发事件
-   *
-   * @param event - The event to check / 要检查的事件
-   * @returns True if the event should be dispatched / 如果应该分发事件则返回 true
-   */
-  function shouldDispatchEvent(event: Event): boolean {
-    // Extract session_id from event data (supports both snake_case and camelCase)
-    const sessionId = event.data?.session_id ?? event.data?.sessionId;
-
-    console.debug('[SSE] shouldDispatchEvent:', {
-      eventType: event.type,
-      sessionId,
-      currentSessionId,
-    });
-
-    // If no session is subscribed, don't dispatch any session-specific events
-    if (!currentSessionId) {
-      // Allow global events (no session_id) to pass through
-      const shouldDispatch = sessionId === undefined || sessionId === null;
-      console.debug('[SSE] No subscription, dispatch:', shouldDispatch);
-      return shouldDispatch;
-    }
-
-    // If event has no session_id, it's a global event - always dispatch
-    if (sessionId === undefined || sessionId === null) {
-      console.debug('[SSE] Global event, dispatching');
-      return true;
-    }
-
-    // Only dispatch if the session matches
-    const isMatch = sessionId === currentSessionId;
-    console.debug('[SSE] Session match:', isMatch);
-    return isMatch;
-  }
-
-  /**
-   * Dispatches an event to all registered handlers (with session filtering)
-   * 将事件分发给所有注册的处理函数（带会话过滤）
+   * Dispatches an event to all registered handlers
    */
   function dispatchEvent(event: Event): void {
-    // Check if event should be dispatched based on session subscription
-    if (!shouldDispatchEvent(event)) {
-      console.debug('[SSE] Skipping event for unsubscribed session:', event.type, event.data?.session_id);
-      return;
-    }
-
     handlers.forEach((handler) => {
       try {
         handler(event);
@@ -364,7 +277,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
 
   /**
    * Clears any pending retry timeout
-   * 清除任何待处理的重试超时
    */
   function clearRetryTimeout(): void {
     if (retryTimeoutId !== null) {
@@ -375,7 +287,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
 
   /**
    * Schedules a reconnection attempt
-   * 安排重连尝试
    */
   function scheduleReconnect(): void {
     if (retryCount >= maxRetryCount) {
@@ -400,7 +311,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
 
   /**
    * Parses SSE lines from a chunk
-   * 从块中解析 SSE 行
    */
   function parseSSEChunk(chunk: string, buffer: string): { lines: string[]; remainingBuffer: string } {
     const combined = buffer + chunk;
@@ -411,8 +321,7 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
   }
 
   /**
-   * Establishes the SSE connection using fetch (supports Last-Event-ID header)
-   * 使用 fetch 建立 SSE 连接（支持 Last-Event-ID 头）
+   * Establishes the SSE connection
    */
   async function connect(): Promise<void> {
     // Abort existing connection if any
@@ -421,19 +330,10 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       abortController = null;
     }
 
-    // Don't connect if no session is subscribed
-    if (!currentSessionId) {
-      console.debug('[SSE] No session subscribed, skipping connection');
-      setConnectionState('disconnected');
-      return;
-    }
-
     setConnectionState('connecting');
 
     const baseUrl = client.getBaseUrl();
-
-    // Build URL with session_id query parameter
-    const eventUrl = `${baseUrl}/event?session_id=${encodeURIComponent(currentSessionId)}`;
+    const eventUrl = `${baseUrl}/event`;
 
     console.debug('[SSE] Connecting to:', eventUrl);
 
@@ -442,13 +342,11 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       'Accept': 'text/event-stream',
     };
 
-    // Add auth token if available
     const authToken = client.getAuthToken();
     if (authToken) {
       headers['Authorization'] = `Bearer ${authToken}`;
     }
 
-    // Add Last-Event-ID for reconnection support
     if (lastEventId) {
       headers['Last-Event-ID'] = lastEventId;
     }
@@ -485,7 +383,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
           const { done, value } = await reader.read();
 
           if (done) {
-            // Stream ended normally, try to reconnect
             break;
           }
 
@@ -493,14 +390,11 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
           const { lines, remainingBuffer } = parseSSEChunk(chunk, buffer);
           buffer = remainingBuffer;
 
-          // Process each line
-          let currentEventId: string | null = null;
           let currentData: string | null = null;
 
           for (const line of lines) {
             if (line.startsWith('id:')) {
-              currentEventId = line.slice(3).trim();
-              lastEventId = currentEventId;  // Update last event ID
+              lastEventId = line.slice(3).trim();
             } else if (line.startsWith('data:')) {
               currentData = line.slice(5).trim();
             } else if (line.startsWith(':')) {
@@ -508,7 +402,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
               continue;
             }
 
-            // If we have data, process it
             if (currentData) {
               const event = parseSSEEvent(currentData);
               if (event) {
@@ -530,7 +423,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       scheduleReconnect();
 
     } catch (error) {
-      // Check if aborted intentionally
       if (error instanceof Error && error.name === 'AbortError') {
         return;
       }
@@ -543,7 +435,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
 
   /**
    * Disconnects from the event stream
-   * 断开事件流连接
    */
   function disconnect(): void {
     clearRetryTimeout();
@@ -554,20 +445,10 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
     }
 
     retryCount = 0;
-    // Don't reset lastEventId so we can resume on reconnect
     setConnectionState('disconnected');
   }
 
   return {
-    /**
-     * Subscribes to events from the backend
-     * 订阅后端事件
-     *
-     * GET /event (SSE)
-     *
-     * @param handler - Event handler callback / 事件处理回调
-     * @returns Unsubscribe function / 取消订阅函数
-     */
     subscribe(handler: EventHandler): Unsubscribe {
       handlers.add(handler);
 
@@ -576,7 +457,6 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
         connect();
       }
 
-      // Return unsubscribe function
       return () => {
         handlers.delete(handler);
 
@@ -587,143 +467,38 @@ export function createEventsApi(client: TalorClient, config?: EventsApiConfig): 
       };
     },
 
-    /**
-     * Sets the connection state change handler
-     * 设置连接状态变化处理函数
-     *
-     * @param handler - Connection state handler / 连接状态处理函数
-     */
     onConnectionStateChange(handler: ConnectionStateHandler): void {
       connectionStateHandler = handler;
-      // Immediately notify of current state
       handler(connectionState, retryCount);
     },
 
-    /**
-     * Gets the current connection state
-     * 获取当前连接状态
-     *
-     * @returns Current connection state / 当前连接状态
-     */
     getConnectionState(): ConnectionState {
       return connectionState;
     },
 
-    /**
-     * Gets the current retry count
-     * 获取当前重试次数
-     *
-     * @returns Current retry count / 当前重试次数
-     */
     getRetryCount(): number {
       return retryCount;
     },
 
-    /**
-     * Manually triggers a reconnection attempt
-     * 手动触发重连尝试
-     */
     reconnect(): void {
       clearRetryTimeout();
       retryCount = 0;
-      // Keep lastEventId for resuming
 
       if (handlers.size > 0) {
         connect();
       }
     },
 
-    /**
-     * Disconnects from the event stream
-     * 断开事件流连接
-     */
     disconnect,
 
-    /**
-     * Subscribe to a specific session's events
-     * 订阅特定会话的事件
-     *
-     * This will disconnect from any existing session and reconnect
-     * with the new session_id parameter.
-     * 这将断开任何现有会话的连接，并使用新的 session_id 参数重新连接。
-     *
-     * @param sessionId - Session ID to subscribe to / 要订阅的会话 ID
-     */
-    subscribeToSession(sessionId: string): void {
-      // If already subscribed to this session, do nothing
-      if (currentSessionId === sessionId) {
-        console.debug('[SSE] Already subscribed to session:', sessionId);
-        return;
-      }
-
-      console.debug('[SSE] Subscribing to session:', sessionId, 'Previous:', currentSessionId);
-
-      // Update current session
-      currentSessionId = sessionId;
-
-      // Reset last event ID for new session
-      lastEventId = null;
-
-      // Reconnect with new session_id if we have handlers
-      if (handlers.size > 0) {
-        clearRetryTimeout();
-        retryCount = 0;
+    connect(): void {
+      if (connectionState === 'disconnected') {
         connect();
       }
-    },
-
-    /**
-     * Unsubscribe from a specific session's events
-     * 取消订阅特定会话的事件
-     *
-     * This will disconnect from the event stream if the session matches.
-     * 如果会话匹配，这将断开事件流连接。
-     *
-     * @param sessionId - Session ID to unsubscribe from / 要取消订阅的会话 ID
-     */
-    unsubscribeFromSession(sessionId: string): void {
-      // Only unsubscribe if it's the current session
-      if (currentSessionId !== sessionId) {
-        console.debug('[SSE] Not subscribed to session:', sessionId);
-        return;
-      }
-
-      console.debug('[SSE] Unsubscribing from session:', sessionId);
-
-      currentSessionId = null;
-      lastEventId = null;
-
-      // Disconnect since we're no longer subscribed to any session
-      disconnect();
-    },
-
-    /**
-     * Get currently subscribed session ID
-     * 获取当前订阅的会话 ID
-     *
-     * @returns Current session ID or null / 当前会话 ID 或 null
-     */
-    getSubscribedSessions(): string[] {
-      return currentSessionId ? [currentSessionId] : [];
-    },
-
-    /**
-     * Check if subscribed to a specific session
-     * 检查是否订阅了特定会话
-     *
-     * @param sessionId - Session ID to check / 要检查的会话 ID
-     * @returns True if subscribed / 如果已订阅则返回 true
-     */
-    isSubscribedToSession(sessionId: string): boolean {
-      return currentSessionId === sessionId;
     },
   };
 }
 
-/**
- * Default export for convenience
- * 默认导出以方便使用
- */
 export default {
   createEventsApi,
   parseSSEEvent,

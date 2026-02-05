@@ -12,11 +12,11 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, useNavigate } from 'react-router-dom';
-import { SessionList } from '../components/session';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ChatView, PromptInput } from '../components/chat';
-import { useSessionStore } from '../store/session';
+import { SessionList } from '../components/session';
 import { getSessionPath } from '../router';
+import { useSessionStore } from '../store/session';
 
 /**
  * HomePage component
@@ -34,6 +34,12 @@ export const HomePage: React.FC = () => {
   const { t } = useTranslation();
   const { sessionId } = useParams<{ sessionId?: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Debug: Log URL changes
+  useEffect(() => {
+    console.debug('[HomePage] Location changed:', location.pathname, { sessionId, currentSessionId });
+  }, [location.pathname, sessionId]);
 
   // Local state for input value
   const [inputValue, setInputValue] = useState('');
@@ -55,28 +61,111 @@ export const HomePage: React.FC = () => {
     clearError,
   } = useSessionStore();
 
+  // Debug: Log store state changes
+  useEffect(() => {
+    console.debug('[HomePage] Store state:', {
+      sessionsCount: sessions.length,
+      currentSessionId,
+      isLoading,
+      error,
+      urlSessionId: sessionId,
+    });
+  }, [sessions.length, currentSessionId, isLoading, error, sessionId]);
+
   /**
-   * Fetch sessions on mount
-   * 组件挂载时获取会话列表
+   * Fetch sessions on mount and auto-create if none exist
+   * 组件挂载时获取会话列表，如果没有会话则自动创建
    */
   useEffect(() => {
-    fetchSessions().catch(() => {
-      // Error is handled in the store
-    });
-  }, [fetchSessions]);
+    let mounted = true;
+
+    fetchSessions()
+      .then(() => {
+        if (!mounted) return;
+
+        // Auto-create a session if none exist and no session is selected
+        const { sessions: currentSessions, currentSessionId: currentId } = useSessionStore.getState();
+
+        // Only auto-create/select if we're on the home page (no sessionId in URL)
+        if (!sessionId) {
+          if (currentSessions.length === 0 && !currentId) {
+            // No sessions exist, create one
+            createSession()
+              .then((session) => {
+                if (mounted) {
+                  navigate(getSessionPath(session.id));
+                }
+              })
+              .catch(() => {
+                // Error is handled in the store
+              });
+          } else if (currentSessions.length > 0 && !currentId) {
+            // Sessions exist but none selected, select the first one
+            const firstSession = currentSessions[0];
+            selectSession(firstSession.id)
+              .then(() => {
+                if (mounted) {
+                  navigate(getSessionPath(firstSession.id));
+                }
+              })
+              .catch(() => {
+                // Error is handled in the store
+              });
+          }
+        }
+      })
+      .catch(() => {
+        // Error is handled in the store
+      });
+
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
 
   /**
    * Sync URL session ID with store
    * 同步 URL 中的会话 ID 到 store
    */
   useEffect(() => {
+    // Only sync if we have a sessionId in the URL and it's different from the store
     if (sessionId && sessionId !== currentSessionId) {
-      selectSession(sessionId).catch(() => {
-        // If session not found, navigate to home
-        navigate('/', { replace: true });
-      });
+      console.debug('[HomePage] Syncing URL session ID to store:', sessionId, 'current:', currentSessionId);
+
+      // Check if the session exists in our sessions list first
+      const sessionExists = sessions.some(s => s.id === sessionId);
+
+      if (sessionExists) {
+        // Session exists, just select it
+        selectSession(sessionId).catch((err) => {
+          console.error('[HomePage] Failed to select existing session:', sessionId, err);
+          // Don't navigate away - the session exists, it's just a temporary error
+        });
+      } else if (sessions.length > 0) {
+        // Session doesn't exist in our list, but we have other sessions
+        // This might happen if the session was deleted or the URL is stale
+        console.warn('[HomePage] Session not found in list:', sessionId);
+        // Try to select anyway - it might be a new session not yet in the list
+        selectSession(sessionId).catch((err) => {
+          console.error('[HomePage] Failed to select session:', sessionId, err);
+          // Only navigate to home if the session truly doesn't exist
+          if (err instanceof Error && (err.message.includes('not found') || err.message.includes('404'))) {
+            navigate('/', { replace: true });
+          }
+        });
+      } else {
+        // No sessions loaded yet, try to select
+        selectSession(sessionId).catch((err) => {
+          console.error('[HomePage] Failed to select session (no sessions loaded):', sessionId, err);
+          // Only navigate to home if the session truly doesn't exist
+          if (err instanceof Error && (err.message.includes('not found') || err.message.includes('404'))) {
+            navigate('/', { replace: true });
+          }
+        });
+      }
     }
-  }, [sessionId, currentSessionId, selectSession, navigate]);
+  }, [sessionId, currentSessionId, sessions, selectSession, navigate]);
 
   /**
    * Handle session selection
@@ -148,15 +237,20 @@ export const HomePage: React.FC = () => {
   /**
    * Handle sending a message (方案 B - 分离式架构)
    * 处理发送消息（方案 B - 分离式架构）
-   * 
+   *
    * Uses sendMessageAsync which sends the prompt to /api/session/prompt/async
    * and receives responses via the /event SSE stream.
    */
   const handleSendMessage = useCallback(async () => {
-    if (!inputValue.trim() || !currentSessionId) return;
+    if (!inputValue.trim() || !currentSessionId) {
+      console.debug('[HomePage] Cannot send message:', { hasInput: !!inputValue.trim(), currentSessionId });
+      return;
+    }
 
     const messageContent = inputValue.trim();
     setInputValue(''); // Clear input immediately
+
+    console.debug('[HomePage] Sending message:', { sessionId: currentSessionId, contentLength: messageContent.length });
 
     try {
       // Generate a temporary streaming message ID
@@ -165,7 +259,9 @@ export const HomePage: React.FC = () => {
 
       // Use async mode (方案 B) - response comes via /event SSE stream
       await sendMessageAsync(messageContent);
-    } catch {
+      console.debug('[HomePage] Message sent successfully');
+    } catch (err) {
+      console.error('[HomePage] Failed to send message:', err);
       // Error is handled in the store
     } finally {
       // Note: streamingMessageId will be cleared when stream.done event is received

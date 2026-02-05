@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.tool import Tool, ToolContext, ToolOutput
+from src.core import workspace
 
 
 logger = logging.getLogger(__name__)
@@ -42,13 +43,13 @@ async def write_execute(params: WriteParams, ctx: ToolContext) -> ToolOutput:
     if not file_path.is_absolute():
         file_path = ctx.worktree / file_path
 
-    # Check if path is within worktree
+    # Validate workspace access
     try:
-        file_path.resolve().relative_to(ctx.worktree.resolve())
-    except ValueError:
+        file_path = workspace.validate_path(file_path)
+    except PermissionError as e:
         return ToolOutput.error(
-            f"Cannot write outside workspace: {params.file_path}",
-            title="Write Error"
+            str(e),
+            title="Access Denied"
         )
 
     try:

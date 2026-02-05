@@ -13,6 +13,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.tool import Tool, ToolContext, ToolOutput
+from src.core import workspace
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,15 @@ async def list_execute(params: ListParams, ctx: ToolContext) -> ToolOutput:
             list_path = ctx.worktree / list_path
     else:
         list_path = ctx.worktree
+
+    # Validate workspace access
+    try:
+        list_path = workspace.validate_path(list_path)
+    except PermissionError as e:
+        return ToolOutput.error(
+            str(e),
+            title="Access Denied"
+        )
 
     # Validate path
     if not list_path.exists():

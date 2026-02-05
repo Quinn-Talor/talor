@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.tool import Tool, ToolContext, ToolOutput
+from src.core import workspace
 
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,21 @@ async def bash_execute(params: BashParams, ctx: ToolContext) -> ToolOutput:
         if not workdir.is_absolute():
             workdir = ctx.worktree / workdir
     else:
-        workdir = ctx.worktree
+        # Use first workspace as default cwd if workspaces are configured
+        workspaces = workspace.get_workspaces()
+        if workspaces:
+            workdir = workspaces[0]
+        else:
+            workdir = ctx.worktree
+
+    # Validate workspace access
+    try:
+        workdir = workspace.validate_path(workdir)
+    except PermissionError as e:
+        return ToolOutput.error(
+            str(e),
+            title="Access Denied"
+        )
 
     # Validate working directory
     if not workdir.exists():

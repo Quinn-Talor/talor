@@ -35,7 +35,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src import initialize, shutdown
 from src.bus import Bus
-from src.bus import manager as bus_manager
 from src.tool import ToolRegistry
 from src.tool.builtin import get_all_builtin_tools
 from src.config import Config
@@ -117,8 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown
     logger.info("Shutting down Talor API server...")
 
-    # Shutdown all session buses
-    await bus_manager.shutdown()
+    # Note: Global bus doesn't need explicit shutdown as it's managed by the application lifecycle
 
     await MCP.disconnect_all()
 

@@ -51,6 +51,60 @@ __version__ = "0.1.0"
 
 
 # =============================================================================
+# Global Event Bus
+# =============================================================================
+
+# Global bus instance for cross-session event communication
+_global_bus: "GlobalBus | None" = None
+
+
+def get_global_bus() -> "GlobalBus":
+    """Get the global event bus instance.
+
+    Returns:
+        GlobalBus: The global event bus instance
+
+    Raises:
+        RuntimeError: If the global bus has not been initialized
+
+    Example:
+        ```python
+        from src import get_global_bus
+        from src.bus.events import MessageCreated, MessageCreatedData
+
+        bus = get_global_bus()
+        await bus.publish(
+            MessageCreated,
+            MessageCreatedData(
+                session_id="session-123",
+                message_id="msg-456",
+                role="user",
+                content="Hello"
+            )
+        )
+        ```
+    """
+    global _global_bus
+    if _global_bus is None:
+        # Lazy initialization - create on first access
+        from src.bus import GlobalBus
+        _global_bus = GlobalBus()
+    return _global_bus
+
+
+def _reset_global_bus() -> None:
+    """Reset the global bus instance (for testing only).
+
+    This function is intended for use in tests to ensure a clean state
+    between test runs. It should not be used in production code.
+    """
+    global _global_bus
+    if _global_bus is not None:
+        _global_bus.clear()
+    _global_bus = None
+
+
+# =============================================================================
 # Module Initialization Functions
 # =============================================================================
 
@@ -87,6 +141,7 @@ async def initialize(
     from src import provider
     from src import session
     from src import agent
+    from src.core import workspace as workspace_module
 
     # Use workspace as worktree if not provided
     effective_worktree = worktree or workspace
@@ -102,17 +157,26 @@ async def initialize(
     async def config_getter() -> dict[str, Any]:
         return await config.get()
 
-    # 2. Configure provider module
+    # 2. Initialize workspace restrictions
+    cfg = await config.get()
+    workspace_dirs = cfg.get("workspace", [])
+    if workspace_dirs:
+        # Convert to Path objects and configure
+        workspace_paths = [Path(w) for w in workspace_dirs]
+        workspace_module.configure(workspace_paths)
+    # If no workspace configured, all paths are allowed (backward compatibility)
+
+    # 3. Configure provider module
     provider.configure(config_getter=config_getter)
 
-    # 3. Configure session module
+    # 4. Configure session module
     # Note: bus parameter removed - session module now uses SessionBusManager internally
     session.configure(
         workspace=workspace,
         storage=storage,
     )
 
-    # 4. Configure agent module
+    # 5. Configure agent module
     agent.configure(config_getter=config_getter)
 
 
@@ -163,6 +227,8 @@ __all__ = [
     # Module initialization
     "initialize",
     "shutdown",
+    # Global Bus
+    "get_global_bus",
     # Bus
     "Bus",
     "BusEvent",
