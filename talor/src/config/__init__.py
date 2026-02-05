@@ -52,8 +52,7 @@ from src.config.config import (
     # Configuration schema classes
     MCPServerConfig,
     ProviderConfig,
-    PluginConfig,
-    PluginsConfig,
+    PluginItemConfig,
     ConfigInfo,
     # Default configuration
     DEFAULT_CONFIG,
@@ -82,8 +81,7 @@ __all__ = [
     # Configuration schema classes
     "MCPServerConfig",
     "ProviderConfig",
-    "PluginConfig",
-    "PluginsConfig",
+    "PluginItemConfig",
     "ConfigInfo",
     # Default configuration
     "DEFAULT_CONFIG",

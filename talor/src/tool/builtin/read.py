@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.tool import Tool, ToolContext, ToolOutput
+from src.core import workspace
 
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,15 @@ async def read_execute(params: ReadParams, ctx: ToolContext) -> ToolOutput:
     file_path = Path(params.file_path)
     if not file_path.is_absolute():
         file_path = ctx.worktree / file_path
+
+    # Validate workspace access
+    try:
+        file_path = workspace.validate_path(file_path)
+    except PermissionError as e:
+        return ToolOutput.error(
+            str(e),
+            title="Access Denied"
+        )
 
     # Check if file exists
     if not file_path.exists():

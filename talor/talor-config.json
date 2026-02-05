@@ -1,9 +1,9 @@
 {
   "default_model": "ollama/deepseek-v3.1:671b-cloud",
-  "providers": {
+  "provider": {
     "ollama": {
       "api_key": "ollama",
-      "base_url": "http://localhost:11434"
+      "base_url": "http://localhost:11434/v1"
     }
   },
   "mcp": {

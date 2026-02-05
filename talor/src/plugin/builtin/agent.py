@@ -145,41 +145,52 @@ Decompose → Research → Synthesize → Validate → Present
         )
         self._prompt_cache: dict[str, str] = {}
 
-    def _load_agent_prompt_from_file(self, agent_name: str) -> str | None:
+    def _load_agent_prompt_from_file(self, agent_name: str, prompt_path: str | None = None) -> str | None:
         """Load agent prompt from file.
 
         Args:
             agent_name: Name of the agent
+            prompt_path: Custom prompt file path (from agent config)
 
         Returns:
             Prompt content from file or None if not found
-
-        The prompt file is located at: prompts/agents/{agent_name}.md
         """
-        # Check cache first
-        if agent_name in self._prompt_cache:
-            return self._prompt_cache[agent_name]
-
-        try:
-            # Get the project root (talor/)
-            # This file is at: talor/src/plugin/builtin/agent.py
-            # We need to go up 3 levels to reach talor/
+        # Determine the file path
+        if prompt_path:
+            # Use custom path from agent config
+            file_path = Path(prompt_path)
+            cache_key = prompt_path
+        else:
+            # Default path: prompts/agents/{agent_name}.md
             plugin_file = Path(__file__)
             project_root = plugin_file.parent.parent.parent.parent
-            prompt_file = project_root / "prompts" / "agents" / f"{agent_name}.md"
+            file_path = project_root / "prompts" / "agents" / f"{agent_name}.md"
+            cache_key = agent_name
 
-            if prompt_file.exists():
-                content = prompt_file.read_text(encoding="utf-8")
+        # Check cache first
+        if cache_key in self._prompt_cache:
+            return self._prompt_cache[cache_key]
+
+        try:
+            # Try relative path first, then absolute
+            if not file_path.is_absolute() and not file_path.exists():
+                # Try relative to project root
+                plugin_file = Path(__file__)
+                project_root = plugin_file.parent.parent.parent.parent
+                file_path = project_root / prompt_path if prompt_path else file_path
+
+            if file_path.exists():
+                content = file_path.read_text(encoding="utf-8")
                 # Strip markdown header if present
                 if content.startswith("# "):
                     lines = content.split("\n", 1)
                     content = lines[1].strip() if len(lines) > 1 else content
                 # Cache the loaded prompt
-                self._prompt_cache[agent_name] = content
-                logger.info(f"Loaded agent prompt for '{agent_name}' from {prompt_file}")
+                self._prompt_cache[cache_key] = content
+                logger.info(f"Loaded agent prompt for '{agent_name}' from {file_path}")
                 return content
             else:
-                logger.debug(f"Agent prompt file not found: {prompt_file}")
+                logger.debug(f"Agent prompt file not found: {file_path}")
                 return None
 
         except Exception as e:
@@ -197,22 +208,32 @@ Decompose → Research → Synthesize → Validate → Present
         """
         agent_name = context.agent_name
 
-        # Priority: custom prompt > file prompt > fallback prompt > generic prompt
-        if context.agent_prompt:
-            # Custom prompt from agent config
+        # Priority: custom prompt path > inline prompt > default file > fallback > generic
+        prompt: str | None = None
+
+        # 1. Try custom prompt path from agent config
+        if context.agent_prompt_path:
+            prompt = self._load_agent_prompt_from_file(agent_name, context.agent_prompt_path)
+            if prompt:
+                logger.debug(f"Loaded prompt from custom path: {context.agent_prompt_path}")
+
+        # 2. Try inline prompt (deprecated, for backward compatibility)
+        if not prompt and context.agent_prompt:
             prompt = context.agent_prompt
-        else:
-            # Try to load from file
+            logger.debug(f"Using inline prompt for agent: {agent_name}")
+
+        # 3. Try default file path (prompts/agents/{agent_name}.md)
+        if not prompt:
             prompt = self._load_agent_prompt_from_file(agent_name)
 
-            if not prompt:
-                # Use fallback prompt for built-in agents
-                prompt = self.FALLBACK_AGENT_PROMPTS.get(agent_name)
+        # 4. Use fallback prompt for built-in agents
+        if not prompt:
+            prompt = self.FALLBACK_AGENT_PROMPTS.get(agent_name)
 
-                if not prompt:
-                    # Generic prompt for unknown agents
-                    prompt = f"## Your Role: {agent_name.title()}\n\nYou are a {agent_name} agent with standard capabilities."
-                    logger.warning(f"Using generic prompt for unknown agent: {agent_name}")
+        # 5. Generic prompt for unknown agents
+        if not prompt:
+            prompt = f"## Your Role: {agent_name.title()}\n\nYou are a {agent_name} agent with standard capabilities."
+            logger.warning(f"Using generic prompt for unknown agent: {agent_name}")
 
         # Apply template variables
         prompt = self._apply_template_variables(prompt, context)

@@ -1,5 +1,6 @@
 {
   "name": "talor-gui",
+  "description": "Talor Desktop Client - Local AI Agent Assistant",
   "private": true,
   "version": "0.0.0",
   "type": "module",

@@ -12,11 +12,11 @@
  */
 
 import { create } from 'zustand';
-import type { Session, SessionInfo } from '../types/session';
-import type { Message } from '../types/message';
-import type { SessionApi } from '../api/session';
 import type { AgentApi } from '../api/agent';
 import type { EventsApi } from '../api/events';
+import type { SessionApi } from '../api/session';
+import type { Message } from '../types/message';
+import type { Session, SessionInfo } from '../types/session';
 
 /**
  * Session state interface
@@ -296,7 +296,7 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
    * @requirements 2.1 - 创建新会话并切换到该会话
    */
   async createSession(): Promise<Session> {
-    const { _sessionApi, _eventsApi, currentSessionId } = get();
+    const { _sessionApi } = get();
     if (!_sessionApi) {
       const error = new Error('Session API not initialized');
       set({ error: error.message });
@@ -307,16 +307,6 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
 
     try {
       const session = await _sessionApi.create();
-
-      // Unsubscribe from previous session if any
-      if (currentSessionId && _eventsApi) {
-        _eventsApi.unsubscribeFromSession(currentSessionId);
-      }
-
-      // Subscribe to new session's events
-      if (_eventsApi) {
-        _eventsApi.subscribeToSession(session.id);
-      }
 
       // Convert Session to SessionInfo for the list
       const sessionInfo: SessionInfo = {
@@ -353,13 +343,10 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
    * Selects a session and loads its messages
    * 选择会话并加载其消息
    *
-   * Also subscribes to the session's events via the Events API.
-   * 同时通过事件 API 订阅该会话的事件。
-   *
    * @requirements 2.2 - 加载该会话的消息历史
    */
   async selectSession(sessionId: string): Promise<void> {
-    const { _sessionApi, _eventsApi, messages, currentSessionId } = get();
+    const { _sessionApi, messages, currentSessionId } = get();
     if (!_sessionApi) {
       set({ error: 'Session API not initialized' });
       return;
@@ -368,16 +355,6 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
     // Skip if already selected
     if (sessionId === currentSessionId) {
       return;
-    }
-
-    // Unsubscribe from previous session if any
-    if (currentSessionId && _eventsApi) {
-      _eventsApi.unsubscribeFromSession(currentSessionId);
-    }
-
-    // Subscribe to new session
-    if (_eventsApi) {
-      _eventsApi.subscribeToSession(sessionId);
     }
 
     set({ currentSessionId: sessionId, isLoading: true, error: null });
@@ -452,7 +429,7 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
    *
    * Uses the streaming prompt endpoint (方案 A).
    * This method handles the response directly via SSE streaming.
-   * 
+   *
    * 使用流式 prompt 端点（方案 A）。
    * 此方法通过 SSE 流式直接处理响应。
    */
@@ -601,9 +578,9 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
    *
    * This method sends the prompt asynchronously and relies on the /event SSE
    * stream to receive responses. This is more resilient to network issues.
-   * 
+   *
    * 此方法异步发送 prompt，依赖 /event SSE 流接收响应。对网络问题更有弹性。
-   * 
+   *
    * Uses optimistic update: adds user message locally first, then deduplicates
    * when the backend event arrives.
    * 使用乐观更新：先在本地添加用户消息，然后在后端事件到达时去重。
@@ -611,12 +588,21 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
   async sendMessageAsync(content: string): Promise<void> {
     const { _sessionApi, _agentApi, currentSessionId } = get();
 
+    console.debug('[SessionStore] sendMessageAsync called:', {
+      hasSessionApi: !!_sessionApi,
+      hasAgentApi: !!_agentApi,
+      currentSessionId,
+      contentLength: content.length,
+    });
+
     if (!_sessionApi || !_agentApi) {
+      console.error('[SessionStore] APIs not initialized');
       set({ error: 'APIs not initialized' });
       return;
     }
 
     if (!currentSessionId) {
+      console.error('[SessionStore] No session selected');
       set({ error: '没有选中的会话' });
       return;
     }
@@ -636,18 +622,22 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
 
       // Add user message to state (optimistic update)
       get().addMessage(userMessage);
+      console.debug('[SessionStore] Added local user message:', userMessage.id);
 
       // Send prompt asynchronously - response will come via /event SSE stream
       // The useEvents hook will handle message.created events
       // When the backend event arrives, addMessage will deduplicate by content
-      await _agentApi.processPromptAsync({
+      console.debug('[SessionStore] Calling processPromptAsync...');
+      const result = await _agentApi.processPromptAsync({
         sessionId: currentSessionId,
         prompt: content,
       });
+      console.debug('[SessionStore] processPromptAsync result:', result);
 
       // Note: isLoading will be set to false when we receive the done event
       // via the /event SSE stream (handled by useEvents hook)
     } catch (error) {
+      console.error('[SessionStore] sendMessageAsync error:', error);
       const errorMessage = error instanceof Error ? error.message : '发送消息失败';
       set({ error: errorMessage, isLoading: false });
       throw error;
@@ -662,7 +652,7 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
    * - If a message with the same ID exists, skip it
    * - If a local message (id starts with 'local_') with same role and content exists,
    *   replace it with the backend message (which has the real ID)
-   * 
+   *
    * 处理乐观更新的去重：
    * - 如果存在相同 ID 的消息，跳过
    * - 如果存在相同角色和内容的本地消息（ID 以 'local_' 开头），
@@ -671,13 +661,13 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
   addMessage(message: Message): void {
     set((state) => {
       const sessionMessages = state.messages[message.sessionId] ?? [];
-      
+
       // Check if message already exists by ID
       const existsById = sessionMessages.some((m) => m.id === message.id);
       if (existsById) {
         return state;
       }
-      
+
       // Check if this is a backend message that should replace a local optimistic message
       // Local messages have IDs starting with 'local_'
       if (!message.id.startsWith('local_')) {
@@ -685,7 +675,7 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
         const localMessageIndex = sessionMessages.findIndex(
           (m) => m.id.startsWith('local_') && m.role === message.role && m.content === message.content
         );
-        
+
         if (localMessageIndex !== -1) {
           // Replace the local message with the backend message
           const updatedMessages = [...sessionMessages];
@@ -698,7 +688,7 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
           };
         }
       }
-      
+
       return {
         messages: {
           ...state.messages,
@@ -778,6 +768,8 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
    * Unlike deleteSession, this does not make an API call.
    */
   removeSession(sessionId: string): void {
+    console.debug('[SessionStore] removeSession called:', sessionId);
+
     set((state) => {
       // Remove session from list
       const updatedSessions = state.sessions.filter((s) => s.id !== sessionId);
@@ -788,6 +780,13 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
       // Clear currentSessionId if the deleted session was selected
       const newCurrentSessionId =
         state.currentSessionId === sessionId ? null : state.currentSessionId;
+
+      console.debug('[SessionStore] removeSession result:', {
+        removedSessionId: sessionId,
+        wasCurrentSession: state.currentSessionId === sessionId,
+        newCurrentSessionId,
+        remainingSessions: updatedSessions.length,
+      });
 
       return {
         sessions: updatedSessions,

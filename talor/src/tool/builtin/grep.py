@@ -12,6 +12,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.tool import Tool, ToolContext, ToolOutput
+from src.core import workspace
 
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,15 @@ async def grep_execute(params: GrepParams, ctx: ToolContext) -> ToolOutput:
             search_path = ctx.worktree / search_path
     else:
         search_path = ctx.worktree
+
+    # Validate workspace access
+    try:
+        search_path = workspace.validate_path(search_path)
+    except PermissionError as e:
+        return ToolOutput.error(
+            str(e),
+            title="Access Denied"
+        )
 
     # Validate path
     if not search_path.exists():

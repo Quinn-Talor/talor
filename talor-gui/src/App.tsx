@@ -16,26 +16,26 @@
 
 import React, { useEffect, useMemo } from 'react';
 import { I18nextProvider } from 'react-i18next';
-import { ThemeProvider } from './components/common/ThemeProvider';
-import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { AppRouter } from './router';
-import i18n from './i18n';
-import { TalorClient } from './api/client';
-import { createSessionApi } from './api/session';
 import { createAgentApi } from './api/agent';
+import { TalorClient } from './api/client';
 import { createConfigApi } from './api/config';
 import { createEventsApi, type ConnectionState } from './api/events';
+import { createSessionApi } from './api/session';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { ThemeProvider } from './components/common/ThemeProvider';
+import { useEvents, type EventHandlers, type StoreCallbacks } from './hooks/useEvents';
+import i18n from './i18n';
+import { AppRouter } from './router';
 import { useSessionStore } from './store/session';
 import { useUIStore } from './store/ui';
-import { useEvents, type StoreCallbacks, type EventHandlers } from './hooks/useEvents';
-import type { SessionInfo } from './types/session';
 import type { Message } from './types/message';
 import type { PermissionRequest } from './types/permission';
+import type { SessionInfo } from './types/session';
 
 /**
  * Default API base URL
  * 默认 API 基础 URL
- * 
+ *
  * In development, we use an empty string because Vite proxy handles the routing.
  * In production, this should be set via VITE_API_BASE_URL environment variable.
  */

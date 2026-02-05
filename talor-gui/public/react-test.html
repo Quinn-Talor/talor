@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React 渲染测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-left: 10px;
+        }
+        .status.success { background: #10b981; color: white; }
+        .status.error { background: #ef4444; color: white; }
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover { background: #5568d3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 React 渲染测试</h1>
+        <p style="color: #666; margin-bottom: 30px;">
+            这个页面用于测试 React 应用是否正确渲染
+        </p>
+
+        <!-- DOM 检查 -->
+        <div class="test-section">
+            <h2>1. DOM 元素检查</h2>
+            <div id="dom-test">
+                <span class="status">检查中...</span>
+            </div>
+        </div>
+
+        <!-- React 根元素检查 -->
+        <div class="test-section">
+            <h2>2. React 根元素检查</h2>
+            <div id="react-root-test">
+                <span class="status">检查中...</span>
+            </div>
+        </div>
+
+        <!-- API 连接检查 -->
+        <div class="test-section">
+            <h2>3. API 连接检查</h2>
+            <div id="api-test">
+                <span class="status">检查中...</span>
+            </div>
+        </div>
+
+        <!-- JavaScript 错误检查 -->
+        <div class="test-section">
+            <h2>4. JavaScript 错误检查</h2>
+            <div id="error-test">
+                <span class="status">检查中...</span>
+            </div>
+            <pre id="error-log" style="display: none;"></pre>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="test-section">
+            <h2>🔧 操作</h2>
+            <button onclick="window.location.href='/'">打开主应用</button>
+            <button onclick="window.location.reload()">刷新页面</button>
+            <button onclick="clearCache()">清除缓存</button>
+        </div>
+
+        <!-- 诊断结果 -->
+        <div class="test-section">
+            <h2>📋 诊断结果</h2>
+            <pre id="diagnosis"></pre>
+        </div>
+    </div>
+
+    <script>
+        const errors = [];
+        const diagnosis = [];
+
+        // 捕获所有 JavaScript 错误
+        window.addEventListener('error', (event) => {
+            errors.push({
+                message: event.message,
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                error: event.error?.stack
+            });
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            errors.push({
+                message: 'Unhandled Promise Rejection',
+                reason: event.reason
+            });
+        });
+
+        function updateStatus(elementId, success, message) {
+            const element = document.getElementById(elementId);
+            const statusClass = success ? 'success' : 'error';
+            const statusText = success ? '✓ 通过' : '✗ 失败';
+            element.innerHTML = `<span class="status ${statusClass}">${statusText}</span> ${message}`;
+        }
+
+        function addDiagnosis(message) {
+            diagnosis.push(message);
+            document.getElementById('diagnosis').textContent = diagnosis.join('\n');
+        }
+
+        // 测试 1: DOM 元素检查
+        function testDOM() {
+            addDiagnosis('=== DOM 元素检查 ===');
+
+            const root = document.getElementById('root');
+            if (root) {
+                updateStatus('dom-test', true, 'Root 元素存在');
+                addDiagnosis('✓ Root 元素存在');
+                addDiagnosis(`  innerHTML 长度: ${root.innerHTML.length}`);
+                addDiagnosis(`  子元素数量: ${root.children.length}`);
+
+                if (root.innerHTML.length === 0) {
+                    addDiagnosis('⚠ Root 元素为空 - React 可能未渲染');
+                }
+            } else {
+                updateStatus('dom-test', false, 'Root 元素不存在');
+                addDiagnosis('✗ Root 元素不存在');
+            }
+        }
+
+        // 测试 2: React 根元素检查
+        function testReactRoot() {
+            addDiagnosis('\n=== React 根元素检查 ===');
+
+            const root = document.getElementById('root');
+            if (!root) {
+                updateStatus('react-root-test', false, 'Root 元素不存在');
+                addDiagnosis('✗ 无法检查 - Root 元素不存在');
+                return;
+            }
+
+            // 检查是否有 React 渲染的迹象
+            const hasReactContent = root.children.length > 0;
+            const hasDataReactRoot = root.hasAttribute('data-reactroot') ||
+                                     root.querySelector('[data-reactroot]') !== null;
+
+            if (hasReactContent) {
+                updateStatus('react-root-test', true, 'React 已渲染');
+                addDiagnosis('✓ React 已渲染');
+                addDiagnosis(`  第一个子元素: ${root.children[0]?.tagName}`);
+            } else {
+                updateStatus('react-root-test', false, 'React 未渲染');
+                addDiagnosis('✗ React 未渲染');
+                addDiagnosis('  可能原因:');
+                addDiagnosis('    1. JavaScript 错误导致 React 无法启动');
+                addDiagnosis('    2. 模块加载失败');
+                addDiagnosis('    3. 构建配置问题');
+            }
+        }
+
+        // 测试 3: API 连接检查
+        async function testAPI() {
+            addDiagnosis('\n=== API 连接检查 ===');
+
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+
+                if (response.ok) {
+                    updateStatus('api-test', true, `API 正常 (版本: ${data.version})`);
+                    addDiagnosis('✓ API 连接正常');
+                    addDiagnosis(`  版本: ${data.version}`);
+                } else {
+                    updateStatus('api-test', false, `HTTP ${response.status}`);
+                    addDiagnosis(`✗ API 错误: HTTP ${response.status}`);
+                }
+            } catch (e) {
+                updateStatus('api-test', false, e.message);
+                addDiagnosis(`✗ API 连接失败: ${e.message}`);
+            }
+        }
+
+        // 测试 4: JavaScript 错误检查
+        function testErrors() {
+            addDiagnosis('\n=== JavaScript 错误检查 ===');
+
+            if (errors.length === 0) {
+                updateStatus('error-test', true, '无错误');
+                addDiagnosis('✓ 无 JavaScript 错误');
+            } else {
+                updateStatus('error-test', false, `发现 ${errors.length} 个错误`);
+                addDiagnosis(`✗ 发现 ${errors.length} 个错误:`);
+
+                const errorLog = document.getElementById('error-log');
+                errorLog.style.display = 'block';
+                errorLog.textContent = JSON.stringify(errors, null, 2);
+
+                errors.forEach((error, index) => {
+                    addDiagnosis(`  ${index + 1}. ${error.message}`);
+                    if (error.filename) {
+                        addDiagnosis(`     文件: ${error.filename}:${error.lineno}:${error.colno}`);
+                    }
+                });
+            }
+        }
+
+        // 清除缓存
+        function clearCache() {
+            if (confirm('确定要清除缓存吗？这将刷新页面。')) {
+                // 清除 localStorage
+                localStorage.clear();
+                // 清除 sessionStorage
+                sessionStorage.clear();
+                // 硬刷新
+                window.location.reload(true);
+            }
+        }
+
+        // 运行所有测试
+        async function runAllTests() {
+            addDiagnosis('开始诊断...\n');
+            testDOM();
+            testReactRoot();
+            await testAPI();
+
+            // 等待一秒钟收集错误
+            setTimeout(() => {
+                testErrors();
+                addDiagnosis('\n=== 诊断完成 ===');
+
+                // 生成建议
+                addDiagnosis('\n=== 建议 ===');
+                const root = document.getElementById('root');
+                if (!root || root.innerHTML.length === 0) {
+                    addDiagnosis('1. 打开浏览器控制台 (F12) 查看详细错误');
+                    addDiagnosis('2. 检查 Network 标签页，查看是否有资源加载失败');
+                    addDiagnosis('3. 尝试硬刷新: Ctrl+Shift+R (Windows) 或 Cmd+Shift+R (Mac)');
+                    addDiagnosis('4. 尝试清除缓存并刷新');
+                }
+            }, 1000);
+        }
+
+        // 页面加载时运行测试
+        window.addEventListener('load', runAllTests);
+    </script>
+</body>
+</html>

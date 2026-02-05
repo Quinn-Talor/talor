@@ -246,6 +246,7 @@ class Provider(BaseModel):
     name: str
     api_key_env: str | None = None
     base_url: str | None = None
+    auto_discover: bool = False
     models: list[Model] = Field(default_factory=list)
 
     # =========================================================================
@@ -409,117 +410,151 @@ class Provider(BaseModel):
 
 
 # =============================================================================
-# Built-in Providers
+# Default Providers (used when config file has no providers section)
 # =============================================================================
 
-BUILTIN_PROVIDERS: dict[str, Provider] = {
-    "ollama": Provider(
-        id="ollama",
-        name="Ollama",
-        api_key_env=None,
-        base_url="http://localhost:11434/v1",
-        models=[
-            Model(
-                id="deepseek-v3.1:671b-cloud",
-                name="DeepSeek V3.1 671B Cloud",
-                provider_id="ollama",
-                context_length=64000,
-                max_output_tokens=8192,
-                capabilities=ModelCapabilities(function_calling=True),
-                cost=ModelCost(input=0.0, output=0.0),
-            ),
-            Model(
-                id="qwen2.5:14b",
-                name="Qwen 2.5 14B",
-                provider_id="ollama",
-                context_length=32768,
-                max_output_tokens=8192,
-                capabilities=ModelCapabilities(function_calling=True),
-                cost=ModelCost(input=0.0, output=0.0),
-            ),
+DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
+    "ollama": {
+        "name": "Ollama",
+        "api_key_env": None,
+        "base_url": "http://localhost:11434/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "openai": {
+        "name": "OpenAI",
+        "api_key_env": "OPENAI_API_KEY",
+        "base_url": "https://api.openai.com/v1",
+        "models": [
+            {
+                "id": "gpt-4o",
+                "name": "GPT-4o",
+                "context_length": 128000,
+                "max_output_tokens": 16384,
+                "capabilities": {"vision": True, "function_calling": True},
+                "cost": {"input": 2.5, "output": 10.0},
+            },
+            {
+                "id": "gpt-4o-mini",
+                "name": "GPT-4o Mini",
+                "context_length": 128000,
+                "max_output_tokens": 16384,
+                "capabilities": {"vision": True, "function_calling": True},
+                "cost": {"input": 0.15, "output": 0.6},
+            },
         ],
-    ),
-    "openai": Provider(
-        id="openai",
-        name="OpenAI",
-        api_key_env="OPENAI_API_KEY",
-        base_url="https://api.openai.com/v1",
-        models=[
-            Model(
-                id="gpt-4o",
-                name="GPT-4o",
-                provider_id="openai",
-                context_length=128000,
-                max_output_tokens=16384,
-                capabilities=ModelCapabilities(vision=True, function_calling=True),
-                cost=ModelCost(input=2.5, output=10.0),
-            ),
-            Model(
-                id="gpt-4o-mini",
-                name="GPT-4o Mini",
-                provider_id="openai",
-                context_length=128000,
-                max_output_tokens=16384,
-                capabilities=ModelCapabilities(vision=True, function_calling=True),
-                cost=ModelCost(input=0.15, output=0.6),
-            ),
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "base_url": "https://api.anthropic.com",
+        "models": [
+            {
+                "id": "claude-sonnet-4-20250514",
+                "name": "Claude Sonnet 4",
+                "context_length": 200000,
+                "max_output_tokens": 16384,
+                "capabilities": {"vision": True, "function_calling": True},
+                "cost": {"input": 3.0, "output": 15.0},
+            },
+            {
+                "id": "claude-3-5-haiku-20241022",
+                "name": "Claude 3.5 Haiku",
+                "context_length": 200000,
+                "max_output_tokens": 8192,
+                "capabilities": {"vision": True, "function_calling": True},
+                "cost": {"input": 0.8, "output": 4.0},
+            },
         ],
-    ),
-    "anthropic": Provider(
-        id="anthropic",
-        name="Anthropic",
-        api_key_env="ANTHROPIC_API_KEY",
-        base_url="https://api.anthropic.com",
-        models=[
-            Model(
-                id="claude-3-5-sonnet-20241022",
-                name="Claude 3.5 Sonnet",
-                provider_id="anthropic",
-                context_length=200000,
-                max_output_tokens=8192,
-                capabilities=ModelCapabilities(vision=True, function_calling=True),
-                cost=ModelCost(input=3.0, output=15.0),
-            ),
-            Model(
-                id="claude-3-5-haiku-20241022",
-                name="Claude 3.5 Haiku",
-                provider_id="anthropic",
-                context_length=200000,
-                max_output_tokens=8192,
-                capabilities=ModelCapabilities(vision=True, function_calling=True),
-                cost=ModelCost(input=0.8, output=4.0),
-            ),
+    },
+    "google": {
+        "name": "Google AI",
+        "api_key_env": "GOOGLE_API_KEY",
+        "models": [
+            {
+                "id": "gemini-2.5-pro",
+                "name": "Gemini 2.5 Pro",
+                "context_length": 1000000,
+                "max_output_tokens": 65536,
+                "capabilities": {"vision": True, "function_calling": True},
+                "cost": {"input": 1.25, "output": 10.0},
+            },
         ],
-    ),
-    "google": Provider(
-        id="google",
-        name="Google AI",
-        api_key_env="GOOGLE_API_KEY",
-        models=[
-            Model(
-                id="gemini-1.5-pro",
-                name="Gemini 1.5 Pro",
-                provider_id="google",
-                context_length=2000000,
-                max_output_tokens=8192,
-                capabilities=ModelCapabilities(vision=True, function_calling=True),
-                cost=ModelCost(input=1.25, output=5.0),
-            ),
-        ],
-    ),
+    },
 }
 
 
 # =============================================================================
-# Internal Functions (Provider Discovery)
+# Internal Functions (Provider Discovery & Loading)
 # =============================================================================
 
-async def _discover_ollama_models(
-    base_url: str = "http://localhost:11434",
-) -> list[Model]:
-    """Discover available Ollama models.
+def _parse_model_config(provider_id: str, model_config: dict) -> Model:
+    """Parse a model configuration dict into a Model entity.
 
     Args:
+        provider_id: Provider ID
+        model_config: Model configuration dict
+
+    Returns:
+        Model entity
+    """
+    capabilities_config = model_config.get("capabilities", {})
+    cost_config = model_config.get("cost", {})
+
+    return Model(
+        id=model_config["id"],
+        name=model_config.get("name", model_config["id"]),
+        provider_id=provider_id,
+        context_length=model_config.get("context_length", 128000),
+        max_output_tokens=model_config.get("max_output_tokens", 4096),
+        capabilities=ModelCapabilities(
+            vision=capabilities_config.get("vision", False),
+            function_calling=capabilities_config.get("function_calling", True),
+            json_mode=capabilities_config.get("json_mode", False),
+            streaming=capabilities_config.get("streaming", True),
+        ),
+        cost=ModelCost(
+            input=cost_config.get("input", 0.0),
+            output=cost_config.get("output", 0.0),
+            cache_read=cost_config.get("cache_read", 0.0),
+            cache_write=cost_config.get("cache_write", 0.0),
+        ),
+    )
+
+
+def _parse_provider_config(provider_id: str, provider_config: dict) -> Provider:
+    """Parse a provider configuration dict into a Provider entity.
+
+    Args:
+        provider_id: Provider ID
+        provider_config: Provider configuration dict
+
+    Returns:
+        Provider entity
+    """
+    models = [
+        _parse_model_config(provider_id, m)
+        for m in provider_config.get("models", [])
+    ]
+
+    return Provider(
+        id=provider_id,
+        name=provider_config.get("name", provider_id),
+        api_key_env=provider_config.get("api_key_env"),
+        base_url=provider_config.get("base_url"),
+        auto_discover=provider_config.get("auto_discover", False),
+        models=models,
+    )
+
+
+async def _discover_ollama_models(
+    provider_id: str,
+    base_url: str = "http://localhost:11434",
+) -> list[Model]:
+    """Discover available Ollama models via API.
+
+    Args:
+        provider_id: Provider ID (for model.provider_id)
         base_url: Ollama API base URL
 
     Returns:
@@ -552,7 +587,7 @@ async def _discover_ollama_models(
                 details = model_data.get("details", {})
                 parameter_size = details.get("parameter_size", "")
 
-                # Estimate context length
+                # Estimate context length based on model name
                 context_length = 32768
                 if "llama3" in model_name.lower():
                     context_length = 128000
@@ -568,7 +603,7 @@ async def _discover_ollama_models(
                 models.append(Model(
                     id=model_name,
                     name=display_name,
-                    provider_id="ollama",
+                    provider_id=provider_id,
                     context_length=context_length,
                     max_output_tokens=8192,
                     capabilities=ModelCapabilities(function_calling=True),
@@ -584,24 +619,18 @@ async def _discover_ollama_models(
         if _ollama_models_cache:
             return _ollama_models_cache
 
-        # Fallback
-        models = [
-            Model(
-                id="deepseek-v3.1:671b-cloud",
-                name="DeepSeek V3.1 671B Cloud",
-                provider_id="ollama",
-                context_length=64000,
-                max_output_tokens=8192,
-                capabilities=ModelCapabilities(function_calling=True),
-                cost=ModelCost(input=0.0, output=0.0),
-            ),
-        ]
-
     return models
 
 
 async def _load_providers() -> dict[str, Provider]:
-    """Load all providers.
+    """Load all providers from configuration.
+
+    Loading priority:
+    1. Config file "providers" section (full control)
+    2. Default providers (fallback when no config)
+
+    For providers with auto_discover=True (like Ollama),
+    models are discovered via API and merged with configured models.
 
     Returns:
         Dict of provider_id -> Provider
@@ -611,35 +640,38 @@ async def _load_providers() -> dict[str, Provider]:
     if _providers_cache is not None:
         return _providers_cache
 
-    # Start with built-in providers
-    providers = {k: v.model_copy() for k, v in BUILTIN_PROVIDERS.items()}
+    providers: dict[str, Provider] = {}
+    providers_config: dict[str, dict] = {}
 
-    # Discover Ollama models
-    if "ollama" in providers:
-        ollama_base_url = providers["ollama"].base_url or "http://localhost:11434"
-        api_base_url = ollama_base_url.replace("/v1", "")
-        discovered_models = await _discover_ollama_models(api_base_url)
-        if discovered_models:
-            # Use entity's replace_models method (DDD pattern)
-            providers["ollama"] = providers["ollama"].replace_models(discovered_models)
-
-    # Load custom providers from config
+    # Load from config file if available
     if _config_getter:
         config = await _config_getter()
-        for provider_id, provider_config in config.get("provider", {}).items():
-            if provider_id in providers:
-                if "base_url" in provider_config:
-                    # Use entity's with_base_url method (DDD pattern)
-                    providers[provider_id] = providers[provider_id].with_base_url(
-                        provider_config["base_url"]
-                    )
-            else:
-                providers[provider_id] = Provider(
-                    id=provider_id,
-                    name=provider_config.get("name", provider_id),
-                    api_key_env=provider_config.get("api_key_env"),
-                    base_url=provider_config.get("base_url"),
-                )
+        providers_config = config.get("providers", {})
+
+    # Fall back to defaults if no providers configured
+    if not providers_config:
+        providers_config = DEFAULT_PROVIDERS_CONFIG
+
+    # Parse each provider from config
+    for provider_id, provider_config in providers_config.items():
+        provider = _parse_provider_config(provider_id, provider_config)
+
+        # Auto-discover models for providers that support it (e.g., Ollama)
+        if provider_config.get("auto_discover", False):
+            base_url = provider.base_url or "http://localhost:11434/v1"
+            api_base_url = base_url.replace("/v1", "")
+            discovered_models = await _discover_ollama_models(provider_id, api_base_url)
+
+            if discovered_models:
+                # Merge: discovered models + configured models (configured takes precedence)
+                configured_ids = {m.id for m in provider.models}
+                merged_models = list(provider.models)
+                for model in discovered_models:
+                    if model.id not in configured_ids:
+                        merged_models.append(model)
+                provider = provider.replace_models(merged_models)
+
+        providers[provider_id] = provider
 
     _providers_cache = providers
     return providers
@@ -730,11 +762,13 @@ def parse_model(model_str: str) -> dict[str, str]:
         provider_id, model_id = model_str.split("/", 1)
         return {"provider_id": provider_id, "model_id": model_id}
 
-    for provider_id, provider in BUILTIN_PROVIDERS.items():
-        for model in provider.models:
-            if model.id == model_str:
+    # Try to find model in default providers
+    for provider_id, provider_config in DEFAULT_PROVIDERS_CONFIG.items():
+        for model in provider_config.get("models", []):
+            if model["id"] == model_str:
                 return {"provider_id": provider_id, "model_id": model_str}
 
+    # Default to ollama
     return {"provider_id": "ollama", "model_id": model_str}
 
 

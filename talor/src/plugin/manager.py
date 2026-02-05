@@ -173,15 +173,32 @@ class PluginManager:
         tool_restrictions: set[str] | None = None
         all_metadata: dict[str, Any] = {}
 
-        # Sort plugins by priority
+        # Get agent-specific plugin config from context.extra
+        # Format: {"plugin_name": {"enabled": bool, "priority": int|None, "path": str|None}}
+        agent_plugins: dict[str, dict] = context.extra.get("agent_plugins", {})
+
+        # Sort plugins by priority (considering agent overrides)
+        def get_priority(plugin: PromptPlugin) -> int:
+            if plugin.name in agent_plugins:
+                override = agent_plugins[plugin.name].get("priority")
+                if override is not None:
+                    return override
+            return plugin.priority
+
         sorted_plugins = sorted(
             self._plugins.values(),
-            key=lambda p: p.priority
+            key=get_priority
         )
 
         for plugin in sorted_plugins:
-            # Skip disabled plugins
-            if not plugin.enabled:
+            # Check agent-level plugin config
+            if plugin.name in agent_plugins:
+                agent_cfg = agent_plugins[plugin.name]
+                if not agent_cfg.get("enabled", True):
+                    logger.debug(f"Skipping plugin disabled by agent: {plugin.name}")
+                    continue
+            elif not plugin.enabled:
+                # Skip globally disabled plugins
                 logger.debug(f"Skipping disabled plugin: {plugin.name}")
                 continue
 
@@ -289,15 +306,15 @@ class PluginManager:
         """Reload plugin configuration from config file.
 
         Updates plugin enabled/disabled state based on configuration.
+        Config format: {"plugin_name": {"enabled": bool, "priority": int, "path": str}}
         """
         from src.config.config import Config
 
         plugin_config = await Config.get_plugin_config()
-        builtin_config = plugin_config.get("builtin", {})
 
         async with self._lock:
             for plugin_name, plugin in self._plugins.items():
-                config = builtin_config.get(plugin_name, {})
+                config = plugin_config.get(plugin_name, {})
 
                 # Update enabled state
                 enabled = config.get("enabled", True)
@@ -314,20 +331,98 @@ class PluginManager:
 
         logger.info("Plugin configuration reloaded")
 
+    async def load_agent_plugins(
+        self,
+        agent_name: str,
+        plugins_config: dict[str, dict],
+    ) -> list[str]:
+        """Load custom plugins for a specific agent.
+
+        Args:
+            agent_name: Name of the agent
+            plugins_config: Plugin configuration dict {name: {enabled, priority, path}}
+
+        Returns:
+            List of successfully loaded plugin names
+        """
+        from pathlib import Path
+        from src.plugin.loader import PluginLoader
+
+        loaded_names: list[str] = []
+        loader = PluginLoader()
+
+        for plugin_name, cfg in plugins_config.items():
+            # Skip if no custom path (builtin plugin)
+            path_str = cfg.get("path")
+            if not path_str:
+                continue
+
+            # Skip if disabled
+            if not cfg.get("enabled", True):
+                continue
+
+            path = Path(path_str)
+
+            # Try relative to worktree first, then absolute
+            if not path.is_absolute() and not path.exists():
+                # Try .talor/plugins/ directory
+                alt_path = Path(".talor/plugins") / path.name
+                if alt_path.exists():
+                    path = alt_path
+
+            try:
+                plugin = loader.load_from_file(path)
+                if plugin:
+                    # Use configured name or prefix with agent name
+                    if plugin.name != plugin_name:
+                        plugin._name = f"{agent_name}:{plugin_name}"
+                    else:
+                        plugin._name = f"{agent_name}:{plugin.name}"
+
+                    # Apply priority override if specified
+                    priority = cfg.get("priority")
+                    if priority is not None:
+                        plugin._priority = priority
+
+                    # Register if not already registered
+                    if plugin.name not in self._plugins:
+                        await self.register(plugin)
+                        loaded_names.append(plugin.name)
+                        logger.info(f"Loaded agent plugin: {plugin.name} from {path}")
+                    else:
+                        loaded_names.append(plugin.name)
+
+            except Exception as e:
+                logger.error(f"Failed to load agent plugin {path}: {e}")
+
+        return loaded_names
+
+    async def unload_agent_plugins(self, agent_name: str) -> None:
+        """Unload all custom plugins for a specific agent.
+
+        Args:
+            agent_name: Name of the agent
+        """
+        prefix = f"{agent_name}:"
+        to_remove = [name for name in self._plugins if name.startswith(prefix)]
+
+        for name in to_remove:
+            try:
+                await self.unregister(name)
+                logger.info(f"Unloaded agent plugin: {name}")
+            except ValueError:
+                pass  # Required plugin, skip
+
     async def apply_config(self, config: dict[str, Any]) -> None:
         """Apply plugin configuration.
 
         Args:
-            config: Plugin configuration dictionary with:
-                - builtin: dict of built-in plugin configs
-                - custom: list of custom plugin paths
-                - options: global plugin options
+            config: Plugin configuration dictionary with k-v structure:
+                {"plugin_name": {"enabled": bool, "priority": int, "path": str}}
         """
-        builtin_config = config.get("builtin", {})
-
         async with self._lock:
             for plugin_name, plugin in self._plugins.items():
-                plugin_cfg = builtin_config.get(plugin_name, {})
+                plugin_cfg = config.get(plugin_name, {})
 
                 # Update enabled state
                 plugin.enabled = plugin_cfg.get("enabled", True)
@@ -338,3 +433,52 @@ class PluginManager:
                     plugin.priority = priority
 
         logger.info("Plugin configuration applied")
+
+    async def load_custom_plugins(self, config: dict[str, Any]) -> list[str]:
+        """Load custom plugins from configuration.
+
+        Args:
+            config: Plugin configuration dictionary with k-v structure
+
+        Returns:
+            List of successfully loaded plugin names
+        """
+        from pathlib import Path
+        from src.plugin.loader import PluginLoader
+
+        loaded_names: list[str] = []
+        loader = PluginLoader()
+
+        for plugin_name, cfg in config.items():
+            # Skip if no custom path (builtin plugin)
+            path_str = cfg.get("path")
+            if not path_str:
+                continue
+
+            # Skip if disabled
+            if not cfg.get("enabled", True):
+                continue
+
+            path = Path(path_str)
+
+            try:
+                plugin = loader.load_from_file(path)
+                if plugin:
+                    # Use configured name
+                    plugin._name = plugin_name
+
+                    # Apply priority if specified
+                    priority = cfg.get("priority")
+                    if priority is not None:
+                        plugin._priority = priority
+
+                    # Register if not already registered
+                    if plugin.name not in self._plugins:
+                        await self.register(plugin)
+                        loaded_names.append(plugin.name)
+                        logger.info(f"Loaded custom plugin: {plugin.name} from {path}")
+
+            except Exception as e:
+                logger.error(f"Failed to load custom plugin {path}: {e}")
+
+        return loaded_names

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Talor GUI</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #00ff00;
+        }
+        .log { margin: 5px 0; padding: 5px; background: #2a2a2a; }
+        .error { color: #ff0000; }
+        .success { color: #00ff00; }
+        .info { color: #00aaff; }
+    </style>
+</head>
+<body>
+    <h1>Talor GUI Debug Console</h1>
+    <div id="logs"></div>
+
+    <script>
+        const logs = document.getElementById('logs');
+
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(div);
+            console.log(message);
+        }
+
+        log('Starting debug checks...', 'info');
+
+        // Test 1: Check if we can load the main page
+        log('Test 1: Checking main page HTML...', 'info');
+        fetch('/')
+            .then(r => r.text())
+            .then(html => {
+                if (html.includes('root')) {
+                    log('✓ Main HTML loads correctly', 'success');
+                } else {
+                    log('✗ Main HTML missing root element', 'error');
+                }
+            })
+            .catch(e => log(`✗ Failed to load main HTML: ${e.message}`, 'error'));
+
+        // Test 2: Check backend
+        log('Test 2: Checking backend API...', 'info');
+        fetch('/api/health')
+            .then(r => r.json())
+            .then(data => {
+                log(`✓ Backend API working: ${JSON.stringify(data)}`, 'success');
+            })
+            .catch(e => log(`✗ Backend API failed: ${e.message}`, 'error'));
+
+        // Test 3: Check if main.tsx can be loaded
+        log('Test 3: Checking main.tsx module...', 'info');
+        fetch('/src/main.tsx')
+            .then(r => r.text())
+            .then(code => {
+                if (code.includes('createRoot')) {
+                    log('✓ main.tsx file exists and contains React code', 'success');
+                } else {
+                    log('✗ main.tsx missing React code', 'error');
+                }
+            })
+            .catch(e => log(`✗ Failed to load main.tsx: ${e.message}`, 'error'));
+
+        // Test 4: Try to import React
+        log('Test 4: Testing React import...', 'info');
+        import('react').then(() => {
+            log('✓ React module loads successfully', 'success');
+        }).catch(e => {
+            log(`✗ React import failed: ${e.message}`, 'error');
+        });
+
+        // Test 5: Check Tailwind CSS
+        log('Test 5: Checking Tailwind CSS...', 'info');
+        fetch('/src/index.css')
+            .then(r => r.text())
+            .then(css => {
+                if (css.includes('tailwindcss')) {
+                    log('✓ Tailwind CSS import found', 'success');
+                } else {
+                    log('✗ Tailwind CSS import missing', 'error');
+                }
+            })
+            .catch(e => log(`✗ Failed to load index.css: ${e.message}`, 'error'));
+
+        // Test 6: Capture any console errors
+        log('Test 6: Monitoring console errors...', 'info');
+        window.addEventListener('error', (e) => {
+            log(`✗ Global error: ${e.message} at ${e.filename}:${e.lineno}`, 'error');
+        });
+
+        window.addEventListener('unhandledrejection', (e) => {
+            log(`✗ Unhandled rejection: ${e.reason}`, 'error');
+        });
+
+        setTimeout(() => {
+            log('Debug checks complete. Check results above.', 'info');
+            log('Now trying to load the actual app...', 'info');
+
+            // Try to navigate to main app
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 2000);
+        }, 3000);
+    </script>
+</body>
+</html>

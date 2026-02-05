@@ -1,108 +1,51 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec file for building Talor executable.
+"""
+PyInstaller Spec File for Talor Backend
+
+This spec file configures PyInstaller to package the Talor backend
+into a standalone executable for distribution with the Electron app.
 
 Usage:
     pyinstaller talor.spec
 
-This creates a single executable file that includes all dependencies.
+Output:
+    dist/talor-backend (or talor-backend.exe on Windows)
+
+Status: Pending implementation
+See: talor/docs/phase-3-4-implementation-guide.md for configuration details
 """
 
-import sys
-from pathlib import Path
+block_cipher = None
 
-# Get the project root directory
-project_root = Path(SPECPATH)
-
-# Analysis configuration
 a = Analysis(
-    ['talor/cli/main.py'],
-    pathex=[str(project_root)],
+    ['src/cli/main.py'],
+    pathex=[],
     binaries=[],
     datas=[
-        # Include any data files needed at runtime
-        # ('path/to/data', 'destination'),
+        ('prompts', 'prompts'),
     ],
     hiddenimports=[
-        # Core dependencies
-        'talor',
-        'talor.core',
-        'talor.core.config',
-        'talor.core.errors',
-        'talor.core.event_bus',
-        'talor.core.logging',
-        'talor.core.platform',
-        'talor.core.storage',
-        'talor.services',
-        'talor.services.agent',
-        'talor.services.auth',
-        'talor.services.filesystem',
-        'talor.services.lsp',
-        'talor.services.mcp',
-        'talor.services.permission',
-        'talor.services.provider',
-        'talor.services.pty',
-        'talor.services.session',
-        'talor.services.skill',
-        'talor.services.worktree',
-        'talor.cli',
-        'talor.cli.commands',
-        'talor.cli.commands.auth',
-        'talor.cli.commands.config',
-        'talor.cli.commands.mcp',
-        'talor.cli.commands.models',
-        'talor.cli.commands.run',
-        'talor.cli.commands.serve',
-        'talor.cli.commands.session',
-        # External dependencies that may need explicit import
-        'click',
-        'pydantic',
-        'pydantic_settings',
-        'structlog',
-        'aiosqlite',
-        'yaml',
         'litellm',
         'fastmcp',
-        'pygls',
-        'ptyprocess',
-        'ulid',
-        'uvicorn',
-        'websockets',
+        'keyring',
+        'pydantic',
         'fastapi',
-        # Async support
-        'asyncio',
-        'concurrent.futures',
-        # Encoding support
-        'encodings',
-        'encodings.utf_8',
-        'encodings.ascii',
-        'encodings.latin_1',
+        'uvicorn',
+        'structlog',
+        'aiosqlite',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        # Exclude test modules
-        'pytest',
-        'hypothesis',
-        'coverage',
-        # Exclude development tools
-        'black',
-        'ruff',
-        'mypy',
-        # Exclude documentation tools
-        'mkdocs',
-        'sphinx',
-    ],
+    excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
-    cipher=None,
+    cipher=block_cipher,
     noarchive=False,
 )
 
-# Create PYZ archive
-pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
-# Create executable
 exe = EXE(
     pyz,
     a.scripts,
@@ -110,7 +53,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='talor',
+    name='talor-backend',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -123,21 +66,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # Add icon path here if available: 'assets/icon.ico'
 )
 
-# For macOS app bundle (optional)
-if sys.platform == 'darwin':
-    app = BUNDLE(
-        exe,
-        name='Talor.app',
-        icon=None,  # Add icon path here if available: 'assets/icon.icns'
-        bundle_identifier='dev.talor.cli',
-        info_plist={
-            'CFBundleName': 'Talor',
-            'CFBundleDisplayName': 'Talor',
-            'CFBundleVersion': '0.1.0',
-            'CFBundleShortVersionString': '0.1.0',
-            'NSHighResolutionCapable': True,
-        },
-    )
+# TODO: Test packaging with:
+# pyinstaller talor.spec
+# dist/talor-backend serve --port 8000

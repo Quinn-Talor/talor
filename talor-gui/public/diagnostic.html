@@ -184,7 +184,7 @@
                     </div>
                     <div style="margin-bottom: 10px;">
                         <strong>API:</strong>
-                        <a href="http://127.0.0.1:8000/health" target="_blank">后端健康检查</a> |
+                        <a href="http://127.0.0.1:8000/api/health" target="_blank">后端健康检查</a> |
                         <a href="/api/health" target="_blank">代理健康检查</a> |
                         <a href="/api/sessions" target="_blank">会话列表</a>
                     </div>
@@ -240,7 +240,7 @@
 
         async function checkBackend() {
             try {
-                const response = await fetch('http://127.0.0.1:8000/health');
+                const response = await fetch('http://127.0.0.1:8000/api/health');
                 const data = await response.json();
                 if (response.ok) {
                     updateStatus('backend-status', true, `运行中 (版本: ${data.version})`);

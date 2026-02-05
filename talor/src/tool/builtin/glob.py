@@ -11,6 +11,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.tool import Tool, ToolContext, ToolOutput
+from src.core import workspace
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,15 @@ async def glob_execute(params: GlobParams, ctx: ToolContext) -> ToolOutput:
             base_path = ctx.worktree / base_path
     else:
         base_path = ctx.worktree
+
+    # Validate workspace access
+    try:
+        base_path = workspace.validate_path(base_path)
+    except PermissionError as e:
+        return ToolOutput.error(
+            str(e),
+            title="Access Denied"
+        )
 
     # Validate base path
     if not base_path.exists():

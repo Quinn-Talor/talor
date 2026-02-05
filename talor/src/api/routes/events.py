@@ -7,7 +7,7 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from starlette.responses import StreamingResponse
 
 from src.core.state import state
@@ -18,79 +18,45 @@ router = APIRouter()
 
 
 # Event history for reconnection support
-_event_history: dict[str, list[dict]] = {}
+_event_history: list[dict] = []
 _event_counter: int = 0
-_max_history_per_session: int = 1000
+_max_history: int = 1000
 
 
 async def store_event(event_data: dict) -> int:
     """Store event in history and return event ID."""
     global _event_counter
     _event_counter += 1
-    event_id = _event_counter
 
-    session_id = event_data.get("properties", {}).get("session_id", "_global")
+    event_with_id = {**event_data, "id": _event_counter}
+    _event_history.append(event_with_id)
 
-    if session_id not in _event_history:
-        _event_history[session_id] = []
+    # Trim old events
+    if len(_event_history) > _max_history:
+        _event_history[:] = _event_history[-_max_history:]
 
-    event_with_id = {**event_data, "id": event_id}
-    _event_history[session_id].append(event_with_id)
-
-    if len(_event_history[session_id]) > _max_history_per_session:
-        _event_history[session_id] = _event_history[session_id][-_max_history_per_session:]
-
-    return event_id
+    return _event_counter
 
 
-def get_events_since(last_event_id: int, session_id: str | None = None) -> list[dict]:
+def get_events_since(last_event_id: int) -> list[dict]:
     """Get events since a given event ID."""
-    events = []
-
-    if session_id:
-        session_events = _event_history.get(session_id, [])
-        events.extend([e for e in session_events if e.get("id", 0) > last_event_id])
-    else:
-        for session_events in _event_history.values():
-            events.extend([e for e in session_events if e.get("id", 0) > last_event_id])
-
-    events.sort(key=lambda e: e.get("id", 0))
-    return events
+    return [e for e in _event_history if e.get("id", 0) > last_event_id]
 
 
 @router.get("/event")
-async def event_stream(
-    request: Request,
-    session_id: str = Query(..., description="Session ID to subscribe to"),
-):
-    """SSE event stream for a specific session.
+async def event_stream(request: Request):
+    """Global SSE event stream.
 
-    Args:
-        request: FastAPI request object
-        session_id: Required session ID to subscribe to
+    Single connection for the desktop client to receive all events.
 
     Returns:
         StreamingResponse with SSE events
-
-    Raises:
-        HTTPException: 404 if session not found
     """
-    from src.session import get_session
-    from src.bus import manager as bus_manager
-    from src.api.sse import register_client
+    from src import get_global_bus
 
-    # Validate session exists
-    session = await get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
-
-    bus = bus_manager.get_bus(session_id)
-
-    # Create client queue and register
+    global_bus = get_global_bus()
     queue: asyncio.Queue = asyncio.Queue()
-    unregister = register_client(session_id, queue)
 
-    # Subscribe to bus events
     async def event_handler(event):
         event_data = {
             "type": event.type,
@@ -101,7 +67,7 @@ async def event_stream(
         }
         await queue.put(event_data)
 
-    unsub = bus.subscribe_all(event_handler)
+    unsub = global_bus.subscribe_all(event_handler)
 
     async def generate():
         try:
@@ -116,7 +82,6 @@ async def event_stream(
             pass
         finally:
             unsub()
-            unregister()
 
     return StreamingResponse(
         generate(),

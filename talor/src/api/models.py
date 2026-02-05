@@ -102,5 +102,11 @@ class MCPServerResponse(BaseModel):
 class ConfigResponse(BaseModel):
     default_agent: str | None
     default_model: str | None
+    language: str | None
+    theme: str | None
     providers: dict[str, Any]
     mcp: dict[str, Any]
+    plugins: dict[str, Any] = {}
+    workspace: list[str] = []
+    permission: dict[str, Any] = {}
+    agent: dict[str, Any] = {}

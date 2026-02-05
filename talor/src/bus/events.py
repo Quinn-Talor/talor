@@ -35,16 +35,19 @@ class SessionInfo(BaseModel):
 
 class SessionCreatedData(BaseModel):
     """Data for session.created event."""
+    session_id: str
     info: SessionInfo
 
 
 class SessionUpdatedData(BaseModel):
     """Data for session.updated event."""
+    session_id: str
     info: SessionInfo
 
 
 class SessionDeletedData(BaseModel):
     """Data for session.deleted event."""
+    session_id: str
     info: SessionInfo
 
 
@@ -119,6 +122,7 @@ MessagePartUpdated = BusEvent.define("message.part.updated", MessagePartUpdatedD
 
 class ToolRegisteredData(BaseModel):
     """Data for tool.registered event."""
+    session_id: str | None = None
     tool_name: str
     source: str
     description: str
@@ -126,6 +130,7 @@ class ToolRegisteredData(BaseModel):
 
 class ToolUnregisteredData(BaseModel):
     """Data for tool.unregistered event."""
+    session_id: str | None = None
     tool_name: str
 
 
@@ -305,23 +310,27 @@ AgentLoopError = BusEvent.define("agent.loop.error", AgentLoopErrorData)
 
 class MCPToolsChangedData(BaseModel):
     """Data for mcp.tools.changed event."""
+    session_id: str | None = None
     server: str
 
 
 class MCPConnectedData(BaseModel):
     """Data for mcp.connected event."""
+    session_id: str | None = None
     server: str
     tools_count: int
 
 
 class MCPDisconnectedData(BaseModel):
     """Data for mcp.disconnected event."""
+    session_id: str | None = None
     server: str
     reason: str | None = None
 
 
 class MCPErrorData(BaseModel):
     """Data for mcp.error event."""
+    session_id: str | None = None
     server: str
     error: str
 
@@ -457,6 +466,7 @@ StreamError = BusEvent.define("stream.error", StreamErrorData)
 
 class ConfigChangedData(BaseModel):
     """Data for config.changed event."""
+    session_id: str | None = None
     path: str
     source: str
 
