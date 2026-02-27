@@ -293,6 +293,7 @@ class AgentExecutor:
         # Active executions (session_id -> ActiveExecution)
         self._active: dict[str, ActiveExecution] = {}
         self._status: dict[str, ExecutionStatus] = {}
+        self._skill_registry: Any | None = None  # Set after plugin setup
 
     # =========================================================================
     # Plugin Management
@@ -333,10 +334,21 @@ class AgentExecutor:
         tool_plugin = ToolPlugin(tool_registry=self._tool_registry)
         await self._plugin_manager.register(tool_plugin)
 
-        # Skill plugin
+        # Skill plugin (Stage 1: description index in system prompt)
         skill_plugin = SkillPlugin()
         await skill_plugin.initialize(self._worktree)
         await self._plugin_manager.register(skill_plugin)
+
+        # Register Skill tool (Stage 2: load full instructions on-demand)
+        if skill_plugin.registry:
+            from src.skill.tool import create_skill_tool
+            skill_tool = create_skill_tool()
+            try:
+                await self._tool_registry.register(skill_tool, source="skill")
+            except ValueError:
+                pass  # Already registered
+            # Store registry reference for ToolContext injection
+            self._skill_registry = skill_plugin.registry
 
     async def _build_plugin_context(
         self,
@@ -809,6 +821,8 @@ class AgentExecutor:
     ) -> MessageWithParts:
         """Create a user message.
 
+        Handles /skill-name commands by prepending a skill invocation note.
+
         Args:
             session_id: Session ID
             parts: Message parts
@@ -820,6 +834,9 @@ class AgentExecutor:
             Created message
         """
         now = int(time.time() * 1000)
+
+        # Check for /skill-name command in text parts
+        parts = await self._preprocess_skill_command(session_id, parts)
 
         message = UserMessage(
             id=message_id or f"message_{ULID()}",
@@ -854,6 +871,83 @@ class AgentExecutor:
             )
 
         return result
+
+    async def _preprocess_skill_command(
+        self,
+        session_id: str,
+        parts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Detect /skill-name commands and rewrite parts to trigger skill loading.
+
+        When user types `/skill-name [arguments]`, we rewrite the text to
+        instruct the LLM to invoke the skill tool immediately.
+
+        Args:
+            session_id: Session ID
+            parts: Original message parts
+
+        Returns:
+            Possibly modified parts
+        """
+        if not self._skill_registry:
+            return parts
+
+        import re
+        for part in parts:
+            if part.get("type") != "text":
+                continue
+            text = part.get("text", "").strip()
+            # Match /skill-name with optional arguments
+            m = re.match(r'^/([a-z][a-z0-9-]*)(?:\s+(.*))?$', text, re.DOTALL)
+            if not m:
+                continue
+            skill_name, arguments = m.group(1), (m.group(2) or "").strip()
+            skill = await self._skill_registry.get_skill(skill_name)
+            if not skill:
+                continue
+            # Rewrite: tell LLM to invoke the skill tool with these args
+            new_text = (
+                f"Please use the `skill` tool to load the `{skill_name}` skill"
+                + (f" with arguments: {arguments}" if arguments else "")
+                + ", then follow its instructions."
+            )
+            part["text"] = new_text
+            logger.info(f"Rewrote /skill command: /{skill_name} -> skill tool invocation")
+            break
+
+        return parts
+
+    async def _check_skill_tool_allowed(
+        self,
+        session_id: str,
+        tool_name: str,
+    ) -> str | None:
+        """Check if a tool is allowed by the active skill for this session.
+
+        Returns an error message string if the tool is blocked, None if allowed.
+        Mirrors Claude Code's execution-time enforcement of allowed-tools.
+
+        Args:
+            session_id: Session ID
+            tool_name: Tool name to check
+
+        Returns:
+            Error message if blocked, None if allowed
+        """
+        if not self._skill_registry:
+            return None
+
+        allowed = await self._skill_registry.get_active_skill_tools(session_id)
+        if allowed is None:
+            return None  # No active skill restrictions
+
+        if tool_name not in allowed:
+            active = self._skill_registry.get_active_skills(session_id)
+            return (
+                f"Tool '{tool_name}' is not allowed by the active skill(s): "
+                f"{', '.join(active)}. Allowed tools: {', '.join(sorted(allowed))}."
+            )
+        return None
 
     async def _create_max_steps_message(self, session_id: str) -> MessageWithParts:
         """Create a message for max steps reached.
@@ -1317,10 +1411,25 @@ class AgentExecutor:
             agent="build",
             abort=abort,
             call_id=call_id,
+            extra={"skill_registry": self._skill_registry} if self._skill_registry else {},
             _bus=get_global_bus(),
             _workspace=self._workspace,
             _worktree=self._worktree,
         )
+
+        # Enforce skill tool restrictions at execution time (Claude Code style)
+        blocked = await self._check_skill_tool_allowed(session_id, tool_name)
+        if blocked:
+            tool_part.state = "error"
+            tool_part.error = blocked
+            tool_part.time["completed"] = int(time.time() * 1000)
+            await self._sync_to_memory(
+                session_id=session_id,
+                role="tool",
+                content=f"Error: {blocked}",
+                tool_call_id=call_id,
+            )
+            return
 
         try:
             tool_part.state = "running"
@@ -1415,10 +1524,34 @@ class AgentExecutor:
             agent="build",
             abort=abort,
             call_id=call_id,
+            extra={"skill_registry": self._skill_registry} if self._skill_registry else {},
             _bus=get_global_bus(),
             _workspace=self._workspace,
             _worktree=self._worktree,
         )
+
+        # Enforce skill tool restrictions at execution time (Claude Code style)
+        blocked = await self._check_skill_tool_allowed(session_id, tool_name)
+        if blocked:
+            tool_part.state = "error"
+            tool_part.error = blocked
+            tool_part.time["completed"] = int(time.time() * 1000)
+            await self._sync_to_memory(
+                session_id=session_id,
+                role="tool",
+                content=f"Error: {blocked}",
+                tool_call_id=call_id,
+            )
+            yield SSEEvent(event="tool_error", data={
+                "call_id": call_id,
+                "tool": tool_name,
+                "error": blocked,
+                "message_id": message_id,
+            })
+            await self._publish_stream_tool_result(
+                session_id, message_id, call_id, tool_name, "", error=blocked
+            )
+            return
 
         try:
             tool_part.state = "running"

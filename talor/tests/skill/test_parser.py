@@ -47,31 +47,37 @@ Instructions here.
         assert skill.name == "simple-skill"
         assert skill.allowed_tools is None
 
-    def test_parse_missing_name(self, tmp_path):
-        """Test parsing skill without name fails."""
-        skill_md = tmp_path / "SKILL.md"
+    def test_parse_missing_name_uses_dir_name(self, tmp_path):
+        """Test parsing skill without name falls back to directory name."""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        skill_md = skill_dir / "SKILL.md"
         skill_md.write_text("""---
-description: Missing name
+description: Missing name falls back to dir
 ---
 
 Content.
 """)
         skill = SkillParser.parse(skill_md)
 
-        assert skill is None
+        assert skill is not None
+        assert skill.name == "my-skill"
 
-    def test_parse_missing_description(self, tmp_path):
-        """Test parsing skill without description fails."""
+    def test_parse_missing_description_uses_first_paragraph(self, tmp_path):
+        """Test parsing skill without description falls back to first paragraph."""
         skill_md = tmp_path / "SKILL.md"
         skill_md.write_text("""---
 name: no-description
 ---
 
-Content.
+This is the first paragraph used as description.
+
+More content here.
 """)
         skill = SkillParser.parse(skill_md)
 
-        assert skill is None
+        assert skill is not None
+        assert "first paragraph" in skill.description
 
     def test_parse_no_frontmatter(self, tmp_path):
         """Test parsing file without frontmatter fails."""
