@@ -53,22 +53,22 @@ class ToolPlugin(PromptPlugin):
     async def build(self, context: PluginContext) -> PluginResult | None:
         """Build tool definitions.
 
+        Returns the full tool list. Skill-based filtering is enforced at
+        execution time in the executor, not here.
+
         Args:
             context: Plugin execution context
 
         Returns:
             PluginResult with:
             - content: Tool descriptions for system prompt
-            - metadata["tools"]: Tool definitions list for LLM API
+            - metadata["tools"]: Full tool definitions list for LLM API
             - metadata["tool_count"]: Number of tools
         """
         if not self._registry:
             return None
 
-        # Get tool definitions
-        tools = await self._registry.get_llm_definitions(
-            agent=context.agent_name
-        )
+        tools = await self._registry.get_llm_definitions(agent=context.agent_name)
 
         if not tools:
             return PluginResult(
@@ -77,7 +77,6 @@ class ToolPlugin(PromptPlugin):
                 metadata={"tools": [], "tool_count": 0},
             )
 
-        # Format tool descriptions for system prompt
         tool_descriptions = []
         for tool in tools:
             func = tool.get("function", {})

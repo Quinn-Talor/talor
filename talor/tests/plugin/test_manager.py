@@ -394,7 +394,6 @@ class TestMemoryPluginIntegration:
 
         Validates: Requirements 11.5
         """
-        # Create a mock memory plugin that returns conversation messages
         class MockMemoryPlugin(PromptPlugin):
             def __init__(self):
                 super().__init__("memory", PluginPriority.MEMORY, True, False)
@@ -412,7 +411,6 @@ class TestMemoryPluginIntegration:
                     },
                 )
 
-        # System plugin
         system_plugin = MockPlugin(name="system", priority=100, content="system prompt")
 
         await manager.register(system_plugin)
