@@ -439,12 +439,11 @@ class TestToolPlugin:
 
 
 class TestSkillPlugin:
-    """Tests for SkillPlugin."""
+    """Tests for SkillPlugin (two-stage loading)."""
 
     @pytest.fixture
     def skill_context(self, tmp_path):
         """Create context with skill directory."""
-        # Create skill directory
         skill_dir = tmp_path / ".talor" / "skills" / "test-skill"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("""---
@@ -457,7 +456,6 @@ allowed-tools: read, write
 
 Use pytest for testing.
 """)
-
         return PluginContext(
             session_id="test",
             agent_name="build",
@@ -466,8 +464,8 @@ Use pytest for testing.
         )
 
     @pytest.mark.asyncio
-    async def test_skill_matching(self, skill_context):
-        """Test skill matching based on request."""
+    async def test_stage1_injects_description_index(self, skill_context):
+        """Stage 1: description index injected into system prompt."""
         from src.plugin.builtin.skill import SkillPlugin
 
         plugin = SkillPlugin()
@@ -475,39 +473,73 @@ Use pytest for testing.
 
         assert result is not None
         assert "test-skill" in result.content
+        assert "Available Skills" in result.content
         assert result.section == "skill"
 
     @pytest.mark.asyncio
-    async def test_tool_restrictions(self, skill_context):
-        """Test tool restrictions from skill."""
+    async def test_stage1_no_tool_restrictions(self, skill_context):
+        """Stage 1: SkillPlugin does NOT return tool_restrictions (handled by ToolPlugin Phase 2)."""
         from src.plugin.builtin.skill import SkillPlugin
 
         plugin = SkillPlugin()
         result = await plugin.build(skill_context)
 
+        # tool_restrictions are now applied in PluginManager Phase 2 via ToolPlugin
         assert result is not None
-        assert result.tool_restrictions is not None
-        assert "read" in result.tool_restrictions
-        assert "write" in result.tool_restrictions
+        assert result.tool_restrictions is None
 
     @pytest.mark.asyncio
-    async def test_no_matching_skills(self, tmp_path):
-        """Test with no matching skills."""
+    async def test_manager_applies_tool_restrictions_via_phase2(self, skill_context):
+        """PluginManager Phase 2 passes tool_restrictions to ToolPlugin for filtering."""
+        from src.plugin.manager import PluginManager
+        from src.plugin.builtin.skill import SkillPlugin
+        from src.plugin.base import PromptPlugin, PluginPriority
+        from src.plugin.result import PluginResult
+        from unittest.mock import AsyncMock, MagicMock
+
+        manager = PluginManager()
+
+        # Register skill plugin (will produce tool_restrictions in Phase 1)
+        skill_plugin = SkillPlugin()
+        await skill_plugin.initialize(skill_context.worktree)
+        await manager.register(skill_plugin)
+
+        # Mock tool plugin that captures the allowed_tools it receives
+        captured_restrictions = []
+
+        class CapturingToolPlugin(PromptPlugin):
+            def __init__(self):
+                super().__init__("tool", PluginPriority.TOOL, True, True)
+
+            async def build(self, ctx):
+                restrictions = ctx.extra.get("_tool_restrictions")
+                captured_restrictions.append(restrictions)
+                return PluginResult(content="", section="tool",
+                                    metadata={"tools": [], "tool_count": 0})
+
+        await manager.register(CapturingToolPlugin())
+
+        await manager.build_prompt(skill_context)
+
+        # ToolPlugin should have received None (SkillPlugin Stage 1 doesn't restrict)
+        assert len(captured_restrictions) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_skills_returns_none(self, tmp_path):
+        """Returns None when no skills available."""
         from src.plugin.builtin.skill import SkillPlugin
 
         context = PluginContext(
             session_id="test",
             agent_name="build",
             worktree=tmp_path,
-            user_request="completely unrelated request xyz",
+            user_request="anything",
         )
 
         plugin = SkillPlugin()
         result = await plugin.build(context)
 
-        # May return None or result with no matches
-        if result:
-            assert result.section == "skill"
+        assert result is None
 
     @pytest.mark.asyncio
     async def test_list_skills(self, skill_context):

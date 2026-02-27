@@ -154,8 +154,8 @@ class PluginManager:
     async def build_prompt(self, context: PluginContext) -> dict[str, Any]:
         """Build complete LLM messages list from all plugins.
 
-        Executes plugins in priority order and builds a complete messages list
-        ready for LLM API calls.
+        Single-pass execution in priority order. Tool filtering by active skills
+        is enforced at execution time in the executor, not here.
 
         Args:
             context: Plugin execution context
@@ -163,8 +163,8 @@ class PluginManager:
         Returns:
             Dictionary with:
             - messages: list[dict] - Complete LLM messages, ready for API call
-            - tools: list[dict] - Tool definitions list
-            - tool_restrictions: list[str] | None - Tool restrictions from Skills
+            - tools: list[dict] - Full tool definitions list (unfiltered)
+            - tool_restrictions: list[str] | None - Restrictions from skills (for executor)
             - metadata: dict - Plugin metadata
         """
         system_parts: list[str] = []
@@ -173,11 +173,8 @@ class PluginManager:
         tool_restrictions: set[str] | None = None
         all_metadata: dict[str, Any] = {}
 
-        # Get agent-specific plugin config from context.extra
-        # Format: {"plugin_name": {"enabled": bool, "priority": int|None, "path": str|None}}
         agent_plugins: dict[str, dict] = context.extra.get("agent_plugins", {})
 
-        # Sort plugins by priority (considering agent overrides)
         def get_priority(plugin: PromptPlugin) -> int:
             if plugin.name in agent_plugins:
                 override = agent_plugins[plugin.name].get("priority")
@@ -185,51 +182,40 @@ class PluginManager:
                     return override
             return plugin.priority
 
-        sorted_plugins = sorted(
-            self._plugins.values(),
-            key=get_priority
-        )
+        def is_enabled(plugin: PromptPlugin) -> bool:
+            if plugin.name in agent_plugins:
+                return agent_plugins[plugin.name].get("enabled", True)
+            return plugin.enabled
+
+        sorted_plugins = sorted(self._plugins.values(), key=get_priority)
 
         for plugin in sorted_plugins:
-            # Check agent-level plugin config
-            if plugin.name in agent_plugins:
-                agent_cfg = agent_plugins[plugin.name]
-                if not agent_cfg.get("enabled", True):
-                    logger.debug(f"Skipping plugin disabled by agent: {plugin.name}")
-                    continue
-            elif not plugin.enabled:
-                # Skip globally disabled plugins
+            if not is_enabled(plugin):
                 logger.debug(f"Skipping disabled plugin: {plugin.name}")
                 continue
 
             try:
                 result = await plugin.build(context)
                 if result:
-                    # Handle different section types
                     if result.section == "memory":
-                        # Memory plugin returns conversation messages list
                         if result.metadata and "messages" in result.metadata:
                             conversation_messages = result.metadata["messages"]
                     elif result.section == "tool":
-                        # Tool plugin returns tool definitions
                         if result.metadata and "tools" in result.metadata:
                             tools = result.metadata["tools"]
-                        # Tool plugin may also contribute to system prompt
                         if result.content:
                             system_parts.append(result.content)
                     else:
-                        # Other plugins contribute to system prompt content
                         if result.content:
                             system_parts.append(result.content)
 
-                    # Collect tool restrictions (intersection)
+                    # Collect tool_restrictions from skill plugins (passed to executor)
                     if result.tool_restrictions:
                         if tool_restrictions is None:
                             tool_restrictions = set(result.tool_restrictions)
                         else:
                             tool_restrictions &= set(result.tool_restrictions)
 
-                    # Merge metadata
                     if result.metadata:
                         all_metadata.update(result.metadata)
 
@@ -237,22 +223,15 @@ class PluginManager:
 
             except Exception as e:
                 logger.error(f"Plugin {plugin.name} failed: {e}", exc_info=True)
-
-                # Re-raise for required plugins
                 if plugin.required:
                     raise
 
-        # Build final messages list
         messages: list[dict[str, Any]] = []
-
-        # 1. Add system message (merged from all system content)
         if system_parts:
             messages.append({
                 "role": "system",
                 "content": "\n\n".join(system_parts),
             })
-
-        # 2. Add conversation history (user/assistant/tool messages)
         messages.extend(conversation_messages)
 
         return {
