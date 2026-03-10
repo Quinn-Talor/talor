@@ -234,6 +234,36 @@ async def update_provider(provider_id: str, request: ProviderRequest) -> dict:
     return {"status": "updated", "provider_id": provider_id}
 
 
+@router.post("/providers/{provider_id}/test")
+async def test_provider_connection(provider_id: str) -> dict[str, Any]:
+    """Test connectivity for a provider by sending a minimal completion request.
+
+    Returns:
+        {"success": True, "model": "..."} on success
+        {"success": False, "error": "..."} on failure
+    """
+    from src.provider import get_provider
+    from src.provider import complete as provider_complete
+
+    provider = await get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_id}' not found")
+
+    if not provider.models:
+        return {"success": False, "error": "No models available — check API key or run discovery"}
+
+    model_str = f"{provider_id}/{provider.models[0].id}"
+    try:
+        await provider_complete(
+            model_str,
+            [{"role": "user", "content": "hi"}],
+            stream=False,
+        )
+        return {"success": True, "model": model_str}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @router.delete("/providers/{provider_id}")
 async def delete_provider(provider_id: str) -> dict:
     """Delete a provider configuration.

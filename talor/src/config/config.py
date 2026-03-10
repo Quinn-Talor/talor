@@ -282,8 +282,8 @@ async def reload() -> dict[str, Any]:
     config = await get()
 
     if _bus:
-        from src.bus.events import ConfigReloaded, ConfigReloadedData
-        await _bus.publish(ConfigReloaded, ConfigReloadedData(config=config))
+        from src.bus.events import ConfigChanged, ConfigChangedData
+        await _bus.publish(ConfigChanged, ConfigChangedData(path="*", source="reload"))
 
     logger.info("Configuration reloaded")
     return config

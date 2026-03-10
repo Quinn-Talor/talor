@@ -66,6 +66,8 @@ class ModelCapabilities(BaseModel):
     json_mode: bool = False
     streaming: bool = True
     reasoning: bool = False  # Extended thinking / reasoning mode support
+    parallel_tool_calls: bool = False  # Single response can call multiple tools in parallel
+    structured_output: bool = False  # Strict JSON Schema output (OpenAI structured outputs)
 
     def supports(self, capability: str) -> bool:
         """Check if a capability is supported."""
@@ -414,6 +416,7 @@ class Provider(BaseModel):
 # =============================================================================
 
 DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
+    # ── 本地 / 自托管（3）────────────────────────────────────
     "ollama": {
         "name": "Ollama",
         "api_key_env": None,
@@ -421,114 +424,189 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
         "auto_discover": True,
         "models": [],
     },
+    "lmstudio": {
+        "name": "LM Studio",
+        "api_key_env": None,
+        "base_url": "http://localhost:1234/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "jan": {
+        "name": "Jan",
+        "api_key_env": None,
+        "base_url": "http://localhost:1337/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    # ── 国际 API 厂商（14）──────────────────────────────────
     "openai": {
         "name": "OpenAI",
         "api_key_env": "OPENAI_API_KEY",
         "base_url": "https://api.openai.com/v1",
-        "models": [
-            {
-                "id": "gpt-4o",
-                "name": "GPT-4o",
-                "context_length": 128000,
-                "max_output_tokens": 16384,
-                "capabilities": {"vision": True, "function_calling": True},
-                "cost": {"input": 2.5, "output": 10.0},
-            },
-            {
-                "id": "gpt-4o-mini",
-                "name": "GPT-4o Mini",
-                "context_length": 128000,
-                "max_output_tokens": 16384,
-                "capabilities": {"vision": True, "function_calling": True},
-                "cost": {"input": 0.15, "output": 0.6},
-            },
-            # o-series: reasoning models, support function calling
-            {
-                "id": "o3",
-                "name": "o3",
-                "context_length": 200000,
-                "max_output_tokens": 100000,
-                "capabilities": {"vision": True, "function_calling": True, "reasoning": True},
-                "cost": {"input": 2.0, "output": 8.0},
-            },
-            {
-                "id": "o4-mini",
-                "name": "o4-mini",
-                "context_length": 200000,
-                "max_output_tokens": 100000,
-                "capabilities": {"vision": True, "function_calling": True, "reasoning": True},
-                "cost": {"input": 1.1, "output": 4.4},
-            },
-        ],
+        "auto_discover": True,
+        "models": [],
     },
     "anthropic": {
         "name": "Anthropic",
         "api_key_env": "ANTHROPIC_API_KEY",
         "base_url": "https://api.anthropic.com",
-        "models": [
-            {
-                "id": "claude-sonnet-4-20250514",
-                "name": "Claude Sonnet 4",
-                "context_length": 200000,
-                "max_output_tokens": 16384,
-                "capabilities": {
-                    "vision": True,
-                    "function_calling": True,
-                    "reasoning": True,  # extended thinking supported
-                },
-                "cost": {"input": 3.0, "output": 15.0},
-            },
-            {
-                "id": "claude-opus-4-5",
-                "name": "Claude Opus 4.5",
-                "context_length": 200000,
-                "max_output_tokens": 32000,
-                "capabilities": {
-                    "vision": True,
-                    "function_calling": True,
-                    "reasoning": True,
-                },
-                "cost": {"input": 15.0, "output": 75.0},
-            },
-            {
-                "id": "claude-3-5-haiku-20241022",
-                "name": "Claude 3.5 Haiku",
-                "context_length": 200000,
-                "max_output_tokens": 8192,
-                "capabilities": {"vision": True, "function_calling": True},
-                "cost": {"input": 0.8, "output": 4.0},
-            },
-        ],
+        "auto_discover": True,
+        "models": [],
     },
     "google": {
         "name": "Google AI",
         "api_key_env": "GOOGLE_API_KEY",
-        "models": [
-            {
-                "id": "gemini-2.5-pro",
-                "name": "Gemini 2.5 Pro",
-                "context_length": 1000000,
-                "max_output_tokens": 65536,
-                "capabilities": {
-                    "vision": True,
-                    "function_calling": True,
-                    "reasoning": True,  # thinking_config supported
-                },
-                "cost": {"input": 1.25, "output": 10.0},
-            },
-            {
-                "id": "gemini-2.5-flash",
-                "name": "Gemini 2.5 Flash",
-                "context_length": 1000000,
-                "max_output_tokens": 65536,
-                "capabilities": {
-                    "vision": True,
-                    "function_calling": True,
-                    "reasoning": True,
-                },
-                "cost": {"input": 0.15, "output": 0.6},
-            },
-        ],
+        "base_url": "https://generativelanguage.googleapis.com",
+        "auto_discover": True,
+        "models": [],
+    },
+    "mistral": {
+        "name": "Mistral AI",
+        "api_key_env": "MISTRAL_API_KEY",
+        "base_url": "https://api.mistral.ai/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "groq": {
+        "name": "Groq",
+        "api_key_env": "GROQ_API_KEY",
+        "base_url": "https://api.groq.com/openai/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "xai": {
+        "name": "xAI (Grok)",
+        "api_key_env": "XAI_API_KEY",
+        "base_url": "https://api.x.ai/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "together": {
+        "name": "Together AI",
+        "api_key_env": "TOGETHER_API_KEY",
+        "base_url": "https://api.together.xyz/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "fireworks": {
+        "name": "Fireworks AI",
+        "api_key_env": "FIREWORKS_API_KEY",
+        "base_url": "https://api.fireworks.ai/inference/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "perplexity": {
+        "name": "Perplexity",
+        "api_key_env": "PERPLEXITY_API_KEY",
+        "base_url": "https://api.perplexity.ai",
+        "auto_discover": True,
+        "models": [],
+    },
+    "cohere": {
+        "name": "Cohere",
+        "api_key_env": "COHERE_API_KEY",
+        "base_url": "https://api.cohere.com/compatibility/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "cerebras": {
+        "name": "Cerebras",
+        "api_key_env": "CEREBRAS_API_KEY",
+        "base_url": "https://api.cerebras.ai/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "sambanova": {
+        "name": "SambaNova",
+        "api_key_env": "SAMBANOVA_API_KEY",
+        "base_url": "https://api.sambanova.ai/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "nvidia": {
+        "name": "NVIDIA NIM",
+        "api_key_env": "NVIDIA_API_KEY",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    # ── 国内厂商（10）───────────────────────────────────────
+    "moonshot": {
+        "name": "Moonshot (Kimi)",
+        "api_key_env": "MOONSHOT_API_KEY",
+        "base_url": "https://api.moonshot.cn/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "zhipu": {
+        "name": "智谱 AI (GLM)",
+        "api_key_env": "ZHIPU_API_KEY",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "auto_discover": True,
+        "models": [],
+    },
+    "siliconflow": {
+        "name": "SiliconFlow (硅基流动)",
+        "api_key_env": "SILICONFLOW_API_KEY",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "aliyun": {
+        "name": "阿里云 (通义千问)",
+        "api_key_env": "DASHSCOPE_API_KEY",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "baidu": {
+        "name": "百度 (文心千帆)",
+        "api_key_env": "QIANFAN_API_KEY",
+        "base_url": "https://qianfan.baidubce.com/v2",
+        "auto_discover": True,
+        "models": [],
+    },
+    "doubao": {
+        "name": "豆包 (字节/火山引擎)",
+        "api_key_env": "ARK_API_KEY",
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "auto_discover": True,
+        "models": [],
+    },
+    "baichuan": {
+        "name": "百川 AI",
+        "api_key_env": "BAICHUAN_API_KEY",
+        "base_url": "https://api.baichuan-ai.com/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "lingyiwanwu": {
+        "name": "零一万物 (Yi)",
+        "api_key_env": "YI_API_KEY",
+        "base_url": "https://api.01.ai/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "stepfun": {
+        "name": "阶跃星辰 (Step)",
+        "api_key_env": "STEPFUN_API_KEY",
+        "base_url": "https://api.stepfun.com/v1",
+        "auto_discover": True,
+        "models": [],
+    },
+    "minimax": {
+        "name": "MiniMax",
+        "api_key_env": "MINIMAX_API_KEY",
+        "base_url": "https://api.minimax.chat/v1",
+        "auto_discover": True,
+        "models": [],
     },
 }
 
@@ -623,6 +701,10 @@ def _parse_model_config(provider_id: str, model_config: dict) -> Model:
             json_mode=cap("json_mode", "supports_response_schema", False),
             streaming=cap("streaming", "supports_streaming", True),
             reasoning=cap("reasoning", "supports_reasoning", False),
+            parallel_tool_calls=cap(
+                "parallel_tool_calls", "supports_parallel_function_calling", False
+            ),
+            structured_output=cap("structured_output", "supports_response_schema", False),
         ),
         cost=ModelCost(
             input=cost_field("input", "input_cost_per_token"),
@@ -785,6 +867,140 @@ async def _discover_ollama_models(
     return models
 
 
+async def _discover_anthropic_models(provider_id: str, api_key: str | None) -> list[Model]:
+    """Fetch models from Anthropic API (GET /v1/models).
+
+    Args:
+        provider_id: Provider ID
+        api_key: Anthropic API key
+
+    Returns:
+        List of discovered Model entities, empty list if no key or on error
+    """
+    if not api_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    f"Anthropic /v1/models returned {response.status_code}"
+                )
+                return []
+            data = response.json().get("data", [])
+        models = [
+            _parse_model_config(
+                provider_id,
+                {"id": m["id"], "name": m.get("display_name", m["id"])},
+            )
+            for m in data
+            if m.get("id")
+        ]
+        logger.info(f"Discovered {len(models)} Anthropic models")
+        return models
+    except Exception as e:
+        logger.warning(f"Failed to discover Anthropic models: {e}")
+        return []
+
+
+async def _discover_google_models(provider_id: str, api_key: str | None) -> list[Model]:
+    """Fetch models from Google AI API (GET /v1beta/models).
+
+    Only returns models that support generateContent (text generation).
+
+    Args:
+        provider_id: Provider ID
+        api_key: Google AI API key
+
+    Returns:
+        List of discovered Model entities, empty list if no key or on error
+    """
+    if not api_key:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": api_key},
+            )
+            if response.status_code != 200:
+                logger.warning(
+                    f"Google /v1beta/models returned {response.status_code}"
+                )
+                return []
+            items = response.json().get("models", [])
+        generative = [
+            m for m in items
+            if "generateContent" in m.get("supportedGenerationMethods", [])
+        ]
+        models = [
+            _parse_model_config(
+                provider_id,
+                {
+                    "id": m["name"].split("/")[-1],  # "models/gemini-2.5-pro" → "gemini-2.5-pro"
+                    "name": m.get("displayName", m["name"]),
+                    "context_length": m.get("inputTokenLimit", 128000),
+                    "max_output_tokens": m.get("outputTokenLimit", 4096),
+                },
+            )
+            for m in generative
+        ]
+        logger.info(f"Discovered {len(models)} Google models")
+        return models
+    except Exception as e:
+        logger.warning(f"Failed to discover Google models: {e}")
+        return []
+
+
+async def _auto_discover_models(
+    provider_id: str,
+    provider: "Provider",
+    api_key: str | None,
+) -> list[Model]:
+    """Unified model discovery dispatcher.
+
+    Routes to the appropriate discovery function based on provider type:
+    - ollama    → /api/tags (native Ollama endpoint)
+    - anthropic → Anthropic /v1/models (requires x-api-key header)
+    - google    → Google /v1beta/models (requires key param)
+    - others    → Generic OpenAI-compatible /v1/models
+                  Covers: OpenAI, Mistral, Groq, DeepSeek, xAI, Together,
+                  Fireworks, Cohere, Cerebras, SambaNova, NVIDIA NIM,
+                  Moonshot, 智谱, SiliconFlow, 阿里云, 百度, 豆包,
+                  百川, 零一万物, 阶跃星辰, MiniMax, LM Studio, Jan,
+                  and any user-defined provider with a base_url.
+
+    Args:
+        provider_id: Provider identifier
+        provider: Provider entity (contains base_url)
+        api_key: Resolved API key (may be None for local providers)
+
+    Returns:
+        Discovered models; empty list on any error or missing credentials
+    """
+    try:
+        if provider_id == "ollama":
+            base = (provider.base_url or "http://localhost:11434/v1").replace("/v1", "")
+            return await _discover_ollama_models(provider_id, base)
+        elif provider_id == "anthropic":
+            return await _discover_anthropic_models(provider_id, api_key)
+        elif provider_id == "google":
+            return await _discover_google_models(provider_id, api_key)
+        elif provider.base_url:
+            # Generic OpenAI-compatible /v1/models for all remaining providers
+            return await _discover_openai_compatible_models(
+                provider_id, provider.base_url, api_key
+            )
+        else:
+            return []
+    except Exception as e:
+        logger.warning("Model discovery failed for %s: %s", provider_id, e)
+        return []
+
+
 async def _load_providers() -> dict[str, Provider]:
     """Load all providers from configuration.
 
@@ -821,18 +1037,8 @@ async def _load_providers() -> dict[str, Provider]:
 
         # Auto-discover models for providers that support it
         if provider_config.get("auto_discover", False):
-            base_url = provider.base_url or "http://localhost:11434/v1"
-            api_base_url = base_url.replace("/v1", "")
             api_key = provider.get_api_key()
-
-            if provider_id == "ollama":
-                # Ollama uses /api/tags which returns richer metadata
-                discovered_models = await _discover_ollama_models(provider_id, api_base_url)
-            else:
-                # Generic OpenAI-compatible /v1/models endpoint
-                discovered_models = await _discover_openai_compatible_models(
-                    provider_id, base_url, api_key
-                )
+            discovered_models = await _auto_discover_models(provider_id, provider, api_key)
 
             if discovered_models:
                 # Merge: discovered models + configured models (configured takes precedence)
@@ -1108,6 +1314,17 @@ def _normalize_response(response: Any) -> dict[str, Any]:
     }
 
 
+def _has_image_content(messages: list[dict[str, Any]]) -> bool:
+    """Detect if any message contains image content (image_url or base64 image)."""
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") in ("image_url", "image"):
+                    return True
+    return False
+
+
 async def complete(
     model: str,
     messages: list[dict[str, Any]],
@@ -1116,6 +1333,7 @@ async def complete(
     reasoning: bool = False,
     thinking_budget: int | None = None,
     reasoning_effort: str | None = None,
+    output_schema: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
     """Complete a chat request via LiteLLM.
@@ -1178,10 +1396,34 @@ async def complete(
         except Exception:
             supports_tools = True
 
+    # ── Capability checks ────────────────────────────────────────────────────
+    # Vision: raise if image content sent to non-vision model
+    if _has_image_content(messages):
+        if model_obj is not None and not model_obj.capabilities.vision:
+            raise ValueError(
+                f"Model '{model_id}' does not support vision/multimodal input. "
+                "Use a vision-capable model or remove image content from the messages."
+            )
+        elif model_obj is None:
+            logger.warning(
+                "Sending image content to model '%s' with unknown capabilities. "
+                "Ensure this model supports vision.",
+                model_id,
+            )
+
+    # Streaming: auto-downgrade if model does not support it
+    effective_stream = stream
+    if stream and model_obj is not None and not model_obj.capabilities.streaming:
+        logger.warning(
+            "Model '%s' does not support streaming — falling back to non-streaming.",
+            model_id,
+        )
+        effective_stream = False
+
     params: dict[str, Any] = {
         "model": litellm_model,
         "messages": messages,
-        "stream": stream,
+        "stream": effective_stream,
     }
 
     if tools and supports_tools:
@@ -1207,9 +1449,29 @@ async def complete(
     )
     params.update(reasoning_params)
 
+    # Structured output (JSON Schema)
+    if output_schema is not None:
+        if model_obj is not None and model_obj.capabilities.structured_output:
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": output_schema,
+            }
+        elif model_obj is not None and model_obj.capabilities.json_mode:
+            logger.warning(
+                "Model '%s' does not support structured_output — falling back to json_mode.",
+                model_id,
+            )
+            params["response_format"] = {"type": "json_object"}
+        else:
+            logger.warning(
+                "Model '%s' does not support structured_output or json_mode — "
+                "output_schema ignored.",
+                model_id,
+            )
+
     params.update(kwargs)
 
-    if stream:
+    if effective_stream:
         async def stream_response() -> AsyncIterator[dict[str, Any]]:
             response = await litellm.acompletion(**params)
             async for chunk in response:

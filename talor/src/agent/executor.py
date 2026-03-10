@@ -1905,24 +1905,62 @@ class AgentLoop:
                 self._context.phase = LoopPhase.ACTING
                 yield await self._emit_phase_change()
 
-                for tool_call in thought.tool_calls:
-                    if self.is_aborted:
-                        break
+                # Determine whether to execute tool calls in parallel
+                use_parallel = (
+                    len(thought.tool_calls) > 1
+                    and self.agent.model is not None
+                    and await self._model_supports_parallel_tool_calls()
+                )
 
-                    action = Action(tool_call=tool_call)
-                    self._context.actions.append(action)
+                if use_parallel:
+                    # Prepare all actions and emit tool call events first
+                    actions: list[Action] = []
+                    for tool_call in thought.tool_calls:
+                        action = Action(tool_call=tool_call)
+                        self._context.actions.append(action)
+                        actions.append(action)
+                        yield await self._emit_tool_call(tool_call)
 
-                    yield await self._emit_tool_call(tool_call)
+                    # Execute all tools concurrently
+                    results = await asyncio.gather(
+                        *[self._act(a) for a in actions],
+                        return_exceptions=True,
+                    )
 
-                    # Execute tool
-                    observation = await self._act(action)
-                    action.completed_at = time.time()
-
-                    # Phase 3: Observing
+                    # Phase 3: Observing — emit all observations
                     self._context.phase = LoopPhase.OBSERVING
-                    self._context.add_observation(observation)
+                    for action, result in zip(actions, results):
+                        action.completed_at = time.time()
+                        if isinstance(result, BaseException):
+                            observation = Observation(
+                                action=action,
+                                success=False,
+                                output="",
+                                error=str(result),
+                            )
+                        else:
+                            observation = result
+                        self._context.add_observation(observation)
+                        yield await self._emit_observation(observation)
+                else:
+                    for tool_call in thought.tool_calls:
+                        if self.is_aborted:
+                            break
 
-                    yield await self._emit_observation(observation)
+                        action = Action(tool_call=tool_call)
+                        self._context.actions.append(action)
+
+                        yield await self._emit_tool_call(tool_call)
+
+                        # Execute tool
+                        observation = await self._act(action)
+                        action.completed_at = time.time()
+
+                        # Phase 3: Observing
+                        self._context.phase = LoopPhase.OBSERVING
+                        self._context.add_observation(observation)
+
+                        yield await self._emit_observation(observation)
 
                 # Optional: Reflection
                 if self._should_reflect():
@@ -2121,6 +2159,18 @@ Are you making progress toward the goal? Should you adjust your approach?
             return f"{self.agent.model.provider_id}/{self.agent.model.model_id}"
         # Default model - should come from config
         return "ollama/deepseek-v3.1:671b-cloud"
+
+    async def _model_supports_parallel_tool_calls(self) -> bool:
+        """Return True if the current model supports parallel tool calls."""
+        from src.provider import get_model as provider_get_model
+
+        if not self.agent.model:
+            return False
+        model_info = await provider_get_model(
+            self.agent.model.provider_id,
+            self.agent.model.model_id,
+        )
+        return model_info is not None and model_info.capabilities.parallel_tool_calls
 
     # =========================================================================
     # Event Emission

@@ -163,6 +163,8 @@ class ModelCapabilitiesResponse(BaseModel):
     json_mode: bool
     streaming: bool
     reasoning: bool
+    parallel_tool_calls: bool = False
+    structured_output: bool = False
 
 
 class ModelCostResponse(BaseModel):

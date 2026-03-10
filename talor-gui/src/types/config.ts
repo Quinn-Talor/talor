@@ -49,6 +49,20 @@ export interface MCPServerConfig {
 }
 
 /**
+ * Model capability flags (detailed boolean breakdown)
+ * 模型能力标志位（详细布尔值）
+ */
+export interface ModelCapabilityFlags {
+  vision: boolean;
+  functionCalling: boolean;
+  reasoning: boolean;
+  streaming: boolean;
+  jsonMode: boolean;
+  parallelToolCalls: boolean;
+  structuredOutput: boolean;
+}
+
+/**
  * Model information
  * 模型信息
  */
@@ -63,6 +77,12 @@ export interface ModelInfo {
   providerName: string;
   /** Model capabilities / 模型能力 */
   capabilities: string[];
+  /** Detailed capability flags from API / 来自API的详细能力标志 */
+  capabilityFlags?: ModelCapabilityFlags;
+  /** Context window size in tokens / 上下文窗口大小（tokens） */
+  contextLength?: number;
+  /** Maximum output tokens / 最大输出token数 */
+  maxOutputTokens?: number;
 }
 
 /**
