@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "talor-backend",
+      "runtimeExecutable": "/Users/quinn.li/Desktop/talor/talor/venv/bin/uvicorn",
+      "runtimeArgs": ["src.api.app:app", "--port", "8000", "--reload", "--app-dir", "/Users/quinn.li/Desktop/talor/talor"],
+      "port": 8000
+    },
+    {
+      "name": "talor-frontend",
+      "runtimeExecutable": "/Users/quinn.li/Desktop/talor/talor-gui/node_modules/.bin/vite",
+      "runtimeArgs": ["/Users/quinn.li/Desktop/talor/talor-gui", "--port", "5173", "--host", "127.0.0.1"],
+      "port": 5173
+    }
+  ]
+}
