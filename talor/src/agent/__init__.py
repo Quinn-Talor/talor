@@ -1,61 +1,58 @@
-"""Agent System for Talor.
+"""Agent System for Talor — AI 数字员工平台。
 
-This module provides the agent system with ReAct loop support.
-
-Architecture:
-- Agent: Rich domain entity for agent configuration
-- AgentExecutor: Core execution engine for ReAct cycle
-- Module-level functions for agent management (get_agent, list_agents, etc.)
+平台两层架构：
+- 平台员工（kind=platform）：基础执行能力（build/plan/explore/general），硬编码默认值
+- 业务员工（kind=worker）：领域专家，从 employees/*.jsonc 加载，有完整员工契约
 
 Usage:
     ```python
     from src.agent import (
-        # Entity classes
-        Agent,
-        ModelConfig,
-        Permission,
-        PermissionRule,
-        PermissionAction,
-        Ruleset,
-        # Executor
+        Agent, AgentKind, AgentScope,
+        RoleDefinition, CapabilityScope, WorkflowDefinition,
+        DependencySpec, InputSpec, DeliveryStandard,
+        ModelConfig, PermissionRule, PermissionAction,
+        configure, clear_cache, get_agent, list_agents,
         AgentExecutor,
-        # Module-level functions
-        configure,
-        clear_cache,
-        get_agent,
-        list_agents,
-        get_default_agent,
-        list_agents_for_mode,
     )
 
-    # Configure module (typically done at startup)
-    configure(config_getter=my_config_getter)
+    # 配置模块
+    configure(config_getter=my_config_getter, workspace=Path("."))
 
-    # Agent management
-    agents = await list_agents()
-    agent = await get_agent("build")
-    default = await get_default_agent()
+    # 列出所有业务员工
+    workers = await list_agents(kind=AgentKind.WORKER)
 
-    # Execute prompts
-    result = await executor.execute_stream(
-        session_id="...",
-        parts=[{"type": "text", "text": "Hello"}],
-        model={"provider_id": "...", "model_id": "..."},
-    )
+    # 获取特定 agent
+    agent = await get_agent("data-analyst")
+    prompt = agent.build_structured_prompt()
     ```
 """
 
-# Entity classes and permission system
+# 域模型
 from src.agent.agent import (
     Agent,
+    AgentKind,
+    AgentScope,
+    # 数字员工值对象
+    RoleDefinition,
+    CapabilityScope,
+    WorkflowDefinition,
+    WorkflowStep,
+    WorkflowType,
+    DependencySpec,
+    InputField,
+    InputSpec,
+    DeliverableSpec,
+    DeliveryStandard,
+    # 执行配置
     ModelConfig,
-    Permission,
+    # 权限系统
     PermissionRule,
     PermissionAction,
+    Permission,
     Ruleset,
 )
 
-# Module-level functions (merged from service.py)
+# 模块级函数
 from src.agent.agent import (
     configure,
     clear_cache,
@@ -65,16 +62,14 @@ from src.agent.agent import (
     list_agents_for_mode,
 )
 
-# Backward-compatible AgentService class
+# AgentService（供执行器依赖注入）
 from src.agent.agent import AgentService
 
-# Executor and loop types
+# 执行器
 from src.agent.executor import (
-    # Executor
     AgentExecutor,
     SSEEvent,
     ExecutionStatus,
-    # Loop types (merged from loop.py)
     AgentLoop,
     LoopConfig,
     LoopContext,
@@ -87,22 +82,41 @@ from src.agent.executor import (
 )
 
 __all__ = [
-    # Domain entities
+    # 域模型
     "Agent",
+    "AgentKind",
+    "AgentScope",
+    # 数字员工值对象
+    "RoleDefinition",
+    "CapabilityScope",
+    "WorkflowDefinition",
+    "WorkflowStep",
+    "WorkflowType",
+    "DependencySpec",
+    "InputField",
+    "InputSpec",
+    "DeliverableSpec",
+    "DeliveryStandard",
+    # 执行配置
     "ModelConfig",
-    # Permission system
-    "Permission",
+    # 权限系统
     "PermissionRule",
     "PermissionAction",
+    "Permission",
     "Ruleset",
-    # Module-level functions
+    # 模块级函数
     "configure",
     "clear_cache",
     "get_agent",
     "list_agents",
     "get_default_agent",
     "list_agents_for_mode",
-    # Loop types
+    # 服务
+    "AgentService",
+    # 执行器
+    "AgentExecutor",
+    "SSEEvent",
+    "ExecutionStatus",
     "AgentLoop",
     "LoopConfig",
     "LoopContext",
@@ -112,10 +126,4 @@ __all__ = [
     "ToolCall",
     "Action",
     "Observation",
-    # Services (backward compatibility)
-    "AgentService",
-    "AgentExecutor",
-    # Types
-    "SSEEvent",
-    "ExecutionStatus",
 ]
