@@ -318,14 +318,17 @@ export const useSessionStore = create<SessionStore & InternalState>((set, get) =
       };
 
       set((state) => {
-        // Add new session to the list and sort
-        const updatedSessions = sortSessionsByUpdatedAt([sessionInfo, ...state.sessions]);
+        // Dedup: SSE session.created may arrive before fetch response
+        const alreadyExists = state.sessions.some((s) => s.id === session.id);
+        const updatedSessions = alreadyExists
+          ? state.sessions
+          : sortSessionsByUpdatedAt([sessionInfo, ...state.sessions]);
         return {
           sessions: updatedSessions,
           currentSessionId: session.id,
           messages: {
             ...state.messages,
-            [session.id]: [],
+            [session.id]: state.messages[session.id] ?? [],
           },
           isLoading: false,
         };

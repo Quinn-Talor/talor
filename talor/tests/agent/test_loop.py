@@ -25,11 +25,13 @@ from src.agent.agent import Agent
 @pytest.fixture
 def mock_agent():
     """Create a mock agent."""
+    from src.agent.agent import AgentKind, AgentScope
     return Agent(
+        id="test_agent",
         name="test_agent",
         description="Test agent",
-        mode="primary",
-        native=True,
+        kind=AgentKind.PLATFORM,
+        scope=AgentScope.PRIMARY,
         temperature=0.7,
     )
 

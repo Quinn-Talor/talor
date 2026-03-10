@@ -1,874 +1,745 @@
-"""Agent Domain Model for Talor.
+"""Agent Domain Model for Talor — AI 数字员工平台。
 
-This module provides the Agent entity - a rich domain object
-with both state and behavior for agent configuration.
+数字员工平台的核心模型：
+- 平台员工（kind=platform）：提供基础执行能力（build/plan/explore/general）
+- 业务员工（kind=worker）：有完整员工契约（role/capabilities/workflow/input_spec/delivery_standard）
 
-Following DDD principles:
-- Agent is a rich entity with business logic
-- Permission checking is encapsulated in the entity
-- Model selection logic is part of the entity
-
-Permission system is also included in this module for controlling tool access.
-
-Module-level functions (merged from service.py):
-- configure(): Initialize module state
-- clear_cache(): Clear agent cache (for testing)
-- get_agent(): Get agent by name
-- list_agents(): List all agents
-- get_default_agent(): Get default agent name
-- list_agents_for_mode(): List agents for a specific mode
+Agent 即数字员工，通过 employees/*.jsonc 配置文件定义业务员工，
+平台员工硬编码为默认值，支持通过 .talor/agents/*.jsonc 覆盖。
 """
 
 from __future__ import annotations
 
 import fnmatch
+import json
 import logging
 from enum import Enum
-from typing import Any, Callable, Awaitable, TYPE_CHECKING
+from pathlib import Path
+from typing import Any, Callable, Awaitable
 
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    from src.config import Config
-
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Module-level State (merged from service.py)
+# Module-level State
 # =============================================================================
 
-# Config getter function - should return config dict when called
 _config_getter: Callable[[], Awaitable[dict[str, Any]]] | None = None
-
-# Agents cache - stores loaded agents
 _agents_cache: dict[str, "Agent"] | None = None
+_workspace: Path | None = None
 
 
-def configure(config_getter: Callable[[], Awaitable[dict[str, Any]]] | None = None) -> None:
-    """Configure module-level state.
-
-    Args:
-        config_getter: Async function that returns config dict
-    """
-    global _config_getter
+def configure(
+    config_getter: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+    workspace: Path | None = None,
+) -> None:
+    """配置模块状态。"""
+    global _config_getter, _workspace
     _config_getter = config_getter
+    if workspace is not None:
+        _workspace = workspace
 
 
 def clear_cache() -> None:
-    """Clear agent cache (for testing)."""
+    """清除 agent 缓存（用于测试）。"""
     global _agents_cache
     _agents_cache = None
 
 
 # =============================================================================
-# Permission System (merged from permission.py)
+# Value Objects — 权限系统
 # =============================================================================
 
 class PermissionAction(str, Enum):
-    """Permission action types."""
     ALLOW = "allow"
     DENY = "deny"
     ASK = "ask"
 
 
 class PermissionRule(BaseModel):
-    """A single permission rule.
-
-    Defines access control for a specific tool or pattern.
-
-    Attributes:
-        permission: Permission type (tool name or category)
-        action: Action to take (allow, deny, ask)
-        pattern: Pattern to match (glob-style)
-    """
-
-    permission: str
+    permission: str          # 工具名 或 "*"
     action: PermissionAction
-    pattern: str = "*"
+    pattern: str = "*"       # 路径匹配模式（glob 风格）
 
     def matches(self, tool: str, path: str | None = None) -> bool:
-        """Check if this rule matches the given tool and path.
-
-        Args:
-            tool: Tool name
-            path: Optional path for file-based permissions
-
-        Returns:
-            True if rule matches
-        """
-        # Check permission match
-        if self.permission != "*" and self.permission != tool:
-            # Check if it's a category match
-            if not fnmatch.fnmatch(tool, self.permission):
-                return False
-
-        # Check pattern match
+        if self.permission != "*" and not fnmatch.fnmatch(tool, self.permission):
+            return False
         if path and self.pattern != "*":
             if not fnmatch.fnmatch(path, self.pattern):
                 return False
-
         return True
 
 
-# Type alias for ruleset
 Ruleset = list[PermissionRule]
 
 
-class Permission:
-    """Permission management namespace.
+def _check_permission(
+    ruleset: Ruleset,
+    tool: str,
+    path: str | None = None,
+) -> PermissionAction:
+    matching = [r for r in ruleset if r.matches(tool, path)]
+    if not matching:
+        return PermissionAction.ASK
 
-    Provides methods for creating, merging, and checking permissions.
-    """
+    def specificity(rule: PermissionRule) -> int:
+        return (10 if rule.permission != "*" else 0) + (5 if rule.pattern != "*" else 0)
+
+    matching.sort(key=specificity, reverse=True)
+    return matching[0].action
+
+
+class Permission:
+    """权限管理工具（保留供执行器兼容使用）。"""
+
+    @staticmethod
+    def check(ruleset: Ruleset, tool: str, path: str | None = None) -> PermissionAction:
+        return _check_permission(ruleset, tool, path)
 
     @staticmethod
     def from_config(config: dict[str, Any]) -> Ruleset:
-        """Create ruleset from configuration dictionary.
-
-        Args:
-            config: Configuration dictionary like:
-                {
-                    "*": "allow",
-                    "bash": "ask",
-                    "read": {"*": "allow", "*.env": "ask"},
-                }
-
-        Returns:
-            List of PermissionRule
-        """
         rules: Ruleset = []
-
         for permission, value in config.items():
             if isinstance(value, str):
-                # Simple action
-                action = PermissionAction(value)
                 rules.append(PermissionRule(
                     permission=permission,
-                    action=action,
-                    pattern="*",
+                    action=PermissionAction(value),
                 ))
             elif isinstance(value, dict):
-                # Pattern-based rules
                 for pattern, action_str in value.items():
-                    action = PermissionAction(action_str)
                     rules.append(PermissionRule(
                         permission=permission,
-                        action=action,
+                        action=PermissionAction(action_str),
                         pattern=pattern,
                     ))
-
         return rules
 
     @staticmethod
     def merge(*rulesets: Ruleset) -> Ruleset:
-        """Merge multiple rulesets.
-
-        Later rulesets override earlier ones.
-        When a simple rule (pattern=*) is added, it removes all existing rules
-        for that permission to ensure complete override.
-
-        Args:
-            *rulesets: Rulesets to merge
-
-        Returns:
-            Merged ruleset
-        """
         result: Ruleset = []
-
         for ruleset in rulesets:
             for rule in ruleset:
-                # If this is a simple rule (pattern=*), remove ALL rules for this permission
-                # This ensures "read": "allow" completely overrides default read rules
                 if rule.pattern == "*":
                     result = [r for r in result if r.permission != rule.permission]
                 else:
-                    # Remove only exact matches (same permission and pattern)
                     result = [
                         r for r in result
                         if not (r.permission == rule.permission and r.pattern == rule.pattern)
                     ]
                 result.append(rule)
-
         return result
-
-    @staticmethod
-    def check(
-        ruleset: Ruleset,
-        tool: str,
-        path: str | None = None,
-    ) -> PermissionAction:
-        """Check permission for a tool and path.
-
-        Args:
-            ruleset: Permission ruleset
-            tool: Tool name
-            path: Optional path for file-based permissions
-
-        Returns:
-            Permission action (allow, deny, ask)
-        """
-        # Find matching rules (most specific first)
-        matching_rules = []
-
-        for rule in ruleset:
-            if rule.matches(tool, path):
-                matching_rules.append(rule)
-
-        if not matching_rules:
-            # Default to ask if no rules match
-            return PermissionAction.ASK
-
-        # Sort by specificity (more specific patterns first)
-        def specificity(rule: PermissionRule) -> int:
-            score = 0
-            if rule.permission != "*":
-                score += 10
-            if rule.pattern != "*":
-                score += 5
-            return score
-
-        matching_rules.sort(key=specificity, reverse=True)
-
-        return matching_rules[0].action
-
-    @staticmethod
-    def is_allowed(
-        ruleset: Ruleset,
-        tool: str,
-        path: str | None = None,
-    ) -> bool:
-        """Check if action is allowed.
-
-        Args:
-            ruleset: Permission ruleset
-            tool: Tool name
-            path: Optional path
-
-        Returns:
-            True if allowed
-        """
-        action = Permission.check(ruleset, tool, path)
-        return action == PermissionAction.ALLOW
-
-    @staticmethod
-    def needs_ask(
-        ruleset: Ruleset,
-        tool: str,
-        path: str | None = None,
-    ) -> bool:
-        """Check if action needs user confirmation.
-
-        Args:
-            ruleset: Permission ruleset
-            tool: Tool name
-            path: Optional path
-
-        Returns:
-            True if needs ask
-        """
-        action = Permission.check(ruleset, tool, path)
-        return action == PermissionAction.ASK
 
 
 # =============================================================================
-# Value Objects
+# Value Objects — Agent 类型
+# =============================================================================
+
+class AgentKind(str, Enum):
+    PLATFORM = "platform"   # 平台员工（基础设施：build/plan/explore/general）
+    WORKER = "worker"       # 业务数字员工（领域专家，有完整员工契约）
+
+
+class AgentScope(str, Enum):
+    PRIMARY = "primary"     # 可由用户直接调用
+    SUBAGENT = "subagent"   # 仅可被其他 agent 调用
+    BOTH = "both"           # 两者均可
+
+
+# =============================================================================
+# Value Objects — 数字员工模型
+# =============================================================================
+
+class WorkflowType(str, Enum):
+    SEQUENTIAL = "sequential"
+    PARALLEL = "parallel"
+    EVENT_DRIVEN = "event_driven"
+
+
+class WorkflowStep(BaseModel):
+    id: str
+    name: str
+    description: str
+    tool: str | None = None       # 关联工具
+    condition: str | None = None  # 执行条件
+
+
+class WorkflowDefinition(BaseModel):
+    type: WorkflowType = WorkflowType.SEQUENTIAL
+    steps: list[WorkflowStep] = []
+    max_iterations: int | None = None
+
+
+class RoleDefinition(BaseModel):
+    title: str                         # 职位名称
+    persona: str                       # 角色人设 / 背景描述
+    responsibilities: list[str] = []   # 核心职责
+
+
+class CapabilityScope(BaseModel):
+    domains: list[str] = []            # 专业领域
+    input_types: list[str] = []        # 可接受的输入类型
+    output_types: list[str] = []       # 可输出类型
+    proficiency: dict[str, str] = {}   # 技能熟练度（技能名 → 等级）
+    constraints: list[str] = []        # 能力边界说明
+
+
+class DependencySpec(BaseModel):
+    tools: list[str] = []              # 工具名称列表
+    sub_agents: list[str] = []         # 子 agent 名称
+    skills: list[str] = []             # 技能（skill）名称
+    mcp_servers: list[str] = []        # MCP 服务器
+
+
+class InputField(BaseModel):
+    name: str
+    type: str = "string"               # string / file / json / number / boolean
+    description: str
+    required: bool = True
+    validation: str | None = None      # 校验规则描述
+
+
+class InputSpec(BaseModel):
+    fields: list[InputField] = []
+    format: str = "natural_language"   # natural_language / structured / both
+    examples: list[str] = []
+
+
+class DeliverableSpec(BaseModel):
+    name: str
+    format: str                        # markdown / json / file / code / report
+    description: str
+    required: bool = True
+
+
+class DeliveryStandard(BaseModel):
+    deliverables: list[DeliverableSpec] = []
+    quality_criteria: list[str] = []   # 质量标准
+    success_definition: str = ""       # 成功定义
+    acceptance_tests: list[str] = []   # 验收测试描述
+
+
+# =============================================================================
+# Value Objects — 执行配置
 # =============================================================================
 
 class ModelConfig(BaseModel):
-    """Model configuration for an agent (Value Object)."""
-    model_id: str
     provider_id: str
+    model_id: str
 
     def to_string(self) -> str:
-        """Convert to provider/model string format."""
         return f"{self.provider_id}/{self.model_id}"
 
 
 # =============================================================================
-# Agent Entity (Rich Domain Model)
+# Agent Entity — 数字员工
 # =============================================================================
 
-class AgentPluginConfig(BaseModel):
-    """Single plugin configuration for an agent (Value Object).
-
-    Attributes:
-        enabled: Whether the plugin is enabled
-        priority: Optional priority override
-        path: Path to custom plugin file (for custom plugins)
-    """
-    enabled: bool = True
-    priority: int | None = None
-    path: str | None = None
-
-
 class Agent(BaseModel):
-    """Agent entity with state and behavior.
+    """数字员工完整模型。
 
-    A rich domain model that encapsulates:
-    - Agent configuration (state)
-    - Permission checking (behavior)
-    - Model selection (behavior)
-    - Validation rules (behavior)
+    平台员工（kind=platform）：
+        提供基础执行能力，无角色/能力/流程字段，行为由 permission 和执行器默认逻辑决定。
+
+    业务员工（kind=worker）：
+        有完整员工契约（role/capabilities/workflow/input_spec/delivery_standard），
+        通过 build_structured_prompt() 生成结构化系统提示词。
+        可通过 manual 字段引用外部员工手册文件（SOP/领域知识）。
     """
 
+    # 基础标识
+    id: str
     name: str
     description: str | None = None
-    mode: str = "primary"  # "primary", "subagent", "all"
-    native: bool = False
+    version: str = "1.0.0"
+    enabled: bool = True
     hidden: bool = False
-    top_p: float | None = None
-    temperature: float | None = None
-    color: str | None = None
-    permission: list[dict[str, Any]] = Field(default_factory=list)
-    model: ModelConfig | None = None
-    prompt: str | None = None  # Path to prompt file (e.g., "prompts/agents/build.md")
-    options: dict[str, Any] = Field(default_factory=dict)
-    steps: int | None = None
-    plugins: dict[str, AgentPluginConfig] | None = None
 
-    # =========================================================================
-    # Properties
-    # =========================================================================
+    # Agent 类型与调用范围
+    kind: AgentKind = AgentKind.WORKER
+    scope: AgentScope = AgentScope.PRIMARY
+
+    # ── 业务员工定义（kind=worker 时填写）────────────────────────────
+    role: RoleDefinition | None = None
+    capabilities: CapabilityScope | None = None
+    workflow: WorkflowDefinition | None = None
+    dependencies: DependencySpec | None = None
+    input_spec: InputSpec | None = None
+    delivery_standard: DeliveryStandard | None = None
+    manual: str | None = None          # 员工手册文件路径（.md，追加在结构化定义之后）
+
+    # ── 执行配置 ──────────────────────────────────────────────────────
+    model: ModelConfig | None = None
+    temperature: float | None = None
+    max_steps: int = 50
+    permission: list[PermissionRule] = Field(default_factory=list)
+
+    # ── 属性 ──────────────────────────────────────────────────────────
 
     @property
-    def prompt_path(self) -> str:
-        """Get prompt file path.
+    def is_worker(self) -> bool:
+        """是否为业务员工。"""
+        return self.kind == AgentKind.WORKER
 
-        Returns default path for native agents if not specified.
-        """
-        if self.prompt:
-            return self.prompt
-        # Default path for native agents
-        return f"prompts/agents/{self.name}.md"
+    @property
+    def is_platform(self) -> bool:
+        """是否为平台员工。"""
+        return self.kind == AgentKind.PLATFORM
 
     @property
     def is_primary(self) -> bool:
-        """Check if this is a primary agent."""
-        return self.mode in ("primary", "all")
+        """是否可由用户直接调用。"""
+        return self.scope in (AgentScope.PRIMARY, AgentScope.BOTH)
 
     @property
     def is_subagent(self) -> bool:
-        """Check if this is a subagent."""
-        return self.mode in ("subagent", "all")
+        """是否可被其他 agent 调用。"""
+        return self.scope in (AgentScope.SUBAGENT, AgentScope.BOTH)
 
     @property
     def is_visible(self) -> bool:
-        """Check if agent is visible in UI."""
+        """是否在 UI 中可见。"""
         return not self.hidden
 
     @property
-    def has_custom_model(self) -> bool:
-        """Check if agent has a custom model override."""
-        return self.model is not None
+    def prompt_path(self) -> str | None:
+        """员工手册路径（供执行器加载 manual 文件）。"""
+        return self.manual
 
-    @property
-    def max_steps(self) -> int:
-        """Get maximum steps (default 50)."""
-        return self.steps or 50
+    # ── 系统提示词构建 ────────────────────────────────────────────────
 
-    @property
-    def has_custom_plugins(self) -> bool:
-        """Check if agent has custom plugin configuration."""
-        return self.plugins is not None and len(self.plugins) > 0
+    def build_structured_prompt(self) -> str:
+        """将员工定义渲染为结构化中文系统提示词（纯函数，无 I/O）。
 
-    @property
-    def custom_plugin_paths(self) -> dict[str, str]:
-        """Get custom plugin paths for this agent.
-
-        Returns:
-            Dict of plugin_name -> path for plugins with custom paths
+        章节顺序：角色定义 → 能力范畴 → 工作流程 → 输入规范 → 交付标准
+        无 role 定义时返回空字符串（平台员工走此路径）。
         """
-        if not self.plugins:
-            return {}
-        return {
-            name: cfg.path
-            for name, cfg in self.plugins.items()
-            if cfg.path is not None
-        }
+        if not self.role:
+            return ""
 
-    @property
-    def disabled_plugins(self) -> list[str]:
-        """Get list of disabled plugin names for this agent."""
-        if not self.plugins:
-            return []
-        return [name for name, cfg in self.plugins.items() if not cfg.enabled]
+        sections: list[str] = []
 
-    @property
-    def enabled_plugins(self) -> list[str]:
-        """Get list of explicitly enabled plugin names for this agent."""
-        if not self.plugins:
-            return []
-        return [name for name, cfg in self.plugins.items() if cfg.enabled]
+        # 角色定义
+        role_lines = [
+            f"## 你的身份与职责",
+            f"你是**{self.role.title}**。",
+            "",
+            self.role.persona,
+        ]
+        if self.role.responsibilities:
+            role_lines += ["", "### 核心职责"]
+            role_lines += [f"- {r}" for r in self.role.responsibilities]
+        sections.append("\n".join(role_lines))
 
-    def get_plugin_config(self, plugin_name: str) -> AgentPluginConfig | None:
-        """Get plugin configuration for a specific plugin.
+        # 能力范畴
+        if self.capabilities:
+            cap = self.capabilities
+            cap_lines = ["## 能力范畴"]
+            if cap.domains:
+                cap_lines.append(f"**专业领域**：{', '.join(cap.domains)}")
+            if cap.input_types:
+                cap_lines.append(f"**可接受输入**：{', '.join(cap.input_types)}")
+            if cap.output_types:
+                cap_lines.append(f"**可输出类型**：{', '.join(cap.output_types)}")
+            if cap.proficiency:
+                prof_strs = [f"{k}（{v}）" for k, v in cap.proficiency.items()]
+                cap_lines.append(f"**技能熟练度**：{', '.join(prof_strs)}")
+            if cap.constraints:
+                cap_lines += ["", "**能力边界**："]
+                cap_lines += [f"- {c}" for c in cap.constraints]
+            sections.append("\n".join(cap_lines))
 
-        Args:
-            plugin_name: Name of the plugin
+        # 工作流程
+        if self.workflow and self.workflow.steps:
+            wf = self.workflow
+            wf_type_map = {
+                "sequential": "顺序执行",
+                "parallel": "并行执行",
+                "event_driven": "事件驱动",
+            }
+            wf_lines = [
+                "## 工作流程",
+                f"执行方式：{wf_type_map.get(wf.type, wf.type)}",
+                "",
+                "**工作步骤**：",
+            ]
+            for i, step in enumerate(wf.steps, 1):
+                step_line = f"{i}. **{step.name}**：{step.description}"
+                if step.condition:
+                    step_line += f"（条件：{step.condition}）"
+                wf_lines.append(step_line)
+            if wf.max_iterations:
+                wf_lines.append(f"\n最大迭代次数：{wf.max_iterations}")
+            sections.append("\n".join(wf_lines))
 
-        Returns:
-            Plugin config or None if not configured
-        """
-        if not self.plugins:
-            return None
-        return self.plugins.get(plugin_name)
+        # 输入规范
+        if self.input_spec and self.input_spec.fields:
+            spec = self.input_spec
+            spec_lines = ["## 输入规范"]
+            required = [f for f in spec.fields if f.required]
+            optional = [f for f in spec.fields if not f.required]
+            if required:
+                spec_lines.append("**必需输入**：")
+                for field in required:
+                    line = f"- `{field.name}`（{field.type}）：{field.description}"
+                    if field.validation:
+                        line += f"，验证：{field.validation}"
+                    spec_lines.append(line)
+            if optional:
+                spec_lines.append("**可选输入**：")
+                for field in optional:
+                    spec_lines.append(f"- `{field.name}`（{field.type}）：{field.description}")
+            if spec.examples:
+                spec_lines += ["", "**示例**："]
+                spec_lines += [f"- {ex}" for ex in spec.examples]
+            sections.append("\n".join(spec_lines))
 
-    # =========================================================================
-    # Permission Behavior
-    # =========================================================================
+        # 交付标准
+        if self.delivery_standard:
+            ds = self.delivery_standard
+            ds_lines = ["## 交付标准"]
+            if ds.deliverables:
+                ds_lines.append("**交付物**：")
+                for d in ds.deliverables:
+                    req = "（必须）" if d.required else "（可选）"
+                    ds_lines.append(f"- **{d.name}**{req}：{d.description}，格式：{d.format}")
+            if ds.quality_criteria:
+                ds_lines += ["", "**质量标准**："]
+                ds_lines += [f"- {c}" for c in ds.quality_criteria]
+            if ds.success_definition:
+                ds_lines += ["", f"**成功定义**：{ds.success_definition}"]
+            if ds.acceptance_tests:
+                ds_lines += ["", "**验收测试**："]
+                ds_lines += [f"- {t}" for t in ds.acceptance_tests]
+            sections.append("\n".join(ds_lines))
 
-    def get_permission_ruleset(self) -> Ruleset:
-        """Get permission ruleset from config."""
-        rules = []
-        for rule_dict in self.permission:
-            rules.append(PermissionRule(**rule_dict))
-        return rules
+        prompt = "\n\n".join(sections)
+
+        # 追加员工手册内容（如有）
+        if self.manual and _workspace:
+            manual_path = _workspace / self.manual
+            if manual_path.is_file():
+                manual_content = manual_path.read_text(encoding="utf-8").strip()
+                if manual_content:
+                    prompt = prompt + "\n\n" + manual_content
+
+        return prompt
+
+    # ── 权限检查 ──────────────────────────────────────────────────────
 
     def check_permission(self, tool_name: str, path: str | None = None) -> PermissionAction:
-        """Check permission for a tool.
-
-        Args:
-            tool_name: Name of the tool
-            path: Optional file path for path-based rules
-
-        Returns:
-            PermissionAction (allow, deny, ask)
-        """
-        ruleset = self.get_permission_ruleset()
-        return Permission.check(ruleset, tool_name, path)
+        return _check_permission(self.permission, tool_name, path)
 
     def is_tool_allowed(self, tool_name: str, path: str | None = None) -> bool:
-        """Check if a tool is allowed.
-
-        Args:
-            tool_name: Name of the tool
-            path: Optional file path
-
-        Returns:
-            True if allowed
-        """
-        action = self.check_permission(tool_name, path)
-        return action == PermissionAction.ALLOW
+        return self.check_permission(tool_name, path) == PermissionAction.ALLOW
 
     def is_tool_denied(self, tool_name: str, path: str | None = None) -> bool:
-        """Check if a tool is denied.
-
-        Args:
-            tool_name: Name of the tool
-            path: Optional file path
-
-        Returns:
-            True if denied
-        """
-        action = self.check_permission(tool_name, path)
-        return action == PermissionAction.DENY
+        return self.check_permission(tool_name, path) == PermissionAction.DENY
 
     def requires_permission(self, tool_name: str, path: str | None = None) -> bool:
-        """Check if a tool requires user permission.
+        return self.check_permission(tool_name, path) == PermissionAction.ASK
 
-        Args:
-            tool_name: Name of the tool
-            path: Optional file path
-
-        Returns:
-            True if requires asking
-        """
-        action = self.check_permission(tool_name, path)
-        return action == PermissionAction.ASK
-
-    def merge_permissions(self, additional_rules: dict[str, Any]) -> "Agent":
-        """Create a new agent with merged permissions.
-
-        Args:
-            additional_rules: Additional permission rules
-
-        Returns:
-            New Agent with merged permissions
-        """
-        current_rules = self.get_permission_ruleset()
-        new_rules = Permission.from_config(additional_rules)
-        merged = Permission.merge(current_rules, new_rules)
-
-        return self.model_copy(update={
-            "permission": [r.model_dump() for r in merged]
-        })
-
-    # =========================================================================
-    # Model Selection Behavior
-    # =========================================================================
-
-    def get_model_string(self, default_model: str = "ollama/deepseek-v3.1:671b-cloud") -> str:
-        """Get the model string for LLM calls.
-
-        Args:
-            default_model: Default model if none configured
-
-        Returns:
-            Model string in "provider/model" format
-        """
-        if self.model:
-            return self.model.to_string()
-        return default_model
-
-    def with_model(self, provider_id: str, model_id: str) -> "Agent":
-        """Create a new agent with a different model.
-
-        Args:
-            provider_id: Provider ID
-            model_id: Model ID
-
-        Returns:
-            New Agent with updated model
-        """
-        return self.model_copy(update={
-            "model": ModelConfig(provider_id=provider_id, model_id=model_id)
-        })
-
-    # =========================================================================
-    # Configuration Behavior
-    # =========================================================================
-
-    def with_prompt(self, prompt: str) -> "Agent":
-        """Create a new agent with a different prompt.
-
-        Args:
-            prompt: New system prompt
-
-        Returns:
-            New Agent with updated prompt
-        """
-        return self.model_copy(update={"prompt": prompt})
-
-    def with_temperature(self, temperature: float) -> "Agent":
-        """Create a new agent with different temperature.
-
-        Args:
-            temperature: New temperature value
-
-        Returns:
-            New Agent with updated temperature
-
-        Raises:
-            ValueError: If temperature out of range
-        """
-        if not 0.0 <= temperature <= 2.0:
-            raise ValueError("Temperature must be between 0.0 and 2.0")
-        return self.model_copy(update={"temperature": temperature})
-
-    def with_max_steps(self, steps: int) -> "Agent":
-        """Create a new agent with different max steps.
-
-        Args:
-            steps: Maximum steps
-
-        Returns:
-            New Agent with updated steps
-
-        Raises:
-            ValueError: If steps invalid
-        """
-        if steps < 1:
-            raise ValueError("Steps must be at least 1")
-        return self.model_copy(update={"steps": steps})
-
-    # =========================================================================
-    # Validation Behavior
-    # =========================================================================
-
-    def validate_as_default(self) -> None:
-        """Validate that this agent can be used as default.
-
-        Raises:
-            ValueError: If agent cannot be default
-        """
-        if self.mode == "subagent":
-            raise ValueError(f"Agent '{self.name}' is a subagent and cannot be default")
-        if self.hidden:
-            raise ValueError(f"Agent '{self.name}' is hidden and cannot be default")
-
-    def validate_for_mode(self, required_mode: str) -> None:
-        """Validate that agent matches required mode.
-
-        Args:
-            required_mode: Required mode ("primary" or "subagent")
-
-        Raises:
-            ValueError: If mode doesn't match
-        """
-        if self.mode != "all" and self.mode != required_mode:
-            raise ValueError(
-                f"Agent '{self.name}' has mode '{self.mode}', "
-                f"but '{required_mode}' is required"
-            )
-
-    # =========================================================================
-    # Configuration Update Behavior
-    # =========================================================================
-
-    def update_from_config(self, config: dict[str, Any]) -> "Agent":
-        """Update agent from configuration dict.
-
-        Creates a new Agent with updated values from config.
-        This is the proper DDD way to apply configuration changes.
-
-        Args:
-            config: Configuration dict with optional keys:
-                - model: {"provider_id": str, "model_id": str}
-                - prompt: str
-                - description: str
-                - temperature: float
-                - top_p: float
-                - mode: str
-                - color: str
-                - hidden: bool
-                - steps: int
-                - permission: dict
-                - plugins: {"enabled": [], "disabled": [], "custom": []}
-
-        Returns:
-            New Agent with updated configuration
-        """
-        updates: dict[str, Any] = {}
-
-        if "model" in config:
-            updates["model"] = ModelConfig(**config["model"])
-
-        if "prompt" in config:
-            updates["prompt"] = config["prompt"]
-
-        if "description" in config:
-            updates["description"] = config["description"]
-
-        if "temperature" in config:
-            updates["temperature"] = config["temperature"]
-
-        if "top_p" in config:
-            updates["top_p"] = config["top_p"]
-
-        if "mode" in config:
-            updates["mode"] = config["mode"]
-
-        if "color" in config:
-            updates["color"] = config["color"]
-
-        if "hidden" in config:
-            updates["hidden"] = config["hidden"]
-
-        if "steps" in config:
-            updates["steps"] = config["steps"]
-
-        if "permission" in config:
-            # Merge permissions using entity's method
-            merged_agent = self.merge_permissions(config["permission"])
-            updates["permission"] = merged_agent.permission
-
-        if "plugins" in config:
-            plugins_dict = {}
-            for name, cfg in config["plugins"].items():
-                if isinstance(cfg, dict):
-                    plugins_dict[name] = AgentPluginConfig(**cfg)
-                else:
-                    plugins_dict[name] = AgentPluginConfig(enabled=bool(cfg))
-            updates["plugins"] = plugins_dict
-
-        if not updates:
-            return self
-
-        return self.model_copy(update=updates)
+    def get_permission_ruleset(self) -> Ruleset:
+        return self.permission
 
 
 # =============================================================================
-# Module-level Functions (merged from service.py)
+# 平台员工默认配置
+# =============================================================================
+
+def _default_platform_rules() -> list[PermissionRule]:
+    """平台员工通用默认权限规则。"""
+    return Permission.merge(
+        Permission.from_config({
+            "*": "allow",
+            "doom_loop": "ask",
+            "external_directory": "ask",
+            "read": {
+                "*": "allow",
+                "*.env": "ask",
+                "*.env.*": "ask",
+                "*.env.example": "allow",
+            },
+        })
+    )
+
+
+_PLATFORM_AGENTS_DEFAULTS: dict[str, dict[str, Any]] = {
+    "build": {
+        "id": "build",
+        "name": "通用执行员",
+        "description": "核心执行引擎，负责工具调用和任务执行。",
+        "kind": AgentKind.PLATFORM,
+        "scope": AgentScope.PRIMARY,
+        "max_steps": 50,
+        "permission": Permission.merge(
+            _default_platform_rules(),
+            Permission.from_config({
+                "question": "allow",
+                "plan_enter": "allow",
+            }),
+        ),
+    },
+    "plan": {
+        "id": "plan",
+        "name": "任务规划员",
+        "description": "规划模式，禁止编辑操作，用于复杂任务分解和规划。",
+        "kind": AgentKind.PLATFORM,
+        "scope": AgentScope.PRIMARY,
+        "max_steps": 50,
+        "permission": Permission.merge(
+            _default_platform_rules(),
+            Permission.from_config({
+                "question": "allow",
+                "plan_exit": "allow",
+                "edit": "deny",
+                "write": "deny",
+            }),
+        ),
+    },
+    "general": {
+        "id": "general",
+        "name": "通用研究员",
+        "description": "通用子 agent，可被业务员工委派执行复杂多步任务。",
+        "kind": AgentKind.PLATFORM,
+        "scope": AgentScope.SUBAGENT,
+        "max_steps": 50,
+        "permission": Permission.merge(
+            _default_platform_rules(),
+            Permission.from_config({
+                "todoread": "deny",
+                "todowrite": "deny",
+            }),
+        ),
+    },
+    "explore": {
+        "id": "explore",
+        "name": "信息探索员",
+        "description": "快速信息探索子 agent，专用于文件/代码库搜索。",
+        "kind": AgentKind.PLATFORM,
+        "scope": AgentScope.SUBAGENT,
+        "max_steps": 50,
+        "permission": Permission.merge(
+            Permission.from_config({
+                "*": "deny",
+                "grep": "allow",
+                "glob": "allow",
+                "ls": "allow",
+                "bash": "allow",
+                "read": "allow",
+            }),
+        ),
+    },
+    "title": {
+        "id": "title",
+        "name": "标题生成员",
+        "description": "生成会话标题。",
+        "kind": AgentKind.PLATFORM,
+        "scope": AgentScope.PRIMARY,
+        "hidden": True,
+        "temperature": 0.5,
+        "max_steps": 5,
+        "permission": Permission.from_config({"*": "deny"}),
+    },
+    "summary": {
+        "id": "summary",
+        "name": "摘要生成员",
+        "description": "生成会话摘要。",
+        "kind": AgentKind.PLATFORM,
+        "scope": AgentScope.PRIMARY,
+        "hidden": True,
+        "max_steps": 10,
+        "permission": Permission.from_config({"*": "deny"}),
+    },
+}
+
+
+def _build_platform_agent(agent_id: str, defaults: dict[str, Any]) -> Agent:
+    """从默认配置构建平台员工实例。"""
+    return Agent(
+        id=defaults["id"],
+        name=defaults["name"],
+        description=defaults.get("description"),
+        kind=defaults.get("kind", AgentKind.PLATFORM),
+        scope=defaults.get("scope", AgentScope.PRIMARY),
+        hidden=defaults.get("hidden", False),
+        temperature=defaults.get("temperature"),
+        max_steps=defaults.get("max_steps", 50),
+        permission=defaults.get("permission", []),
+    )
+
+
+def _parse_jsonc(text: str) -> Any:
+    """解析 JSONC（去除注释后解析 JSON）。"""
+    import re
+    # 去除单行注释
+    text = re.sub(r'//[^\n]*', '', text)
+    # 去除多行注释
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+    return json.loads(text)
+
+
+def _load_agent_from_file(path: Path, default_kind: AgentKind) -> Agent | None:
+    """从 JSONC 文件加载 agent 配置。"""
+    try:
+        text = path.read_text(encoding="utf-8")
+        data = _parse_jsonc(text)
+    except Exception as e:
+        logger.warning(f"加载 agent 配置文件失败 {path}: {e}")
+        return None
+
+    # 强制设置 kind
+    data["kind"] = default_kind.value
+
+    # 若无 id，使用文件名（不含扩展名）
+    if "id" not in data:
+        data["id"] = path.stem
+
+    # 若无 name，使用 id
+    if "name" not in data:
+        data["name"] = data["id"]
+
+    try:
+        return _parse_agent_from_dict(data)
+    except Exception as e:
+        logger.warning(f"解析 agent 配置失败 {path}: {e}")
+        return None
+
+
+def _parse_agent_from_dict(data: dict[str, Any]) -> Agent:
+    """从字典解析 Agent（含嵌套值对象）。"""
+    # 解析枚举
+    if "kind" in data:
+        data["kind"] = AgentKind(data["kind"])
+    if "scope" in data:
+        data["scope"] = AgentScope(data["scope"])
+
+    # 解析权限规则
+    if "permission" in data:
+        rules = []
+        for item in data["permission"]:
+            if isinstance(item, dict):
+                rules.append(PermissionRule(**item))
+        data["permission"] = rules
+
+    # 解析 model
+    if "model" in data and isinstance(data["model"], dict):
+        data["model"] = ModelConfig(**data["model"])
+
+    # 解析 role
+    if "role" in data and isinstance(data["role"], dict):
+        data["role"] = RoleDefinition(**data["role"])
+
+    # 解析 capabilities
+    if "capabilities" in data and isinstance(data["capabilities"], dict):
+        data["capabilities"] = CapabilityScope(**data["capabilities"])
+
+    # 解析 workflow
+    if "workflow" in data and isinstance(data["workflow"], dict):
+        wf_data = data["workflow"]
+        if "type" in wf_data:
+            wf_data["type"] = WorkflowType(wf_data["type"])
+        if "steps" in wf_data:
+            wf_data["steps"] = [WorkflowStep(**s) for s in wf_data["steps"]]
+        data["workflow"] = WorkflowDefinition(**wf_data)
+
+    # 解析 dependencies
+    if "dependencies" in data and isinstance(data["dependencies"], dict):
+        data["dependencies"] = DependencySpec(**data["dependencies"])
+
+    # 解析 input_spec
+    if "input_spec" in data and isinstance(data["input_spec"], dict):
+        spec_data = data["input_spec"]
+        if "fields" in spec_data:
+            spec_data["fields"] = [InputField(**f) for f in spec_data["fields"]]
+        data["input_spec"] = InputSpec(**spec_data)
+
+    # 解析 delivery_standard
+    if "delivery_standard" in data and isinstance(data["delivery_standard"], dict):
+        ds_data = data["delivery_standard"]
+        if "deliverables" in ds_data:
+            ds_data["deliverables"] = [DeliverableSpec(**d) for d in ds_data["deliverables"]]
+        data["delivery_standard"] = DeliveryStandard(**ds_data)
+
+    return Agent(**data)
+
+
+# =============================================================================
+# Module-level Functions
 # =============================================================================
 
 async def _load_agents() -> dict[str, Agent]:
-    """Load all agents from config and defaults.
+    """加载所有 agent。
 
-    Returns:
-        Dictionary of agent name to Agent instance
+    加载顺序：
+    1. 平台员工硬编码默认值
+    2. 从 .talor/agents/*.jsonc 覆盖平台员工配置（可选）
+    3. 从 employees/*.jsonc 加载业务员工
     """
     global _agents_cache
 
     if _agents_cache is not None:
         return _agents_cache
 
-    # Default permission rules
-    default_rules = Permission.from_config({
-        "*": "allow",
-        "doom_loop": "ask",
-        "external_directory": "ask",
-        "question": "deny",
-        "plan_enter": "deny",
-        "plan_exit": "deny",
-        "read": {
-            "*": "allow",
-            "*.env": "ask",
-            "*.env.*": "ask",
-            "*.env.example": "allow",
-        },
-    })
+    agents: dict[str, Agent] = {}
 
-    # Built-in agents
-    agents: dict[str, Agent] = {
-        "build": Agent(
-            name="build",
-            description="The default agent. Executes tools based on configured permissions.",
-            mode="primary",
-            native=True,
-            permission=[r.model_dump() for r in Permission.merge(
-                default_rules,
-                Permission.from_config({
-                    "question": "allow",
-                    "plan_enter": "allow",
-                }),
-            )],
-        ),
-        "plan": Agent(
-            name="plan",
-            description="Plan mode. Disallows all edit tools.",
-            mode="primary",
-            native=True,
-            # Prompt loaded by AgentPromptPlugin from prompts/agents/plan.md
-            permission=[r.model_dump() for r in Permission.merge(
-                default_rules,
-                Permission.from_config({
-                    "question": "allow",
-                    "plan_exit": "allow",
-                    "edit": "deny",
-                    "write": "deny",
-                }),
-            )],
-        ),
-        "general": Agent(
-            name="general",
-            description="General-purpose agent for researching complex questions and executing multi-step tasks.",
-            mode="subagent",
-            native=True,
-            permission=[r.model_dump() for r in Permission.merge(
-                default_rules,
-                Permission.from_config({
-                    "todoread": "deny",
-                    "todowrite": "deny",
-                }),
-            )],
-        ),
-        "explore": Agent(
-            name="explore",
-            description="Fast agent specialized for exploring and gathering information.",
-            mode="subagent",
-            native=True,
-            # Prompt loaded by AgentPromptPlugin from prompts/agents/explore.md
-            permission=[r.model_dump() for r in Permission.merge(
-                default_rules,
-                Permission.from_config({
-                    "*": "deny",
-                    "grep": "allow",
-                    "glob": "allow",
-                    "ls": "allow",
-                    "bash": "allow",
-                    "read": "allow",
-                }),
-            )],
-        ),
-        "title": Agent(
-            name="title",
-            description="Generate conversation titles.",
-            mode="primary",
-            native=True,
-            hidden=True,
-            temperature=0.5,
-            # Simple inline prompt for title generation
-            prompt="Generate a short, descriptive title for this conversation based on the user's request.",
-            permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
-        ),
-        "summary": Agent(
-            name="summary",
-            description="Summarize conversations.",
-            mode="primary",
-            native=True,
-            hidden=True,
-            # Simple inline prompt for summary generation
-            prompt="Summarize the conversation and key findings concisely.",
-            permission=[r.model_dump() for r in Permission.from_config({"*": "deny"})],
-        ),
-    }
+    # 1. 平台员工默认值
+    for agent_id, defaults in _PLATFORM_AGENTS_DEFAULTS.items():
+        agents[agent_id] = _build_platform_agent(agent_id, defaults)
 
-    # Load custom agents from config
-    if _config_getter:
-        config = await _config_getter()
-        for name, agent_config in config.get("agent", {}).items():
-            if agent_config.get("disable"):
-                agents.pop(name, None)
-                continue
+    # 2. 从配置目录覆盖平台员工（可选）
+    workspace = _workspace
+    if workspace:
+        platform_agents_dir = workspace / ".talor" / "agents"
+        if platform_agents_dir.is_dir():
+            for path in sorted(platform_agents_dir.glob("*.jsonc")):
+                agent_id = path.stem
+                agent = _load_agent_from_file(path, AgentKind.PLATFORM)
+                if agent:
+                    if agent_id in agents:
+                        # 合并：覆盖配置文件中明确定义的字段，保留其余默认值
+                        agents[agent_id] = agent
+                        logger.debug(f"平台员工配置已覆盖：{agent_id}")
+                    else:
+                        agents[agent_id] = agent
+                        logger.debug(f"新增平台员工：{agent_id}")
 
-            if name in agents:
-                # Use entity's update_from_config method (DDD pattern)
-                agents[name] = agents[name].update_from_config(agent_config)
-            else:
-                # Parse plugins config if present
-                plugins_dict = None
-                if "plugins" in agent_config:
-                    plugins_dict = {}
-                    for pname, pcfg in agent_config["plugins"].items():
-                        if isinstance(pcfg, dict):
-                            plugins_dict[pname] = AgentPluginConfig(**pcfg)
-                        else:
-                            plugins_dict[pname] = AgentPluginConfig(enabled=bool(pcfg))
-
-                # Parse model config if present
-                model_config = None
-                if "model" in agent_config:
-                    model_cfg = agent_config["model"]
-                    if isinstance(model_cfg, dict):
-                        model_config = ModelConfig(**model_cfg)
-
-                agents[name] = Agent(
-                    name=name,
-                    description=agent_config.get("description"),
-                    mode=agent_config.get("mode", "all"),
-                    native=False,
-                    prompt=agent_config.get("prompt"),
-                    temperature=agent_config.get("temperature"),
-                    top_p=agent_config.get("top_p"),
-                    color=agent_config.get("color"),
-                    hidden=agent_config.get("hidden", False),
-                    steps=agent_config.get("steps"),
-                    model=model_config,
-                    plugins=plugins_dict,
-                    permission=[
-                        r.model_dump() for r in Permission.merge(
-                            default_rules,
-                            Permission.from_config(agent_config.get("permission", {})),
-                        )
-                    ],
-                )
+        # 3. 业务员工
+        employees_dir = workspace / "employees"
+        if employees_dir.is_dir():
+            for path in sorted(employees_dir.glob("*.jsonc")):
+                agent = _load_agent_from_file(path, AgentKind.WORKER)
+                if agent:
+                    agents[agent.id] = agent
+                    logger.debug(f"业务员工已加载：{agent.id}")
 
     _agents_cache = agents
     return agents
 
 
 async def get_agent(name: str) -> Agent | None:
-    """Get an agent by name.
-
-    Args:
-        name: Agent name
-
-    Returns:
-        Agent or None if not found
-    """
+    """通过 id 或 name 获取 agent。"""
     agents = await _load_agents()
-    return agents.get(name)
+    # 优先通过 id 匹配
+    if name in agents:
+        return agents[name]
+    # 回退到 name 匹配
+    for agent in agents.values():
+        if agent.name == name:
+            return agent
+    return None
 
 
-async def list_agents(include_hidden: bool = False) -> list[Agent]:
-    """List all agents.
+async def list_agents(
+    include_hidden: bool = False,
+    kind: AgentKind | None = None,
+) -> list[Agent]:
+    """列出所有 agent。
 
     Args:
-        include_hidden: Include hidden agents
-
-    Returns:
-        List of Agent instances
+        include_hidden: 是否包含隐藏 agent
+        kind: 按类型过滤（platform / worker）
     """
     agents = await _load_agents()
     result = list(agents.values())
@@ -876,138 +747,63 @@ async def list_agents(include_hidden: bool = False) -> list[Agent]:
     if not include_hidden:
         result = [a for a in result if not a.hidden]
 
-    # Sort: default agent first, then by name
-    default_name = "build"
-    if _config_getter:
-        config = await _config_getter()
-        default_name = config.get("default_agent", "build")
+    if kind is not None:
+        result = [a for a in result if a.kind == kind]
 
-    result.sort(key=lambda a: (a.name != default_name, a.name))
-
+    # 排序：主要 agent 优先，再按 id
+    result.sort(key=lambda a: (a.kind != AgentKind.PLATFORM, not a.is_primary, a.id))
     return result
 
 
 async def get_default_agent() -> str:
-    """Get the default agent name.
-
-    Returns:
-        Default agent name
-
-    Raises:
-        ValueError: If no valid default agent found
-    """
-    default_name = "build"
+    """获取默认 agent id。"""
+    default_id = "build"
 
     if _config_getter:
         config = await _config_getter()
-        default_name = config.get("default_agent", "build")
+        default_id = config.get("default_agent", "build")
 
     agents = await _load_agents()
 
-    if default_name in agents:
-        agent = agents[default_name]
-        # Use entity's validation method (DDD pattern)
-        agent.validate_as_default()
-        return default_name
+    if default_id in agents:
+        return default_id
 
-    # Find first primary visible agent
+    # 回退：找第一个主要且可见的 agent
     for agent in agents.values():
         if agent.is_primary and agent.is_visible:
-            return agent.name
+            return agent.id
 
-    raise ValueError("No primary visible agent found")
+    raise ValueError("找不到可用的主要 agent")
 
 
 async def list_agents_for_mode(mode: str) -> list[Agent]:
-    """List agents for a specific mode.
-
-    Args:
-        mode: "primary" or "subagent"
-
-    Returns:
-        List of matching agents
-    """
-    agents = await list_agents(include_hidden=False)
-    return [a for a in agents if a.mode == mode or a.mode == "all"]
+    """按旧版 mode 字段列出 agent（兼容执行器调用）。"""
+    all_agents = await list_agents(include_hidden=False)
+    if mode == "primary":
+        return [a for a in all_agents if a.is_primary]
+    elif mode == "subagent":
+        return [a for a in all_agents if a.is_subagent]
+    return all_agents
 
 
 # =============================================================================
-# Backward-compatible AgentService class
+# AgentService — 供执行器依赖注入使用
 # =============================================================================
 
 class AgentService:
-    """Application service for Agent operations (backward-compatible wrapper).
-
-    This class wraps module-level functions for backward compatibility.
-    New code should use module-level functions directly.
-
-    Manages:
-    - Agent configuration and listing
-    - Default agent selection
-    - Permission rule management
-    """
-
-    def __init__(
-        self,
-        config_service: Any | None = None,
-    ) -> None:
-        """Initialize service.
-
-        Args:
-            config_service: Config service for loading agent settings
-        """
-        # Configure module-level state if config_service provided
-        if config_service is not None:
-            configure(config_getter=config_service.get)
-
-    def clear_cache(self) -> None:
-        """Clear agent cache."""
-        clear_cache()
-
-    async def _load_agents(self) -> dict[str, Agent]:
-        """Load all agents from config and defaults."""
-        return await _load_agents()
+    """Agent 服务（供执行器通过依赖注入使用）。"""
 
     async def get_agent(self, name: str) -> Agent | None:
-        """Get an agent by name.
-
-        Args:
-            name: Agent name
-
-        Returns:
-            Agent or None
-        """
         return await get_agent(name)
 
     async def list_agents(self, include_hidden: bool = False) -> list[Agent]:
-        """List all agents.
-
-        Args:
-            include_hidden: Include hidden agents
-
-        Returns:
-            List of Agent
-        """
-        return await list_agents(include_hidden)
+        return await list_agents(include_hidden=include_hidden)
 
     async def get_default_agent(self) -> str:
-        """Get the default agent name.
-
-        Returns:
-            Default agent name
-
-        Raises:
-            ValueError: If no valid default agent found
-        """
         return await get_default_agent()
 
     async def list_agents_for_mode(self, mode: str) -> list[Agent]:
-        """List agents for a specific mode.
-
-        Args:
-            mode: "primary" or "subagent"
-
-        Returns:
-            List of matching agents
-        """
         return await list_agents_for_mode(mode)
+
+    def clear_cache(self) -> None:
+        clear_cache()

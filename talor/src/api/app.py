@@ -140,8 +140,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # =============================================================================
 
 app = FastAPI(
-    title="Talor API",
-    description="Backend API for Talor AI Agent Framework",
+    title="Talor — AI 数字员工平台",
+    description="AI 数字员工平台，支持构建、定义和运行结构化数字员工 agent。",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -166,10 +166,11 @@ app.include_router(create_events_router(), tags=["events"])
 async def root() -> dict:
     """Root endpoint - API info."""
     return {
-        "name": "Talor API",
+        "name": "Talor AI 数字员工平台",
         "version": "0.1.0",
         "status": "running",
-        "architecture": "react-agent",
+        "architecture": "digital-employee-platform",
+        "capabilities": ["digital-employees", "react-agent", "mcp", "multi-provider"],
     }
 
 

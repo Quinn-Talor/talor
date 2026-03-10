@@ -381,24 +381,13 @@ class AgentExecutor:
             }
             message_dicts.append(msg_dict)
 
-        # Get agent object to retrieve prompt_path and plugin config
+        # 获取 agent 的员工手册路径（manual 字段）
         agent_prompt_path: str | None = None
-        agent_plugins: dict[str, dict] = {}
 
         if self._agent_service:
             agent_obj = await self._agent_service.get_agent(agent_name)
             if agent_obj:
-                # Get prompt path from agent config
-                agent_prompt_path = agent_obj.prompt_path
-
-                # Get agent-level plugin config
-                if agent_obj.plugins:
-                    for name, cfg in agent_obj.plugins.items():
-                        agent_plugins[name] = {
-                            "enabled": cfg.enabled,
-                            "priority": cfg.priority,
-                            "path": cfg.path,
-                        }
+                agent_prompt_path = agent_obj.manual
 
         return PluginContext(
             session_id=session_id,
@@ -411,7 +400,7 @@ class AgentExecutor:
             user_request=user_request,
             agent_prompt=agent_prompt,
             agent_prompt_path=agent_prompt_path,
-            extra={"agent_plugins": agent_plugins},
+            extra={},
         )
 
     # =========================================================================
@@ -1837,7 +1826,7 @@ class AgentLoop:
         self.tool_registry = tool_registry
         self.bus = bus
         self.config = config or LoopConfig()
-        self.system_prompt = system_prompt or agent.prompt
+        self.system_prompt = system_prompt or agent.build_structured_prompt() or None
 
         # State
         self._abort = asyncio.Event()
@@ -1995,7 +1984,6 @@ class AgentLoop:
             messages=self._context.messages,
             tools=tools if tools else None,
             temperature=self.agent.temperature,
-            top_p=self.agent.top_p,
         )
 
         # Parse response
