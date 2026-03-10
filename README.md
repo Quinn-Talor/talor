@@ -1,325 +1,198 @@
-# Talor
+# Talor — AI 数字员工平台
 
-**Your Local AI Agent Assistant**
+> 为每个业务场景定义一名数字员工，让 AI Agent 像人一样有岗位、有职责、有交付标准。
 
-Talor is a local AI assistant that runs entirely on your machine. Built on the ReAct (Reasoning + Acting) architecture, it helps you with coding, file management, automation, and more - all while keeping your data private and local.
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![LiteLLM](https://img.shields.io/badge/LiteLLM-1.30+-purple)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## Why Talor?
+---
 
-- 🏠 **100% Local** - Runs on your machine, your data never leaves
-- 🧠 **Smart ReAct Loop** - Thinks, acts, and learns from results iteratively
-- 🔌 **Bring Your Own LLM** - Works with OpenAI, Anthropic, Claude, local models (Ollama), and more
-- 🛠️ **Powerful Tools** - File operations, bash commands, git integration, and extensible via MCP
-- 💬 **Natural Interaction** - Chat-based interface with real-time feedback
-- 🎯 **Multiple Agents** - Specialized agents for different tasks (coding, planning, exploration)
+## 这是什么
 
-## Use Cases
+Talor 是一个 AI 数字员工平台。你可以用 JSONC 文件定义一名数字员工——赋予她职位名称、能力范围、工作流程和交付标准——平台负责将她的"员工契约"转化为系统提示词，驱动 ReAct 执行引擎完成任务。
 
-- **Coding Assistant** - Write, refactor, and debug code with AI help
-- **File Management** - Search, organize, and manipulate files intelligently
-- **Automation** - Automate repetitive tasks with natural language
-- **Research** - Gather and analyze information from your local files
-- **DevOps Helper** - Manage deployments, logs, and configurations
+**类比**：如果说传统 AI 助手是"全能客服"，Talor 让你雇一名"专职数据分析师"或"代码审查员"，她只做自己岗位上的事，并按照约定的标准交付结果。
 
-## How It Works
+---
+
+## 核心特性
+
+- 🏢 **员工契约模型** — JSONC 定义角色、能力、工作流程、输入规范、交付标准，结构清晰可版本管理
+- ⚡ **ReAct 执行引擎** — Reason-Act 循环，支持多步推理、工具调用、子 Agent 委派
+- 🔌 **多模型支持** — Ollama（本地）/ OpenAI / Anthropic / Google，通过 LiteLLM 统一接入，一行配置切换
+- 🛠️ **内置工具集** — `bash`、`read`、`write`、`edit`、`glob`、`grep`、`ls`，开箱即用
+- 🌐 **MCP 协议** — 支持 Model Context Protocol，可接入任意外部工具服务
+- 🖥️ **桌面 UI** — React 19 + Zustand，实时 SSE 流式对话，支持多会话管理
+
+---
+
+## 架构概览
 
 ```
-You: "Add error handling to auth.py"
-  ↓
-Talor: [Thinks] Need to read the file first
-  ↓
-Talor: [Acts] Reads auth.py
-  ↓
-Talor: [Observes] Found 3 functions without try-catch
-  ↓
-Talor: [Acts] Adds error handling
-  ↓
-Talor: "Done! Added error handling to login(), register(), and verify_token()"
+┌──────────────────────────────────────────────────────────────┐
+│                      Talor 数字员工平台                        │
+│                                                              │
+│  平台员工（内置，代码定义）      业务员工（用户定义，JSONC）      │
+│  ──────────────────────        ────────────────────────────  │
+│  build   通用执行员             employees/xxx.jsonc           │
+│  plan    任务规划员             ├── role（角色定义）            │
+│  explore 探索员（subagent）     ├── capabilities（能力范围）    │
+│  general 研究员（subagent）     ├── workflow（工作流程）        │
+│                                ├── delivery_standard（交付）  │
+│                                └── manual → manuals/*.md     │
+│                                                              │
+│  ┌─────────────┐  HTTP + SSE  ┌───────────────────────────┐ │
+│  │  React GUI  │ ──────────── │  FastAPI + ReAct Executor  │ │
+│  │  (port 5173)│              │  LiteLLM → Ollama / API    │ │
+│  └─────────────┘              └───────────────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Architecture
+**两层加载路径：**
+```
+平台员工  ← agent.py 硬编码默认值  ←（可选）.talor/agents/{id}.jsonc 覆盖
+业务员工  ←  {workspace}/employees/*.jsonc
+```
 
-Talor consists of two components that run locally:
+---
 
-- **Backend** (`talor/`) - Python service handling AI logic, tools, and memory
-- **Desktop Client** (`talor-gui/`) - React-based desktop application for interaction
+## 快速开始
 
-Both run on `localhost` - no external servers involved.
-
-### Deployment Options
-
-- **Desktop App** (Primary) - Standalone desktop application (Electron/Tauri)
-  - Current: Web-based UI (development mode)
-  - Planned: Native desktop packaging
-- **CLI Mode** (Planned) - Terminal-only interface for headless usage
-- **IDE Extension** (Future) - VS Code/JetBrains plugin integration
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- An LLM API key (OpenAI, Anthropic, etc.) or local model (Ollama)
-
-### 1. Install Backend
+**前提条件**：Python 3.11+，Node 20+，[Ollama](https://ollama.com)（或 API Key）
 
 ```bash
-cd talor
+# 1. 安装后端
+git clone https://github.com/your-org/talor.git
+cd talor/talor
+make install-dev
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# 2. 准备模型（选其一）
+ollama pull qwen3:4b                          # 本地模型（推荐体验）
+# 或在 talor/config.json 中配置 API Key
 
-# Install
-pip install -e ".[dev]"
+# 3. 启动后端
+uvicorn src.api.app:app --reload --port 8000
 
-# Configure
-cp config.example.yaml config.yaml
-# Edit config.yaml with your LLM API keys
+# 4. 启动前端（新终端）
+cd ../talor-gui
+npm install && npm run dev                    # http://127.0.0.1:5173
 ```
 
-### 2. Install Desktop Client
+打开 `http://127.0.0.1:5173`，选择会话，开始与 `build`（通用执行员）对话。
+
+---
+
+## 定义你的数字员工
+
+在工作区的 `employees/` 目录下新建 `.jsonc` 文件：
+
+```jsonc
+// employees/my-analyst.jsonc
+{
+  "id": "my-analyst",
+  "name": "我的数据分析师",
+  "role": {
+    "title": "数据分析师",
+    "persona": "擅长数据清洗、统计分析和可视化的专业分析师",
+    "responsibilities": ["理解分析需求", "探索数据质量", "输出分析报告"]
+  },
+  "capabilities": {
+    "domains": ["data_analysis", "statistics", "python"],
+    "proficiency": { "pandas": "expert", "sql": "advanced" },
+    "constraints": ["不执行生产数据库写操作"]
+  },
+  "workflow": {
+    "type": "sequential",
+    "steps": [
+      { "id": "understand", "name": "理解需求", "description": "明确分析目标" },
+      { "id": "analyze",    "name": "执行分析", "description": "运行分析代码" },
+      { "id": "report",     "name": "输出报告", "description": "撰写分析结论" }
+    ]
+  },
+  "dependencies": { "tools": ["read", "write", "bash"] },
+  "delivery_standard": {
+    "success_definition": "提供有数据支撑的可操作洞察，附带 Markdown 报告"
+  },
+  "manual": "manuals/my-analyst.md"   // 可选：追加 SOP / 领域知识
+}
+```
+
+重启后端后，通过 `GET /api/agents?kind=worker` 验证加载成功，即可在 UI 中选择该员工发起对话。
+
+参考模板：[`employees/code-reviewer.jsonc`](employees/code-reviewer.jsonc)、[`employees/data-analyst.jsonc`](employees/data-analyst.jsonc)
+
+---
+
+## 模型配置
+
+编辑 `talor/config.json`：
+
+```jsonc
+{
+  "default_model": "ollama/qwen3:4b",    // provider_id/model_id
+
+  // 切换到 Claude（需 ANTHROPIC_API_KEY 环境变量）
+  // "default_model": "anthropic/claude-sonnet-4-20250514",
+
+  // 切换到 GPT-4o（需 OPENAI_API_KEY 环境变量）
+  // "default_model": "openai/gpt-4o"
+}
+```
+
+支持的 Provider：`ollama` / `openai` / `anthropic` / `google`（通过 LiteLLM 扩展更多）
+
+---
+
+## 开发指南
+
+项目遵循 **TDD**（测试先行）工作流：写失败测试 → 最小实现 → 重构。
 
 ```bash
-cd talor-gui
-npm install
+# 后端（talor/）
+make check         # 全检：format + lint + typecheck + test
+make test          # 仅运行 pytest
+make typecheck     # mypy 类型检查（每次改完必跑）
+
+# 前端（talor-gui/）
+npm run test:run   # Vitest 单次运行
+npm run lint       # ESLint 检查
+
+# 启动服务（用于本地测试）
+# 详见 .claude/launch.json（Claude Code preview 配置）
 ```
 
-### 3. Start Talor
+详细开发规范见：[`CLAUDE.md`](CLAUDE.md) | [`talor/CLAUDE.md`](talor/CLAUDE.md) | [`talor-gui/CLAUDE.md`](talor-gui/CLAUDE.md)
 
-```bash
-# Terminal 1: Start backend
-cd talor
-source venv/bin/activate
-talor serve    # Runs on http://127.0.0.1:8000
+---
 
-# Terminal 2: Start desktop client (development mode)
-cd talor-gui
-npm run dev    # Opens desktop UI at http://localhost:5173
+## 目录结构
+
+```
+talor/              # Python 后端（FastAPI + LiteLLM + SQLite）
+  src/
+    agent/          # 数字员工模型 + ReAct 执行器
+    api/            # HTTP 路由层
+    tool/builtin/   # 内置工具（bash、read、write …）
+    provider/       # LLM Provider 抽象（LiteLLM 封装）
+    skill/          # 技能系统
+    mcp_client/     # MCP 协议客户端
+  tests/            # 测试（镜像 src/ 结构）
+
+talor-gui/          # React 19 桌面前端
+  src/
+    components/     # UI 组件（chat、session、settings …）
+    store/          # Zustand 状态管理
+    api/            # 后端 API 客户端
+    hooks/          # useEvents（SSE）等
+
+employees/          # 数字员工定义（.jsonc）+ 手册（manuals/*.md）
 ```
 
-### 4. Start Chatting!
-
-The desktop client will open automatically and connect to the local backend.
-
-**First-time tips:**
-- Try: "List all Python files in this project"
-- Try: "Explain what the agent/executor.py file does"
-- Try: "Create a hello.py file that prints 'Hello, Talor!'"
-
-## Tech Stack
-
-### Backend
-
-| Category | Technology |
-|----------|------------|
-| Language | Python 3.11+ |
-| Framework | FastAPI + Uvicorn |
-| LLM | LiteLLM |
-| MCP | FastMCP |
-| Validation | Pydantic v2 |
-| Storage | aiosqlite |
-| Testing | pytest, hypothesis |
-
-### Frontend
-
-| Category | Technology |
-|----------|------------|
-| Language | TypeScript |
-| Framework | React 19 |
-| Build | Vite |
-| State | Zustand |
-| Styling | TailwindCSS v4 |
-| i18n | i18next |
-| Testing | Vitest, fast-check |
-
-## Key Features Explained
-
-### ReAct Architecture
-
-Talor doesn't just respond - it thinks and acts:
-1. **Reason** - Analyzes your request and plans next steps
-2. **Act** - Executes tools (read files, run commands, etc.)
-3. **Observe** - Reviews results and adjusts approach
-4. **Repeat** - Continues until task is complete
-
-### Multiple Agents
-
-Choose the right agent for your task:
-- **build** - Full-featured coding agent (default)
-- **plan** - Read-only planner for analysis and design
-- **explore** - Quick file exploration and search
-- **general** - General-purpose research and reasoning
-
-### Memory System
-
-Talor remembers your conversation:
-- Automatically summarizes long conversations
-- Keeps context relevant and within token limits
-- Preserves important information (errors, tool results)
-
-### Tool System
-
-Built-in tools for common tasks:
-- **File Operations** - read, write, edit, search
-- **Shell Commands** - Execute bash/shell commands
-- **Git Integration** - Version control operations
-- **Extensible** - Add custom tools via MCP protocol
-
-## Development Commands
-
-### Backend
-
-```bash
-cd talor
-source venv/bin/activate
-
-# Testing
-pytest tests/ -v
-pytest --cov=talor
-
-# Code quality
-black src/ tests/
-ruff check src/ tests/
-mypy src/
-make check
-```
-
-### Frontend
-
-```bash
-cd talor-gui
-
-# Testing
-npm run test:run
-npm run test:coverage
-
-# Code quality
-npm run format
-npm run lint:fix
-```
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/session` | List sessions |
-| POST | `/api/session` | Create new session |
-| GET | `/api/session/{id}` | Get session details |
-| DELETE | `/api/session/{id}` | Delete session |
-| POST | `/api/session/prompt` | Send message to Agent |
-| GET | `/event?session_id={id}` | SSE event stream |
-| GET | `/api/agent` | List agents |
-| GET | `/api/provider` | List LLM providers |
-| GET | `/api/config` | Get configuration |
-| PUT | `/api/config` | Update configuration |
-
-## Configuration
-
-Edit `talor/config.yaml` to customize:
-
-```yaml
-# LLM Providers
-providers:
-  - name: openai
-    api_key: sk-...
-    models: [gpt-4o, gpt-4o-mini]
-
-  - name: anthropic
-    api_key: sk-ant-...
-    models: [claude-3-5-sonnet-20241022]
-
-  - name: ollama
-    base_url: http://localhost:11434
-    models: [llama3.1, qwen2.5-coder]
-
-# Default Agent
-default_agent: build
-default_model: openai/gpt-4o
-
-# Storage
-storage:
-  path: ~/.talor/data.db
-```
-
-## Privacy & Security
-
-### What Stays Local
-
-✅ All your files and data
-✅ Conversation history
-✅ Tool execution results
-✅ Configuration and settings
-
-### What Goes to LLM Providers
-
-⚠️ Your messages and file contents you explicitly share
-⚠️ Tool execution results (as context for the AI)
-
-**Using local models?** With Ollama or similar, everything stays 100% on your machine.
-
-### Security Notes
-
-- Talor has full access to your file system (by design)
-- Only run Talor in directories you trust
-- Review tool executions in the UI before confirming (if using supervised mode)
-- Don't expose the backend port (8000) to the internet
-
-## Roadmap
-
-### Near Term
-- [ ] Native desktop app packaging (Electron/Tauri)
-- [ ] System tray integration
-- [ ] Global keyboard shortcuts
-- [ ] More built-in tools (Docker, Kubernetes, database)
-- [ ] Improved memory management
-
-### Mid Term
-- [ ] CLI mode (terminal-only interface)
-- [ ] IDE extensions (VS Code, JetBrains)
-- [ ] Agent collaboration (multiple agents working together)
-- [ ] Workflow automation (scheduled tasks)
-- [ ] Auto-update mechanism
-
-### Long Term
-- [ ] Voice input/output
-- [ ] Visual UI for workflow building
-- [ ] Plugin marketplace
-- [ ] Cross-device sync (optional)
-- [ ] Team collaboration features
-
-## FAQ
-
-**Q: Do I need an internet connection?**
-A: Only if using cloud LLM providers (OpenAI, Anthropic). With Ollama, you can run 100% offline.
-
-**Q: Can I use this for work projects?**
-A: Yes! Talor is designed for developers. Just be mindful of what data you share with cloud LLMs.
-
-**Q: How is this different from ChatGPT/Claude?**
-A: Talor can execute tools on your machine (read/write files, run commands), has memory across sessions, and is fully customizable.
-
-**Q: Can I add custom tools?**
-A: Yes! Use the MCP (Model Context Protocol) to add custom tools without modifying Talor's code.
-
-**Q: Is this production-ready?**
-A: Talor is in active development. It's stable for personal use but expect breaking changes.
+---
 
 ## License
 
-Apache 2.0 with Commons Clause - see [LICENSE](LICENSE)
-
-**TL;DR:**
-- ✅ Free for personal and internal use
-- ✅ Modify and distribute freely
-- ✅ Use in your own products
-- ❌ Can't sell Talor as a hosted service without permission
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Support
-
-For issues and questions, please open an issue on GitHub.
+MIT © 2024 Talor
