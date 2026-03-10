@@ -1,7 +1,7 @@
 {
   "$schema": "https://talor.dev/schemas/config-1.0.0.json",
   "default_agent": "build",
-  "default_model": "ollama/deepseek-v3.1:671b-cloud",
+  "default_model": "ollama/qwen3:4b",
 
   "agent": {
     "code-review": {

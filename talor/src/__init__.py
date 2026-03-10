@@ -177,7 +177,7 @@ async def initialize(
     )
 
     # 5. Configure agent module
-    agent.configure(config_getter=config_getter)
+    agent.configure(config_getter=config_getter, workspace=workspace)
 
 
 def shutdown() -> None:

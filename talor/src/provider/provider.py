@@ -11,7 +11,6 @@ Provides:
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
@@ -66,6 +65,7 @@ class ModelCapabilities(BaseModel):
     function_calling: bool = True
     json_mode: bool = False
     streaming: bool = True
+    reasoning: bool = False  # Extended thinking / reasoning mode support
 
     def supports(self, capability: str) -> bool:
         """Check if a capability is supported."""
@@ -442,6 +442,23 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
                 "capabilities": {"vision": True, "function_calling": True},
                 "cost": {"input": 0.15, "output": 0.6},
             },
+            # o-series: reasoning models, support function calling
+            {
+                "id": "o3",
+                "name": "o3",
+                "context_length": 200000,
+                "max_output_tokens": 100000,
+                "capabilities": {"vision": True, "function_calling": True, "reasoning": True},
+                "cost": {"input": 2.0, "output": 8.0},
+            },
+            {
+                "id": "o4-mini",
+                "name": "o4-mini",
+                "context_length": 200000,
+                "max_output_tokens": 100000,
+                "capabilities": {"vision": True, "function_calling": True, "reasoning": True},
+                "cost": {"input": 1.1, "output": 4.4},
+            },
         ],
     },
     "anthropic": {
@@ -454,8 +471,24 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
                 "name": "Claude Sonnet 4",
                 "context_length": 200000,
                 "max_output_tokens": 16384,
-                "capabilities": {"vision": True, "function_calling": True},
+                "capabilities": {
+                    "vision": True,
+                    "function_calling": True,
+                    "reasoning": True,  # extended thinking supported
+                },
                 "cost": {"input": 3.0, "output": 15.0},
+            },
+            {
+                "id": "claude-opus-4-5",
+                "name": "Claude Opus 4.5",
+                "context_length": 200000,
+                "max_output_tokens": 32000,
+                "capabilities": {
+                    "vision": True,
+                    "function_calling": True,
+                    "reasoning": True,
+                },
+                "cost": {"input": 15.0, "output": 75.0},
             },
             {
                 "id": "claude-3-5-haiku-20241022",
@@ -476,8 +509,24 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
                 "name": "Gemini 2.5 Pro",
                 "context_length": 1000000,
                 "max_output_tokens": 65536,
-                "capabilities": {"vision": True, "function_calling": True},
+                "capabilities": {
+                    "vision": True,
+                    "function_calling": True,
+                    "reasoning": True,  # thinking_config supported
+                },
                 "cost": {"input": 1.25, "output": 10.0},
+            },
+            {
+                "id": "gemini-2.5-flash",
+                "name": "Gemini 2.5 Flash",
+                "context_length": 1000000,
+                "max_output_tokens": 65536,
+                "capabilities": {
+                    "vision": True,
+                    "function_calling": True,
+                    "reasoning": True,
+                },
+                "cost": {"input": 0.15, "output": 0.6},
             },
         ],
     },
@@ -488,8 +537,47 @@ DEFAULT_PROVIDERS_CONFIG: dict[str, dict] = {
 # Internal Functions (Provider Discovery & Loading)
 # =============================================================================
 
+def _get_litellm_model_info(provider_id: str, model_id: str) -> dict:
+    """Query LiteLLM's built-in model database for capabilities and cost.
+
+    LiteLLM maintains a comprehensive model_cost dict with fields like:
+    - supports_function_calling, supports_vision, supports_reasoning
+    - max_input_tokens, max_output_tokens
+    - input_cost_per_token, output_cost_per_token
+
+    Args:
+        provider_id: Provider ID (e.g. "anthropic", "openai")
+        model_id: Model ID (e.g. "claude-sonnet-4-20250514")
+
+    Returns:
+        LiteLLM model info dict, or empty dict if not found
+    """
+    import litellm
+
+    cost_map = litellm.model_cost
+
+    # Try various key formats LiteLLM uses
+    candidates = [
+        model_id,
+        f"{provider_id}/{model_id}",
+        f"{provider_id}.{model_id}",
+    ]
+    for key in candidates:
+        info = cost_map.get(key)
+        if info:
+            return info
+
+    return {}
+
+
 def _parse_model_config(provider_id: str, model_config: dict) -> Model:
     """Parse a model configuration dict into a Model entity.
+
+    Capabilities and cost are auto-populated from LiteLLM's model database.
+    Values in model_config act as explicit overrides (highest priority).
+
+    Priority for each field:
+        config value  >  LiteLLM database  >  default
 
     Args:
         provider_id: Provider ID
@@ -498,26 +586,49 @@ def _parse_model_config(provider_id: str, model_config: dict) -> Model:
     Returns:
         Model entity
     """
+    model_id = model_config["id"]
+    litellm_info = _get_litellm_model_info(provider_id, model_id)
+
     capabilities_config = model_config.get("capabilities", {})
     cost_config = model_config.get("cost", {})
 
+    # --- capabilities: config > litellm > default ---
+    def cap(key: str, litellm_key: str, default: bool) -> bool:
+        if key in capabilities_config:
+            return bool(capabilities_config[key])
+        return bool(litellm_info.get(litellm_key, default))
+
+    # --- numeric fields: config > litellm > default ---
+    def num(config_key: str, litellm_key: str, default: float) -> float:
+        if config_key in model_config:
+            return float(model_config[config_key])
+        return float(litellm_info.get(litellm_key, default))
+
+    def cost_field(config_key: str, litellm_key: str) -> float:
+        if config_key in cost_config:
+            return float(cost_config[config_key])
+        raw = litellm_info.get(litellm_key, 0.0)
+        # LiteLLM stores cost per token; convert to per 1M tokens
+        return float(raw) * 1_000_000
+
     return Model(
-        id=model_config["id"],
-        name=model_config.get("name", model_config["id"]),
+        id=model_id,
+        name=model_config.get("name", model_id),
         provider_id=provider_id,
-        context_length=model_config.get("context_length", 128000),
-        max_output_tokens=model_config.get("max_output_tokens", 4096),
+        context_length=int(num("context_length", "max_input_tokens", 128000)),
+        max_output_tokens=int(num("max_output_tokens", "max_output_tokens", 4096)),
         capabilities=ModelCapabilities(
-            vision=capabilities_config.get("vision", False),
-            function_calling=capabilities_config.get("function_calling", True),
-            json_mode=capabilities_config.get("json_mode", False),
-            streaming=capabilities_config.get("streaming", True),
+            vision=cap("vision", "supports_vision", False),
+            function_calling=cap("function_calling", "supports_function_calling", True),
+            json_mode=cap("json_mode", "supports_response_schema", False),
+            streaming=cap("streaming", "supports_streaming", True),
+            reasoning=cap("reasoning", "supports_reasoning", False),
         ),
         cost=ModelCost(
-            input=cost_config.get("input", 0.0),
-            output=cost_config.get("output", 0.0),
-            cache_read=cost_config.get("cache_read", 0.0),
-            cache_write=cost_config.get("cache_write", 0.0),
+            input=cost_field("input", "input_cost_per_token"),
+            output=cost_field("output", "output_cost_per_token"),
+            cache_read=cost_field("cache_read", "cache_read_input_token_cost"),
+            cache_write=cost_field("cache_write", "cache_creation_input_token_cost"),
         ),
     )
 
@@ -545,6 +656,58 @@ def _parse_provider_config(provider_id: str, provider_config: dict) -> Provider:
         auto_discover=provider_config.get("auto_discover", False),
         models=models,
     )
+
+
+async def _discover_openai_compatible_models(
+    provider_id: str,
+    base_url: str,
+    api_key: str | None = None,
+) -> list[Model]:
+    """Discover models via OpenAI-compatible GET /v1/models endpoint.
+
+    Works with any provider that implements the OpenAI models API:
+    DeepSeek, OpenRouter, Together AI, local servers, etc.
+
+    Capabilities are auto-filled from LiteLLM's model database using
+    _parse_model_config, so known models get accurate capability info.
+
+    Args:
+        provider_id: Provider ID (used for model.provider_id and LiteLLM lookup)
+        base_url: Provider base URL (should end with /v1)
+        api_key: Optional API key for Authorization header
+
+    Returns:
+        List of discovered Model entities, empty list on any error
+    """
+    models: list[Model] = []
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{base_url}/models", headers=headers)
+            if response.status_code != 200:
+                logger.warning(
+                    f"GET {base_url}/models returned {response.status_code} for provider '{provider_id}'"
+                )
+                return []
+
+            data = response.json()
+            for item in data.get("data", []):
+                model_id = item.get("id", "")
+                if not model_id:
+                    continue
+                # Reuse _parse_model_config so LiteLLM fills capabilities/cost
+                model = _parse_model_config(provider_id, {"id": model_id})
+                models.append(model)
+
+            logger.info(f"Discovered {len(models)} models from {base_url}/models ({provider_id})")
+
+    except Exception as e:
+        logger.warning(f"Failed to discover models from {base_url}/models: {e}")
+
+    return models
 
 
 async def _discover_ollama_models(
@@ -656,11 +819,20 @@ async def _load_providers() -> dict[str, Provider]:
     for provider_id, provider_config in providers_config.items():
         provider = _parse_provider_config(provider_id, provider_config)
 
-        # Auto-discover models for providers that support it (e.g., Ollama)
+        # Auto-discover models for providers that support it
         if provider_config.get("auto_discover", False):
             base_url = provider.base_url or "http://localhost:11434/v1"
             api_base_url = base_url.replace("/v1", "")
-            discovered_models = await _discover_ollama_models(provider_id, api_base_url)
+            api_key = provider.get_api_key()
+
+            if provider_id == "ollama":
+                # Ollama uses /api/tags which returns richer metadata
+                discovered_models = await _discover_ollama_models(provider_id, api_base_url)
+            else:
+                # Generic OpenAI-compatible /v1/models endpoint
+                discovered_models = await _discover_openai_compatible_models(
+                    provider_id, base_url, api_key
+                )
 
             if discovered_models:
                 # Merge: discovered models + configured models (configured takes precedence)
@@ -773,28 +945,202 @@ def parse_model(model_str: str) -> dict[str, str]:
 
 
 # =============================================================================
-# LLM Completion Functions
+# LLM Completion Functions (unified via LiteLLM)
 # =============================================================================
+
+def _build_litellm_model_str(provider_id: str, model_id: str, base_url: str | None) -> str:
+    """Build the model string LiteLLM expects.
+
+    LiteLLM routing:
+    - openai/gpt-4o          → OpenAI
+    - anthropic/claude-*     → Anthropic
+    - ollama/llama3          → Ollama (needs api_base)
+    - ollama_chat/llama3     → Ollama chat endpoint
+    - gemini/gemini-2.5-pro  → Google AI
+    - azure/gpt-4            → Azure OpenAI
+    """
+    if provider_id == "ollama":
+        return f"ollama_chat/{model_id}"
+    return f"{provider_id}/{model_id}"
+
+
+_VALID_REASONING_EFFORTS = {"low", "medium", "high"}
+_OPENAI_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4")
+
+
+def _build_reasoning_params(
+    provider_id: str,
+    model_id: str,
+    reasoning: bool = False,
+    thinking_budget: int | None = None,
+    reasoning_effort: str | None = None,
+) -> dict[str, Any]:
+    """Build provider-specific reasoning/thinking parameters.
+
+    Two independent concepts:
+    - reasoning (bool): Enable extended thinking / reasoning mode.
+      Produces a separate reasoning chain alongside the response.
+      Supported by Anthropic (thinking blocks) and Google (thinking_config).
+    - reasoning_effort (str): "low" | "medium" | "high" — controls how much
+      compute the model spends on reasoning. Used by OpenAI o-series models.
+
+    Args:
+        provider_id: Provider ID
+        model_id: Model ID
+        reasoning: Enable extended thinking (Anthropic / Google)
+        thinking_budget: Max tokens for the thinking chain (default 8000)
+        reasoning_effort: Effort level for OpenAI o-series ("low"/"medium"/"high")
+
+    Returns:
+        Extra kwargs to pass to litellm.acompletion
+
+    Raises:
+        ValueError: If reasoning_effort is not a valid value
+    """
+    if reasoning_effort is not None and reasoning_effort not in _VALID_REASONING_EFFORTS:
+        raise ValueError(
+            f"reasoning_effort must be one of {_VALID_REASONING_EFFORTS}, got '{reasoning_effort}'"
+        )
+
+    if not reasoning and reasoning_effort is None:
+        return {}
+
+    budget = thinking_budget or 8000
+
+    if provider_id == "anthropic":
+        # Claude extended thinking — reasoning_effort not applicable
+        if not reasoning:
+            return {}
+        return {"thinking": {"type": "enabled", "budget_tokens": budget}}
+
+    if provider_id == "openai":
+        # o1/o3/o4 series support reasoning_effort
+        is_reasoning_model = any(model_id.startswith(p) for p in _OPENAI_REASONING_MODEL_PREFIXES)
+        if not is_reasoning_model:
+            return {}
+        effort = reasoning_effort or "medium"
+        return {"reasoning_effort": effort}
+
+    if provider_id == "google":
+        # Gemini 2.5+ extended thinking via thinking_config
+        if not reasoning:
+            return {}
+        return {"thinking_config": {"thinking_budget": budget}}
+
+    # Ollama and others: no reasoning support
+    return {}
+
+
+def _normalize_chunk(chunk: Any) -> dict[str, Any]:
+    """Normalize a LiteLLM streaming chunk to internal format.
+
+    Internal format:
+        {
+            "content": str,           # text delta (may be empty)
+            "reasoning": str | None,  # reasoning/thinking delta
+            "tool_calls": list | None,
+            "finish_reason": str | None,
+        }
+    """
+    result: dict[str, Any] = {
+        "content": "",
+        "reasoning": None,
+        "tool_calls": None,
+        "finish_reason": None,
+    }
+
+    if not chunk.choices:
+        return result
+
+    choice = chunk.choices[0]
+    delta = getattr(choice, "delta", None)
+
+    if delta:
+        result["content"] = delta.content or ""
+
+        # Reasoning / thinking content (Anthropic extended thinking)
+        thinking = getattr(delta, "thinking", None)
+        if thinking:
+            result["reasoning"] = thinking
+
+        # Tool calls
+        if getattr(delta, "tool_calls", None):
+            result["tool_calls"] = [
+                tc.model_dump() if hasattr(tc, "model_dump") else tc
+                for tc in delta.tool_calls
+            ]
+
+    result["finish_reason"] = getattr(choice, "finish_reason", None)
+    return result
+
+
+def _normalize_response(response: Any) -> dict[str, Any]:
+    """Normalize a LiteLLM non-streaming response to internal format."""
+    choice = response.choices[0]
+    message = choice.message
+
+    content = message.content or ""
+    tool_calls = None
+    reasoning = None
+
+    # Reasoning content (Anthropic thinking blocks come as separate content blocks)
+    thinking = getattr(message, "thinking", None)
+    if thinking:
+        reasoning = thinking
+
+    if getattr(message, "tool_calls", None):
+        tool_calls = [
+            tc.model_dump() if hasattr(tc, "model_dump") else tc
+            for tc in message.tool_calls
+        ]
+
+    usage = getattr(response, "usage", None)
+    return {
+        "content": content,
+        "reasoning": reasoning,
+        "tool_calls": tool_calls,
+        "finish_reason": choice.finish_reason,
+        "model": getattr(response, "model", ""),
+        "usage": {
+            "input": getattr(usage, "prompt_tokens", 0) if usage else 0,
+            "output": getattr(usage, "completion_tokens", 0) if usage else 0,
+        },
+    }
+
 
 async def complete(
     model: str,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
     stream: bool = False,
+    reasoning: bool = False,
+    thinking_budget: int | None = None,
+    reasoning_effort: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
-    """Complete a chat request.
+    """Complete a chat request via LiteLLM.
+
+    Supports all providers (OpenAI, Anthropic, Ollama, Google, Azure, etc.)
+    through a unified interface.
 
     Args:
-        model: Model ID or "provider/model"
-        messages: Chat messages
-        tools: Optional tool definitions
+        model: Model string "provider/model" (e.g. "anthropic/claude-sonnet-4-20250514")
+        messages: Chat messages in OpenAI format
+        tools: Optional tool definitions in OpenAI format
         stream: Whether to stream response
-        **kwargs: Additional parameters
+        reasoning: Enable extended thinking mode (Anthropic / Google).
+            Produces a separate reasoning chain in the response.
+        thinking_budget: Max tokens for the thinking chain (default 8000).
+            Used by Anthropic and Google when reasoning=True.
+        reasoning_effort: Effort level for OpenAI o-series: "low"/"medium"/"high".
+            Independent of reasoning flag — applies to o1/o3/o4 models.
+        **kwargs: Additional litellm parameters
 
     Returns:
-        Response dict or async iterator of chunks
+        Normalized response dict or async iterator of normalized chunks
     """
+    import litellm
+
     model_info = parse_model(model)
     provider_id = model_info["provider_id"]
     model_id = model_info["model_id"]
@@ -803,204 +1149,76 @@ async def complete(
     if not provider:
         raise ValueError(f"Provider not found: {provider_id}")
 
+    # Resolve API key
     api_key = None
     if provider.api_key_env:
         api_key = os.environ.get(provider.api_key_env)
+        if not api_key:
+            raise ValueError(
+                f"API key not found for provider '{provider_id}'. "
+                f"Set environment variable: {provider.api_key_env}"
+            )
 
-    if provider.api_key_env and not api_key:
-        raise ValueError(f"API key not found for provider: {provider_id}")
+    litellm_model = _build_litellm_model_str(provider_id, model_id, provider.base_url)
 
-    if not api_key:
-        api_key = "ollama"
-
-    if provider_id == "openai":
-        return await _complete_openai(
-            api_key=api_key,
-            base_url=provider.base_url,
-            model=model_id,
-            messages=messages,
-            tools=tools,
-            stream=stream,
-            **kwargs,
-        )
-    elif provider_id == "anthropic":
-        return await _complete_anthropic(
-            api_key=api_key,
-            model=model_id,
-            messages=messages,
-            tools=tools,
-            stream=stream,
-            **kwargs,
-        )
+    # Determine if this model supports function calling.
+    # Priority (highest → lowest):
+    #   1. config function_calling=False  → always suppress (explicit opt-out)
+    #   2. config function_calling=True   → always allow  (explicit opt-in)
+    #   3. litellm.supports_function_calling → authoritative for known models
+    #   4. default True                   → permissive for unknown/new models
+    model_obj = provider.get_model(model_id)
+    if model_obj is not None:
+        # Config has an explicit opinion — trust it
+        supports_tools = model_obj.capabilities.function_calling
     else:
-        return await _complete_openai(
-            api_key=api_key,
-            base_url=provider.base_url,
-            model=model_id,
-            messages=messages,
-            tools=tools,
-            stream=stream,
-            **kwargs,
-        )
-
-
-async def _complete_openai(
-    api_key: str,
-    base_url: str | None,
-    model: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None = None,
-    stream: bool = False,
-    **kwargs: Any,
-) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
-    """Complete using OpenAI API."""
-    try:
-        from openai import AsyncOpenAI
-    except ImportError:
-        raise ImportError("openai package required: pip install openai")
-
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        # No config entry: ask LiteLLM, fall back to True if it raises
+        try:
+            supports_tools = litellm.supports_function_calling(model=litellm_model)
+        except Exception:
+            supports_tools = True
 
     params: dict[str, Any] = {
-        "model": model,
+        "model": litellm_model,
         "messages": messages,
+        "stream": stream,
     }
 
-    if tools:
+    if tools and supports_tools:
         params["tools"] = tools
+    elif tools and not supports_tools:
+        logger.debug(
+            f"Model '{model_id}' does not support function calling — tools suppressed"
+        )
+
+    if api_key:
+        params["api_key"] = api_key
+
+    if provider.base_url:
+        # ollama_chat/ uses native Ollama API (/api/chat), not OpenAI-compatible /v1
+        if provider_id == "ollama":
+            params["api_base"] = provider.get_api_base_url()
+        else:
+            params["api_base"] = provider.base_url
+
+    # Reasoning / thinking mode
+    reasoning_params = _build_reasoning_params(
+        provider_id, model_id, reasoning, thinking_budget, reasoning_effort
+    )
+    params.update(reasoning_params)
 
     params.update(kwargs)
 
     if stream:
         async def stream_response() -> AsyncIterator[dict[str, Any]]:
-            response = await client.chat.completions.create(**params, stream=True)
+            response = await litellm.acompletion(**params)
             async for chunk in response:
-                delta = chunk.choices[0].delta if chunk.choices else None
-                if delta:
-                    yield {
-                        "content": delta.content or "",
-                        "tool_calls": (
-                            [tc.model_dump() for tc in delta.tool_calls]
-                            if delta.tool_calls
-                            else None
-                        ),
-                        "finish_reason": (
-                            chunk.choices[0].finish_reason if chunk.choices else None
-                        ),
-                        "model": chunk.model,
-                    }
+                yield _normalize_chunk(chunk)
+
         return stream_response()
     else:
-        response = await client.chat.completions.create(**params)
-        choice = response.choices[0]
-        return {
-            "content": choice.message.content or "",
-            "tool_calls": (
-                [tc.model_dump() for tc in choice.message.tool_calls]
-                if choice.message.tool_calls
-                else None
-            ),
-            "finish_reason": choice.finish_reason,
-            "model": response.model,
-            "usage": {
-                "input": response.usage.prompt_tokens if response.usage else 0,
-                "output": response.usage.completion_tokens if response.usage else 0,
-            },
-        }
-
-
-async def _complete_anthropic(
-    api_key: str,
-    model: str,
-    messages: list[dict[str, Any]],
-    tools: list[dict[str, Any]] | None = None,
-    stream: bool = False,
-    **kwargs: Any,
-) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
-    """Complete using Anthropic API."""
-    try:
-        from anthropic import AsyncAnthropic
-    except ImportError:
-        raise ImportError("anthropic package required: pip install anthropic")
-
-    client = AsyncAnthropic(api_key=api_key)
-
-    system_message = None
-    anthropic_messages = []
-
-    for msg in messages:
-        if msg["role"] == "system":
-            system_message = msg["content"]
-        else:
-            anthropic_messages.append({
-                "role": msg["role"],
-                "content": msg["content"],
-            })
-
-    params: dict[str, Any] = {
-        "model": model,
-        "messages": anthropic_messages,
-        "max_tokens": kwargs.get("max_tokens", 4096),
-    }
-
-    if system_message:
-        params["system"] = system_message
-
-    if tools:
-        anthropic_tools = []
-        for tool in tools:
-            if tool["type"] == "function":
-                anthropic_tools.append({
-                    "name": tool["function"]["name"],
-                    "description": tool["function"]["description"],
-                    "input_schema": tool["function"]["parameters"],
-                })
-        params["tools"] = anthropic_tools
-
-    if stream:
-        async def stream_response() -> AsyncIterator[dict[str, Any]]:
-            async with client.messages.stream(**params) as response:
-                async for event in response:
-                    if hasattr(event, "delta") and hasattr(event.delta, "text"):
-                        yield {
-                            "content": event.delta.text,
-                            "finish_reason": None,
-                        }
-                    elif hasattr(event, "message"):
-                        yield {
-                            "content": "",
-                            "finish_reason": event.message.stop_reason,
-                        }
-        return stream_response()
-    else:
-        response = await client.messages.create(**params)
-
-        content = ""
-        tool_calls = []
-
-        for block in response.content:
-            if block.type == "text":
-                content += block.text
-            elif block.type == "tool_use":
-                tool_calls.append({
-                    "id": block.id,
-                    "type": "function",
-                    "function": {
-                        "name": block.name,
-                        "arguments": json.dumps(block.input),
-                    },
-                })
-
-        return {
-            "content": content,
-            "tool_calls": tool_calls if tool_calls else None,
-            "finish_reason": response.stop_reason,
-            "model": response.model,
-            "usage": {
-                "input": response.usage.input_tokens,
-                "output": response.usage.output_tokens,
-            },
-        }
+        response = await litellm.acompletion(**params)
+        return _normalize_response(response)
 
 
 # =============================================================================
@@ -1066,10 +1284,17 @@ class ProviderService:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = False,
+        reasoning: bool = False,
+        thinking_budget: int | None = None,
+        reasoning_effort: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
         """Complete a chat request."""
-        return await complete(model, messages, tools, stream, **kwargs)
+        return await complete(
+            model, messages, tools, stream,
+            reasoning, thinking_budget, reasoning_effort,
+            **kwargs,
+        )
 
 
 
