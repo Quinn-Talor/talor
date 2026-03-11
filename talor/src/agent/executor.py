@@ -294,6 +294,7 @@ class AgentExecutor:
         self._active: dict[str, ActiveExecution] = {}
         self._status: dict[str, ExecutionStatus] = {}
         self._skill_registry: Any | None = None  # Set after plugin setup
+        self._memory_lock = asyncio.Lock()  # Protects memory sync during parallel tool execution
 
     # =========================================================================
     # Plugin Management
@@ -327,7 +328,7 @@ class AgentExecutor:
         await self._plugin_manager.register(SystemPromptPlugin())
         await self._plugin_manager.register(AgentPromptPlugin())
         await self._plugin_manager.register(EnvironmentPlugin())
-        await self._plugin_manager.register(MemoryPlugin())
+        await self._plugin_manager.register(MemoryPlugin(provider_service=self._provider_service))
         await self._plugin_manager.register(LLMPlugin())
 
         # Tool plugin with registry
@@ -981,6 +982,8 @@ class AgentExecutor:
     ) -> None:
         """Sync a message to short-term memory.
 
+        Uses a lock to ensure correct ordering when tools execute in parallel.
+
         Args:
             session_id: Session ID
             role: Message role (user, assistant, tool)
@@ -988,25 +991,26 @@ class AgentExecutor:
             tool_calls: Tool calls (for assistant messages)
             tool_call_id: Tool call ID (for tool result messages)
         """
-        try:
-            session = await self._session_service.get_session(session_id)
-            if not session:
-                return
+        async with self._memory_lock:
+            try:
+                session = await self._session_service.get_session(session_id)
+                if not session:
+                    return
 
-            message = {"role": role}
-            if content:
-                message["content"] = content
-            if tool_calls:
-                message["tool_calls"] = tool_calls
-            if tool_call_id:
-                message["tool_call_id"] = tool_call_id
+                message = {"role": role}
+                if content:
+                    message["content"] = content
+                if tool_calls:
+                    message["tool_calls"] = tool_calls
+                if tool_call_id:
+                    message["tool_call_id"] = tool_call_id
 
-            session.memory.add_message(message)
+                session.memory.add_message(message)
 
-            logger.debug(f"Synced {role} message to memory for session {session_id}")
+                logger.debug(f"Synced {role} message to memory for session {session_id}")
 
-        except Exception as e:
-            logger.warning(f"Failed to sync to memory: {e}")
+            except Exception as e:
+                logger.warning(f"Failed to sync to memory: {e}")
 
     # =========================================================================
     # Step Processing (Non-Streaming)
@@ -1104,15 +1108,18 @@ class AgentExecutor:
                 tool_calls=tool_calls,
             )
 
-            # Handle tool calls
+            # Handle tool calls — execute in parallel for independent tools
             if tool_calls:
-                for tc in tool_calls:
-                    await self._handle_tool_call(
+                tasks = [
+                    self._handle_tool_call(
                         session_id=session_id,
                         message_id=assistant_msg.id,
                         tool_call=tc,
                         abort=abort,
                     )
+                    for tc in tool_calls
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
                 finish_reason = "tool-calls"
 
             # Update message with finish reason
@@ -1264,24 +1271,42 @@ class AgentExecutor:
                 )
                 await self._session_service.add_part(session_id, assistant_msg.id, text_part)
 
-            # Handle tool calls
+            # Handle tool calls — execute in parallel, collect events, yield in order
             if tool_calls:
                 finish_reason = "tool-calls"
+
+                # Notify frontend of all tool calls first
                 for tc in tool_calls:
                     yield SSEEvent(event="tool_call", data={
                         "message_id": assistant_msg.id,
                         "tool_call": tc,
                     })
-
                     await self._publish_stream_tool_call(session_id, assistant_msg.id, tc)
 
-                    async for tool_event in self._handle_tool_call_stream(
+                # Execute all tool calls in parallel, collecting events
+                async def _collect_tool_events(tc: dict[str, Any]) -> list[SSEEvent]:
+                    events: list[SSEEvent] = []
+                    async for event in self._handle_tool_call_stream(
                         session_id=session_id,
                         message_id=assistant_msg.id,
                         tool_call=tc,
                         abort=abort,
                     ):
-                        yield tool_event
+                        events.append(event)
+                    return events
+
+                results = await asyncio.gather(
+                    *[_collect_tool_events(tc) for tc in tool_calls],
+                    return_exceptions=True,
+                )
+
+                # Yield events in order (one tool at a time)
+                for result in results:
+                    if isinstance(result, list):
+                        for event in result:
+                            yield event
+                    elif isinstance(result, Exception):
+                        logger.error(f"Parallel tool execution error: {result}")
 
             # Update message with finish reason
             await self._session_service.update_message(
@@ -1400,7 +1425,13 @@ class AgentExecutor:
             agent="build",
             abort=abort,
             call_id=call_id,
-            extra={"skill_registry": self._skill_registry} if self._skill_registry else {},
+            extra={
+                **({"skill_registry": self._skill_registry} if self._skill_registry else {}),
+                "executor": self,
+                "agent_service": self._agent_service,
+                "session_service": self._session_service,
+                "tool_registry": self._tool_registry,
+            },
             _bus=get_global_bus(),
             _workspace=self._workspace,
             _worktree=self._worktree,
@@ -1513,7 +1544,13 @@ class AgentExecutor:
             agent="build",
             abort=abort,
             call_id=call_id,
-            extra={"skill_registry": self._skill_registry} if self._skill_registry else {},
+            extra={
+                **({"skill_registry": self._skill_registry} if self._skill_registry else {}),
+                "executor": self,
+                "agent_service": self._agent_service,
+                "session_service": self._session_service,
+                "tool_registry": self._tool_registry,
+            },
             _bus=get_global_bus(),
             _workspace=self._workspace,
             _worktree=self._worktree,

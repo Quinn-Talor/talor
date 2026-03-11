@@ -32,21 +32,27 @@ class MemoryPlugin(PromptPlugin):
     This plugin:
     1. Gets the singleton ShortTermMemory for the session
     2. Configures it with model-specific token limits
-    3. Retrieves messages (with auto-summarization at 80% threshold)
-    4. Passes messages to the prompt builder via metadata
+    3. Injects LLM summarizer for high-quality auto-summarization
+    4. Retrieves messages (with auto-summarization at 80% threshold)
+    5. Passes messages to the prompt builder via metadata
 
     The actual LLM message formatting is done by the prompt builder,
     not by this plugin.
     """
 
-    def __init__(self) -> None:
-        """Initialize the memory plugin."""
+    def __init__(self, provider_service: Any = None) -> None:
+        """Initialize the memory plugin.
+
+        Args:
+            provider_service: Optional ProviderService for LLM-based summarization
+        """
         super().__init__(
             name="memory",
             priority=PluginPriority.MEMORY,
             enabled=True,
             required=True,
         )
+        self._provider_service = provider_service
 
     async def build(self, context: PluginContext) -> PluginResult | None:
         """Retrieve conversation history from short-term memory.
@@ -73,6 +79,15 @@ class MemoryPlugin(PromptPlugin):
                 context.model_id,
             )
             session.memory.configure(model_context_length=model_context_length)
+
+            # Inject LLM summarizer on first access (enables high-quality auto-summarization)
+            if not session.memory._summarizer and self._provider_service:
+                from src.memory.short_term import SummarizerFactory
+                session.memory.configure(
+                    summarizer=SummarizerFactory.create_llm_summarizer(
+                        provider=self._provider_service,
+                    ),
+                )
 
             # Get messages with auto-summarization at 80% threshold
             messages = await session.memory.get_messages_for_llm(
