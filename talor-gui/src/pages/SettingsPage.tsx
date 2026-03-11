@@ -19,10 +19,10 @@ import { useSettingsStore, type Theme, type Language } from '../store/settings';
 import {
   ProviderSettings,
   ModelSelector,
-  MCPServerSettings,
+  MCPSettings,
   PermissionSettings,
 } from '../components/settings';
-import type { ProviderConfig, MCPServerConfig, ModelInfo } from '../types/config';
+import type { ProviderConfig, ModelInfo } from '../types/config';
 import type { PermissionRule } from '../types/permission';
 
 /**
@@ -381,16 +381,12 @@ export const SettingsPage: React.FC = () => {
     language,
     defaultModel,
     providers,
-    mcpServers,
     setTheme,
     setLanguage,
     setDefaultModel,
     addProvider,
     updateProvider,
     removeProvider,
-    addMCPServer,
-    updateMCPServer,
-    removeMCPServer,
   } = useSettingsStore();
 
   // Local state for permission rules (would typically come from a store)
@@ -493,36 +489,6 @@ export const SettingsPage: React.FC = () => {
       setDefaultModel(modelId);
     },
     [setDefaultModel]
-  );
-
-  /**
-   * Handle MCP servers change
-   * 处理 MCP 服务器变化
-   */
-  const handleMCPServersChange = useCallback(
-    (newServers: MCPServerConfig[]) => {
-      // Find added servers
-      const existingIds = new Set(mcpServers.map((s) => s.id));
-      const newIds = new Set(newServers.map((s) => s.id));
-
-      // Add new servers
-      newServers.forEach((server) => {
-        if (!existingIds.has(server.id)) {
-          addMCPServer(server);
-        } else {
-          // Update existing server
-          updateMCPServer(server.id, server);
-        }
-      });
-
-      // Remove deleted servers
-      mcpServers.forEach((server) => {
-        if (!newIds.has(server.id)) {
-          removeMCPServer(server.id);
-        }
-      });
-    },
-    [mcpServers, addMCPServer, updateMCPServer, removeMCPServer]
   );
 
   /**
@@ -679,10 +645,7 @@ export const SettingsPage: React.FC = () => {
       case 'mcpServers':
         return (
           <div data-testid="settings-page-mcp-content">
-            <MCPServerSettings
-              servers={mcpServers}
-              onServersChange={handleMCPServersChange}
-            />
+            <MCPSettings />
           </div>
         );
       case 'permissions':

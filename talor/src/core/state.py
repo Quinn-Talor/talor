@@ -10,6 +10,7 @@ from fastapi import WebSocket
 if TYPE_CHECKING:
     from src.tool import ToolRegistry
     from src.agent.executor import AgentExecutor
+    from src.mcp_client.mcp import MCPManager
 
 
 class AppState:
@@ -21,6 +22,7 @@ class AppState:
 
     tool_registry: "ToolRegistry | None" = None
     agent_executor: "AgentExecutor | None" = None
+    mcp_manager: "MCPManager | None" = None
     workspace: Path = Path(".")
     worktree: Path = Path(".")
     websockets: list[WebSocket] = []

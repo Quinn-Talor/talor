@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from src.tool.tool import ToolInfo
 from src.tool.output import ToolOutput
 from src.tool import ToolRegistry
-from src.mcp_client import MCP
+
+if TYPE_CHECKING:
+    from src.mcp_client.mcp import MCPManager
 
 
 logger = logging.getLogger(__name__)
@@ -40,9 +42,9 @@ class MCPToolInfo(ToolInfo):
         return await self.execute(SimpleParams(), ctx)
 
 
-async def register_mcp_tools(registry: ToolRegistry) -> None:
+async def register_mcp_tools(registry: ToolRegistry, mcp_manager: "MCPManager") -> None:
     """Register MCP tools to the ToolRegistry."""
-    mcp_tools = await MCP.tools()
+    mcp_tools = await mcp_manager.tools()
 
     for mcp_tool in mcp_tools:
         server_name = mcp_tool.server
@@ -54,6 +56,7 @@ async def register_mcp_tools(registry: ToolRegistry) -> None:
 
         _server = server_name
         _tool = tool_name
+        _mcp_manager = mcp_manager
 
         async def execute_mcp_tool(
             params: MCPParams,
@@ -64,7 +67,7 @@ async def register_mcp_tools(registry: ToolRegistry) -> None:
             """Execute MCP tool."""
             try:
                 args = params.model_dump(exclude_unset=True)
-                result = await MCP.call_tool(server, tool, args)
+                result = await _mcp_manager.call_tool(server, tool, args)
 
                 if isinstance(result, list):
                     output_parts = []

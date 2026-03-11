@@ -18,6 +18,7 @@ Endpoints:
     DELETE /api/config/workspace/{index} - Delete workspace directory
 """
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -25,6 +26,7 @@ from pydantic import BaseModel
 
 from src.api.models import ConfigResponse
 from src.config import Config, reload
+from src.core.state import state
 
 
 router = APIRouter()
@@ -58,12 +60,63 @@ class ProviderRequest(BaseModel):
 
 
 class MCPServerRequest(BaseModel):
-    """Request model for MCP server configuration."""
-    command: str
+    """Request model for MCP server configuration.
+
+    Supports stdio (command/args/env), SSE, and HTTP (url/headers) transports.
+    Auth tokens are accepted for current-session use but plain-text 'token'
+    values are stripped before writing to disk — only keyring references
+    (token_ref) are persisted.
+    """
+    # Transport mode: "stdio" | "sse" | "http"
+    transport: str = "stdio"
+    # Stdio fields
+    command: str | None = None
     args: list[str] = []
     env: dict[str, str] = {}
+    cwd: str | None = None
+    # SSE / HTTP fields
+    url: str | None = None
+    headers: dict[str, str] = {}
+    # Common fields
     disabled: bool = False
     auto_approve: list[str] = []
+    timeout: float = 30.0
+    # Auth config — plain-text 'token' is stripped before persistence
+    auth: dict[str, Any] | None = None
+
+
+def _build_mcp_server_config(request: MCPServerRequest) -> dict[str, Any]:
+    """Convert MCPServerRequest to a persistence-safe config dict.
+
+    Drops auth.token to prevent plain-text secrets from reaching disk.
+    Only auth.token_ref (e.g. 'keyring:my-key') is persisted.
+    """
+    result: dict[str, Any] = {
+        "disabled": request.disabled,
+        "auto_approve": request.auto_approve,
+        "timeout": request.timeout,
+    }
+    if request.transport != "stdio":
+        result["transport"] = request.transport
+    if request.command is not None:
+        result["command"] = request.command
+    if request.args:
+        result["args"] = request.args
+    if request.env:
+        result["env"] = request.env
+    if request.cwd is not None:
+        result["cwd"] = request.cwd
+    if request.url is not None:
+        result["url"] = request.url
+    if request.headers:
+        result["headers"] = request.headers
+    # Strip plain-text 'token' — only persist keyring references
+    if request.auth:
+        auth_safe = {k: v for k, v in request.auth.items()
+                     if k != "token" and v is not None}
+        if auth_safe:
+            result["auth"] = auth_safe
+    return result
 
 
 class WorkspaceRequest(BaseModel):
@@ -321,17 +374,14 @@ async def add_mcp_server(server_id: str, request: MCPServerRequest) -> dict:
     config = await Config.get()
     mcp_servers = dict(config.get("mcp", {}))  # Make a copy
 
-    # Add or update MCP server
-    mcp_servers[server_id] = {
-        "command": request.command,
-        "args": request.args,
-        "env": request.env,
-        "disabled": request.disabled,
-        "auto_approve": request.auto_approve,
-    }
+    server_cfg = _build_mcp_server_config(request)
+    mcp_servers[server_id] = server_cfg
 
     await Config.set("mcp", mcp_servers)
     await reload()
+
+    if state.mcp_manager:
+        asyncio.create_task(state.mcp_manager.connect(server_id, server_cfg))
 
     return {"status": "created", "server_id": server_id}
 
@@ -356,17 +406,14 @@ async def update_mcp_server(server_id: str, request: MCPServerRequest) -> dict:
     if server_id not in mcp_servers:
         raise HTTPException(status_code=404, detail=f"MCP server '{server_id}' not found")
 
-    # Update MCP server
-    mcp_servers[server_id] = {
-        "command": request.command,
-        "args": request.args,
-        "env": request.env,
-        "disabled": request.disabled,
-        "auto_approve": request.auto_approve,
-    }
+    server_cfg = _build_mcp_server_config(request)
+    mcp_servers[server_id] = server_cfg
 
     await Config.set("mcp", mcp_servers)
     await reload()
+
+    if state.mcp_manager:
+        asyncio.create_task(state.mcp_manager.connect(server_id, server_cfg))
 
     return {"status": "updated", "server_id": server_id}
 
@@ -395,6 +442,9 @@ async def delete_mcp_server(server_id: str) -> dict:
 
     await Config.set("mcp", mcp_servers)
     await reload()
+
+    if state.mcp_manager:
+        await state.mcp_manager.disconnect(server_id)
 
     return {"status": "deleted", "server_id": server_id}
 
