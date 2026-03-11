@@ -33,13 +33,9 @@ logger = logging.getLogger(__name__)
 # Configuration Schema
 # =============================================================================
 
-class MCPServerConfig(BaseModel):
-    """MCP server configuration."""
-    command: str
-    args: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
-    disabled: bool = False
-    auto_approve: list[str] = Field(default_factory=list)
+# Import the full MCPServerConfig from mcp_client (single source of truth)
+# It supports stdio/sse/http transports, auth, and all MCPClientWrapper fields.
+from src.mcp_client.mcp import MCPServerConfig  # noqa: E402
 
 
 class ProviderConfig(BaseModel):

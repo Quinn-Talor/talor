@@ -218,13 +218,13 @@ describe('SettingsPage', () => {
   });
 
   describe('MCP Server Settings Integration', () => {
-    it('should render MCPServerSettings component in MCP servers tab', () => {
+    it('should render MCPSettings component in MCP servers tab', () => {
       renderSettingsPage();
 
       const mcpTab = screen.getByTestId('settings-page-tab-mcpServers');
       fireEvent.click(mcpTab);
 
-      expect(screen.getByTestId('mcp-server-settings')).toBeInTheDocument();
+      expect(screen.getByTestId('mcp-settings')).toBeInTheDocument();
     });
   });
 

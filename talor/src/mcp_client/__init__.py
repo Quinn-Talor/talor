@@ -28,6 +28,7 @@ Example:
 def __getattr__(name: str):
     if name in (
         "MCP",
+        "MCPManager",
         "MCPClientWrapper",
         "MCPResource",
         "MCPServerConfig",
@@ -38,6 +39,7 @@ def __getattr__(name: str):
     ):
         from src.mcp_client.mcp import (
             MCP,
+            MCPManager,
             MCPClientWrapper,
             MCPResource,
             MCPServerConfig,
@@ -55,6 +57,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "MCP",
+    "MCPManager",
     "MCPClientWrapper",
     "MCPResource",
     "MCPServerConfig",

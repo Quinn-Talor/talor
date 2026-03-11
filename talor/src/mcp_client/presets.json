@@ -1,0 +1,64 @@
+[
+  {
+    "id": "playwright",
+    "name": "Playwright（浏览器自动化）",
+    "description": "使用 Playwright 进行网页浏览、截图和自动化操作",
+    "icon": "🎭",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["@playwright/mcp@latest"]
+  },
+  {
+    "id": "filesystem",
+    "name": "Filesystem（文件系统）",
+    "description": "读写本地文件系统中的文件和目录",
+    "icon": "📁",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem"]
+  },
+  {
+    "id": "pymupdf",
+    "name": "PyMuPDF（PDF 处理）",
+    "description": "读取、解析和分析 PDF 文档内容",
+    "icon": "📄",
+    "transport": "stdio",
+    "command": "uvx",
+    "args": ["pymupdf4llm-mcp@latest", "stdio"]
+  },
+  {
+    "id": "brave-search",
+    "name": "Brave Search（网页搜索）",
+    "description": "使用 Brave Search API 进行网页搜索（需要 API Key）",
+    "icon": "🔍",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "auth": {
+      "type": "api_key",
+      "env_var": "BRAVE_API_KEY"
+    }
+  },
+  {
+    "id": "github",
+    "name": "GitHub（代码托管）",
+    "description": "访问 GitHub 仓库、Issues、PR 等（需要 Personal Access Token）",
+    "icon": "🐙",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "auth": {
+      "type": "api_key",
+      "env_var": "GITHUB_PERSONAL_ACCESS_TOKEN"
+    }
+  },
+  {
+    "id": "sqlite",
+    "name": "SQLite（数据库）",
+    "description": "查询和操作本地 SQLite 数据库文件",
+    "icon": "🗃️",
+    "transport": "stdio",
+    "command": "uvx",
+    "args": ["mcp-server-sqlite"]
+  }
+]

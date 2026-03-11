@@ -27,7 +27,22 @@ export interface ProviderConfig {
  * MCP Server transport type
  * MCP服务器传输类型
  */
-export type MCPTransport = 'stdio' | 'sse';
+export type MCPTransport = 'stdio' | 'sse' | 'http';
+
+/**
+ * MCP Server authentication configuration
+ * MCP 认证配置
+ */
+export interface MCPAuthConfig {
+  /** Auth type: none | bearer | api_key */
+  type: 'none' | 'bearer' | 'api_key';
+  /** Keyring reference, e.g. "keyring:my-key" / Keyring 引用 */
+  token_ref?: string;
+  /** Header name for API_KEY mode (default: Authorization) */
+  header_name?: string;
+  /** Env var name for stdio auth injection / stdio 认证注入的环境变量名 */
+  env_var?: string;
+}
 
 /**
  * MCP Server configuration
@@ -38,14 +53,45 @@ export interface MCPServerConfig {
   id: string;
   /** Server display name / 服务器显示名称 */
   name: string;
-  /** Command to start the server / 启动服务器的命令 */
-  command: string;
-  /** Command arguments / 命令参数 */
-  args: string[];
-  /** Environment variables / 环境变量 */
-  env: Record<string, string>;
   /** Transport protocol / 传输协议 */
+  transport?: MCPTransport;
+  /** Command to start the server (stdio) / 启动服务器的命令 */
+  command?: string;
+  /** Command arguments / 命令参数 */
+  args?: string[];
+  /** Environment variables / 环境变量 */
+  env?: Record<string, string>;
+  /** Server URL (sse/http) */
+  url?: string;
+  /** Whether the server is disabled / 是否禁用 */
+  disabled?: boolean;
+  /** Authentication configuration / 认证配置 */
+  auth?: MCPAuthConfig;
+  /** Connection timeout in seconds / 连接超时（秒） */
+  timeout?: number;
+}
+
+/**
+ * Built-in MCP preset template
+ * 内置 MCP 预设模板
+ */
+export interface MCPPreset {
+  /** Preset identifier (used as default server name) / 预设标识符 */
+  id: string;
+  /** Display name / 显示名称 */
+  name: string;
+  /** Short description / 简短描述 */
+  description: string;
+  /** Emoji icon / 表情图标 */
+  icon: string;
+  /** Transport mode / 传输模式 */
   transport: MCPTransport;
+  /** Command (stdio) */
+  command?: string;
+  /** Args (stdio) */
+  args?: string[];
+  /** Auth requirements / 认证要求 */
+  auth?: { type: string; env_var?: string };
 }
 
 /**

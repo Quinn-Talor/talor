@@ -38,7 +38,7 @@ from src.bus import Bus
 from src.tool import ToolRegistry
 from src.tool.builtin import get_all_builtin_tools
 from src.config import Config
-from src.mcp_client import MCP, register_mcp_tools
+from src.mcp_client import MCPManager, register_mcp_tools
 from src.core.state import state
 from src.api.routes import create_api_router, create_events_router
 
@@ -72,7 +72,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Configure other systems (still using static API for now)
     Config.configure(bus=bus, directory=workspace, worktree=workspace)
-    MCP.configure(bus=bus, config=Config)
+    mcp_manager = MCPManager(bus=bus, config=Config)
+    state.mcp_manager = mcp_manager
 
     # Create tool registry directly
     tool_registry = ToolRegistry(bus=bus)
@@ -84,8 +85,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Connect to MCP servers
     try:
-        await MCP.connect_from_config()
-        await register_mcp_tools(state.tool_registry)
+        await mcp_manager.connect_from_config()
+        await register_mcp_tools(state.tool_registry, mcp_manager)
     except Exception as e:
         logger.warning(f"Failed to connect MCP servers: {e}")
 
@@ -118,7 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Note: Global bus doesn't need explicit shutdown as it's managed by the application lifecycle
 
-    await MCP.disconnect_all()
+    await mcp_manager.disconnect_all()
 
     if state.tool_registry:
         await state.tool_registry.clear()
