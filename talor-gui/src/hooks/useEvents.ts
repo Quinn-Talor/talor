@@ -22,7 +22,14 @@ import type {
     StreamTextEventData,
     StreamToolCallEventData,
     StreamToolResultEventData,
+    TaskArtifactAddedEventData,
+    TaskCompletedEventData,
+    TaskCreatedEventData,
+    TaskFailedEventData,
+    TaskProgressEventData,
+    TaskStatusChangedEventData,
 } from '../types/event';
+import type { TaskArtifact, TaskStatus } from '../api/task';
 import type { Message } from '../types/message';
 import type { PermissionRequest } from '../types/permission';
 import type { SessionInfo } from '../types/session';
@@ -95,6 +102,19 @@ export interface StoreCallbacks {
   setLoading?: (loading: boolean) => void;
   /** Set error state / 设置错误状态 */
   setError?: (error: string | null) => void;
+  // Task callbacks (background task system)
+  /** Upsert a task (from task.created event) */
+  upsertTask?: (task: { id: string; sessionId: string; agentId: string; title: string; status: TaskStatus }) => void;
+  /** Update task status */
+  updateTaskStatus?: (taskId: string, status: TaskStatus) => void;
+  /** Update task progress */
+  updateTaskProgress?: (taskId: string, progress: number, currentAction: string | null) => void;
+  /** Add artifact to task */
+  addTaskArtifact?: (taskId: string, artifact: TaskArtifact) => void;
+  /** Mark task as completed */
+  completeTask?: (taskId: string, result: string | null, artifactsCount: number) => void;
+  /** Mark task as failed */
+  failTask?: (taskId: string, error: string) => void;
 }
 
 /**
@@ -339,6 +359,70 @@ export function extractStreamErrorEventData(data: Record<string, unknown>): Stre
   return {
     session_id: data.session_id,
     message_id: typeof data.message_id === 'string' ? data.message_id : undefined,
+    error: data.error,
+  };
+}
+
+// =============================================================================
+// Task Event Extractors
+// =============================================================================
+
+export function extractTaskCreatedEventData(data: Record<string, unknown>): TaskCreatedEventData | null {
+  if (typeof data.task_id !== 'string' || typeof data.session_id !== 'string') return null;
+  return {
+    task_id: data.task_id,
+    session_id: data.session_id,
+    agent_id: typeof data.agent_id === 'string' ? data.agent_id : '',
+    title: typeof data.title === 'string' ? data.title : '',
+  };
+}
+
+export function extractTaskStatusChangedEventData(data: Record<string, unknown>): TaskStatusChangedEventData | null {
+  if (typeof data.task_id !== 'string' || typeof data.status !== 'string') return null;
+  return {
+    task_id: data.task_id,
+    session_id: typeof data.session_id === 'string' ? data.session_id : '',
+    status: data.status,
+    previous_status: typeof data.previous_status === 'string' ? data.previous_status : '',
+  };
+}
+
+export function extractTaskProgressEventData(data: Record<string, unknown>): TaskProgressEventData | null {
+  if (typeof data.task_id !== 'string' || typeof data.progress !== 'number') return null;
+  return {
+    task_id: data.task_id,
+    session_id: typeof data.session_id === 'string' ? data.session_id : '',
+    progress: data.progress,
+    current_action: typeof data.current_action === 'string' ? data.current_action : null,
+  };
+}
+
+export function extractTaskArtifactAddedEventData(data: Record<string, unknown>): TaskArtifactAddedEventData | null {
+  if (typeof data.task_id !== 'string' || typeof data.path !== 'string') return null;
+  return {
+    task_id: data.task_id,
+    session_id: typeof data.session_id === 'string' ? data.session_id : '',
+    path: data.path,
+    artifact_type: typeof data.artifact_type === 'string' ? data.artifact_type : 'file',
+  };
+}
+
+export function extractTaskCompletedEventData(data: Record<string, unknown>): TaskCompletedEventData | null {
+  if (typeof data.task_id !== 'string') return null;
+  return {
+    task_id: data.task_id,
+    session_id: typeof data.session_id === 'string' ? data.session_id : '',
+    result: typeof data.result === 'string' ? data.result : null,
+    artifacts_count: typeof data.artifacts_count === 'number' ? data.artifacts_count : 0,
+    elapsed_ms: typeof data.elapsed_ms === 'number' ? data.elapsed_ms : 0,
+  };
+}
+
+export function extractTaskFailedEventData(data: Record<string, unknown>): TaskFailedEventData | null {
+  if (typeof data.task_id !== 'string' || typeof data.error !== 'string') return null;
+  return {
+    task_id: data.task_id,
+    session_id: typeof data.session_id === 'string' ? data.session_id : '',
     error: data.error,
   };
 }
@@ -605,6 +689,68 @@ export function createEventHandler(
           // Update store - set error and loading to false
           storeCallbacks.setError?.(streamData.error);
           storeCallbacks.setLoading?.(false);
+        }
+        break;
+      }
+
+      // =================================================================
+      // Task Events (Background Task System)
+      // =================================================================
+
+      case 'task.created': {
+        const taskData = extractTaskCreatedEventData(data);
+        if (taskData) {
+          storeCallbacks.upsertTask?.({
+            id: taskData.task_id,
+            sessionId: taskData.session_id,
+            agentId: taskData.agent_id,
+            title: taskData.title,
+            status: 'pending',
+          });
+        }
+        break;
+      }
+
+      case 'task.status_changed': {
+        const taskData = extractTaskStatusChangedEventData(data);
+        if (taskData) {
+          storeCallbacks.updateTaskStatus?.(taskData.task_id, taskData.status as TaskStatus);
+        }
+        break;
+      }
+
+      case 'task.progress': {
+        const taskData = extractTaskProgressEventData(data);
+        if (taskData) {
+          storeCallbacks.updateTaskProgress?.(taskData.task_id, taskData.progress, taskData.current_action);
+        }
+        break;
+      }
+
+      case 'task.artifact_added': {
+        const taskData = extractTaskArtifactAddedEventData(data);
+        if (taskData) {
+          storeCallbacks.addTaskArtifact?.(taskData.task_id, {
+            path: taskData.path,
+            type: taskData.artifact_type,
+            updatedAt: timestamp,
+          });
+        }
+        break;
+      }
+
+      case 'task.completed': {
+        const taskData = extractTaskCompletedEventData(data);
+        if (taskData) {
+          storeCallbacks.completeTask?.(taskData.task_id, taskData.result, taskData.artifacts_count);
+        }
+        break;
+      }
+
+      case 'task.failed': {
+        const taskData = extractTaskFailedEventData(data);
+        if (taskData) {
+          storeCallbacks.failTask?.(taskData.task_id, taskData.error);
         }
         break;
       }

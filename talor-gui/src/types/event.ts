@@ -35,7 +35,14 @@ export type EventType =
   | 'stream.tool_call'
   | 'stream.tool_result'
   | 'stream.done'
-  | 'stream.error';
+  | 'stream.error'
+  // Task events (background task system)
+  | 'task.created'
+  | 'task.status_changed'
+  | 'task.progress'
+  | 'task.artifact_added'
+  | 'task.completed'
+  | 'task.failed';
 
 /**
  * Base event structure from the backend
@@ -242,6 +249,52 @@ export interface StreamErrorEventData {
   /** Message ID (may be null for early errors) / 消息ID（早期错误可能为空） */
   message_id?: string;
   /** Error message / 错误信息 */
+  error: string;
+}
+
+// =============================================================================
+// Task Events (Background Task System)
+// =============================================================================
+
+export interface TaskCreatedEventData {
+  task_id: string;
+  session_id: string;
+  agent_id: string;
+  title: string;
+}
+
+export interface TaskStatusChangedEventData {
+  task_id: string;
+  session_id: string;
+  status: string;
+  previous_status: string;
+}
+
+export interface TaskProgressEventData {
+  task_id: string;
+  session_id: string;
+  progress: number;
+  current_action: string | null;
+}
+
+export interface TaskArtifactAddedEventData {
+  task_id: string;
+  session_id: string;
+  path: string;
+  artifact_type: string;
+}
+
+export interface TaskCompletedEventData {
+  task_id: string;
+  session_id: string;
+  result: string | null;
+  artifacts_count: number;
+  elapsed_ms: number;
+}
+
+export interface TaskFailedEventData {
+  task_id: string;
+  session_id: string;
   error: string;
 }
 

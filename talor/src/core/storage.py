@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 # Database schema version
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Database schema SQL
 SCHEMA_SQL = """
@@ -69,6 +69,33 @@ CREATE TABLE IF NOT EXISTS permissions (
 
 -- Create index on session_id for faster permission queries
 CREATE INDEX IF NOT EXISTS idx_permissions_session_id ON permissions(session_id);
+"""
+
+# Migration V2: Tasks table SQL
+MIGRATION_V2_SQL = """
+-- Background tasks table
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL UNIQUE,
+    agent_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    progress INTEGER NOT NULL DEFAULT 0,
+    current_action TEXT,
+    artifacts TEXT NOT NULL DEFAULT '[]',
+    checkpoint_path TEXT,
+    worktree_path TEXT,
+    result TEXT,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    started_at INTEGER,
+    completed_at INTEGER,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);
 """
 
 
@@ -403,16 +430,26 @@ class StorageSystem:
         # For now, we only have version 1 (initial schema)
         # Future migrations would be added here
 
+        import time
+
         if version == 1:
             # Initial schema is already created in _init_schema
             # Just record the version
-            import time
-
             await self.execute(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
                 (version, int(time.time())),
             )
             logger.info(f"Applied migration version {version}")
+        elif version == 2:
+            # Add tasks table for background task support
+            async with self._lock:
+                await self._connection.executescript(MIGRATION_V2_SQL)
+                await self._connection.commit()
+            await self.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (version, int(time.time())),
+            )
+            logger.info(f"Applied migration version {version}: tasks table added")
         else:
             raise StorageError(
                 f"Unknown migration version: {version}", context={"version": version}

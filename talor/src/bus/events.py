@@ -472,3 +472,64 @@ class ConfigChangedData(BaseModel):
 
 
 ConfigChanged = BusEvent.define("config.changed", ConfigChangedData)
+
+
+# =============================================================================
+# Task Events (Background Task System)
+# =============================================================================
+
+class TaskCreatedData(BaseModel):
+    """Data for task.created event."""
+    task_id: str
+    session_id: str
+    agent_id: str
+    title: str
+
+
+class TaskStatusChangedData(BaseModel):
+    """Data for task.status_changed event."""
+    task_id: str
+    session_id: str
+    status: str          # pending | queued | running | completed | failed | cancelled
+    previous_status: str
+
+
+class TaskProgressData(BaseModel):
+    """Data for task.progress event."""
+    task_id: str
+    session_id: str
+    progress: int        # 0-100
+    current_action: str | None = None
+
+
+class TaskArtifactAddedData(BaseModel):
+    """Data for task.artifact_added event."""
+    task_id: str
+    session_id: str
+    path: str
+    artifact_type: str   # "file" | "directory"
+
+
+class TaskCompletedData(BaseModel):
+    """Data for task.completed event."""
+    task_id: str
+    session_id: str
+    result: str | None = None
+    artifacts_count: int = 0
+    elapsed_ms: float = 0.0
+
+
+class TaskFailedData(BaseModel):
+    """Data for task.failed event."""
+    task_id: str
+    session_id: str
+    error: str
+
+
+# Define task events
+TaskCreated = BusEvent.define("task.created", TaskCreatedData)
+TaskStatusChanged = BusEvent.define("task.status_changed", TaskStatusChangedData)
+TaskProgress = BusEvent.define("task.progress", TaskProgressData)
+TaskArtifactAdded = BusEvent.define("task.artifact_added", TaskArtifactAddedData)
+TaskCompleted = BusEvent.define("task.completed", TaskCompletedData)
+TaskFailed = BusEvent.define("task.failed", TaskFailedData)

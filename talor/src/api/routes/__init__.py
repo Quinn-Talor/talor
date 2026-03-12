@@ -11,6 +11,7 @@ from src.api.routes.providers import router as providers_router
 from src.api.routes.mcp import router as mcp_router
 from src.api.routes.config import router as config_router
 from src.api.routes.events import router as events_router
+from src.api.routes.tasks import router as tasks_router
 
 
 def create_api_router() -> APIRouter:
@@ -25,6 +26,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(providers_router, prefix="/providers", tags=["providers"])
     api_router.include_router(mcp_router, prefix="/mcp", tags=["mcp"])
     api_router.include_router(config_router, prefix="/config", tags=["config"])
+    api_router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 
     return api_router
 

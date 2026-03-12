@@ -21,13 +21,16 @@ import { TalorClient } from './api/client';
 import { createConfigApi } from './api/config';
 import { createEventsApi, type ConnectionState } from './api/events';
 import { createSessionApi } from './api/session';
+import { createTaskApi } from './api/task';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ThemeProvider } from './components/common/ThemeProvider';
 import { useEvents, type EventHandlers, type StoreCallbacks } from './hooks/useEvents';
 import i18n from './i18n';
 import { AppRouter } from './router';
 import { useSessionStore } from './store/session';
+import { useTaskStore } from './store/task';
 import { useUIStore } from './store/ui';
+import type { TaskArtifact, TaskStatus } from './api/task';
 import type { Message } from './types/message';
 import type { PermissionRequest } from './types/permission';
 import type { SessionInfo } from './types/session';
@@ -67,6 +70,15 @@ export interface AppProps {
  * @requirements 1.2 - 建立 WebSocket 或 SSE 连接以订阅事件流
  */
 export const App: React.FC<AppProps> = ({ apiBaseUrl = DEFAULT_API_BASE_URL }) => {
+  // Get store actions for task management
+  const taskSetApis = useTaskStore((state) => state.setApis);
+  const upsertTask = useTaskStore((state) => state.upsertTask);
+  const updateTaskStatus = useTaskStore((state) => state.updateTaskStatus);
+  const updateTaskProgress = useTaskStore((state) => state.updateTaskProgress);
+  const addTaskArtifact = useTaskStore((state) => state.addTaskArtifact);
+  const completeTask = useTaskStore((state) => state.completeTask);
+  const failTask = useTaskStore((state) => state.failTask);
+
   // Get store actions for session management
   const setApis = useSessionStore((state) => state.setApis);
   const addSession = useSessionStore((state) => state.addSession);
@@ -89,7 +101,7 @@ export const App: React.FC<AppProps> = ({ apiBaseUrl = DEFAULT_API_BASE_URL }) =
    * Initialize API client and related APIs
    * 初始化 API 客户端和相关 API
    */
-  const { sessionApi, agentApi, eventsApi } = useMemo(() => {
+  const { sessionApi, agentApi, eventsApi, taskApi } = useMemo(() => {
     // Create the main API client
     const talorClient = new TalorClient({
       baseUrl: apiBaseUrl,
@@ -105,11 +117,13 @@ export const App: React.FC<AppProps> = ({ apiBaseUrl = DEFAULT_API_BASE_URL }) =
     // Config API will be used in settings components
     createConfigApi(talorClient);
     const events = createEventsApi(talorClient);
+    const task = createTaskApi(talorClient);
 
     return {
       sessionApi: session,
       agentApi: agent,
       eventsApi: events,
+      taskApi: task,
     };
   }, [apiBaseUrl]);
 
@@ -233,8 +247,30 @@ export const App: React.FC<AppProps> = ({ apiBaseUrl = DEFAULT_API_BASE_URL }) =
       setError: (error: string | null) => {
         setError(error);
       },
+
+      // =================================================================
+      // Task callbacks (background task system)
+      // =================================================================
+      upsertTask: (task: { id: string; sessionId: string; agentId: string; title: string; status: TaskStatus }) => {
+        upsertTask(task);
+      },
+      updateTaskStatus: (taskId: string, status: TaskStatus) => {
+        updateTaskStatus(taskId, status);
+      },
+      updateTaskProgress: (taskId: string, progress: number, currentAction: string | null) => {
+        updateTaskProgress(taskId, progress, currentAction);
+      },
+      addTaskArtifact: (taskId: string, artifact: TaskArtifact) => {
+        addTaskArtifact(taskId, artifact);
+      },
+      completeTask: (taskId: string, result: string | null, artifactsCount: number) => {
+        completeTask(taskId, result, artifactsCount);
+      },
+      failTask: (taskId: string, error: string) => {
+        failTask(taskId, error);
+      },
     }),
-    [addSession, updateSession, removeSession, addMessage, updateMessage, showPermissionDialog, setConnectionState, appendStreamingText, addToolCall, addToolResult, setLoading, setError]
+    [addSession, updateSession, removeSession, addMessage, updateMessage, showPermissionDialog, setConnectionState, appendStreamingText, addToolCall, addToolResult, setLoading, setError, upsertTask, updateTaskStatus, updateTaskProgress, addTaskArtifact, completeTask, failTask]
   );
 
   /**
@@ -334,6 +370,14 @@ export const App: React.FC<AppProps> = ({ apiBaseUrl = DEFAULT_API_BASE_URL }) =
   useEffect(() => {
     setApis(sessionApi, agentApi, eventsApi);
   }, [sessionApi, agentApi, eventsApi, setApis]);
+
+  /**
+   * Initialize task API in task store
+   * 在任务 store 中初始化 Task API
+   */
+  useEffect(() => {
+    taskSetApis(taskApi);
+  }, [taskApi, taskSetApis]);
 
   return (
     <I18nextProvider i18n={i18n}>

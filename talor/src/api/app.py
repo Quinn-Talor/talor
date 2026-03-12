@@ -108,6 +108,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         worktree=workspace,
     )
 
+    # Initialize task service with storage (shared with session module so FK works)
+    from src.core.storage import StorageSystem
+    import src.task.service as task_svc
+    import src.session.session as session_module
+    task_storage = StorageSystem()
+    await task_storage.init()
+    session_module.configure(workspace=workspace, storage=task_storage)
+    task_svc.configure(workspace=workspace, storage=task_storage)
+
+    # Recover any tasks that were running before shutdown
+    await task_svc.recover_interrupted_tasks()
+
+    state.task_storage = task_storage
+
     logger.info(f"Workspace: {workspace}")
     logger.info(f"Tools registered: {state.tool_registry.tool_count}")
     logger.info("Talor API server started")
@@ -123,6 +137,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     if state.tool_registry:
         await state.tool_registry.clear()
+
+    if hasattr(state, "task_storage") and state.task_storage:
+        await state.task_storage.close()
 
     # Clear module caches
     shutdown()

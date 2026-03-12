@@ -280,7 +280,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   return (
     <div
-      className="relative flex flex-col h-full"
+      className="relative flex flex-col h-full min-h-0 overflow-hidden"
       data-testid="chat-view"
       data-session-id={sessionId}
     >
@@ -289,7 +289,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         ref={containerRef}
         onScroll={handleScroll}
         className="
-          flex-1 overflow-y-auto
+          flex-1 overflow-y-auto min-h-0
           px-4 py-4
           scroll-smooth
         "

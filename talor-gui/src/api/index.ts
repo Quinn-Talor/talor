@@ -49,5 +49,11 @@ export {
     type EventsApiConfig
 } from './events';
 
+// Task API exports
+export {
+    createTaskApi, type CreateTaskRequest, type TaskApi, type TaskArtifact,
+    type TaskInfo, type TaskStatus, type TaskStatusInfo, type WorkspaceInfo
+} from './task';
+
 // Default export
 export { default } from './client';

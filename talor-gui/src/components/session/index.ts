@@ -10,3 +10,5 @@ export type { SessionListProps } from './SessionList';
 
 export { SessionItem, formatRelativeTime } from './SessionItem';
 export type { SessionItemProps } from './SessionItem';
+
+export { ActivityList } from './ActivityList';

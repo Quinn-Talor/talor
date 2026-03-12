@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket
 
@@ -23,6 +23,7 @@ class AppState:
     tool_registry: "ToolRegistry | None" = None
     agent_executor: "AgentExecutor | None" = None
     mcp_manager: "MCPManager | None" = None
+    task_storage: "Any | None" = None
     workspace: Path = Path(".")
     worktree: Path = Path(".")
     websockets: list[WebSocket] = []
