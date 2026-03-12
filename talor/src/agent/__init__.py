@@ -1,8 +1,8 @@
-"""Agent System for Talor — AI 数字员工平台。
+"""Agent System for Talor — AI Agent 平台。
 
 平台两层架构：
-- 平台员工（kind=platform）：基础执行能力（build/plan/explore/general），硬编码默认值
-- 业务员工（kind=worker）：领域专家，从 employees/*.jsonc 加载，有完整员工契约
+- 平台 Agent（kind=platform）：基础执行能力（build/plan/explore/general），硬编码默认值
+- 业务 Agent（kind=worker）：领域专家，从 agents/*.jsonc 加载，有完整 Agent 契约
 
 Usage:
     ```python
@@ -18,7 +18,7 @@ Usage:
     # 配置模块
     configure(config_getter=my_config_getter, workspace=Path("."))
 
-    # 列出所有业务员工
+    # 列出所有业务 Agent
     workers = await list_agents(kind=AgentKind.WORKER)
 
     # 获取特定 agent
@@ -32,7 +32,7 @@ from src.agent.agent import (
     Agent,
     AgentKind,
     AgentScope,
-    # 数字员工值对象
+    # Agent 值对象
     RoleDefinition,
     CapabilityScope,
     WorkflowDefinition,
@@ -86,7 +86,7 @@ __all__ = [
     "Agent",
     "AgentKind",
     "AgentScope",
-    # 数字员工值对象
+    # Agent 值对象
     "RoleDefinition",
     "CapabilityScope",
     "WorkflowDefinition",

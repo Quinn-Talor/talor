@@ -1,11 +1,11 @@
-"""Agent Domain Model for Talor — AI 数字员工平台。
+"""Agent Domain Model for Talor — AI Agent 平台。
 
-数字员工平台的核心模型：
-- 平台员工（kind=platform）：提供基础执行能力（build/plan/explore/general）
-- 业务员工（kind=worker）：有完整员工契约（role/capabilities/workflow/input_spec/delivery_standard）
+Agent 平台的核心模型：
+- 平台 Agent（kind=platform）：提供基础执行能力（build/plan/explore/general）
+- 业务 Agent（kind=worker）：有完整 Agent 契约（role/capabilities/workflow/input_spec/delivery_standard）
 
-Agent 即数字员工，通过 employees/*.jsonc 配置文件定义业务员工，
-平台员工硬编码为默认值，支持通过 .talor/agents/*.jsonc 覆盖。
+Agent 通过 agents/*.jsonc 配置文件定义业务 Agent，
+平台 Agent 硬编码为默认值，支持通过 .talor/agents/*.jsonc 覆盖。
 """
 
 from __future__ import annotations
@@ -52,6 +52,7 @@ def clear_cache() -> None:
 # Value Objects — 权限系统
 # =============================================================================
 
+
 class PermissionAction(str, Enum):
     ALLOW = "allow"
     DENY = "deny"
@@ -59,9 +60,9 @@ class PermissionAction(str, Enum):
 
 
 class PermissionRule(BaseModel):
-    permission: str          # 工具名 或 "*"
+    permission: str  # 工具名 或 "*"
     action: PermissionAction
-    pattern: str = "*"       # 路径匹配模式（glob 风格）
+    pattern: str = "*"  # 路径匹配模式（glob 风格）
 
     def matches(self, tool: str, path: str | None = None) -> bool:
         if self.permission != "*" and not fnmatch.fnmatch(tool, self.permission):
@@ -103,17 +104,21 @@ class Permission:
         rules: Ruleset = []
         for permission, value in config.items():
             if isinstance(value, str):
-                rules.append(PermissionRule(
-                    permission=permission,
-                    action=PermissionAction(value),
-                ))
+                rules.append(
+                    PermissionRule(
+                        permission=permission,
+                        action=PermissionAction(value),
+                    )
+                )
             elif isinstance(value, dict):
                 for pattern, action_str in value.items():
-                    rules.append(PermissionRule(
-                        permission=permission,
-                        action=PermissionAction(action_str),
-                        pattern=pattern,
-                    ))
+                    rules.append(
+                        PermissionRule(
+                            permission=permission,
+                            action=PermissionAction(action_str),
+                            pattern=pattern,
+                        )
+                    )
         return rules
 
     @staticmethod
@@ -125,7 +130,8 @@ class Permission:
                     result = [r for r in result if r.permission != rule.permission]
                 else:
                     result = [
-                        r for r in result
+                        r
+                        for r in result
                         if not (r.permission == rule.permission and r.pattern == rule.pattern)
                     ]
                 result.append(rule)
@@ -136,20 +142,22 @@ class Permission:
 # Value Objects — Agent 类型
 # =============================================================================
 
+
 class AgentKind(str, Enum):
-    PLATFORM = "platform"   # 平台员工（基础设施：build/plan/explore/general）
-    WORKER = "worker"       # 业务数字员工（领域专家，有完整员工契约）
+    PLATFORM = "platform"  # 平台 Agent（基础设施：build/plan/explore/general）
+    WORKER = "worker"  # 业务 Agent（领域专家，有完整 Agent 契约）
 
 
 class AgentScope(str, Enum):
-    PRIMARY = "primary"     # 可由用户直接调用
-    SUBAGENT = "subagent"   # 仅可被其他 agent 调用
-    BOTH = "both"           # 两者均可
+    PRIMARY = "primary"  # 可由用户直接调用
+    SUBAGENT = "subagent"  # 仅可被其他 agent 调用
+    BOTH = "both"  # 两者均可
 
 
 # =============================================================================
-# Value Objects — 数字员工模型
+# Value Objects — Agent 模型
 # =============================================================================
+
 
 class WorkflowType(str, Enum):
     SEQUENTIAL = "sequential"
@@ -161,7 +169,7 @@ class WorkflowStep(BaseModel):
     id: str
     name: str
     description: str
-    tool: str | None = None       # 关联工具
+    tool: str | None = None  # 关联工具
     condition: str | None = None  # 执行条件
 
 
@@ -172,57 +180,58 @@ class WorkflowDefinition(BaseModel):
 
 
 class RoleDefinition(BaseModel):
-    title: str                         # 职位名称
-    persona: str                       # 角色人设 / 背景描述
-    responsibilities: list[str] = []   # 核心职责
+    title: str  # 职位名称
+    persona: str  # 角色人设 / 背景描述
+    responsibilities: list[str] = []  # 核心职责
 
 
 class CapabilityScope(BaseModel):
-    domains: list[str] = []            # 专业领域
-    input_types: list[str] = []        # 可接受的输入类型
-    output_types: list[str] = []       # 可输出类型
-    proficiency: dict[str, str] = {}   # 技能熟练度（技能名 → 等级）
-    constraints: list[str] = []        # 能力边界说明
+    domains: list[str] = []  # 专业领域
+    input_types: list[str] = []  # 可接受的输入类型
+    output_types: list[str] = []  # 可输出类型
+    proficiency: dict[str, str] = {}  # 技能熟练度（技能名 → 等级）
+    constraints: list[str] = []  # 能力边界说明
 
 
 class DependencySpec(BaseModel):
-    tools: list[str] = []              # 工具名称列表
-    sub_agents: list[str] = []         # 子 agent 名称
-    skills: list[str] = []             # 技能（skill）名称
-    mcp_servers: list[str] = []        # MCP 服务器
+    tools: list[str] = []  # 工具名称列表
+    sub_agents: list[str] = []  # 子 agent 名称
+    skills: list[str] = []  # 技能（skill）名称
+    mcp_servers: list[str] = []  # MCP 服务器
 
 
 class InputField(BaseModel):
     name: str
-    type: str = "string"               # string / file / json / number / boolean
+    type: str = "string"  # string / file / json / number / boolean
     description: str
     required: bool = True
-    validation: str | None = None      # 校验规则描述
+    validation: str | None = None  # 校验规则描述
 
 
 class InputSpec(BaseModel):
     fields: list[InputField] = []
-    format: str = "natural_language"   # natural_language / structured / both
+    format: str = "natural_language"  # natural_language / structured / both
     examples: list[str] = []
 
 
 class DeliverableSpec(BaseModel):
     name: str
-    format: str                        # markdown / json / file / code / report
+    format: str  # markdown / json / file / code / report
     description: str
     required: bool = True
 
 
 class DeliveryStandard(BaseModel):
     deliverables: list[DeliverableSpec] = []
-    quality_criteria: list[str] = []   # 质量标准
-    success_definition: str = ""       # 成功定义
-    acceptance_tests: list[str] = []   # 验收测试描述
+    quality_criteria: list[str] = []  # 质量标准
+    success_definition: str = ""  # 成功定义
+    acceptance_tests: list[str] = []  # 验收测试描述
 
 
 # =============================================================================
 # Value Objects — 执行配置
 # =============================================================================
+
 
 class ModelConfig(BaseModel):
     provider_id: str
@@ -233,19 +242,20 @@ class ModelConfig(BaseModel):
 
 
 # =============================================================================
-# Agent Entity — 数字员工
+# Agent Entity
 # =============================================================================
 
-class Agent(BaseModel):
-    """数字员工完整模型。
 
-    平台员工（kind=platform）：
+class Agent(BaseModel):
+    """Agent 完整模型。
+
+    平台 Agent（kind=platform）：
         提供基础执行能力，无角色/能力/流程字段，行为由 permission 和执行器默认逻辑决定。
 
-    业务员工（kind=worker）：
-        有完整员工契约（role/capabilities/workflow/input_spec/delivery_standard），
+    业务 Agent（kind=worker）：
+        有完整 Agent 契约（role/capabilities/workflow/input_spec/delivery_standard），
         通过 build_structured_prompt() 生成结构化系统提示词。
-        可通过 manual 字段引用外部员工手册文件（SOP/领域知识）。
+        可通过 manual 字段引用外部 Agent 手册文件（SOP/领域知识）。
     """
 
     # 基础标识
@@ -260,14 +270,14 @@ class Agent(BaseModel):
     kind: AgentKind = AgentKind.WORKER
     scope: AgentScope = AgentScope.PRIMARY
 
-    # ── 业务员工定义（kind=worker 时填写）────────────────────────────
+    # ── 业务 Agent 定义（kind=worker 时填写）────────────────────────────
     role: RoleDefinition | None = None
     capabilities: CapabilityScope | None = None
     workflow: WorkflowDefinition | None = None
     dependencies: DependencySpec | None = None
     input_spec: InputSpec | None = None
     delivery_standard: DeliveryStandard | None = None
-    manual: str | None = None          # 员工手册文件路径（.md，追加在结构化定义之后）
+    manual: str | None = None  # Agent 手册文件路径（.md，追加在结构化定义之后）
 
     # ── 执行配置 ──────────────────────────────────────────────────────
     model: ModelConfig | None = None
@@ -279,12 +289,12 @@ class Agent(BaseModel):
 
     @property
     def is_worker(self) -> bool:
-        """是否为业务员工。"""
+        """是否为业务 Agent。"""
         return self.kind == AgentKind.WORKER
 
     @property
     def is_platform(self) -> bool:
-        """是否为平台员工。"""
+        """是否为平台 Agent。"""
         return self.kind == AgentKind.PLATFORM
 
     @property
@@ -304,16 +314,16 @@ class Agent(BaseModel):
 
     @property
     def prompt_path(self) -> str | None:
-        """员工手册路径（供执行器加载 manual 文件）。"""
+        """Agent 手册路径（供执行器加载 manual 文件）。"""
         return self.manual
 
     # ── 系统提示词构建 ────────────────────────────────────────────────
 
     def build_structured_prompt(self) -> str:
-        """将员工定义渲染为结构化中文系统提示词（纯函数，无 I/O）。
+        """将 Agent 定义渲染为结构化中文系统提示词（纯函数，无 I/O）。
 
         章节顺序：角色定义 → 能力范畴 → 工作流程 → 输入规范 → 交付标准
-        无 role 定义时返回空字符串（平台员工走此路径）。
+        无 role 定义时返回空字符串（平台 Agent 走此路径）。
         """
         if not self.role:
             return ""
@@ -416,7 +426,7 @@ class Agent(BaseModel):
 
         prompt = "\n\n".join(sections)
 
-        # 追加员工手册内容（如有）
+        # 追加 Agent 手册内容（如有）
         if self.manual and _workspace:
             manual_path = _workspace / self.manual
             if manual_path.is_file():
@@ -445,23 +455,26 @@ class Agent(BaseModel):
 
 
 # =============================================================================
-# 平台员工默认配置
+# 平台 Agent 默认配置
 # =============================================================================
 
+
 def _default_platform_rules() -> list[PermissionRule]:
-    """平台员工通用默认权限规则。"""
+    """平台 Agent 通用默认权限规则。"""
     return Permission.merge(
-        Permission.from_config({
-            "*": "allow",
-            "doom_loop": "ask",
-            "external_directory": "ask",
-            "read": {
+        Permission.from_config(
+            {
                 "*": "allow",
-                "*.env": "ask",
-                "*.env.*": "ask",
-                "*.env.example": "allow",
-            },
-        })
+                "doom_loop": "ask",
+                "external_directory": "ask",
+                "read": {
+                    "*": "allow",
+                    "*.env": "ask",
+                    "*.env.*": "ask",
+                    "*.env.example": "allow",
+                },
+            }
+        )
     )
 
 
@@ -475,10 +488,12 @@ _PLATFORM_AGENTS_DEFAULTS: dict[str, dict[str, Any]] = {
         "max_steps": 50,
         "permission": Permission.merge(
             _default_platform_rules(),
-            Permission.from_config({
-                "question": "allow",
-                "plan_enter": "allow",
-            }),
+            Permission.from_config(
+                {
+                    "question": "allow",
+                    "plan_enter": "allow",
+                }
+            ),
         ),
     },
     "plan": {
@@ -490,27 +505,31 @@ _PLATFORM_AGENTS_DEFAULTS: dict[str, dict[str, Any]] = {
         "max_steps": 50,
         "permission": Permission.merge(
             _default_platform_rules(),
-            Permission.from_config({
-                "question": "allow",
-                "plan_exit": "allow",
-                "edit": "deny",
-                "write": "deny",
-            }),
+            Permission.from_config(
+                {
+                    "question": "allow",
+                    "plan_exit": "allow",
+                    "edit": "deny",
+                    "write": "deny",
+                }
+            ),
         ),
     },
     "general": {
         "id": "general",
         "name": "通用研究员",
-        "description": "通用子 agent，可被业务员工委派执行复杂多步任务。",
+        "description": "通用子 agent，可被业务 Agent 委派执行复杂多步任务。",
         "kind": AgentKind.PLATFORM,
         "scope": AgentScope.SUBAGENT,
         "max_steps": 50,
         "permission": Permission.merge(
             _default_platform_rules(),
-            Permission.from_config({
-                "todoread": "deny",
-                "todowrite": "deny",
-            }),
+            Permission.from_config(
+                {
+                    "todoread": "deny",
+                    "todowrite": "deny",
+                }
+            ),
         ),
     },
     "explore": {
@@ -521,14 +540,16 @@ _PLATFORM_AGENTS_DEFAULTS: dict[str, dict[str, Any]] = {
         "scope": AgentScope.SUBAGENT,
         "max_steps": 50,
         "permission": Permission.merge(
-            Permission.from_config({
-                "*": "deny",
-                "grep": "allow",
-                "glob": "allow",
-                "ls": "allow",
-                "bash": "allow",
-                "read": "allow",
-            }),
+            Permission.from_config(
+                {
+                    "*": "deny",
+                    "grep": "allow",
+                    "glob": "allow",
+                    "ls": "allow",
+                    "bash": "allow",
+                    "read": "allow",
+                }
+            ),
         ),
     },
     "title": {
@@ -556,7 +577,7 @@ _PLATFORM_AGENTS_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 def _build_platform_agent(agent_id: str, defaults: dict[str, Any]) -> Agent:
-    """从默认配置构建平台员工实例。"""
+    """从默认配置构建平台 Agent 实例。"""
     return Agent(
         id=defaults["id"],
         name=defaults["name"],
@@ -573,10 +594,11 @@ def _build_platform_agent(agent_id: str, defaults: dict[str, Any]) -> Agent:
 def _parse_jsonc(text: str) -> Any:
     """解析 JSONC（去除注释后解析 JSON）。"""
     import re
+
     # 去除单行注释
-    text = re.sub(r'//[^\n]*', '', text)
+    text = re.sub(r"//[^\n]*", "", text)
     # 去除多行注释
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     return json.loads(text)
 
 
@@ -669,13 +691,14 @@ def _parse_agent_from_dict(data: dict[str, Any]) -> Agent:
 # Module-level Functions
 # =============================================================================
 
+
 async def _load_agents() -> dict[str, Agent]:
     """加载所有 agent。
 
     加载顺序：
-    1. 平台员工硬编码默认值
-    2. 从 .talor/agents/*.jsonc 覆盖平台员工配置（可选）
-    3. 从 employees/*.jsonc 加载业务员工
+    1. 平台 Agent 硬编码默认值
+    2. 从 .talor/agents/*.jsonc 覆盖平台 Agent 配置（可选）
+    3. 从 agents/*.jsonc 加载业务 Agent
     """
     global _agents_cache
 
@@ -684,11 +707,11 @@ async def _load_agents() -> dict[str, Agent]:
 
     agents: dict[str, Agent] = {}
 
-    # 1. 平台员工默认值
+    # 1. 平台 Agent 默认值
     for agent_id, defaults in _PLATFORM_AGENTS_DEFAULTS.items():
         agents[agent_id] = _build_platform_agent(agent_id, defaults)
 
-    # 2. 从配置目录覆盖平台员工（可选）
+    # 2. 从配置目录覆盖平台 Agent（可选）
     workspace = _workspace
     if workspace:
         platform_agents_dir = workspace / ".talor" / "agents"
@@ -698,21 +721,20 @@ async def _load_agents() -> dict[str, Agent]:
                 agent = _load_agent_from_file(path, AgentKind.PLATFORM)
                 if agent:
                     if agent_id in agents:
-                        # 合并：覆盖配置文件中明确定义的字段，保留其余默认值
                         agents[agent_id] = agent
-                        logger.debug(f"平台员工配置已覆盖：{agent_id}")
+                        logger.debug(f"平台 Agent 配置已覆盖：{agent_id}")
                     else:
                         agents[agent_id] = agent
-                        logger.debug(f"新增平台员工：{agent_id}")
+                        logger.debug(f"新增平台 Agent：{agent_id}")
 
-        # 3. 业务员工
-        employees_dir = workspace / "employees"
-        if employees_dir.is_dir():
-            for path in sorted(employees_dir.glob("*.jsonc")):
+        # 3. 业务 Agent
+        agents_dir = workspace / "agents"
+        if agents_dir.is_dir():
+            for path in sorted(agents_dir.glob("*.jsonc")):
                 agent = _load_agent_from_file(path, AgentKind.WORKER)
                 if agent:
                     agents[agent.id] = agent
-                    logger.debug(f"业务员工已加载：{agent.id}")
+                    logger.debug(f"业务 Agent 已加载：{agent.id}")
 
     _agents_cache = agents
     return agents
@@ -789,6 +811,7 @@ async def list_agents_for_mode(mode: str) -> list[Agent]:
 # =============================================================================
 # AgentService — 供执行器依赖注入使用
 # =============================================================================
+
 
 class AgentService:
     """Agent 服务（供执行器通过依赖注入使用）。"""

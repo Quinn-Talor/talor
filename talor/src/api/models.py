@@ -1,4 +1,4 @@
-"""Request/Response Models for Talor API — AI 数字员工平台。"""
+"""Request/Response Models for Talor API — AI Agent 平台。"""
 
 from typing import Any
 
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 # Health
 # =============================================================================
 
+
 class HealthResponse(BaseModel):
     status: str
     version: str
@@ -17,6 +18,7 @@ class HealthResponse(BaseModel):
 # =============================================================================
 # Session
 # =============================================================================
+
 
 class SessionCreateRequest(BaseModel):
     title: str | None = None
@@ -34,6 +36,7 @@ class SessionResponse(BaseModel):
 # =============================================================================
 # Prompt
 # =============================================================================
+
 
 class MessagePartInput(BaseModel):
     type: str
@@ -56,6 +59,7 @@ class PromptRequest(BaseModel):
 # Tool
 # =============================================================================
 
+
 class ToolResponse(BaseModel):
     name: str
     description: str
@@ -64,8 +68,9 @@ class ToolResponse(BaseModel):
 
 
 # =============================================================================
-# Agent / 数字员工
+# Agent
 # =============================================================================
+
 
 class WorkflowStepResponse(BaseModel):
     id: str
@@ -134,11 +139,11 @@ class AgentResponse(BaseModel):
     id: str
     name: str
     description: str | None = None
-    kind: str                              # platform | worker
-    scope: str                             # primary | subagent | both
+    kind: str  # platform | worker
+    scope: str  # primary | subagent | both
     hidden: bool
-    is_worker: bool                        # 是否为业务员工
-    # 业务员工字段（kind=worker 时有值）
+    is_worker: bool  # 是否为业务 Agent
+    # 业务 Agent 字段（kind=worker 时有值）
     role: RoleDefinitionResponse | None = None
     capabilities: CapabilityScopeResponse | None = None
     workflow: WorkflowDefinitionResponse | None = None
@@ -157,6 +162,7 @@ class AgentSystemPromptResponse(BaseModel):
 # Provider
 # =============================================================================
 
+
 class ModelCapabilitiesResponse(BaseModel):
     vision: bool
     function_calling: bool
@@ -168,7 +174,7 @@ class ModelCapabilitiesResponse(BaseModel):
 
 
 class ModelCostResponse(BaseModel):
-    input: float   # per 1M tokens
+    input: float  # per 1M tokens
     output: float  # per 1M tokens
     cache_read: float
     cache_write: float
@@ -194,6 +200,7 @@ class ProviderResponse(BaseModel):
 # MCP
 # =============================================================================
 
+
 class MCPServerResponse(BaseModel):
     name: str
     status: str
@@ -203,6 +210,7 @@ class MCPServerResponse(BaseModel):
 # =============================================================================
 # Config
 # =============================================================================
+
 
 class ConfigResponse(BaseModel):
     default_agent: str | None

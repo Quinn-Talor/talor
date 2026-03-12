@@ -61,8 +61,10 @@ logger = logging.getLogger(__name__)
 # ReAct Loop State and Events (merged from loop.py)
 # =============================================================================
 
+
 class LoopPhase(str, Enum):
     """Current phase in the ReAct loop."""
+
     IDLE = "idle"
     REASONING = "reasoning"
     ACTING = "acting"
@@ -73,11 +75,12 @@ class LoopPhase(str, Enum):
 
 class StopReason(str, Enum):
     """Reason for loop termination."""
-    COMPLETED = "completed"          # Natural completion
+
+    COMPLETED = "completed"  # Natural completion
     MAX_ITERATIONS = "max_iterations"  # Hit iteration limit
-    CANCELLED = "cancelled"          # User cancelled
-    ERROR = "error"                  # Error occurred
-    NO_ACTION = "no_action"          # LLM decided no action needed
+    CANCELLED = "cancelled"  # User cancelled
+    ERROR = "error"  # Error occurred
+    NO_ACTION = "no_action"  # LLM decided no action needed
 
 
 @dataclass
@@ -86,11 +89,12 @@ class Thought:
 
     Contains the LLM's analysis and decision about what to do next.
     """
-    content: str                     # Reasoning text
-    requires_action: bool = False    # Whether action is needed
+
+    content: str  # Reasoning text
+    requires_action: bool = False  # Whether action is needed
     tool_calls: list["ToolCall"] = field(default_factory=list)
     finish_reason: str | None = None
-    confidence: float = 1.0          # Confidence in decision (0-1)
+    confidence: float = 1.0  # Confidence in decision (0-1)
 
     @property
     def is_final(self) -> bool:
@@ -101,6 +105,7 @@ class Thought:
 @dataclass
 class ToolCall:
     """Represents a tool call decision."""
+
     id: str
     name: str
     arguments: dict[str, Any]
@@ -118,6 +123,7 @@ class ToolCall:
 @dataclass
 class Action:
     """Represents an executed action."""
+
     tool_call: ToolCall
     started_at: float = field(default_factory=time.time)
     completed_at: float | None = None
@@ -136,6 +142,7 @@ class Observation:
 
     Contains the tool execution result and any metadata.
     """
+
     action: Action
     success: bool
     output: str
@@ -157,6 +164,7 @@ class LoopContext:
 
     Tracks the conversation history, iterations, and state.
     """
+
     session_id: str
     message_id: str
     messages: list[dict[str, Any]] = field(default_factory=list)
@@ -171,18 +179,22 @@ class LoopContext:
         """Add a thought to history."""
         self.thoughts.append(thought)
         if thought.content:
-            self.messages.append({
-                "role": "assistant",
-                "content": thought.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": tc.arguments},
-                    }
-                    for tc in thought.tool_calls
-                ] if thought.tool_calls else None,
-            })
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "content": thought.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.name, "arguments": tc.arguments},
+                        }
+                        for tc in thought.tool_calls
+                    ]
+                    if thought.tool_calls
+                    else None,
+                }
+            )
 
     def add_observation(self, observation: Observation) -> None:
         """Add an observation to history."""
@@ -199,25 +211,29 @@ class LoopContext:
 # Loop Configuration
 # =============================================================================
 
+
 @dataclass
 class LoopConfig:
     """Configuration for the agent loop."""
-    max_iterations: int = 50         # Maximum reasoning cycles
+
+    max_iterations: int = 50  # Maximum reasoning cycles
     max_tool_calls_per_iteration: int = 10  # Max tools per cycle
-    timeout_seconds: float = 300     # Overall timeout
+    timeout_seconds: float = 300  # Overall timeout
     enable_reflection: bool = False  # Enable self-reflection
-    reflection_frequency: int = 5    # Reflect every N iterations
-    retry_on_error: bool = True      # Retry failed tool calls
-    max_retries: int = 2             # Max retries per tool
+    reflection_frequency: int = 5  # Reflect every N iterations
+    retry_on_error: bool = True  # Retry failed tool calls
+    max_retries: int = 2  # Max retries per tool
 
 
 # =============================================================================
 # SSE Event Types
 # =============================================================================
 
+
 @dataclass
 class SSEEvent:
     """SSE event for streaming."""
+
     event: str  # "text", "tool_call", "tool_result", "error", "done"
     data: dict[str, Any]
 
@@ -226,9 +242,11 @@ class SSEEvent:
 # Execution Status
 # =============================================================================
 
+
 @dataclass
 class ExecutionStatus:
     """Agent execution status."""
+
     type: str  # "idle", "busy", "error"
     step: int = 0
     message: str | None = None
@@ -238,9 +256,11 @@ class ExecutionStatus:
 # Active Execution Tracking
 # =============================================================================
 
+
 @dataclass
 class ActiveExecution:
     """Tracks an active agent execution."""
+
     abort: asyncio.Event
     callbacks: list[dict]
 
@@ -248,6 +268,7 @@ class ActiveExecution:
 # =============================================================================
 # Agent Executor Service
 # =============================================================================
+
 
 class AgentExecutor:
     """Agent execution service.
@@ -343,6 +364,7 @@ class AgentExecutor:
         # Register Skill tool (Stage 2: load full instructions on-demand)
         if skill_plugin.registry:
             from src.skill.tool import create_skill_tool
+
             skill_tool = create_skill_tool()
             try:
                 await self._tool_registry.register(skill_tool, source="skill")
@@ -382,7 +404,7 @@ class AgentExecutor:
             }
             message_dicts.append(msg_dict)
 
-        # 获取 agent 的员工手册路径（manual 字段）
+        # 获取 agent 的手册路径（manual 字段）
         agent_prompt_path: str | None = None
 
         if self._agent_service:
@@ -676,10 +698,13 @@ class AgentExecutor:
                 # Check if we're done
                 if self._is_execution_complete(last_user, last_assistant):
                     logger.info(f"Execution stream complete for session {session_id}")
-                    yield SSEEvent(event="done", data={
-                        "message_id": last_assistant.info.id,  # type: ignore
-                        "reason": last_assistant.info.finish,  # type: ignore
-                    })
+                    yield SSEEvent(
+                        event="done",
+                        data={
+                            "message_id": last_assistant.info.id,  # type: ignore
+                            "reason": last_assistant.info.finish,  # type: ignore
+                        },
+                    )
                     return
 
                 step += 1
@@ -693,6 +718,7 @@ class AgentExecutor:
                     yield event
 
                     if event.event in ("done", "error"):
+                        logger.info(f"Loop stopping: event={event.event}")
                         return
 
             # Max steps reached
@@ -844,11 +870,13 @@ class AgentExecutor:
             if part_type == "text":
                 text = part_data.get("text", "")
                 user_text += text
-                message_parts.append(TextPart(
-                    text=text,
-                    session_id=session_id,
-                    message_id=message.id,
-                ))
+                message_parts.append(
+                    TextPart(
+                        text=text,
+                        session_id=session_id,
+                        message_id=message.id,
+                    )
+                )
 
         result = await self._session_service.add_message(session_id, message, message_parts)
 
@@ -883,12 +911,13 @@ class AgentExecutor:
             return parts
 
         import re
+
         for part in parts:
             if part.get("type") != "text":
                 continue
             text = part.get("text", "").strip()
             # Match /skill-name with optional arguments
-            m = re.match(r'^/([a-z][a-z0-9-]*)(?:\s+(.*))?$', text, re.DOTALL)
+            m = re.match(r"^/([a-z][a-z0-9-]*)(?:\s+(.*))?$", text, re.DOTALL)
             if not m:
                 continue
             skill_name, arguments = m.group(1), (m.group(2) or "").strip()
@@ -1078,7 +1107,9 @@ class AgentExecutor:
             tool_defs = prompt_result.get("tools", [])
 
             # Call LLM - use full provider/model format
-            model_str = f"{model_info.get('provider_id', 'ollama')}/{model_info.get('model_id', '')}"
+            model_str = (
+                f"{model_info.get('provider_id', 'ollama')}/{model_info.get('model_id', '')}"
+            )
             response = await self._provider_service.complete(
                 model=model_str,
                 messages=llm_messages,
@@ -1126,7 +1157,9 @@ class AgentExecutor:
             await self._session_service.update_message(
                 session_id,
                 assistant_msg.id,
-                lambda m: setattr(m.info, "finish", finish_reason) if isinstance(m.info, AssistantMessage) else None,
+                lambda m: setattr(m.info, "finish", finish_reason)
+                if isinstance(m.info, AssistantMessage)
+                else None,
             )
 
             # Publish agent completed event
@@ -1146,7 +1179,9 @@ class AgentExecutor:
             await self._session_service.update_message(
                 session_id,
                 assistant_msg.id,
-                lambda m: setattr(m.info, "error", {"message": str(e)}) if isinstance(m.info, AssistantMessage) else None,
+                lambda m: setattr(m.info, "error", {"message": str(e)})
+                if isinstance(m.info, AssistantMessage)
+                else None,
             )
 
             await self._publish_agent_error(session_id, agent, str(e))
@@ -1197,10 +1232,13 @@ class AgentExecutor:
 
         await self._session_service.add_message(session_id, assistant_msg, [])
 
-        yield SSEEvent(event="message_start", data={
-            "message_id": assistant_msg.id,
-            "session_id": session_id,
-        })
+        yield SSEEvent(
+            event="message_start",
+            data={
+                "message_id": assistant_msg.id,
+                "session_id": session_id,
+            },
+        )
 
         await self._publish_message_created(session_id, assistant_msg.id)
         await self._publish_agent_started(session_id, agent, model_info)
@@ -1224,7 +1262,9 @@ class AgentExecutor:
             tool_defs = prompt_result.get("tools", [])
 
             # Call LLM with streaming - use full provider/model format
-            model_str = f"{model_info.get('provider_id', 'ollama')}/{model_info.get('model_id', '')}"
+            model_str = (
+                f"{model_info.get('provider_id', 'ollama')}/{model_info.get('model_id', '')}"
+            )
             stream_response = await self._provider_service.complete(
                 model=model_str,
                 messages=llm_messages,
@@ -1248,10 +1288,13 @@ class AgentExecutor:
                 content = chunk.get("content", "")
                 if content:
                     full_content += content
-                    yield SSEEvent(event="text", data={
-                        "content": content,
-                        "message_id": assistant_msg.id,
-                    })
+                    yield SSEEvent(
+                        event="text",
+                        data={
+                            "content": content,
+                            "message_id": assistant_msg.id,
+                        },
+                    )
                     await self._publish_stream_text(session_id, assistant_msg.id, content)
 
                 # Handle tool calls (accumulated)
@@ -1261,6 +1304,19 @@ class AgentExecutor:
 
                 if chunk.get("finish_reason"):
                     finish_reason = chunk["finish_reason"]
+
+            # Parse Qwen3 tool calls from content if no standard tool_calls found
+            if not tool_calls and full_content:
+                logger.info(f"Checking for Qwen3 tool calls in content (len={len(full_content)})")
+                from src.provider.provider import parse_qwen3_tool_calls
+
+                xml_tool_calls, cleaned_content = parse_qwen3_tool_calls(full_content)
+                if xml_tool_calls:
+                    logger.info(f"Qwen3 tool calls parsed: {len(xml_tool_calls)} calls")
+                    tool_calls = xml_tool_calls
+                    full_content = cleaned_content
+                else:
+                    logger.info("No Qwen3 tool calls found in content")
 
             # Add text content to message
             if full_content:
@@ -1274,13 +1330,21 @@ class AgentExecutor:
             # Handle tool calls — execute in parallel, collect events, yield in order
             if tool_calls:
                 finish_reason = "tool-calls"
+                logger.info(
+                    f"Tool calls detected: {len(tool_calls)} calls, setting finish_reason='tool-calls'"
+                )
 
                 # Notify frontend of all tool calls first
                 for tc in tool_calls:
-                    yield SSEEvent(event="tool_call", data={
-                        "message_id": assistant_msg.id,
-                        "tool_call": tc,
-                    })
+                    tool_name = tc.get("function", {}).get("name", "unknown")
+                    logger.debug(f"  - Tool call: {tool_name}")
+                    yield SSEEvent(
+                        event="tool_call",
+                        data={
+                            "message_id": assistant_msg.id,
+                            "tool_call": tc,
+                        },
+                    )
                     await self._publish_stream_tool_call(session_id, assistant_msg.id, tc)
 
                 # Execute all tool calls in parallel, collecting events
@@ -1309,28 +1373,44 @@ class AgentExecutor:
                         logger.error(f"Parallel tool execution error: {result}")
 
             # Update message with finish reason
+            logger.info(
+                f"Step complete: finish_reason='{finish_reason}', tool_calls_count={len(tool_calls)}"
+            )
             await self._session_service.update_message(
                 session_id,
                 assistant_msg.id,
-                lambda m: setattr(m.info, "finish", finish_reason) if isinstance(m.info, AssistantMessage) else None,
+                lambda m: setattr(m.info, "finish", finish_reason)
+                if isinstance(m.info, AssistantMessage)
+                else None,
             )
 
             await self._publish_agent_completed(session_id, agent, finish_reason)
 
             if finish_reason not in ("tool-calls",):
+                logger.info(f"Yielding done event: finish_reason='{finish_reason}'")
                 await self._publish_stream_done(session_id, assistant_msg.id, finish_reason)
-                yield SSEEvent(event="done", data={
-                    "message_id": assistant_msg.id,
-                    "reason": finish_reason,
-                })
+                yield SSEEvent(
+                    event="done",
+                    data={
+                        "message_id": assistant_msg.id,
+                        "reason": finish_reason,
+                    },
+                )
+            else:
+                logger.info(f"Not yielding done: finish_reason='tool-calls', loop should continue")
 
         except Exception as e:
             logger.error(f"Error in process step stream: {e}", exc_info=True)
+            import traceback
+
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
 
             await self._session_service.update_message(
                 session_id,
                 assistant_msg.id,
-                lambda m: setattr(m.info, "error", {"message": str(e)}) if isinstance(m.info, AssistantMessage) else None,
+                lambda m: setattr(m.info, "error", {"message": str(e)})
+                if isinstance(m.info, AssistantMessage)
+                else None,
             )
 
             await self._publish_agent_error(session_id, agent, str(e))
@@ -1364,12 +1444,13 @@ class AgentExecutor:
                 if "function" in tc and "arguments" in tc["function"]:
                     if "function" not in found:
                         found["function"] = {}
-                    found["function"]["arguments"] = found["function"].get("arguments", "") + tc["function"]["arguments"]
+                    found["function"]["arguments"] = (
+                        found["function"].get("arguments", "") + tc["function"]["arguments"]
+                    )
             else:
                 existing.append(tc)
 
         return existing
-
 
     # =========================================================================
     # Tool Execution
@@ -1419,6 +1500,7 @@ class AgentExecutor:
         # Create context
         from src.tool.context import ToolContext
         from src import get_global_bus
+
         context = ToolContext(
             session_id=session_id,
             message_id=message_id,
@@ -1528,16 +1610,20 @@ class AgentExecutor:
 
         await self._session_service.add_part(session_id, message_id, tool_part)
 
-        yield SSEEvent(event="tool_executing", data={
-            "call_id": call_id,
-            "tool": tool_name,
-            "input": arguments,
-            "message_id": message_id,
-        })
+        yield SSEEvent(
+            event="tool_executing",
+            data={
+                "call_id": call_id,
+                "tool": tool_name,
+                "input": arguments,
+                "message_id": message_id,
+            },
+        )
 
         # Create context
         from src.tool.context import ToolContext
         from src import get_global_bus
+
         context = ToolContext(
             session_id=session_id,
             message_id=message_id,
@@ -1568,12 +1654,15 @@ class AgentExecutor:
                 content=f"Error: {blocked}",
                 tool_call_id=call_id,
             )
-            yield SSEEvent(event="tool_error", data={
-                "call_id": call_id,
-                "tool": tool_name,
-                "error": blocked,
-                "message_id": message_id,
-            })
+            yield SSEEvent(
+                event="tool_error",
+                data={
+                    "call_id": call_id,
+                    "tool": tool_name,
+                    "error": blocked,
+                    "message_id": message_id,
+                },
+            )
             await self._publish_stream_tool_result(
                 session_id, message_id, call_id, tool_name, "", error=blocked
             )
@@ -1583,7 +1672,9 @@ class AgentExecutor:
             tool_part.state = "running"
             tool_part.time["started"] = int(time.time() * 1000)
 
+            logger.info(f"Executing tool: {tool_name} with args: {arguments}")
             result = await self._tool_registry.execute(tool_name, arguments, context)
+            logger.info(f"Tool executed successfully: {tool_name}")
 
             tool_part.state = "completed"
             tool_part.output = result.output
@@ -1598,21 +1689,30 @@ class AgentExecutor:
                 tool_call_id=call_id,
             )
 
-            yield SSEEvent(event="tool_result", data={
-                "call_id": call_id,
-                "tool": tool_name,
-                "output": result.output,
-                "title": result.title,
-                "metadata": result.metadata,
-                "message_id": message_id,
-            })
+            yield SSEEvent(
+                event="tool_result",
+                data={
+                    "call_id": call_id,
+                    "tool": tool_name,
+                    "output": result.output,
+                    "title": result.title,
+                    "metadata": result.metadata,
+                    "message_id": message_id,
+                },
+            )
 
             await self._publish_stream_tool_result(
-                session_id, message_id, call_id, tool_name, result.output, result.title, result.metadata
+                session_id,
+                message_id,
+                call_id,
+                tool_name,
+                result.output,
+                result.title,
+                result.metadata,
             )
 
         except Exception as e:
-            logger.error(f"Tool execution error: {e}")
+            logger.error(f"Tool execution error for {tool_name}: {e}", exc_info=True)
             tool_part.state = "error"
             tool_part.error = str(e)
             tool_part.time["completed"] = int(time.time() * 1000)
@@ -1624,12 +1724,15 @@ class AgentExecutor:
                 tool_call_id=call_id,
             )
 
-            yield SSEEvent(event="tool_error", data={
-                "call_id": call_id,
-                "tool": tool_name,
-                "error": str(e),
-                "message_id": message_id,
-            })
+            yield SSEEvent(
+                event="tool_error",
+                data={
+                    "call_id": call_id,
+                    "tool": tool_name,
+                    "error": str(e),
+                    "message_id": message_id,
+                },
+            )
 
             await self._publish_stream_tool_result(
                 session_id, message_id, call_id, tool_name, "", error=str(e)
@@ -1646,6 +1749,7 @@ class AgentExecutor:
             GlobalBus instance
         """
         from src import get_global_bus
+
         return get_global_bus()
 
     async def _publish_agent_started(
@@ -1654,6 +1758,7 @@ class AgentExecutor:
         """Publish agent started event."""
         bus = self._get_global_bus()
         from src.bus.events import AgentStarted, AgentStartedData
+
         await bus.publish(
             AgentStarted,
             AgentStartedData(
@@ -1661,15 +1766,14 @@ class AgentExecutor:
                 agent=agent,
                 model_id=model_info.get("model_id", ""),
                 provider_id=model_info.get("provider_id", ""),
-            )
+            ),
         )
 
-    async def _publish_agent_completed(
-        self, session_id: str, agent: str, reason: str
-    ) -> None:
+    async def _publish_agent_completed(self, session_id: str, agent: str, reason: str) -> None:
         """Publish agent completed event."""
         bus = self._get_global_bus()
         from src.bus.events import AgentCompleted, AgentCompletedData
+
         await bus.publish(
             AgentCompleted,
             AgentCompletedData(
@@ -1677,30 +1781,28 @@ class AgentExecutor:
                 agent=agent,
                 iterations=1,
                 reason=reason,
-            )
+            ),
         )
 
-    async def _publish_agent_error(
-        self, session_id: str, agent: str, error: str
-    ) -> None:
+    async def _publish_agent_error(self, session_id: str, agent: str, error: str) -> None:
         """Publish agent error event."""
         bus = self._get_global_bus()
         from src.bus.events import AgentError, AgentErrorData
+
         await bus.publish(
             AgentError,
             AgentErrorData(
                 session_id=session_id,
                 agent=agent,
                 error=error,
-            )
+            ),
         )
 
-    async def _publish_message_created(
-        self, session_id: str, message_id: str
-    ) -> None:
+    async def _publish_message_created(self, session_id: str, message_id: str) -> None:
         """Publish message created event."""
         bus = self._get_global_bus()
         from src.bus.events import MessageCreated, MessageCreatedData
+
         await bus.publish(
             MessageCreated,
             MessageCreatedData(
@@ -1708,22 +1810,21 @@ class AgentExecutor:
                 message_id=message_id,
                 role="assistant",
                 content="",
-            )
+            ),
         )
 
-    async def _publish_stream_text(
-        self, session_id: str, message_id: str, content: str
-    ) -> None:
+    async def _publish_stream_text(self, session_id: str, message_id: str, content: str) -> None:
         """Publish stream text event."""
         bus = self._get_global_bus()
         from src.bus.events import StreamText, StreamTextData
+
         await bus.publish(
             StreamText,
             StreamTextData(
                 session_id=session_id,
                 message_id=message_id,
                 content=content,
-            )
+            ),
         )
 
     async def _publish_stream_tool_call(
@@ -1740,6 +1841,7 @@ class AgentExecutor:
             arguments = {}
 
         from src.bus.events import StreamToolCall, StreamToolCallData
+
         await bus.publish(
             StreamToolCall,
             StreamToolCallData(
@@ -1748,7 +1850,7 @@ class AgentExecutor:
                 call_id=call_id,
                 tool=tool_name,
                 input=arguments,
-            )
+            ),
         )
 
     async def _publish_stream_tool_result(
@@ -1765,6 +1867,7 @@ class AgentExecutor:
         """Publish stream tool result event."""
         bus = self._get_global_bus()
         from src.bus.events import StreamToolResult, StreamToolResultData
+
         await bus.publish(
             StreamToolResult,
             StreamToolResultData(
@@ -1776,43 +1879,42 @@ class AgentExecutor:
                 title=title,
                 metadata=metadata or {},
                 error=error,
-            )
+            ),
         )
 
-    async def _publish_stream_done(
-        self, session_id: str, message_id: str, reason: str
-    ) -> None:
+    async def _publish_stream_done(self, session_id: str, message_id: str, reason: str) -> None:
         """Publish stream done event."""
         bus = self._get_global_bus()
         from src.bus.events import StreamDone, StreamDoneData
+
         await bus.publish(
             StreamDone,
             StreamDoneData(
                 session_id=session_id,
                 message_id=message_id,
                 reason=reason,
-            )
+            ),
         )
 
-    async def _publish_stream_error(
-        self, session_id: str, message_id: str, error: str
-    ) -> None:
+    async def _publish_stream_error(self, session_id: str, message_id: str, error: str) -> None:
         """Publish stream error event."""
         bus = self._get_global_bus()
         from src.bus.events import StreamError, StreamErrorData
+
         await bus.publish(
             StreamError,
             StreamErrorData(
                 session_id=session_id,
                 message_id=message_id,
                 error=error,
-            )
+            ),
         )
 
 
 # =============================================================================
 # AgentLoop - Backward Compatible Wrapper (merged from loop.py)
 # =============================================================================
+
 
 class AgentLoop:
     """Core ReAct loop implementation.
@@ -1906,16 +2008,21 @@ class AgentLoop:
 
         # Add system prompt
         if self.system_prompt:
-            self._context.messages.insert(0, {
-                "role": "system",
-                "content": self.system_prompt,
-            })
+            self._context.messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": self.system_prompt,
+                },
+            )
 
         # Add user prompt
-        self._context.messages.append({
-            "role": "user",
-            "content": prompt,
-        })
+        self._context.messages.append(
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        )
 
         # Emit start event
         yield await self._emit_started()
@@ -2183,9 +2290,10 @@ Are you making progress toward the goal? Should you adjust your approach?
                 "iteration": self._context.iterations,
                 "actions_count": len(self._context.actions),
                 "success_rate": (
-                    sum(1 for o in self._context.observations if o.success) /
-                    len(self._context.observations)
-                    if self._context.observations else 1.0
+                    sum(1 for o in self._context.observations if o.success)
+                    / len(self._context.observations)
+                    if self._context.observations
+                    else 1.0
                 ),
             },
         }
@@ -2255,10 +2363,7 @@ Are you making progress toward the goal? Should you adjust your approach?
                 "message_id": self.message_id,
                 "content": thought.content,
                 "requires_action": thought.requires_action,
-                "tool_calls": [
-                    {"id": tc.id, "name": tc.name}
-                    for tc in thought.tool_calls
-                ],
+                "tool_calls": [{"id": tc.id, "name": tc.name} for tc in thought.tool_calls],
                 "is_final": thought.is_final,
             },
         }

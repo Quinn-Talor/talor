@@ -32,7 +32,7 @@ make check         # 全部检查（format + lint + typecheck + test）
 
 ```
 src/
-  agent/          # 数字员工核心模型（agent.py、executor.py）
+    agent/          # Agent 核心模型（agent.py、executor.py）
   api/
     routes/       # HTTP 路由层（只做参数验证 + 调用业务逻辑）
     models.py     # Pydantic 请求/响应模型
@@ -71,7 +71,7 @@ docs/             # 模块级深度文档
 GET  /                                    # 平台信息
 GET  /api/agents                          # 列表（?kind=worker|platform）
 GET  /api/agents/{id}                     # 详情
-GET  /api/agents/{id}/system-prompt       # 业务员工系统提示词
+GET  /api/agents/{id}/system-prompt       # 业务 Agent 系统提示词
 
 POST /api/sessions                        # 创建会话
 GET  /api/sessions                        # 会话列表

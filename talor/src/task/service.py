@@ -175,6 +175,7 @@ async def create_task(
     if status == TaskStatus.PENDING:
         asyncio.create_task(_run_task(task_id))
     else:
+        _queued.append(task_id)
         logger.info(f"Task {task_id} queued (running: {running_count}/{MAX_CONCURRENT_TASKS})")
 
     return task
@@ -274,17 +275,21 @@ async def get_file_preview(task_id: str, file_path: str) -> str:
 
 
 async def recover_interrupted_tasks() -> None:
-    """On server startup, recover tasks that were running when server stopped."""
-    running_tasks = await _list_tasks_from_storage(status=TaskStatus.RUNNING.value)
-    for task in running_tasks:
-        if task.id not in _task_requests:
-            # No request data available (server restart) — mark as failed
+    """On server startup, recover tasks that were running when server stopped.
+
+    RUNNING tasks have lost their in-memory executor state.
+    PENDING/QUEUED tasks have lost their request data (_task_requests is empty on restart).
+    All of these are unrecoverable without checkpoints, so mark them as failed.
+    """
+    for status in (TaskStatus.RUNNING, TaskStatus.PENDING, TaskStatus.QUEUED):
+        stuck_tasks = await _list_tasks_from_storage(status=status.value)
+        for task in stuck_tasks:
             await _update_status(
                 task.id,
                 TaskStatus.FAILED,
                 error="服务重启，任务中断",
             )
-            logger.warning(f"Task {task.id} marked failed (no checkpoint data after restart)")
+            logger.warning(f"Task {task.id} ({status.value}) marked failed after restart")
 
 
 # =============================================================================
@@ -368,14 +373,16 @@ async def _run_task(task_id: str) -> None:
         unsub_executed = bus.subscribe(ToolExecuted, on_tool_executed)
 
         try:
-            # Execute via existing executor
-            async for _ in executor.execute_stream(
+            # Execute via existing executor; raise on error event so task is marked FAILED
+            async for event in executor.execute_stream(
                 session_id=task.session_id,
                 parts=[{"type": "text", "text": prompt}],
                 model=model,
                 agent=task.agent_id,
             ):
-                pass
+                if event.event == "error":
+                    error_msg = event.data.get("message", "Agent execution failed")
+                    raise RuntimeError(error_msg)
         finally:
             unsub_executing()
             unsub_executed()

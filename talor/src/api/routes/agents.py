@@ -1,6 +1,6 @@
-"""Agent Routes — AI 数字员工平台。
+"""Agent Routes — AI Agent 平台。
 
-提供数字员工 agent 的查询和系统提示词生成接口。
+提供 Agent 的查询和系统提示词生成接口。
 """
 
 from fastapi import APIRouter, HTTPException, Query
@@ -131,16 +131,18 @@ def _agent_to_response(agent: Agent) -> AgentResponse:
 async def list_agents(
     kind: str | None = Query(default=None, description="按类型过滤：platform / worker"),
 ) -> list[AgentResponse]:
-    """列出所有数字员工 agent。
+    """列出所有 Agent。
 
-    可通过 ?kind=worker 仅返回业务员工，?kind=platform 仅返回平台员工。
+    可通过 ?kind=worker 仅返回业务 Agent，?kind=platform 仅返回平台 Agent。
     """
     agent_kind = None
     if kind:
         try:
             agent_kind = AgentKind(kind)
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"无效的 kind 值：{kind}，应为 platform 或 worker")
+            raise HTTPException(
+                status_code=400, detail=f"无效的 kind 值：{kind}，应为 platform 或 worker"
+            )
 
     agents = await agent_list(kind=agent_kind)
     return [_agent_to_response(a) for a in agents]
@@ -158,10 +160,10 @@ async def get_agent(agent_id: str) -> AgentResponse:
 
 @router.get("/{agent_id}/system-prompt", response_model=AgentSystemPromptResponse)
 async def get_agent_system_prompt(agent_id: str) -> AgentSystemPromptResponse:
-    """获取业务员工的结构化系统提示词。
+    """获取业务 Agent 的结构化系统提示词。
 
-    仅业务员工（kind=worker）有结构化提示词。
-    平台员工返回空字符串。
+    仅业务 Agent（kind=worker）有结构化提示词。
+    平台 Agent 返回空字符串。
     """
     agent = await agent_get(agent_id)
     if not agent:

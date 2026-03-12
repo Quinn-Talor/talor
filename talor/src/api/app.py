@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 # Lifespan Management
 # =============================================================================
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
@@ -85,10 +86,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Connect to MCP servers
     try:
+        print("[DEBUG] Starting MCP connection...", flush=True)
+        logger.info("Connecting to MCP servers from config...")
+
         await mcp_manager.connect_from_config()
+        print("[DEBUG] MCP servers connected", flush=True)
+        logger.info("MCP servers connected successfully")
+
+        print("[DEBUG] Registering MCP tools...", flush=True)
         await register_mcp_tools(state.tool_registry, mcp_manager)
+        print(f"[DEBUG] MCP tools registered. Total: {state.tool_registry.tool_count}", flush=True)
+        logger.info(
+            f"MCP tools registered successfully. Total tools: {state.tool_registry.tool_count}"
+        )
     except Exception as e:
+        print(f"[ERROR] MCP connection failed: {e}", flush=True)
         logger.warning(f"Failed to connect MCP servers: {e}")
+        import traceback
+
+        error_trace = traceback.format_exc()
+        print(f"[ERROR] Traceback:\n{error_trace}", flush=True)
+        logger.warning(f"Traceback: {error_trace}")
 
     # Create AgentExecutor with module-level services
     from src.session import SessionService
@@ -112,6 +130,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from src.core.storage import StorageSystem
     import src.task.service as task_svc
     import src.session.session as session_module
+
     task_storage = StorageSystem()
     await task_storage.init()
     session_module.configure(workspace=workspace, storage=task_storage)
@@ -158,8 +177,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 # =============================================================================
 
 app = FastAPI(
-    title="Talor — AI 数字员工平台",
-    description="AI 数字员工平台，支持构建、定义和运行结构化数字员工 agent。",
+    title="Talor — AI Agent 平台",
+    description="AI Agent 平台，支持构建、定义和运行结构化 Agent。",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -179,16 +198,17 @@ app.include_router(create_api_router(), prefix="/api")
 # /event and /ws are accessed directly without /api prefix
 app.include_router(create_events_router(), tags=["events"])
 
+
 # Root endpoint (outside /api prefix)
 @app.get("/")
 async def root() -> dict:
     """Root endpoint - API info."""
     return {
-        "name": "Talor AI 数字员工平台",
+        "name": "Talor AI Agent 平台",
         "version": "0.1.0",
         "status": "running",
-        "architecture": "digital-employee-platform",
-        "capabilities": ["digital-employees", "react-agent", "mcp", "multi-provider"],
+        "architecture": "agent-platform",
+        "capabilities": ["agents", "react-agent", "mcp", "multi-provider"],
     }
 
 

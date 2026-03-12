@@ -2,7 +2,7 @@
  * AssignTaskModal Component
  * 指派工作对话框
  *
- * Modal for creating a new background task (assigning work to a digital employee).
+ * Modal for creating a new background task (assigning work to an agent).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -118,9 +118,9 @@ export const AssignTaskModal: React.FC<AssignTaskModalProps> = ({
               </label>
               <div className="flex flex-wrap gap-2">
                 {isLoading ? (
-                  <div className="text-sm text-gray-400 animate-pulse">加载数字员工...</div>
+                  <div className="text-sm text-gray-400 animate-pulse">加载 Agent...</div>
                 ) : agents.length === 0 ? (
-                  <div className="text-sm text-gray-400">暂无可用数字员工</div>
+                  <div className="text-sm text-gray-400">暂无可用 Agent</div>
                 ) : (
                   agents.map((agent) => (
                     <button

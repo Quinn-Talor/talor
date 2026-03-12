@@ -1,5 +1,5 @@
 {
-  // 数据分析师 — 数字员工定义
+  // 数据分析师 — Agent 定义
   "id": "data-analyst",
   "name": "数据分析师",
   "description": "专注于数据分析、统计建模和可视化的专业分析师",
@@ -145,7 +145,7 @@
     ]
   },
 
-  "manual": "employees/manuals/data-analyst.md",
+  "manual": "agents/manuals/data-analyst.md",
 
   "permission": [
     {"permission": "read", "action": "allow"},

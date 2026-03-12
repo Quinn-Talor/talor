@@ -1,6 +1,6 @@
-# Talor — AI 数字员工平台
+# Talor — AI Agent 平台
 
-> 为每个业务场景定义一名数字员工，让 AI Agent 像人一样有岗位、有职责、有交付标准。
+> 为每个业务场景定义一名 Agent，让 AI Agent 像人一样有岗位、有职责、有交付标准。
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?logo=fastapi&logoColor=white)
@@ -12,7 +12,7 @@
 
 ## 这是什么
 
-Talor 是一个 AI 数字员工平台。你可以用 JSONC 文件定义一名数字员工——赋予她职位名称、能力范围、工作流程和交付标准——平台负责将她的"员工契约"转化为系统提示词，驱动 ReAct 执行引擎完成任务。
+Talor 是一个 AI Agent 平台。你可以用 JSONC 文件定义一名 Agent——赋予她职位名称、能力范围、工作流程和交付标准——平台负责将她的"Agent 契约"转化为系统提示词，驱动 ReAct 执行引擎完成任务。
 
 **类比**：如果说传统 AI 助手是"全能客服"，Talor 让你雇一名"专职数据分析师"或"代码审查员"，她只做自己岗位上的事，并按照约定的标准交付结果。
 
@@ -20,7 +20,7 @@ Talor 是一个 AI 数字员工平台。你可以用 JSONC 文件定义一名数
 
 ## 核心特性
 
-- 🏢 **员工契约模型** — JSONC 定义角色、能力、工作流程、输入规范、交付标准，结构清晰可版本管理
+- 🏢 **Agent 契约模型** — JSONC 定义角色、能力、工作流程、输入规范、交付标准，结构清晰可版本管理
 - ⚡ **ReAct 执行引擎** — Reason-Act 循环，支持多步推理、工具调用、子 Agent 委派
 - 🔌 **多模型支持** — Ollama（本地）/ OpenAI / Anthropic / Google，通过 LiteLLM 统一接入，一行配置切换
 - 🛠️ **内置工具集** — `bash`、`read`、`write`、`edit`、`glob`、`grep`、`ls`，开箱即用
@@ -33,11 +33,11 @@ Talor 是一个 AI 数字员工平台。你可以用 JSONC 文件定义一名数
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                      Talor 数字员工平台                        │
+│                      Talor Agent 平台                         │
 │                                                              │
-│  平台员工（内置，代码定义）      业务员工（用户定义，JSONC）      │
+│  平台 Agent（内置，代码定义）     业务 Agent（用户定义，JSONC）   │
 │  ──────────────────────        ────────────────────────────  │
-│  build   通用执行员             employees/xxx.jsonc           │
+│  build   通用执行员             agents/xxx.jsonc              │
 │  plan    任务规划员             ├── role（角色定义）            │
 │  explore 探索员（subagent）     ├── capabilities（能力范围）    │
 │  general 研究员（subagent）     ├── workflow（工作流程）        │
@@ -53,8 +53,8 @@ Talor 是一个 AI 数字员工平台。你可以用 JSONC 文件定义一名数
 
 **两层加载路径：**
 ```
-平台员工  ← agent.py 硬编码默认值  ←（可选）.talor/agents/{id}.jsonc 覆盖
-业务员工  ←  {workspace}/employees/*.jsonc
+平台 Agent ← agent.py 硬编码默认值  ←（可选）.talor/agents/{id}.jsonc 覆盖
+业务 Agent ←  {workspace}/agents/*.jsonc
 ```
 
 ---
@@ -85,12 +85,12 @@ npm install && npm run dev                    # http://127.0.0.1:5173
 
 ---
 
-## 定义你的数字员工
+## 定义你的 Agent
 
-在工作区的 `employees/` 目录下新建 `.jsonc` 文件：
+在工作区的 `agents/` 目录下新建 `.jsonc` 文件：
 
 ```jsonc
-// employees/my-analyst.jsonc
+// agents/my-analyst.jsonc
 {
   "id": "my-analyst",
   "name": "我的数据分析师",
@@ -120,9 +120,9 @@ npm install && npm run dev                    # http://127.0.0.1:5173
 }
 ```
 
-重启后端后，通过 `GET /api/agents?kind=worker` 验证加载成功，即可在 UI 中选择该员工发起对话。
+重启后端后，通过 `GET /api/agents?kind=worker` 验证加载成功，即可在 UI 中选择该 Agent 发起对话。
 
-参考模板：[`employees/code-reviewer.jsonc`](employees/code-reviewer.jsonc)、[`employees/data-analyst.jsonc`](employees/data-analyst.jsonc)
+参考模板：[`agents/code-reviewer.jsonc`](agents/code-reviewer.jsonc)、[`agents/data-analyst.jsonc`](agents/data-analyst.jsonc)
 
 ---
 
@@ -173,7 +173,7 @@ npm run lint       # ESLint 检查
 ```
 talor/              # Python 后端（FastAPI + LiteLLM + SQLite）
   src/
-    agent/          # 数字员工模型 + ReAct 执行器
+    agent/          # Agent 模型 + ReAct 执行器
     api/            # HTTP 路由层
     tool/builtin/   # 内置工具（bash、read、write …）
     provider/       # LLM Provider 抽象（LiteLLM 封装）
@@ -188,7 +188,7 @@ talor-gui/          # React 19 桌面前端
     api/            # 后端 API 客户端
     hooks/          # useEvents（SSE）等
 
-employees/          # 数字员工定义（.jsonc）+ 手册（manuals/*.md）
+agents/             # Agent 定义（.jsonc）+ 手册（manuals/*.md）
 ```
 
 ---

@@ -36,7 +36,7 @@
       "name": "Ollama",
       "api_key_env": null,
       "base_url": "http://localhost:11434/v1",
-      "auto_discover": true,
+      "auto_discover": false,
       "models": []
     }
   },
@@ -45,13 +45,6 @@
     "playwright": {
       "command": "npx",
       "args": ["@playwright/mcp@latest"],
-      "env": {},
-      "disabled": false,
-      "auto_approve": []
-    },
-    "pymupdf4llm-mcp": {
-      "command": "uvx",
-      "args": ["pymupdf4llm-mcp@latest", "stdio"],
       "env": {},
       "disabled": false,
       "auto_approve": []
