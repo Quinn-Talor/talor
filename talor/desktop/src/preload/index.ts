@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Session, Provider, Message } from '../renderer/types'
+import type { Session, Provider, Message, Agent } from '../renderer/types'
 
 const api = {
   invoke: (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args),
@@ -26,6 +26,12 @@ const api = {
     getAll: (): Promise<Provider[]> => ipcRenderer.invoke('provider:getAll'),
     getById: (id: string): Promise<Provider | null> => ipcRenderer.invoke('provider:getById', id),
     upsert: (provider: Provider): Promise<Provider> => ipcRenderer.invoke('provider:upsert', provider)
+  },
+
+  agent: {
+    getAll: (): Promise<Agent[]> => ipcRenderer.invoke('agent:getAll'),
+    getById: (id: string): Promise<Agent | null> => ipcRenderer.invoke('agent:getById', id),
+    upsert: (agent: Agent): Promise<Agent> => ipcRenderer.invoke('agent:upsert', agent)
   }
 }
 

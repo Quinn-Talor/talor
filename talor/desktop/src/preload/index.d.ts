@@ -1,4 +1,4 @@
-import type { Session, Provider, Message } from '../renderer/types'
+import type { Session, Provider, Message, Agent } from '../renderer/types'
 
 export interface SessionAPI {
   getAll: () => Promise<Session[]>
@@ -15,12 +15,19 @@ export interface ProviderAPI {
   upsert: (provider: Provider) => Promise<Provider>
 }
 
+export interface AgentAPI {
+  getAll: () => Promise<Agent[]>
+  getById: (id: string) => Promise<Agent | null>
+  upsert: (agent: Agent) => Promise<Agent>
+}
+
 export interface TalorAPI {
   invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
   on: (channel: string, callback: (...args: unknown[]) => void) => () => void
   off: (channel: string, callback: (...args: unknown[]) => void) => void
   session: SessionAPI
   provider: ProviderAPI
+  agent: AgentAPI
 }
 
 declare global {

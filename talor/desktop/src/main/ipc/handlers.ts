@@ -1,7 +1,8 @@
 import { ipcMain } from 'electron'
 import { sessionRepository } from '../db/sessionRepository'
 import { providerRepository } from '../db/providerRepository'
-import type { Session, Provider } from '../../renderer/types'
+import { agentRepository } from '../db/agentRepository'
+import type { Session, Provider, Agent } from '../../renderer/types'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('session:getAll', () => {
@@ -43,5 +44,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('provider:upsert', (_event, provider: Provider) => {
     providerRepository.upsert(provider)
     return provider
+  })
+
+  ipcMain.handle('agent:getAll', () => {
+    return agentRepository.findAll()
+  })
+
+  ipcMain.handle('agent:getById', (_event, id: string) => {
+    return agentRepository.findById(id)
+  })
+
+  ipcMain.handle('agent:upsert', (_event, agent: Agent) => {
+    agentRepository.upsert(agent)
+    return agent
   })
 }

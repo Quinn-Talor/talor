@@ -1,5 +1,5 @@
 import { getDatabase } from './database'
-import type { Session, Message } from '../../renderer/types'
+import type { Session, Message } from '../types'
 
 export const sessionRepository = {
   findAll(): Session[] {

@@ -1,14 +1,26 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useProviderStore } from '@/renderer/store/providerStore'
+
+const mockProviders = [
+  { id: 'ollama', name: 'Ollama', type: 'ollama' as const, baseUrl: 'http://localhost:11434', models: [], isConfigured: true },
+  { id: 'openai', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com/v1', models: [], isConfigured: false }
+]
+
+vi.stubGlobal('window', {
+  api: {
+    provider: {
+      getAll: vi.fn().mockResolvedValue(mockProviders),
+      upsert: vi.fn().mockResolvedValue({})
+    }
+  }
+})
 
 describe('ProviderStore', () => {
   beforeEach(() => {
     useProviderStore.setState({
-      providers: [
-        { id: 'ollama', name: 'Ollama', type: 'ollama' as const, baseUrl: 'http://localhost:11434', models: [], isConfigured: true },
-        { id: 'openai', name: 'OpenAI', type: 'openai' as const, baseUrl: 'https://api.openai.com/v1', models: [], isConfigured: false }
-      ],
-      activeProviderId: 'ollama'
+      providers: mockProviders,
+      activeProviderId: 'ollama',
+      isLoading: false
     })
   })
 
@@ -23,9 +35,9 @@ describe('ProviderStore', () => {
     expect(useProviderStore.getState().activeProviderId).toBe(providers[1].id)
   })
 
-  it('should update provider', () => {
+  it('should update provider', async () => {
     const { updateProvider } = useProviderStore.getState()
-    updateProvider('ollama', { apiKey: 'test-key' })
+    await updateProvider('ollama', { apiKey: 'test-key' })
     const provider = useProviderStore.getState().providers.find(p => p.id === 'ollama')
     expect(provider?.apiKey).toBe('test-key')
   })

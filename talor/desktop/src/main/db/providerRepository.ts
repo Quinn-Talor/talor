@@ -1,5 +1,5 @@
 import { getDatabase } from './database'
-import type { Provider } from '../../renderer/types'
+import type { Provider } from '../types'
 
 export const providerRepository = {
   findAll(): Provider[] {

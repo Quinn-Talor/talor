@@ -1,13 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { Provider } from '../types'
-
-interface ProviderState {
-  providers: Provider[]
-  activeProviderId: string | null
-  setActiveProvider: (id: string) => void
-  updateProvider: (id: string, updates: Partial<Provider>) => void
-}
 
 const defaultProviders: Provider[] = [
   {
@@ -44,20 +36,65 @@ const defaultProviders: Provider[] = [
   }
 ]
 
-export const useProviderStore = create<ProviderState>()(
-  persist(
-    (set) => ({
-      providers: defaultProviders,
-      activeProviderId: 'ollama',
-      setActiveProvider: (id) => set({ activeProviderId: id }),
-      updateProvider: (id, updates) => set((state) => ({
-        providers: state.providers.map((p) => 
-          p.id === id ? { ...p, ...updates } : p
-        )
-      }))
-    }),
-    {
-      name: 'talor-providers'
+interface ProviderState {
+  providers: Provider[]
+  activeProviderId: string | null
+  isLoading: boolean
+  loadProviders: () => Promise<void>
+  setActiveProvider: (id: string) => void
+  updateProvider: (id: string, updates: Partial<Provider>) => Promise<void>
+  saveProvider: (provider: Provider) => Promise<void>
+}
+
+export const useProviderStore = create<ProviderState>()((set, get) => ({
+  providers: defaultProviders,
+  activeProviderId: 'ollama',
+  isLoading: false,
+
+  loadProviders: async () => {
+    set({ isLoading: true })
+    try {
+      const providers = await window.api.provider.getAll()
+      if (providers.length > 0) {
+        set({ providers, isLoading: false })
+      } else {
+        for (const p of defaultProviders) {
+          await window.api.provider.upsert(p)
+        }
+        set({ providers: defaultProviders, isLoading: false })
+      }
+    } catch (error) {
+      console.error('Failed to load providers:', error)
+      set({ providers: defaultProviders, isLoading: false })
     }
-  )
-)
+  },
+
+  setActiveProvider: (id) => set({ activeProviderId: id }),
+
+  updateProvider: async (id, updates) => {
+    const { providers } = get()
+    const provider = providers.find(p => p.id === id)
+    if (!provider) return
+
+    const updated = { ...provider, ...updates }
+    await window.api.provider.upsert(updated)
+    set((state) => ({
+      providers: state.providers.map(p => p.id === id ? updated : p)
+    }))
+  },
+
+  saveProvider: async (provider) => {
+    await window.api.provider.upsert(provider)
+    set((state) => {
+      const exists = state.providers.find(p => p.id === provider.id)
+      if (exists) {
+        return {
+          providers: state.providers.map(p => p.id === provider.id ? provider : p)
+        }
+      }
+      return {
+        providers: [...state.providers, provider]
+      }
+    })
+  }
+}))
