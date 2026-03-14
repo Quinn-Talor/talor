@@ -1,4 +1,5 @@
 import { useSessionStore } from '../store/sessionStore'
+import { MessageList } from './MessageList'
 
 export function ChatView() {
   const { currentSessionId, sessions } = useSessionStore()
@@ -17,8 +18,7 @@ export function ChatView() {
       <div className="border-b p-4 font-semibold">
         {currentSession.title}
       </div>
-      <div className="flex-1 overflow-auto p-4">
-      </div>
+      <MessageList messages={currentSession.messages} />
     </div>
   )
 }

@@ -16,7 +16,7 @@ describe('ChatView', () => {
   it('should render session title when session selected', () => {
     useSessionStore.setState({
       sessions: [
-        { id: '1', title: 'Test Session', agentId: null, createdAt: Date.now(), updatedAt: Date.now() }
+        { id: '1', title: 'Test Session', agentId: null, messages: [], createdAt: Date.now(), updatedAt: Date.now() }
       ],
       currentSessionId: '1'
     })
