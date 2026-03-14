@@ -1,3 +1,11 @@
+export interface Agent {
+  id: string
+  name: string
+  kind: 'platform' | 'worker'
+  description?: string
+  capabilities?: string[]
+}
+
 export interface Provider {
   id: string
   name: string

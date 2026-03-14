@@ -4,9 +4,11 @@ import { SessionList } from './components/SessionList'
 import { ChatView } from './components/ChatView'
 import { PromptInput } from './components/PromptInput'
 import { ProviderSettings } from './components/ProviderSettings'
+import { AgentSelector } from './components/AgentSelector'
+import { AgentList } from './components/AgentList'
 import { useSessionStore } from './store/sessionStore'
 
-type View = 'chat' | 'settings'
+type View = 'chat' | 'agents' | 'settings'
 
 function App() {
   const [view, setView] = useState<View>('chat')
@@ -32,6 +34,14 @@ function App() {
             Chat
           </button>
           <button
+            onClick={() => setView('agents')}
+            className={`w-full text-left px-4 py-2 text-sm ${
+              view === 'agents' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800'
+            }`}
+          >
+            Agents
+          </button>
+          <button
             onClick={() => setView('settings')}
             className={`w-full text-left px-4 py-2 text-sm ${
               view === 'settings' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800'
@@ -45,9 +55,12 @@ function App() {
       <main className="flex-1 flex flex-col">
         {view === 'chat' ? (
           <>
+            <AgentSelector />
             <ChatView />
             {currentSessionId && <PromptInput onSend={handleSend} />}
           </>
+        ) : view === 'agents' ? (
+          <AgentList />
         ) : (
           <ProviderSettings />
         )}
