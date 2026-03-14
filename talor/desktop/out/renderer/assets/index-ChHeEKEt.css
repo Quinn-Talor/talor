@@ -1,0 +1,13 @@
+/*! tailwindcss v4.2.1 | MIT License | https://tailwindcss.com */
+.min-h-screen {
+  min-height: 100vh;
+}
+
+.text-center {
+  text-align: center;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
