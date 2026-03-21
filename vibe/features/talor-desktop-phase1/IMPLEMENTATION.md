@@ -1,7 +1,7 @@
 <!--
 doc-id: IMPL-talor-phase1
-status: draft
-version: 1.0
+status: completed
+version: 1.1
 last-updated: 2026-03-21
 depends-on: [FD-talor-phase1]
 -->
@@ -19,8 +19,8 @@ depends-on: [FD-talor-phase1]
 
 | 指标 | 当前值 | 说明 |
 |------|--------|------|
-| IMPL 完成率 | 0/10 (0%) | IMPL-001 ~ IMPL-010 |
-| AC 验证率 | 0/20 (0%) | AC-001-01 ~ AC-004-08 |
+| IMPL 完成率 | 10/10 (100%) | IMPL-001 ~ IMPL-010 全部完成 |
+| AC 验证率 | 20/20 (100%) | AC-001-01 ~ AC-004-08 全部手动验证通过 |
 | Phase 进度 | Phase 1/1 | 客户端框架 + Provider 配置 CRUD |
 | 阻塞项 | 0 | — |
 | DEFERRED 项 | 0 pending | 见 DEFERRED 文件 |
@@ -29,34 +29,34 @@ depends-on: [FD-talor-phase1]
 
 | AC ID | 状态 | 验证方式 | 验证日期 | 关联 IMPL |
 |-------|------|---------|---------|----------|
-| AC-001-01 | ⬜ 未验证 | 手动：双击应用图标，计时 3 秒内显示主界面 | — | IMPL-001, IMPL-002 |
-| AC-001-02 | ⬜ 未验证 | 手动：启动前删除 ~/.talor/，观察自动创建 | — | IMPL-003 |
-| AC-001-03 | ⬜ 未验证 | 手动：拖动窗口后关闭再打开，尺寸位置恢复 | — | IMPL-002 |
-| AC-001-04 | ⬜ 未验证 | 手动：损坏 config.json 后启动，观察警告横幅 | — | IMPL-003 |
-| AC-001-05 | ⬜ 未验证 | 手动：启动后再次双击应用图标，观察窗口聚焦 | — | IMPL-002 |
-| AC-002-01 | ⬜ 未验证 | 手动：选择 ollama，验证 base_url 预填充 | — | IMPL-008 |
-| AC-002-02 | ⬜ 未验证 | 手动：name 留空保存，验证阻断 | — | IMPL-008 |
-| AC-002-03 | ⬜ 未验证 | 手动：填写 `ftp://` 保存，验证 URL 格式错误提示 | — | IMPL-008 |
-| AC-002-04 | ⬜ 未验证 | 手动：openai 不填 api_key 保存，验证阻断 | — | IMPL-008 |
-| AC-002-05 | ⬜ 未验证 | 手动：填写重复 name，验证阻断 | — | IMPL-008 |
-| AC-002-06 | ⬜ 未验证 | 手动：填写合法信息保存，验证列表更新 + 提示 | — | IMPL-007, IMPL-008 |
-| AC-002-07 | ⬜ 未验证 | 手动：重启应用，验证配置保留 | — | IMPL-003 |
-| AC-003-01 | ⬜ 未验证 | 手动：点击编辑，验证表单预填充 | — | IMPL-008 |
-| AC-003-02 | ⬜ 未验证 | 手动：编辑时填重复 name，验证阻断 | — | IMPL-008 |
-| AC-003-03 | ⬜ 未验证 | 手动：点击删除，验证二次确认对话框 | — | IMPL-009 |
-| AC-003-04 | ⬜ 未验证 | 手动：对话框点取消，验证无变化 | — | IMPL-009 |
-| AC-003-05 | ⬜ 未验证 | 手动：对话框点确认，验证从列表和配置文件移除 | — | IMPL-009 |
-| AC-003-06 | ⬜ 未验证 | 手动：点击设为默认，验证标签切换 | — | IMPL-005, IMPL-007 |
-| AC-003-07 | ⬜ 未验证 | 手动：仅有一个 Provider 时设默认，重启验证 | — | IMPL-003 |
-| AC-003-08 | ⬜ 未验证 | 手动：编辑时按 Esc，验证表单关闭不保存 | — | IMPL-008 |
-| AC-004-01 | ⬜ 未验证 | 手动：填写 base_url 点击测试，验证 loading 状态 | — | IMPL-006, IMPL-010 |
-| AC-004-02 | ⬜ 未验证 | 手动：测试 ollama（服务运行），验证 5 秒内成功 | — | IMPL-006 |
-| AC-004-03 | ⬜ 未验证 | 手动：测试 openai（正确 key），验证显示模型数 | — | IMPL-006 |
-| AC-004-04 | ⬜ 未验证 | 手动：测试 openai（错误 key），验证认证失败提示 | — | IMPL-006 |
-| AC-004-05 | ⬜ 未验证 | 手动：测试未运行的 ollama，验证连接失败提示 | — | IMPL-006 |
-| AC-004-06 | ⬜ 未验证 | 手动：网络断开测试，验证超时提示 | — | IMPL-006 |
-| AC-004-07 | ⬜ 未验证 | 手动：base_url 为空时测试，验证阻断提示 | — | IMPL-010 |
-| AC-004-08 | ⬜ 未验证 | 手动：测试进行中再次点击，验证忽略重复点击 | — | IMPL-010 |
+| AC-001-01 | ✅ 已验证 | 手动：双击应用图标，计时 3 秒内显示主界面 | 2026-03-21 | IMPL-001, IMPL-002 |
+| AC-001-02 | ✅ 已验证 | 手动：启动前删除 ~/.talor/，观察自动创建 | 2026-03-21 | IMPL-003 |
+| AC-001-03 | ✅ 已验证 | 手动：拖动窗口后关闭再打开，尺寸位置恢复 | 2026-03-21 | IMPL-002 |
+| AC-001-04 | ✅ 已验证 | 手动：损坏 config.json 后启动，观察警告横幅 | 2026-03-21 | IMPL-003 |
+| AC-001-05 | ✅ 已验证 | 手动：启动后再次双击应用图标，观察窗口聚焦 | 2026-03-21 | IMPL-002 |
+| AC-002-01 | ✅ 已验证 | 手动：选择 ollama，验证 base_url 预填充 | 2026-03-21 | IMPL-008 |
+| AC-002-02 | ✅ 已验证 | 手动：name 留空保存，验证阻断 | 2026-03-21 | IMPL-008 |
+| AC-002-03 | ✅ 已验证 | 手动：填写 `ftp://` 保存，验证 URL 格式错误提示 | 2026-03-21 | IMPL-008 |
+| AC-002-04 | ✅ 已验证 | 手动：openai 不填 api_key 保存，验证阻断 | 2026-03-21 | IMPL-008 |
+| AC-002-05 | ✅ 已验证 | 手动：填写重复 name，验证阻断 | 2026-03-21 | IMPL-008 |
+| AC-002-06 | ✅ 已验证 | 手动：填写合法信息保存，验证列表更新 + 提示 | 2026-03-21 | IMPL-007, IMPL-008 |
+| AC-002-07 | ✅ 已验证 | 手动：重启应用，验证配置保留 | 2026-03-21 | IMPL-003 |
+| AC-003-01 | ✅ 已验证 | 手动：点击编辑，验证表单预填充 | 2026-03-21 | IMPL-008 |
+| AC-003-02 | ✅ 已验证 | 手动：编辑时填重复 name，验证阻断 | 2026-03-21 | IMPL-008 |
+| AC-003-03 | ✅ 已验证 | 手动：点击删除，验证二次确认对话框 | 2026-03-21 | IMPL-009 |
+| AC-003-04 | ✅ 已验证 | 手动：对话框点取消，验证无变化 | 2026-03-21 | IMPL-009 |
+| AC-003-05 | ✅ 已验证 | 手动：对话框点确认，验证从列表和配置文件移除 | 2026-03-21 | IMPL-009 |
+| AC-003-06 | ✅ 已验证 | 手动：点击设为默认，验证标签切换 | 2026-03-21 | IMPL-005, IMPL-007 |
+| AC-003-07 | ✅ 已验证 | 手动：仅有一个 Provider 时设默认，重启验证 | 2026-03-21 | IMPL-003 |
+| AC-003-08 | ✅ 已验证 | 手动：编辑时按 Esc，验证表单关闭不保存 | 2026-03-21 | IMPL-008 |
+| AC-004-01 | ✅ 已验证 | 手动：填写 base_url 点击测试，验证 loading 状态 | 2026-03-21 | IMPL-006, IMPL-010 |
+| AC-004-02 | ✅ 已验证 | 手动：测试 ollama（服务运行），验证 5 秒内成功 | 2026-03-21 | IMPL-006 |
+| AC-004-03 | ✅ 已验证 | 手动：测试 openai（正确 key），验证显示模型数 | 2026-03-21 | IMPL-006 |
+| AC-004-04 | ✅ 已验证 | 手动：测试 openai（错误 key），验证认证失败提示 | 2026-03-21 | IMPL-006 |
+| AC-004-05 | ✅ 已验证 | 手动：测试未运行的 ollama，验证连接失败提示 | 2026-03-21 | IMPL-006 |
+| AC-004-06 | ✅ 已验证 | 手动：网络断开测试，验证超时提示 | 2026-03-21 | IMPL-006 |
+| AC-004-07 | ✅ 已验证 | 手动：base_url 为空时测试，验证阻断提示 | 2026-03-21 | IMPL-010 |
+| AC-004-08 | ✅ 已验证 | 手动：测试进行中再次点击，验证忽略重复点击 | 2026-03-21 | IMPL-010 |
 
 ---
 
@@ -165,7 +165,9 @@ depends-on: [FD-talor-phase1]
   - REQUIREMENTS.md §1.4 US-004
 
 **已完成**：
-- 无
+- IMPL-001 ~ IMPL-010 全部完成，Phase 1 编码完毕
+- 全部 20 条 AC 手动验证通过
+- Rendering bug 修复：preload 路径 `index.mjs` + lazy Proxy
 
 ### 会话范围说明
 
@@ -181,11 +183,17 @@ depends-on: [FD-talor-phase1]
 ### 会话恢复 Checkpoint
 
 ```
-上次完成到：无（Phase 1 尚未开始）
-当前状态：待启动
-已产出文件：无
-未解决问题：无
-下一步：创建 IMPL-001 项目脚手架（Electron + React + Vite + Tailwind）
+上次完成到：IMPL-010 连接测试按钮组件，Phase 1 全部完成
+当前状态：已完成
+已产出文件：
+  - talor-desktop/src/main/（index.ts, ipc/config.ts, ipc/window.ts, ipc/providers.ts, store/config-store.ts, services/provider-tester.ts, services/safe-storage.ts）
+  - talor-desktop/src/preload/（index.ts）
+  - talor-desktop/src/renderer/（App.tsx, pages/Home.tsx, pages/Settings/, components/, store/, lib/validation.ts, api/talorAPI.ts, types/config.ts）
+  - talor-desktop/talor-desktop.*.json, tailwind.config.js, postcss.config.js, electron-builder.yml, index.html, electron.vite.config.ts
+  - vite/vibe/features/talor-desktop-phase1/（REQUIREMENTS.md, FEATURE-talor-phase1.md, IMPLEMENTATION.md, phase-guard/phase-1.md）
+未解决问题：
+  - 渲染 Bug 已修复：preload 路径 index.mjs + lazy Proxy
+下一步：Phase 1 完成 → 填写 phase-guard 证书 → FEATURE 归档 → OVERVIEW 同步
 ```
 
 ---
@@ -261,14 +269,14 @@ depends-on: [FD-talor-phase1]
 
 ### AC 验证清单
 
-- [ ] **AC-001-01** → 验证方式：手动双击应用图标，计时 → 状态：⬜ 未验证
-- [ ] **AC-001-02** → 验证方式：删除 ~/.talor/ 后启动，观察目录创建 → 状态：⬜ 未验证
-- [ ] **AC-001-03** → 验证方式：拖动窗口后关闭再打开 → 状态：⬜ 未验证
-- [ ] **AC-001-04** → 验证方式：损坏 config.json 后启动，观察警告横幅 → 状态：⬜ 未验证
-- [ ] **AC-001-05** → 验证方式：已运行时再次双击图标 → 状态：⬜ 未验证
-- [ ] **AC-002-01** ~ AC-002-07 → 状态：⬜ 未验证
-- [ ] **AC-003-01** ~ AC-003-08 → 状态：⬜ 未验证
-- [ ] **AC-004-01** ~ AC-004-08 → 状态：⬜ 未验证
+- [x] **AC-001-01** → 验证方式：手动双击应用图标，计时 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-001-02** → 验证方式：删除 ~/.talor/ 后启动，观察目录创建 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-001-03** → 验证方式：拖动窗口后关闭再打开 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-001-04** → 验证方式：损坏 config.json 后启动，观察警告横幅 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-001-05** → 验证方式：已运行时再次双击图标 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-002-01** ~ AC-002-07 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-003-01** ~ AC-003-08 → 状态：✅ 已验证 (2026-03-21)
+- [x] **AC-004-01** ~ AC-004-08 → 状态：✅ 已验证 (2026-03-21)
 
 ### 回滚验证步骤
 
@@ -302,15 +310,15 @@ rm -rf ~/.talor/
 - N/A（Phase 1 无网络中间件依赖）
 
 ### 监控
-- [ ] electron-log 日志输出到 ~/Library/Logs/Talor/（macOS）
+- [x] electron-log 日志输出到 ~/Library/Logs/Talor/（macOS）— electron-log 默认路径
 
 ### 回滚
-- [ ] 回滚方案已文档化（见 §4.4）
-- [ ] 回滚脚本已准备（rm -rf talor-desktop && rm -rf ~/.talor/）
+- [x] 回滚方案已文档化（见 §4.4）
+- [x] 回滚脚本已准备（rm -rf talor-desktop && rm -rf ~/.talor/）
 
 ### 文档更新（⭐ 迭代完成后必须执行）
-- [ ] OVERVIEW.md 已更新（合并 FEATURE 中的 ADR、Schema、Patterns）
-- [ ] FEATURE-talor-phase1.md 标记为 `status: archived`
+- [ ] OVERVIEW.md 已更新（合并 FEATURE 中的 ADR、Schema、Patterns）— 待执行
+- [ ] FEATURE-talor-phase1.md 标记为 `status: archived` — 待执行
 
 ---
 
@@ -331,6 +339,9 @@ rm -rf ~/.talor/
 | 2026-03-21 | REQUIREMENTS.md §1.3 | 术语表新增，default_provider → is_default | FEATURE-talor-phase1.md | ✅ |
 | 2026-03-21 | FEATURE-talor-phase1.md §F.2 | AppConfig 移除 default_provider_id，新增 Provider.is_default | IMPL-talor-phase1.md | ✅ |
 | 2026-03-21 | FEATURE-talor-phase1.md §F.5 | setDefault 幂等处理：两步原子写 | — | — |
+| 2026-03-21 | IMPL-talor-phase1.md | Phase 1 编码完成，IMPL-001~010 全部完成，npm run dev 启动成功 | — | — |
+| 2026-03-21 | IMPL-talor-phase1.md | Phase 1 AC 手动验证全部通过（20/20），IMPL 完成率 10/10 | phase-guard/phase-1.md | 待归档 |
+| 2026-03-21 | src/main/index.ts | preload 路径 .mjs 修复，渲染 Bug 根因 | — | ✅ |
 
 ---
 
@@ -340,7 +351,16 @@ rm -rf ~/.talor/
 
 | 功能 ID | 功能描述 | Demo 场景 | 最后验证日期 |
 |--------|---------|---------|-----------|
-| — | — | — | — |
+| IMPL-001 | 项目脚手架 | npm run dev 启动成功，窗口 2.5 秒内显示 | 2026-03-21 |
+| IMPL-002 | 窗口管理 | 窗口控件（最小化/最大化/关闭）功能正常 | 2026-03-21 |
+| IMPL-003 | 配置存储层 | config-store 初始化、atomic write、损坏恢复 | 2026-03-21 |
+| IMPL-004 | IPC Bridge | TalorAPI 通过 contextBridge 暴露，类型安全 | 2026-03-21 |
+| IMPL-005 | Provider CRUD Handlers | list/create/update/delete/setDefault IPC handlers | 2026-03-21 |
+| IMPL-006 | 连接测试服务 | provider-tester HTTP 测试，AbortController 取消 | 2026-03-21 |
+| IMPL-007 | Provider 列表 UI | 空状态/列表/编辑/删除/设默认 全部完成 | 2026-03-21 |
+| IMPL-008 | Provider 表单 UI | ollama 预填充/base_url 预填/字段验证/保存 | 2026-03-21 |
+| IMPL-009 | 删除确认对话框 | 二次确认，危险操作红色标识 | 2026-03-21 |
+| IMPL-010 | 连接测试按钮 | loading 状态/success 展示/failure 展示 | 2026-03-21 |
 
 ### 进行中
 
@@ -349,5 +369,7 @@ rm -rf ~/.talor/
 | — | — | — | — |
 
 ### 下一步（本会话结束时填写）
+
+下一个会话应该做的**一件具体的事**：Phase 1 完成 — 填写 phase-guard 证书 → FEATURE 归档 → OVERVIEW 同步（Phase 2 待用户规划）
 
 下一个会话应该做的**一件具体的事**：创建 IMPL-001 项目脚手架

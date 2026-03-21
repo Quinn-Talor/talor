@@ -1,6 +1,6 @@
 <!--
 doc-id: FD-talor-phase1
-status: approved
+status: archived
 version: 1.0
 last-updated: 2026-03-21
 depends-on: [US-001, US-002, US-003, US-004]

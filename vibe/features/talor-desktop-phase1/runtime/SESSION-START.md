@@ -33,7 +33,7 @@
 ## Step 3：本次会话范围声明
 
 **本次会话要实现的具体功能（一句话）：**
-> [每次会话开始时填写]
+> 创建 IMPL-001 项目脚手架：electron-vite 初始化 talor-desktop 项目，包含 main/preload/renderer 三层目录骨架、TypeScript 配置、Tailwind CSS 配置，确保 `npm run dev` 可启动 Electron 应用并显示主界面
 
 **以下内容不在本次会话范围内**（发现需要时记入 IMPLEMENTATION.md §4.6，不要立刻实现）：
 - Agent 执行引擎

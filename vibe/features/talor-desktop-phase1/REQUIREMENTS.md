@@ -1,6 +1,6 @@
 <!--
 doc-id: REQ-talor-phase1
-status: approved
+status: archived
 version: 1.1
 last-updated: 2026-03-21
 depends-on: []
