@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Talor Logo - T-Orbit</title>
+  <desc>T with orbital rings — intelligence and agency</desc>
+
+  <defs>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#60A5FA;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#818CF8;stop-opacity:1" />
+    </linearGradient>
+
+    <!-- Glow filter -->
+    <filter id="glow2" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Clip path for ring behind T -->
+    <clipPath id="clipOuter">
+      <rect x="0" y="0" width="256" height="256"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer orbit ring (ellipse, slightly tilted) -->
+  <ellipse
+    cx="128" cy="128" rx="108" ry="42"
+    fill="none"
+    stroke="url(#grad2)"
+    stroke-width="3"
+    opacity="0.25"
+    clip-path="url(#clipOuter)"
+  />
+
+  <!-- Middle orbit ring -->
+  <ellipse
+    cx="128" cy="128" rx="82" ry="82"
+    fill="none"
+    stroke="url(#grad2)"
+    stroke-width="2"
+    opacity="0.2"
+    clip-path="url(#clipOuter)"
+  />
+
+  <!-- Inner orbit ring (dashed, representing data flow) -->
+  <ellipse
+    cx="128" cy="128" rx="58" ry="22"
+    fill="none"
+    stroke="url(#grad2)"
+    stroke-width="2.5"
+    stroke-dasharray="8 5"
+    opacity="0.4"
+    clip-path="url(#clipOuter)"
+  />
+
+  <!-- T-vertical -->
+  <rect x="105" y="52" width="46" height="100" rx="6" fill="url(#grad2)" filter="url(#glow2)"/>
+
+  <!-- T-horizontal -->
+  <rect x="66" y="52" width="124" height="36" rx="6" fill="url(#grad2)" filter="url(#glow2)"/>
+
+  <!-- Orbiting dots (agent nodes) -->
+  <circle cx="230" cy="128" r="10" fill="url(#grad2)" opacity="0.9"/>
+  <circle cx="128" cy="46" r="7" fill="url(#grad2)" opacity="0.7"/>
+  <circle cx="26"  cy="128" r="6" fill="url(#grad2)" opacity="0.6"/>
+  <circle cx="180" cy="206" r="5" fill="url(#grad2)" opacity="0.5"/>
+  <circle cx="76"  cy="206" r="5" fill="url(#grad2)" opacity="0.5"/>
+
+  <!-- Small accent lines from dots to center -->
+  <line x1="220" y1="128" x2="152" y2="110" stroke="url(#grad2)" stroke-width="1.5" opacity="0.3"/>
+  <line x1="128" y1="53"  x2="128" y2="88"  stroke="url(#grad2)" stroke-width="1.5" opacity="0.3"/>
+</svg>
