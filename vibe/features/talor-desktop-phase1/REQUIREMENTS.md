@@ -1,6 +1,6 @@
 <!--
 doc-id: REQ-talor-phase1
-status: review
+status: approved
 version: 1.1
 last-updated: 2026-03-21
 depends-on: []
@@ -67,7 +67,7 @@ Talor 是一款 AI 数字员工平台，当前依赖 Python FastAPI 后端 + Web
 | ProviderForm（提供商表单） | 用户填写 Provider 信息的 UI 表单组件 | `provider_form` | 与 ProviderList 区分：Form 用于输入，List 用于展示 |
 | ProviderType（提供商类型） | Provider 的类型枚举值：ollama / openai / anthropic / google | `provider_type` | 与 ProviderStatus 区分：Type 是种类，Status 是状态 |
 | TestStatus（测试状态） | 连接测试的当前状态：pending / testing / success / failure | `test_status` | 与 ProviderEnabled 区分：TestStatus 是测试结果，Enabled 是配置开关 |
-| Default Provider（默认提供商） | 用户选定的优先使用的 Provider，UI 中标注 | `default_provider` | 与 Enabled Provider 区分：Default 是优先级标记，Enabled 是功能开关 |
+| Default Provider（默认提供商） | 用户选定的优先使用的 Provider，通过 Provider.is_default=true 标记，同一时刻仅一个 | `is_default` | 与 Enabled Provider 区分：is_default 是优先级标记，enabled 是功能开关；与 default_provider_id（全局字段）区分：is_default 内嵌于 Provider 实体，更直观 |
 | safeStorage（安全存储） | Electron 内置的操作系统级加密存储 API | `safe_storage` | 与 electron-store 区分：safeStorage 加密敏感数据，electron-store 存储普通配置 |
 
 ---
@@ -419,7 +419,7 @@ flowchart TD
 
 - [ ] **AC-003-05**：Given 二次确认对话框显示 → When 用户点击"确认删除" → Then Provider 从列表和 config.json 中移除，列表重新渲染，展示绿色"删除成功"提示
 
-- [ ] **AC-003-06**：Given Provider 列表包含多个 Provider → When 用户点击非默认 Provider 的"设为默认"按钮 → Then 该 Provider 行显示"默认"标签，其他所有行的"默认"标签被移除，config.json 更新 default_provider_id
+- [ ] **AC-003-06**：Given Provider 列表包含多个 Provider → When 用户点击非默认 Provider 的"设为默认"按钮 → Then 该 Provider 行显示"默认"标签（is_default=true），其他所有行的"默认"标签被移除（is_default=false），config.json 更新
 
 - [ ] **AC-003-07**：Given Provider 列表包含一个 Provider → When 用户点击"设为默认" → Then 该 Provider 行显示"默认"标签，重启应用后仍为默认
 
