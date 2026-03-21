@@ -25,4 +25,14 @@ declare global {
   }
 }
 
-export const talorAPI = window.talorAPI
+// Use a Proxy so we lazily access window.talorAPI after the preload script has set it up.
+// Eagerly assigning `window.talorAPI` at module load time fails because the preload
+// script hasn't run yet — talorAPI would be undefined for every consumer.
+export const talorAPI = new Proxy({} as Window['talorAPI'], {
+  get(_target, prop) {
+    if (!window.talorAPI) throw new Error(`talorAPI not ready (preload script missing)`)
+    const value = (window.talorAPI as Record<string | symbol, unknown>)[prop]
+    if (typeof value === 'function') return value.bind(window.talorAPI)
+    return value
+  }
+})
