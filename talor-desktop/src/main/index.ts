@@ -1,10 +1,17 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
+
+app.commandLine.appendSwitch('remote-debugging-port', '9222')
+app.commandLine.appendSwitch('enable-logging')
 import log from 'electron-log'
 import { ConfigStore } from './store/config-store'
 import { registerConfigHandlers } from './ipc/config'
-import { registerWindowHandlers } from './ipc/window'
+import { registerWindowHandlers, setMainWindow } from './ipc/window'
 import { registerProviderHandlers } from './ipc/providers'
+import { registerSessionHandlers } from './ipc/session'
+import { registerChatHandlers } from './ipc/chat'
+import { registerFileHandlers } from './ipc/fileHandlers'
+import { initChatDb, closeChatDb } from './db/index'
 
 log.initialize()
 log.info('[Main] Talor Desktop starting...')
@@ -12,6 +19,9 @@ log.info('[Main] Talor Desktop starting...')
 registerConfigHandlers()
 registerWindowHandlers()
 registerProviderHandlers()
+registerSessionHandlers()
+registerChatHandlers()
+registerFileHandlers()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -39,6 +49,8 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  setMainWindow(mainWindow)
 
   mainWindow.on('ready-to-show', () => {
     if (bounds.is_maximized) {
@@ -82,6 +94,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   configStore.ensureInitialized()
+  initChatDb()
   createWindow()
 
   app.on('activate', () => {
@@ -93,6 +106,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    closeChatDb()
     app.quit()
   }
 })

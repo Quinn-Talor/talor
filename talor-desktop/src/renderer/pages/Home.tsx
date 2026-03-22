@@ -1,4 +1,4 @@
-export function HomePage({ onSettingsClick }: { onSettingsClick: () => void }) {
+export function HomePage({ onSettingsClick, onChatClick }: { onSettingsClick: () => void; onChatClick?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-8 p-8">
       <div className="text-center">
@@ -10,6 +10,28 @@ export function HomePage({ onSettingsClick }: { onSettingsClick: () => void }) {
       </div>
 
       <div className="flex flex-col gap-3 w-full max-w-xs">
+        {onChatClick && (
+          <button
+            onClick={onChatClick}
+            className="flex items-center justify-between px-5 py-4 bg-white border border-gray-200 rounded-xl hover:border-primary-300 hover:bg-primary-50 transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500 group-hover:text-blue-600">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                </svg>
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-medium text-gray-800">开始对话</div>
+                <div className="text-xs text-gray-400">与 AI 员工交流</div>
+              </div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+              <polyline points="9,18 15,12 9,6" />
+            </svg>
+          </button>
+        )}
+
         <button
           onClick={onSettingsClick}
           className="flex items-center justify-between px-5 py-4 bg-white border border-gray-200 rounded-xl hover:border-primary-300 hover:bg-primary-50 transition-all group"

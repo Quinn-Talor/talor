@@ -49,8 +49,24 @@ export const useConfigStore = create<ConfigStore>((set) => ({
     set({ loading: true, error: null })
     try {
       const newProvider = await talorAPI.providers.create(input)
+      let providerWithModels = newProvider
+
+      if (newProvider.enabled) {
+        try {
+          const modelResponse = await talorAPI.providers.getModels(newProvider.id)
+          providerWithModels = {
+            ...newProvider,
+            models: modelResponse.models,
+            models_last_updated: modelResponse.refreshed_at,
+            models_cache_ttl: modelResponse.cache_ttl
+          }
+        } catch {
+          providerWithModels = newProvider
+        }
+      }
+
       set((state) => ({
-        providers: [newProvider, ...state.providers],
+        providers: [providerWithModels, ...state.providers],
         loading: false,
         formMode: 'closed',
         editingProviderId: null
@@ -111,7 +127,38 @@ export const useConfigStore = create<ConfigStore>((set) => ({
     }))
     try {
       const result = await talorAPI.providers.testConnection(config)
+
+      let modelsUpdate:
+        | { models: Provider['models']; models_last_updated?: string; models_cache_ttl?: number }
+        | undefined
+
+      if (id !== '__new__' && result.status === 'success') {
+        try {
+          const refreshed = await talorAPI.providers.refreshModels(id)
+          modelsUpdate = {
+            models: refreshed.models,
+            models_last_updated: refreshed.refreshed_at,
+            models_cache_ttl: refreshed.cache_ttl
+          }
+        } catch {
+          modelsUpdate = undefined
+        }
+      }
+
       set((state) => ({
+        providers:
+          modelsUpdate
+            ? state.providers.map((p) =>
+                p.id === id
+                  ? {
+                      ...p,
+                      models: modelsUpdate.models,
+                      models_last_updated: modelsUpdate.models_last_updated,
+                      models_cache_ttl: modelsUpdate.models_cache_ttl
+                    }
+                  : p
+              )
+            : state.providers,
         testStatus: {
           ...state.testStatus,
           [id]: { status: result.status === 'success' ? 'success' : 'failure', result }

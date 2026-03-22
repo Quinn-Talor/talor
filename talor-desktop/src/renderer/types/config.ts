@@ -1,3 +1,5 @@
+import type { ModelInfo } from './models'
+
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google'
 
 export interface Provider {
@@ -5,19 +7,22 @@ export interface Provider {
   type: ProviderType
   name: string
   base_url: string
-  models: string[]
+  models: ModelInfo[]           // Updated: ModelInfo objects instead of string array
   enabled: boolean
   is_default: boolean
   api_key?: string
   created_at: string
   updated_at: string
+  // New fields for model caching
+  models_last_updated?: string   // ISO timestamp of last model list update
+  models_cache_ttl?: number      // Cache TTL in seconds (default: 300)
 }
 
 export interface ProviderInput {
   type: ProviderType
   name: string
   base_url: string
-  models?: string[]
+  models?: ModelInfo[]           // Updated: ModelInfo objects instead of string array
   enabled: boolean
   is_default: boolean
   api_key?: string

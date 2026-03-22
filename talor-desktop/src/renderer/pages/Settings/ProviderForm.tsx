@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Provider, ProviderType, ProviderInput } from '../../types/config'
+import type { ModelInfo } from '../../types/models'
 import { validateProviderForm } from '../../lib/validation'
+import { ModelCard } from '../../components/ModelCard'
+import { talorAPI } from '../../api/talorAPI'
 
 interface ProviderFormProps {
   provider?: Provider
@@ -34,12 +37,55 @@ export function ProviderForm({
   const [apiKey, setApiKey] = useState(provider?.api_key ?? '')
   const [enabled, setEnabled] = useState(provider?.enabled ?? true)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [models, setModels] = useState<ModelInfo[]>(provider?.models ?? [])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(provider?.models_last_updated ?? null)
 
   useEffect(() => {
     if (!provider && type === 'ollama' && !baseUrl) {
       setBaseUrl('http://localhost:11434')
     }
   }, [type, provider, baseUrl])
+
+  // Fetch models when editing an existing provider
+  useEffect(() => {
+    if (provider?.id) {
+      fetchModels(provider.id)
+    }
+  }, [provider?.id])
+
+  const fetchModels = async (providerId: string) => {
+    setModelsLoading(true)
+    setModelsError(null)
+    try {
+      const response = await talorAPI.providers.getModels(providerId)
+      setModels(response.models)
+      setLastRefreshed(response.refreshed_at)
+    } catch (error) {
+      console.error('Failed to fetch models:', error)
+      setModelsError('无法获取模型列表')
+      setModels([])
+    } finally {
+      setModelsLoading(false)
+    }
+  }
+
+  const refreshModels = async () => {
+    if (!provider?.id) return
+    setModelsLoading(true)
+    setModelsError(null)
+    try {
+      const response = await talorAPI.providers.refreshModels(provider.id)
+      setModels(response.models)
+      setLastRefreshed(response.refreshed_at)
+    } catch (error) {
+      console.error('Failed to refresh models:', error)
+      setModelsError('刷新模型列表失败')
+    } finally {
+      setModelsLoading(false)
+    }
+  }
 
   const handleTypeChange = (newType: ProviderType) => {
     setType(newType)
@@ -64,10 +110,10 @@ export function ProviderForm({
         api_key: apiKey.trim(),
         enabled,
         is_default: provider?.is_default ?? false,
-        models: provider?.models ?? []
+        models: models
       })
     },
-    [name, type, baseUrl, apiKey, enabled, existingNames, provider, onSubmit]
+    [name, type, baseUrl, apiKey, enabled, existingNames, provider, onSubmit, models]
   )
 
   const handleKeyDown = useCallback(
@@ -193,6 +239,68 @@ export function ProviderForm({
             <span className="text-xs text-red-500 max-w-xs truncate">{testResult.message}</span>
           )}
         </div>
+
+        {/* Model List Section - Only show when editing existing provider */}
+        {provider?.id && (
+          <div className="pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-gray-900">可用模型</h4>
+              <div className="flex items-center gap-2">
+                {lastRefreshed && (
+                  <span className="text-xs text-gray-400">
+                    最后更新: {new Date(lastRefreshed).toLocaleTimeString()}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={refreshModels}
+                  disabled={modelsLoading}
+                  className="px-2 py-1 text-xs text-primary-600 hover:bg-primary-50 rounded transition-colors disabled:text-gray-300 disabled:cursor-not-allowed"
+                >
+                  {modelsLoading ? (
+                    <span className="flex items-center gap-1">
+                      <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      刷新中
+                    </span>
+                  ) : (
+                    '刷新模型列表'
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {modelsLoading && !models.length ? (
+              <div className="py-8 text-center">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
+                <p className="mt-2 text-sm text-gray-500">正在检测模型中...</p>
+              </div>
+            ) : modelsError ? (
+              <div className="py-4 text-center">
+                <div className="text-red-500 mb-2">⚠️ {modelsError}</div>
+                <button
+                  type="button"
+                  onClick={() => provider?.id && fetchModels(provider.id)}
+                  className="px-3 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded-lg border border-primary-300 transition-colors"
+                >
+                  重试
+                </button>
+              </div>
+            ) : models.length > 0 ? (
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                {models.map((model) => (
+                  <ModelCard key={model.id} model={model} compact={true} />
+                ))}
+              </div>
+            ) : (
+              <div className="py-4 text-center text-sm text-gray-400">
+                未检测到可用模型
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center gap-2 pt-2">
           <input

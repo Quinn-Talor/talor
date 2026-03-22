@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react'
 interface HeaderProps {
   title: string
   onSettingsClick?: () => void
+  onChatClick?: () => void
 }
 
-export function Header({ title, onSettingsClick }: HeaderProps) {
+export function Header({ title, onSettingsClick, onChatClick }: HeaderProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
@@ -27,6 +28,18 @@ export function Header({ title, onSettingsClick }: HeaderProps) {
           <span className="text-white font-bold text-sm">T</span>
         </div>
         <h1 className="text-base font-semibold text-gray-800">{title}</h1>
+        {onChatClick && (
+          <button
+            onClick={onChatClick}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            对话
+          </button>
+        )}
         {onSettingsClick && (
           <button
             onClick={onSettingsClick}

@@ -1,4 +1,6 @@
 import type { ProviderType, ConnectionTestResult, Provider, ProviderInput } from '../types/config'
+import type { ChatSession, ChatMessage, ChatStreamEvent, Attachment } from '../types/chat'
+import type { ProviderModelResponse, ModelInfo } from '../types/models'
 
 declare global {
   interface Window {
@@ -14,6 +16,25 @@ declare global {
         delete: (id: string) => Promise<void>
         setDefault: (id: string) => Promise<void>
         testConnection: (config: { type: ProviderType; base_url: string; api_key?: string }) => Promise<ConnectionTestResult>
+        getModels: (providerId: string, forceRefresh?: boolean) => Promise<ProviderModelResponse>
+        refreshModels: (providerId: string) => Promise<ProviderModelResponse>
+        detectCapabilities: (params: { providerId: string; modelId: string }) => Promise<ModelInfo>
+        updateModelCapabilities: (params: { providerId: string; modelId: string; capabilities: import('../types/models').ModelCapability[] }) => Promise<ModelInfo>
+      }
+      session: {
+        list: () => Promise<ChatSession[]>
+        create: (params: { provider_id: string; model_id?: string }) => Promise<ChatSession>
+        get: (id: string) => Promise<ChatSession | null>
+        rename: (params: { session_id: string; title: string }) => Promise<ChatSession | null>
+        updateModel: (params: { session_id: string; model_id: string }) => Promise<ChatSession | null>
+        delete: (sessionId: string) => Promise<void>
+        getMessages: (sessionId: string) => Promise<ChatMessage[]>
+        touch: (sessionId: string) => Promise<void>
+      }
+      chat: {
+        send: (params: { session_id: string; content: string; attachments?: Attachment[] }) => Promise<{ message_id: string }>
+        abort: (sessionId: string) => Promise<void>
+        onStream: (callback: (event: ChatStreamEvent) => void) => () => void
       }
       window: {
         minimize: () => void
@@ -21,18 +42,99 @@ declare global {
         close: () => void
         isMaximized: () => Promise<boolean>
       }
+      file: {
+        openDialog: (options?: {
+          title?: string
+          defaultPath?: string
+          buttonLabel?: string
+          filters?: { name: string; extensions: string[] }[]
+          properties?: Array<'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles' | 'createDirectory' | 'promptToCreate' | 'noResolveAliases' | 'treatPackageAsDirectory' | 'dontAddToRecent'>
+        }) => Promise<string[] | null>
+      }
     }
   }
 }
 
-// Use a Proxy so we lazily access window.talorAPI after the preload script has set it up.
-// Eagerly assigning `window.talorAPI` at module load time fails because the preload
-// script hasn't run yet — talorAPI would be undefined for every consumer.
+const stubConfig = {
+  get: () => Promise.resolve({ config_dir: '', providers: {}, window_bounds: {} }),
+  save: () => Promise.resolve(),
+}
+
+const stubProviders = {
+  list: () => Promise.resolve([] as Provider[]),
+  create: () => Promise.resolve({} as Provider),
+  update: () => Promise.resolve({} as Provider),
+  delete: () => Promise.resolve(),
+  setDefault: () => Promise.resolve(),
+  testConnection: () => Promise.resolve({ status: 'failure', error_code: 'LLM_CONNECTION_FAILED' } as ConnectionTestResult),
+  getModels: () => Promise.resolve({ models: [], refreshed_at: new Date().toISOString(), cache_ttl: 300, from_cache: false } as ProviderModelResponse),
+  refreshModels: () => Promise.resolve({ models: [], refreshed_at: new Date().toISOString(), cache_ttl: 300, from_cache: false } as ProviderModelResponse),
+  detectCapabilities: () => Promise.resolve({} as ModelInfo),
+  updateModelCapabilities: () => Promise.resolve({} as ModelInfo),
+}
+
+const stubSession = {
+  list: () => Promise.resolve([] as ChatSession[]),
+  create: () => Promise.resolve({ id: '', title: '', provider_id: '', created_at: '', updated_at: '' } as ChatSession),
+  get: () => Promise.resolve(null),
+  rename: () => Promise.resolve(null),
+  updateModel: () => Promise.resolve(null),
+  delete: () => Promise.resolve(),
+  getMessages: () => Promise.resolve([] as ChatMessage[]),
+  touch: () => Promise.resolve(),
+}
+
+const stubChat = {
+  send: () => Promise.resolve({ message_id: '' }),
+  abort: () => Promise.resolve(),
+  onStream: () => () => {},
+}
+
+const stubWindow = {
+  minimize: () => {},
+  maximize: () => {},
+  close: () => {},
+  isMaximized: () => Promise.resolve(false),
+}
+
+const stubFile = {
+  openDialog: () => Promise.resolve(null as string[] | null),
+}
+
 export const talorAPI = new Proxy({} as Window['talorAPI'], {
   get(_target, prop) {
-    if (!window.talorAPI) throw new Error(`talorAPI not ready (preload script missing)`)
-    const value = (window.talorAPI as Record<string | symbol, unknown>)[prop]
-    if (typeof value === 'function') return value.bind(window.talorAPI)
-    return value
-  }
+    const real = window.talorAPI ? (window.talorAPI as Record<string, unknown>)[prop as string] : undefined
+
+    if (prop === 'config') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubConfig as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['config']
+    }
+    if (prop === 'providers') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubProviders as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['providers']
+    }
+    if (prop === 'session') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubSession as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['session']
+    }
+    if (prop === 'chat') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubChat as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['chat']
+    }
+    if (prop === 'window') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubWindow as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['window']
+    }
+    if (prop === 'file') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubFile as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['file']
+    }
+    return undefined
+  },
 })

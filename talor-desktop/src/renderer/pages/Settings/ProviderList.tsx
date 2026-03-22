@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Provider, ConnectionTestResult, TestStatus } from '../../types/config'
 import { ConnectionTest } from '../../components/ConnectionTest'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { ModelCard } from '../../components/ModelCard'
 
 interface ProviderListProps {
   providers: Provider[]
@@ -70,21 +71,54 @@ export function ProviderList({
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 truncate mb-2">{provider.base_url}</p>
-                  <div className="flex items-center gap-3">
-                    <ConnectionTest
-                      status={ts.status}
-                      result={ts.result}
-                      onTest={() =>
-                        onTest(provider.id, {
-                          type: provider.type,
-                          base_url: provider.base_url,
-                          api_key: provider.api_key
-                        })
-                      }
-                      disabled={!provider.enabled}
-                    />
-                  </div>
+                   <p className="text-xs text-gray-400 truncate mb-2">{provider.base_url}</p>
+                   
+                   {/* 模型列表显示 */}
+                   {provider.models && provider.models.length > 0 && (
+                     <div className="mt-3">
+                       <div className="flex items-center justify-between mb-2">
+                         <span className="text-xs font-medium text-gray-500">可用模型 ({provider.models.length})</span>
+                         {provider.models_last_updated && (
+                           <span className="text-xs text-gray-400">
+                             更新于: {new Date(provider.models_last_updated).toLocaleTimeString()}
+                           </span>
+                         )}
+                       </div>
+                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
+                         {provider.models.slice(0, 4).map((model) => (
+                           <ModelCard key={model.id} model={model} compact />
+                         ))}
+                         {provider.models.length > 4 && (
+                           <div className="text-xs text-gray-400 text-center py-1">
+                             还有 {provider.models.length - 4} 个模型...
+                           </div>
+                         )}
+                       </div>
+                     </div>
+                   )}
+                   
+                   {(!provider.models || provider.models.length === 0) && provider.enabled && (
+                     <div className="mt-3">
+                       <div className="text-xs text-gray-400 italic">
+                         暂无模型信息，点击"测试连接"获取模型列表
+                       </div>
+                     </div>
+                   )}
+                   
+                   <div className="flex items-center gap-3 mt-3">
+                     <ConnectionTest
+                       status={ts.status}
+                       result={ts.result}
+                       onTest={() =>
+                         onTest(provider.id, {
+                           type: provider.type,
+                           base_url: provider.base_url,
+                           api_key: provider.api_key
+                         })
+                       }
+                       disabled={!provider.enabled}
+                     />
+                   </div>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">

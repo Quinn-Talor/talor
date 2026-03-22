@@ -3,6 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync, unlinkSync } from 'fs'
 import log from 'electron-log'
+import type { ModelInfo } from '../types/models'
 
 interface WindowBounds {
   width: number
@@ -23,11 +24,15 @@ export interface Provider {
   type: 'ollama' | 'openai' | 'anthropic' | 'google'
   name: string
   base_url: string
-  models: string[]
+  models: ModelInfo[]           // Updated: ModelInfo objects instead of string array
   enabled: boolean
   is_default: boolean
+  supports_vision: boolean
   created_at: string
   updated_at: string
+  // New fields for model caching
+  models_last_updated?: string   // ISO timestamp of last model list update
+  models_cache_ttl?: number      // Cache TTL in seconds (default: 300)
 }
 
 export interface ProviderInput {
@@ -37,7 +42,8 @@ export interface ProviderInput {
   api_key?: string
   enabled: boolean
   is_default: boolean
-  models?: string[]
+  supports_vision?: boolean
+  models?: ModelInfo[]           // Updated: ModelInfo objects instead of string array
 }
 
 interface StoreSchema {
