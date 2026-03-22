@@ -1,7 +1,7 @@
 <!--
 doc-id: FD-talor-desktop-model-management
 status: review
-version: 1.0
+version: 1.1
 last-updated: 2026-03-22
 depends-on: [REQ-talor-model-management]
 generates: [IMPL-talor-model-management]
@@ -147,13 +147,10 @@ interface ChatSession {
 - `default` - 使用 Provider 默认模型
 - `selected` - 使用用户选择的特定模型
 - `unavailable` - 选择的模型不可用
-- `switching` - 正在切换模型
 
 **转换**：
 - `default` → `selected`：用户创建会话时选择特定模型
-- `selected` → `switching`：用户尝试切换模型
-- `switching` → `selected`：切换成功
-- `switching` → `unavailable`：目标模型不可用
+- `selected` → `selected`：用户直接切换模型（无确认弹框，不清空消息历史）
 - `unavailable` → `selected`：用户选择其他可用模型
 - `selected` → `unavailable`：模型变为不可用（如 API 变更）
 - 任何状态 → `default`：用户重置为默认模型
@@ -239,7 +236,6 @@ interface UpdateSessionModelRequest {
 // 响应
 interface UpdateSessionModelResponse {
   session: ChatSession;
-  warning?: string; // 如"切换模型将开始新对话"
 }
 ```
 
@@ -348,21 +344,10 @@ sequenceDiagram
     UI->>User: 显示模型选择器
     User->>UI: 选择新模型
     UI->>Main: session:updateModel(session_id, model_id)
-    alt 模型兼容性检查通过
-        Main->>DB: 更新会话model_id
-        DB-->>Main: 确认更新
-        Main-->>UI: 返回成功，提示"开始新对话"
-        UI->>User: 显示切换成功，清空历史
-    else 模型不兼容（如不支持图片）
-        Main-->>UI: 返回警告"目标模型不支持图片"
-        UI->>User: 显示警告，确认是否继续
-        User->>UI: 确认继续
-        UI->>Main: 确认更新
-        Main->>DB: 更新会话model_id
-        DB-->>Main: 确认更新
-        Main-->>UI: 返回成功
-        UI->>User: 显示切换成功，忽略不兼容附件
-    end
+    Main->>DB: 更新会话model_id（不清空消息历史）
+    DB-->>Main: 确认更新
+    Main-->>UI: 返回成功
+    UI->>User: 显示"已切换模型"提示，消息历史保留
 ```
 
 ---

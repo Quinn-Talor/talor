@@ -27,6 +27,7 @@ export function ConfirmDialog({
           <button
             onClick={onCancel}
             className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            data-testid="confirm-dialog-cancel"
           >
             {cancelLabel}
           </button>
@@ -37,6 +38,7 @@ export function ConfirmDialog({
                 ? 'bg-red-500 hover:bg-red-600'
                 : 'bg-primary-500 hover:bg-primary-600'
             }`}
+            data-testid="confirm-dialog-confirm"
           >
             {confirmLabel}
           </button>

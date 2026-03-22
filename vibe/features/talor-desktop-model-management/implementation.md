@@ -17,20 +17,20 @@ depends-on: [FD-talor-desktop-model-management]
 
 | 指标 | 当前值 | 目标值 | 状态 |
 |------|--------|--------|------|
-| **总体进度** | 70% | 100% | 🔄 进行中 |
-| **IMPL 完成率** | 14/16 (88%) | 16/16 (100%) | 🔄 Phase 1+2 P0+P1 已完成 |
-| **AC 验证率** | 10/10 Phase 1+2 ✅ | 全部通过 | ✅ Phase 1+2 全部 AC 通过 |
-| **Phase 进度** | Phase 1: ✅ 完成 \| Phase 2: ✅ 完成（Quinn — 2026-03-22 签收） | Phase 3: 100% | 🔄 进行中 |
-| **阻塞项** | 无 | - | ✅ 无阻塞 |
-| **DEFERRED 项** | IMPL-020~022（P2 优化，已接受延期） | - | 🔄 可选 |
+| **总体进度** | 95% | 100% | 🔄 进行中（Layer 2 人工验证中） |
+| **IMPL 完成率** | 20/22 P0+P1 (91%) | 22/22 (100%) | ✅ Phase 1+2+3 P0+P1 编码已完成 |
+| **AC 验证率** | Layer 1: 13/13 ✅ \| Layer 2: 10/13 ✅ + 3 🔲 | 全部通过 | 🔲 AC-012-03/04/05 Layer 2 待人工确认 |
+| **Phase 进度** | Phase 1: ✅ \| Phase 2: ✅（Quinn — 2026-03-22 签收）\| Phase 3: 🔄 编码完成，待验收 | Phase 3: 100% | 🔄 进行中 |
+| **阻塞项** | AC-012-03/04/05 Layer 2 需人工操作 App 验证 | - | 🔲 等待人工确认 |
+| **DEFERRED 项** | IMPL-020~022（P2 优化）, IMPL-029~031（P2 优化）| - | 🔄 可选 |
 
 ### 需求实施状态表（US 维度）
 
 | US ID | 用户故事 | 关联 IMPL | AC 通过率 | 状态 | 备注 |
 |-------|---------|----------|----------|------|------|
-| US-010 | 自动检测 Provider 支持的模型列表 | IMPL-001, IMPL-002, IMPL-003 | 4/4 (100%) | ✅ 完成 | AC-010-04 ✅（持久化缓存 IMPL-018 完成） |
+| US-010 | 自动检测 Provider 支持的模型列表 | IMPL-001~003 | 4/4 (100%) | ✅ 完成 | AC-010-04 ✅（持久化缓存 IMPL-018 完成） |
 | US-011 | 查看模型能力详情 | IMPL-013~022 | 4/4 (100%) | ✅ 完成 | Phase 2 P0+P1 全部 ✅（AC-011-01~04），P2 为可选优化 |
-| US-012 | 在会话中选择特定模型 | IMPL-004~008 | 2/2 (100%) | ✅ 完成 | AC-012-01 ✅（内嵌 ModelSwitcher），AC-012-02 ✅ |
+| US-012 | 在会话中选择特定模型 | IMPL-004~008, IMPL-023~028 | 5/5 Layer1 ✅ + 3 🔲 Layer2 | 🔄 编码完成，Layer 2 待人工确认 | AC-012-03/04/05 Layer 2 需人工验证 |
 
 > ⚠️ AC 验证明细不在此展开 → 见各阶段 `phases/phase-N/impl.md §P.3`（双层验证指令 + 证据）
 
@@ -42,7 +42,7 @@ depends-on: [FD-talor-desktop-model-management]
 |-------|------|-------------|------|------------|----------|
 | Phase 1 | 模型发现与选择 | [phases/phase-1/impl.md](phases/phase-1/impl.md) | ✅ 完成（已签收） | 7/6 P0+P1 (IMPL-007 ✅) | 5/6 ✅ + 1⚠️ |
 | Phase 2 | 能力检测与缓存 | [phases/phase-2/impl.md](phases/phase-2/impl.md) | ✅ 完成（Quinn — 2026-03-22 已签收） | 7/10 P0+P1 ✅（P2 延期） | 5/5 ✅ (100%) |
-| Phase 3 | 模型切换与高级功能 | [phases/phase-3/impl.md](phases/phase-3/impl.md) | ⬜ 未开始 | 0/6 (0%) | 0/4 (0%) |
+| Phase 3 | 模型切换与高级功能 | [phases/phase-3/impl.md](phases/phase-3/impl.md) | 🔄 编码完成，Layer 2 待人工确认 | 6/6 P0+P1 ✅ | 3/3 Layer1 ✅ + 3 🔲 Layer2 |
 
 > 说明：IMPL 任务详情、AC 验证映射、Checkpoint 见对应 `phases/phase-N/impl.md`
 

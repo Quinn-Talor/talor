@@ -14,6 +14,7 @@ interface ModelOption {
   id: string
   displayName: string
   providerName: string
+  supportsVision: boolean
 }
 
 export function ChatPage() {
@@ -39,6 +40,8 @@ export function ChatPage() {
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined)
+  const [modelSwitchedToast, setModelSwitchedToast] = useState(false)
+  const [modelUnavailable, setModelUnavailable] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const modelPickerRef = useRef<HTMLDivElement>(null)
 
@@ -73,6 +76,7 @@ export function ChatPage() {
             id: model.id,
             displayName: (model as ModelInfo).display_name || (model as ModelInfo).name,
             providerName: provider.name,
+            supportsVision: (model as ModelInfo).supports_vision ?? false,
           })
         }
       }
@@ -92,9 +96,16 @@ export function ChatPage() {
       loadMessages(currentSessionId)
       const session = sessions.find(s => s.id === currentSessionId)
       setCurrentModelId(session?.model_id)
+      setModelUnavailable(false)
+      if (session?.model_id) {
+        talorAPI.session.checkModelAvailability({ session_id: currentSessionId }).then(result => {
+          if (!result.available) setModelUnavailable(true)
+        }).catch(() => {})
+      }
     } else {
       setMessages([])
       setCurrentModelId(undefined)
+      setModelUnavailable(false)
     }
   }, [currentSessionId])
 
@@ -116,6 +127,18 @@ export function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent, streamState])
+
+  // Dev-only test hook: allows Playwright to inject attachments for Layer 2 verification
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      ;(window as unknown as Record<string, unknown>).__test_setAttachments = setAttachments
+    }
+    return () => {
+      if (import.meta.env.DEV) {
+        delete (window as unknown as Record<string, unknown>).__test_setAttachments
+      }
+    }
+  }, [setAttachments])
 
   // Close model picker when clicking outside
   useEffect(() => {
@@ -149,11 +172,15 @@ export function ChatPage() {
   const handleModelChange = async (modelId: string) => {
     setShowModelPicker(false)
     if (!currentSessionId) return
+
     try {
       const updated = await talorAPI.session.updateModel({ session_id: currentSessionId, model_id: modelId })
       if (updated) {
         setCurrentModelId(updated.model_id)
+        setModelUnavailable(false)
         await loadSessions()
+        setModelSwitchedToast(true)
+        setTimeout(() => setModelSwitchedToast(false), 2500)
       }
     } catch (e) {
       console.error('Failed to update model', e)
@@ -385,6 +412,26 @@ export function ChatPage() {
       <div className="flex-1 flex flex-col min-w-0 bg-white relative">
         {currentSessionId ? (
           <>
+            {modelUnavailable && (
+              <div
+                className="flex items-center gap-3 px-4 py-2.5 bg-amber-50 border-b border-amber-200 text-amber-800 text-sm"
+                data-testid="model-unavailable-banner"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+                <span className="flex-1">模型不可用 — 该模型已无法使用</span>
+                <button
+                  onClick={() => setShowModelPicker(true)}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium transition-colors"
+                  data-testid="select-other-model-btn"
+                >
+                  选择其他模型
+                </button>
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
               {messages.length === 0 && streamState !== 'streaming' ? (
                 <div className="h-full flex items-center justify-center text-gray-400">
@@ -548,6 +595,15 @@ export function ChatPage() {
           onConfirm={handleDeleteSession}
           onCancel={() => setSessionToDelete(null)}
         />
+      )}
+
+      {modelSwitchedToast && (
+        <div
+          className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50 pointer-events-none"
+          data-testid="model-switched-toast"
+        >
+          已切换模型
+        </div>
       )}
 
       {/* Drag overlay */}

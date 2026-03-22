@@ -90,6 +90,16 @@ export const sessionRepo = {
     return this.getById(id)
   },
 
+  updateModelAndClearMessages(id: string, model_id: string): ChatSession | null {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const info = db.prepare('UPDATE sessions SET model_id = ?, updated_at = ? WHERE id = ?').run(model_id, now, id)
+    if (info.changes === 0) return null
+    db.prepare('DELETE FROM messages WHERE session_id = ?').run(id)
+    log.info('[SessionRepo] Updated model and cleared messages for session:', id, '->', model_id)
+    return this.getById(id)
+  },
+
   updateModel(id: string, model_id: string): ChatSession | null {
     const db = getDb()
     const now = new Date().toISOString()

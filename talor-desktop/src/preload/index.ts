@@ -144,6 +144,11 @@ export interface SessionUpdateModelParams {
   model_id: string
 }
 
+export interface SessionCheckModelAvailabilityResult {
+  available: boolean
+  model_id?: string
+}
+
 const talorAPI = {
   config: {
     get: (): Promise<AppConfig> => ipcRenderer.invoke('config:get'),
@@ -189,6 +194,8 @@ const talorAPI = {
       ipcRenderer.invoke('session:rename', params),
     updateModel: (params: SessionUpdateModelParams): Promise<ChatSession | null> =>
       ipcRenderer.invoke('session:updateModel', params),
+    checkModelAvailability: (params: { session_id: string }): Promise<SessionCheckModelAvailabilityResult> =>
+      ipcRenderer.invoke('session:checkModelAvailability', params),
     delete: (sessionId: string): Promise<void> => ipcRenderer.invoke('session:delete', sessionId),
     getMessages: (sessionId: string): Promise<ChatMessage[]> =>
       ipcRenderer.invoke('session:getMessages', sessionId),

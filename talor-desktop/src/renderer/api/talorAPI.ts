@@ -27,6 +27,7 @@ declare global {
         get: (id: string) => Promise<ChatSession | null>
         rename: (params: { session_id: string; title: string }) => Promise<ChatSession | null>
         updateModel: (params: { session_id: string; model_id: string }) => Promise<ChatSession | null>
+        checkModelAvailability: (params: { session_id: string }) => Promise<{ available: boolean; model_id?: string }>
         delete: (sessionId: string) => Promise<void>
         getMessages: (sessionId: string) => Promise<ChatMessage[]>
         touch: (sessionId: string) => Promise<void>
@@ -79,6 +80,7 @@ const stubSession = {
   get: () => Promise.resolve(null),
   rename: () => Promise.resolve(null),
   updateModel: () => Promise.resolve(null),
+  checkModelAvailability: () => Promise.resolve({ available: true }),
   delete: () => Promise.resolve(),
   getMessages: () => Promise.resolve([] as ChatMessage[]),
   touch: () => Promise.resolve(),

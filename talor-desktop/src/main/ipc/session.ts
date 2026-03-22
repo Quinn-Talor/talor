@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { sessionRepo, ChatSession, ChatMessage } from '../repos/session-repo'
 import { ConfigStore } from '../store/config-store'
 import { getProviderModels } from '../services/provider-fetcher'
+import { checkModelAvailability } from '../services/model-availability'
 import log from 'electron-log'
 
 export function registerSessionHandlers(): void {
@@ -35,6 +36,20 @@ export function registerSessionHandlers(): void {
 
   ipcMain.handle('session:updateModel', (_, params: { session_id: string; model_id: string }): ChatSession | null => {
     return sessionRepo.updateModel(params.session_id, params.model_id)
+  })
+
+  ipcMain.handle('session:checkModelAvailability', async (_, params: { session_id: string }): Promise<{ available: boolean; model_id?: string }> => {
+    const session = sessionRepo.getById(params.session_id)
+    if (!session?.model_id) return { available: true }
+
+    const providers = ConfigStore.getInstance().get('providers') as Record<string, { id: string; models: { id: string }[] }>
+    const provider = providers?.[session.provider_id]
+    if (!provider) return { available: false, model_id: session.model_id }
+
+    const models = (provider.models ?? []) as { id: string }[]
+    const result = checkModelAvailability(session.model_id, models as Parameters<typeof checkModelAvailability>[1])
+    log.info('[session:checkModelAvailability] session:', params.session_id, 'model:', session.model_id, 'available:', result.available)
+    return { available: result.available, model_id: session.model_id }
   })
 
   ipcMain.handle('session:delete', (_, sessionId: string): void => {
