@@ -38,6 +38,10 @@ export function registerSessionHandlers(): void {
     return sessionRepo.updateModel(params.session_id, params.model_id)
   })
 
+  ipcMain.handle('session:updateWorkspace', (_, params: { session_id: string; workspace: string }): ChatSession | null => {
+    return sessionRepo.updateWorkspace(params.session_id, params.workspace)
+  })
+
   ipcMain.handle('session:checkModelAvailability', async (_, params: { session_id: string }): Promise<{ available: boolean; model_id?: string }> => {
     const session = sessionRepo.getById(params.session_id)
     if (!session?.model_id) return { available: true }

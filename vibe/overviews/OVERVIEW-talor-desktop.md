@@ -1,7 +1,7 @@
 <!--
 doc-id: OVERVIEW-talor-desktop
 status: active
-version: 1.2
+version: 1.3
 last-updated: 2026-03-22
 depends-on: [OVERVIEW]
 -->
@@ -21,7 +21,8 @@ depends-on: [OVERVIEW]
 2. **LLM Provider 配置管理** — 配置 CRUD（list/create/update/delete/setDefault）、连接测试、API Key 加密
 3. **聊天会话管理** — SQLite 持久化（sessions、messages 表）、会话创建/删除/重命名
 4. **流式对话** — SSE 流式接收 LLM 响应、打字机效果渲染、中断功能
-5. **消息附件**（开发中）— 文件选择、Base64 编码、多模态 LLM 调用
+5. **消息附件** — 文件选择、Base64 编码、多模态 LLM 调用
+6. **模型选择与管理** — 自动检测 Provider 支持的模型列表、模型能力检测、会话模型切换
 
 ### 不负责
 
@@ -66,14 +67,15 @@ depends-on: [OVERVIEW]
 | `index.ts` | Electron 入口：窗口创建、handler 注册、DB 初始化 |
 | `ipc/config.ts` | config:get / config:save |
 | `ipc/providers.ts` | providers:list/create/update/delete/setDefault/testConnection |
-| `ipc/session.ts` | session:list/create/delete/rename/getMessages |
+| `ipc/session.ts` | session:list/create/delete/rename/getMessages + session:updateModel |
 | `ipc/chat.ts` | chat:send (SSE 流式) |
 | `ipc/window.ts` | window:minimize/maximize/close/isMaximized |
 | `store/config-store.ts` | ConfigStore 单例（electron-store + 原子写入） |
 | `services/safe-storage.ts` | safeStorage 加密/解密 |
 | `services/provider-tester.ts` | HTTP 连接测试 |
+| `services/model-availability.ts` | 模型可用性检测 |
 | `db/index.ts` | better-sqlite3 初始化 + Schema |
-| `repos/session-repo.ts` | 会话/消息 CRUD |
+| `repos/session-repo.ts` | 会话/消息 CRUD + updateModel |
 | `providers/llm-provider.ts` | Vercel AI SDK 封装 |
 
 ### 预加载（src/preload/）
@@ -142,9 +144,38 @@ interface ChatSession {
   id: string;           // UUIDv4
   title: string;        // 会话标题
   provider_id: string; // 关联 Provider ID
-  model_id?: string;
+  model_id?: string;   // 会话使用的模型 ID（如 "ollama/qwen3:4b"）
   created_at: string;
   updated_at: string;
+}
+```
+
+### ModelInfo
+
+```typescript
+interface ModelInfo {
+  id: string;                    // provider_id/model_name，如 "ollama/qwen3:4b"
+  name: string;                 // 模型名称，如 "qwen3:4b"
+  provider_id: string;          // 所属 Provider ID
+  display_name: string;         // 显示名称，如 "Qwen 3 (4B)"
+  description?: string;         // 模型描述
+  capabilities: ModelCapability[];
+  supports_vision?: boolean;     // 是否支持视觉（图片理解）
+  supports_tools?: boolean;      // 是否支持工具调用
+  max_tokens?: number;          // 最大 token 数
+}
+```
+
+### ModelCapability
+
+```typescript
+interface ModelCapability {
+  category: 'text' | 'vision' | 'tools' | 'video' | 'audio';
+  type: string;                  // 如 "text_generation", "image_understanding"
+  supported: boolean;
+  description: string;
+  detected_at?: string;
+  source: 'auto' | 'manual' | 'default';
 }
 ```
 
@@ -183,6 +214,31 @@ saving --> saved: 保存成功
 saved --> idle: 用户触发编辑
 saved --> deleted: 用户点击删除并确认
 deleted --> [*]
+```
+
+### Provider 模型状态机
+
+```
+[*] --> idle: 空闲，未加载模型
+idle --> loading: 打开 Provider 配置页面
+loading --> loaded: 模型列表加载成功
+loading --> error: 加载失败（网络/API 错误）
+loaded --> refreshing: 用户手动刷新或缓存过期
+refreshing --> loaded: 刷新成功
+refreshing --> error: 刷新失败
+error --> loading: 用户重试
+any --> idle: Provider 配置被删除或修改
+```
+
+### 会话模型状态机（v1.1 直接切换）
+
+```
+[*] --> default: 使用 Provider 默认模型
+default --> selected: 用户创建会话时选择特定模型
+selected --> selected: 用户直接切换模型（无确认弹框，不清空消息历史）
+unavailable --> selected: 用户选择其他可用模型
+selected --> unavailable: 模型变为不可用（如 API 变更）
+any --> default: 用户重置为默认模型
 ```
 
 ### 测试状态
@@ -279,6 +335,32 @@ async function encryptApiKey(apiKey: string, providerId: string): Promise<void> 
   const keyPath = join(app.getPath('home'), '.talor', 'api-keys.enc');
   // 加密存储到文件
 }
+```
+
+### 模型直接切换（v1.1 Good Pattern）
+
+```typescript
+// src/renderer/pages/Chat/index.tsx
+const handleModelChange = async (modelId: string) => {
+  if (!currentSessionId) return;
+  const updated = await talorAPI.session.updateModel({
+    session_id: currentSessionId,
+    model_id: modelId
+  });
+  if (updated) {
+    setCurrentModelId(updated.model_id);
+    setModelSwitchedToast(true);
+    setTimeout(() => setModelSwitchedToast(false), 2500);
+    // 不清空消息历史，不弹确认框
+  }
+};
+```
+
+### 模型附件兼容性处理（v1.1 Good Pattern）
+
+```typescript
+// 切换到不支持 vision 的模型时，静默忽略图片附件，不弹确认框
+// 直接切换成功后显示 toast，图片在后续对话中不会被发送
 ```
 
 ### 禁止：直接赋值 window.talorAPI（Anti-Pattern）

@@ -1,6 +1,6 @@
 <!--
 doc-id: FD-talor-desktop-model-management
-status: review
+status: archived
 version: 1.1
 last-updated: 2026-03-22
 depends-on: [REQ-talor-model-management]

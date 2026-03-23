@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     title TEXT NOT NULL,
     provider_id TEXT NOT NULL,
     model_id TEXT,
+    workspace TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -54,9 +55,12 @@ export function initChatDb(): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-  db.exec(CREATE_SESSIONS)
-  db.exec(CREATE_MESSAGES)
-  db.exec(CREATE_INDEX)
+db.exec(CREATE_SESSIONS)
+    db.exec(CREATE_MESSAGES)
+    db.exec(CREATE_INDEX)
+    
+    db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
+    log.info('[ChatDB] Migrated: added workspace column')
 
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db

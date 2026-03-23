@@ -7,6 +7,7 @@ export interface SessionRow {
   title: string
   provider_id: string
   model_id: string | null
+  workspace: string | null
   created_at: string
   updated_at: string
 }
@@ -24,6 +25,7 @@ export interface ChatSession {
   title: string
   provider_id: string
   model_id?: string
+  workspace?: string
   created_at: string
   updated_at: string
 }
@@ -42,6 +44,7 @@ function rowToSession(row: SessionRow): ChatSession {
     title: row.title,
     provider_id: row.provider_id,
     model_id: row.model_id ?? undefined,
+    workspace: row.workspace ?? undefined,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
@@ -106,6 +109,15 @@ export const sessionRepo = {
     const info = db.prepare('UPDATE sessions SET model_id = ?, updated_at = ? WHERE id = ?').run(model_id, now, id)
     if (info.changes === 0) return null
     log.info('[SessionRepo] Updated model for session:', id, '->', model_id)
+    return this.getById(id)
+  },
+
+  updateWorkspace(id: string, workspace: string): ChatSession | null {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const info = db.prepare('UPDATE sessions SET workspace = ?, updated_at = ? WHERE id = ?').run(workspace, now, id)
+    if (info.changes === 0) return null
+    log.info('[SessionRepo] Updated workspace for session:', id, '->', workspace)
     return this.getById(id)
   },
 

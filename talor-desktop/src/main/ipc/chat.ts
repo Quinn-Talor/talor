@@ -12,6 +12,9 @@ import type { MessagePart, ImagePart, FilePart } from '../../renderer/types/chat
 import { decodeMessageContent } from '../../renderer/types/chat'
 import fs from 'fs/promises'
 import mime from 'mime-types'
+import { toolExecutor, type ExecutorChunk } from '../tools/executor'
+import { toolRegistry } from '../tools/registry'
+import '../tools/builtin'
 
 /**
  * 检查 Provider 是否支持视觉（多模态）
@@ -254,6 +257,13 @@ export function registerChatHandlers(): void {
       
       const model = createModel(provider, session?.model_id)
 
+      const hasWorkspace = !!(session?.workspace && session.workspace.trim() !== '')
+      
+      if (hasWorkspace) {
+        const schemas = toolRegistry.getAllSchemas()
+        log.info('[Chat] Tools enabled, workspace:', session.workspace, 'tools:', schemas.map(s => s.name).join(', '))
+      }
+
       const messages = toCoreMessages(sessionId, userContent, validatedAttachments)
 
       const userMessageId = uuidv4()
@@ -267,57 +277,106 @@ export function registerChatHandlers(): void {
 
       let fullText = ''
 
+if (hasWorkspace) {
+        await toolExecutor.executeStream({
+          model,
+          messages,
+          context: {
+            sessionId,
+            workspace: session.workspace,
+          },
+          onChunk: (chunk: ExecutorChunk) => {
+            if (chunk.type === 'tool-call') {
+              mainWindow.webContents.send('chat:tool-call', {
+                session_id: sessionId,
+                message_id: messageId,
+                tool_call_id: chunk.toolCallId,
+                tool_name: chunk.toolName,
+                input: chunk.input,
+              })
+            } else if (chunk.type === 'tool-result') {
+              mainWindow.webContents.send('chat:tool-result', {
+                session_id: sessionId,
+                message_id: messageId,
+                tool_call_id: chunk.toolCallId,
+                tool_name: chunk.toolName,
+                result: chunk.result,
+              })
+            } else if (chunk.type === 'text-delta') {
+              fullText += chunk.text
+              mainWindow.webContents.send('chat:stream', {
+                session_id: sessionId,
+                message_id: messageId,
+                delta: chunk.text,
+                done: false
+              })
+            } else if (chunk.type === 'error') {
+              log.error('[Chat] Tool executor error:', chunk.error)
+              mainWindow.webContents.send('chat:stream', {
+                session_id: sessionId,
+                message_id: messageId,
+                delta: '',
+                done: true,
+                error_code: 'TOOL_ERROR',
+                error_message: chunk.error
+              })
+            } else if (chunk.type === 'finish') {
+              log.info('[Chat] Tool executor finished, reason:', chunk.finishReason)
+            }
+          },
+          abortSignal: abortController.signal,
+        })
+      } else {
         log.info('[Chat] Starting streamText with model:', session?.model_id || 'default', 'messages:', messages.length)
-       
-       const result = streamText({
-        model,
-        messages,
-        abortSignal: abortController.signal,
-        onChunk({ chunk }) {
-          log.info('[Chat] Received chunk:', chunk.type)
-          if (chunk.type === 'text-delta') {
-            fullText += chunk.text
+        
+        const result = streamText({
+          model,
+          messages,
+          abortSignal: abortController.signal,
+          onChunk({ chunk }) {
+            log.info('[Chat] Received chunk:', chunk.type)
+            if (chunk.type === 'text-delta') {
+              fullText += chunk.text
+              mainWindow.webContents.send('chat:stream', {
+                session_id: sessionId,
+                message_id: messageId,
+                delta: chunk.text,
+                done: false
+              })
+            }
+          },
+          onError({ error }) {
+            log.error('[Chat] Stream error:', error)
             mainWindow.webContents.send('chat:stream', {
               session_id: sessionId,
               message_id: messageId,
-              delta: chunk.text,
-              done: false
+              delta: '',
+              done: true,
+              error_code: 'LLM_ERROR',
+              error_message: String(error)
             })
           }
-        },
-        onError({ error }) {
-          log.error('[Chat] Stream error:', error)
-          mainWindow.webContents.send('chat:stream', {
-            session_id: sessionId,
-            message_id: messageId,
-            delta: '',
-            done: true,
-            error_code: 'LLM_ERROR',
-            error_message: String(error)
-          })
-        }
-      })
+        })
 
-      log.info('[Chat] Awaiting consumeStream...')
-      await result.consumeStream()
-      log.info('[Chat] consumeStream completed')
+        log.info('[Chat] Awaiting consumeStream...')
+        await result.consumeStream()
+        log.info('[Chat] consumeStream completed')
 
-      messageRepo.create({
-        id: messageId,
-        session_id: sessionId,
-        role: 'assistant',
-        content: fullText
-      })
-      sessionRepo.touch(sessionId)
+        messageRepo.create({
+          id: messageId,
+          session_id: sessionId,
+          role: 'assistant',
+          content: fullText
+        })
+        sessionRepo.touch(sessionId)
 
-      mainWindow.webContents.send('chat:stream', {
-        session_id: sessionId,
-        message_id: messageId,
-        delta: '',
-        done: true
-      })
-
-      return { message_id: messageId }
+        mainWindow.webContents.send('chat:stream', {
+          session_id: sessionId,
+          message_id: messageId,
+          delta: '',
+          done: true
+        })
+      }
     } catch (error) {
       log.error('[chat:send] error:', error)
       activeStreams.delete(sessionId)
