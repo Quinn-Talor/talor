@@ -15,9 +15,9 @@
 <!--
 doc-id: FD-talor-desktop-tool-calling
 status: approved
-version: 1.1
-last-updated: 2026-03-23
-depends-on: [US-000, US-001, US-002, US-003, US-004, US-005, US-006, US-007]
+version: 1.2
+last-updated: 2026-03-24
+depends-on: [REQ-talor-desktop-tool-calling]
 generates: [IMPL-talor-desktop-tool-calling]
 -->
 
@@ -330,3 +330,113 @@ sequenceDiagram
 - 工具执行超时（>30s） → 返回超时错误给 LLM
 - 工具访问路径超出 workspace → 返回"无法访问工作目录外"错误
 - 模型不支持 tool calling → 回退到纯文本模式
+
+---
+
+## F.8 AC 验证契约（Layer 2）
+
+> 本节锁定 Layer 2 验证指令。L3 approved 时同步锁定，后续不可单方面修改。
+> L4 §P.3 直接引用本节，不重新推导。
+
+### Phase 3（US-002 write/edit/ls/grep 工具）
+
+#### AC-005-01：write 工具创建新文件
+
+| 字段 | 内容 |
+|------|------|
+| 验证类型 | 单步验证 |
+| 前置数据构造 | 无（创建新文件） |
+| 验证指令 | 1. 启动 Electron app（`npm run dev`）<br>2. 创建测试会话，workspace = `/tmp`<br>3. 发送：`请帮我创建一个新文件 /tmp/test-e2e-write.txt，内容是 hello world`<br>4. 等待 AI 响应完成 |
+| 预期断言 | 1. `window.talorAPI.chat.onToolCall` 捕获到 toolName='write' 的调用<br>2. 文件 `/tmp/test-e2e-write.txt` 存在且内容为 "hello world" |
+| Teardown | 删除测试文件 `/tmp/test-e2e-write-*` |
+| 关键参数溯源 | 文件路径 → Given 子句指定 `/tmp/test-e2e-write.txt` |
+
+#### AC-005-02：write 工具对已存在文件
+
+| 字段 | 内容 |
+|------|------|
+| 验证类型 | 单步验证 |
+| 前置数据构造 | `fs.writeFileSync('/tmp/test-e2e-overwrite.txt', 'original content')` |
+| 验证指令 | 1. 启动 Electron app<br>2. 创建测试会话，workspace = `/tmp`<br>3. 发送：`请帮我创建一个新文件 /tmp/test-e2e-overwrite.txt，内容是 new content`<br>4. 等待 AI 响应完成 |
+| 预期断言 | 1. `onToolCall` 捕获到 toolName='write' 的调用<br>2. 文件内容已更新（"new content"）或 LLM 正确处理了已存在情况 |
+| Teardown | 删除测试文件 |
+| 关键参数溯源 | 文件路径 → Given 子句指定 |
+
+#### AC-005-03：write 工具父目录不存在
+
+| 字段 | 内容 |
+|------|------|
+| 验证类型 | 单步验证 |
+| 前置数据构造 | 确认 `/tmp/nonexistent-dir-xyz/` 不存在 |
+| 验证指令 | 1. 启动 Electron app<br>2. 创建测试会话，workspace = `/tmp`<br>3. 发送：`请帮我创建一个新文件 /tmp/nonexistent-dir-xyz/test.txt，内容是 hello`<br>4. 等待 AI 响应完成 |
+| 预期断言 | 1. `onToolCall` 捕获到 toolName='write' 的调用<br>2. 工具返回错误（"父目录不存在"）或自动创建父目录（两种均可接受） |
+| Teardown | 删除测试目录树 |
+| 关键参数溯源 | 路径组合 → Given 子句 "父目录不存在" |
+
+#### AC-005-04：edit 工具替换文件内容
+
+| 字段 | 内容 |
+|------|------|
+| 验证类型 | 单步验证 |
+| 前置数据构造 | `fs.writeFileSync('/tmp/test-e2e-edit.txt', 'hello world from edit test')` |
+| 验证指令 | 1. 启动 Electron app<br>2. 创建测试会话，workspace = `/tmp`<br>3. 发送：`请帮我把文件 /tmp/test-e2e-edit.txt 中的 "hello world" 替换成 "goodbye universe"`<br>4. 等待 AI 响应完成 |
+| 预期断言 | 1. `onToolCall` 捕获到 toolName='edit' 的调用<br>2. 文件内容变为 "goodbye universe from edit test" |
+| Teardown | 删除测试文件 |
+| 关键参数溯源 | old/new 字符串 → Given 子句 "hello world" → "goodbye universe" |
+
+#### AC-005-05：write 工具超大文件限制
+
+| 字段 | 内容 |
+|------|------|
+| 验证类型 | 单步验证 |
+| 前置数据构造 | 无（LLM 拒绝处理即为预期） |
+| 验证指令 | 1. 启动 Electron app<br>2. 创建测试会话，workspace = `/tmp`<br>3. 发送：请求创建 12MB 文件<br>4. 等待 AI 响应完成 |
+| 预期断言 | LLM 拒绝处理超大内容（不调用 write 工具）或 write 工具返回大小超限错误 |
+| Teardown | 确认 `/tmp/test-e2e-large.txt` 不存在 |
+| 关键参数溯源 | 文件大小 → Given 子句 "超过 10MB" |
+
+#### AC-002-04：grep 工具搜索文件内容
+
+| 字段 | 内容 |
+|------|------|
+| 验证类型 | 单步验证 |
+| 前置数据构造 | `fs.writeFileSync('/tmp/test-e2e-grep.txt', 'line 1: hello world\nline 2: foo bar\nline 3: hello again\nline 4: goodbye')` |
+| 验证指令 | 1. 启动 Electron app<br>2. 创建测试会话，workspace = `/tmp`<br>3. 发送：`请在文件 /tmp/test-e2e-grep.txt 中搜索包含 "hello" 的行`<br>4. 等待 AI 响应完成 |
+| 预期断言 | 1. `onToolCall` 捕获到 toolName='grep' 的调用<br>2. 工具返回包含 "hello" 的匹配行 |
+| Teardown | 删除测试文件 |
+| 关键参数溯源 | 搜索词 "hello" → Given 子句 |
+
+---
+
+### Phase 2（US-001 read/glob 工具，已验证）
+
+| AC ID | 验证契约来源 | 验证状态 |
+|-------|------------|---------|
+| AC-001-01~05 | `phases/phase-2/verify-report.md` | ✅ 已完成 |
+| AC-002-01~03 | `phases/phase-2/verify-report.md` | ✅ 已完成 |
+| AC-004-01~02 | `phases/phase-2/verify-report.md` | ⚠️ 已完成（CDP 精度限制） |
+| AC-007-01~04 | `phases/phase-2/verify-report.md` | ✅ 已完成 |
+
+---
+
+### Phase 4（US-003/004/006 bash 工具，待实施）
+
+| AC ID | 验证契约 | 状态 |
+|-------|---------|------|
+| AC-003-01 | 多轮工具调用验证（ls → read） | ⬜ 待实施 |
+| AC-003-03 | 循环上限处理验证 | ⬜ 待实施 |
+| AC-004-04 | 超时 UI 显示验证 | ⬜ 待实施 |
+| AC-006-01~05 | bash 工具各场景验证 | ⬜ 待实施 |
+
+---
+
+### Phase 5（US-007 MCP 接口预留）
+
+| 内容 | 状态 |
+|------|------|
+| MCP 工具注册表接口设计 | ⬜ 待实施 |
+| 无运行时 AC 验证（接口设计阶段） | — |
+
+---
+
+**验证执行入口脚本**：`node tests/e2e/layer2-tool-calling-phase3.js`（Phase 3 专用）

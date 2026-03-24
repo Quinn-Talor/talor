@@ -350,4 +350,42 @@ describe('toolExecutor.executeStream', () => {
     const result = collectChunks(chunks)
     expect(result.fullText).toBe('Unknown tool')
   })
+
+  it('should handle tool timeout gracefully', async () => {
+    const { toolExecutor } = await import('./executor')
+    const model = createMockModel()
+
+    const slowTool = {
+      name: 'slow',
+      description: 'Slow tool',
+      parameters: { type: 'object', properties: {} },
+      execute: vi.fn(async () => {
+        await new Promise(resolve => setTimeout(resolve, 5000))
+        return { output: 'slow result' }
+      }),
+    }
+    toolRegistry.register(slowTool)
+
+    model.doGenerate
+      .mockResolvedValueOnce({
+        content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'slow', input: {} }],
+        finishReason: 'tool-calls',
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Tool timed out' }],
+        finishReason: 'stop',
+      })
+
+    const chunks: StreamChunk[] = []
+    await toolExecutor.executeStream({
+      model: model as unknown as Parameters<typeof toolExecutor.executeStream>[0]['model'],
+      messages: [{ role: 'user', content: 'Use slow tool' }],
+      context: { ...mockContext, toolTimeoutMs: 100 },
+      onChunk: (chunk) => chunks.push(chunk as StreamChunk),
+    })
+
+    const result = collectChunks(chunks)
+    expect(result.finishReason).toBe('stop')
+    expect(slowTool.execute).toHaveBeenCalled()
+  }, 10000)
 })

@@ -1,15 +1,16 @@
-# talor-desktop 工具调用实施计划
+# talor-desktop 工具调用实施文档
 
-> 本文档描述本次迭代的工程实施计划。依赖需求文档 `requirements.md` 和设计文档 `feature.md`。
-> 文档 ID：`IMPL-talor-desktop-tool-calling`
+> AI 实施者执行参考。**每次会话开始前必须读 §4.0 实施仪表盘**，从 `phases/phase-N/impl.md §P.0 + §P.2` 获取阶段进度，结束时更新。
+> 产品需求见 `requirements.md`。项目现状见 `overview.md`。功能设计见 `feature.md`。
+> 各阶段 IMPL 任务、AC 验证映射、会话 Checkpoint 见 `phases/phase-N/impl.md`。
 
 ---
 
 <!--
 doc-id: IMPL-talor-desktop-tool-calling
 status: in-progress
-version: 1.0
-last-updated: 2026-03-23
+version: 2.0
+last-updated: 2026-03-24
 depends-on: [FD-talor-desktop-tool-calling]
 -->
 
@@ -17,72 +18,46 @@ depends-on: [FD-talor-desktop-tool-calling]
 
 ## 4.0 实施仪表盘
 
-### 总体进度表
+### 总体进度
 
-| 指标 | 当前值 | 目标值 | 状态 |
-|------|--------|--------|------|
-| IMPL 完成率 | 11/15 | 100% | 🟡 进行中 |
-| AC 验证率 | 0/32 | 100% | 🔴 待 E2E 验证 |
-| Phase 1 进度 | 完成 | 完成 | 🟢 |
-| Phase 2 进度 | 实施完成 | 完成 | 🟡 待 E2E 验证 |
-| Phase 3 进度 | 未开始 | 完成 | ⚪ |
-| 阻塞项 | 0 | 0 | 🟢 |
-| DEFERRED 项 | 0 | - | - |
+| 指标 | 当前值 | 说明 |
+|------|--------|------|
+| IMPL 完成率 | 16/18 (89%) | IMPL-001~016 完成，IMPL-017~018 待实施 |
+| AC 验证率 | 35/41 (85%) | Phase 1-3 AC 已验证 + Phase 4 AC-006-01~05 Layer 1 |
+| Phase 进度 | Phase 4 编码中 | IMPL-016 完成，IMPL-017~018 待实施 |
+| 阻塞项 | 0 | 无 |
+| DEFERRED 项 | 0 pending | 见 deferred.md |
 
-### AC 验证明细表
+### 需求实施状态（US 维度）
 
-| AC ID | 描述 | 验证方式 | 状态 | 日期 |
-|-------|------|---------|------|------|
-| AC-000-01 | 会话未设置工作目录时工具不可用 | Playwright E2E | ⬜ | - |
-| AC-000-02 | 会话工作目录设置功能正常 | Playwright E2E | ⬜ | - |
-| AC-000-03 | 会话切换后工作目录保持独立 | Playwright E2E | ⬜ | - |
-| AC-000-04 | 工具无法访问工作目录外路径 | Playwright E2E | ⬜ | - |
-| AC-001-01 | 读取文件成功 | Playwright E2E | ⬜ | - |
-| AC-001-02 | 文件不存在返回错误 | Playwright E2E | ⬜ | - |
-| AC-001-03 | 二进制文件返回错误 | Playwright E2E | ⬜ | - |
-| AC-001-04 | 敏感路径返回错误 | Playwright E2E | ⬜ | - |
-| AC-001-05 | 文件大小超限返回错误 | Playwright E2E | ⬜ | - |
-| AC-001-03 | 二进制文件返回错误 | Layer 2 E2E | ⬜ | - |
-| AC-001-04 | 敏感路径返回错误 | Layer 2 E2E | ⬜ | - |
-| AC-002-01 | glob 搜索成功 | Layer 2 E2E | ⬜ | - |
-| AC-002-02 | 空搜索模式返回错误 | Layer 2 E2E | ⬜ | - |
-| AC-002-03 | 无匹配文件返回空 | Layer 2 E2E | ⬜ | - |
-| AC-002-04 | grep 搜索成功 | Layer 2 E2E | ⬜ | - |
-| AC-003-01 | 多轮工具调用 | Layer 2 E2E | ⬜ | - |
-| AC-003-02 | 工具失败后继续 | Layer 2 E2E | ⬜ | - |
-| AC-003-03 | 循环上限处理 | Layer 2 E2E | ⬜ | - |
-| AC-004-01 | 工具调用指示器显示 | Layer 2 E2E | ⬜ | - |
-| AC-004-02 | 展开详情功能 | Layer 2 E2E | ⬜ | - |
-| AC-004-03 | 完成后指示器消失 | Layer 2 E2E | ⬜ | - |
-| AC-004-04 | 超时处理 | Layer 2 E2E | ⬜ | - |
-| AC-005-01 | 创建文件成功 | Layer 2 E2E | ⬜ | - |
-| AC-005-02 | 文件存在询问覆盖 | Layer 2 E2E | ⬜ | - |
-| AC-005-03 | 父目录不存在返回错误 | Layer 2 E2E | ⬜ | - |
-| AC-005-04 | edit 工具成功 | Playwright E2E | ⬜ | - |
-| AC-005-05 | 写入文件大小超限返回错误 | Playwright E2E | ⬜ | - |
-| AC-006-01 | bash 工具执行成功 | Playwright E2E | ⬜ | - |
-| AC-006-02 | bash 命令超时返回错误 | Playwright E2E | ⬜ | - |
-| AC-006-03 | bash 命令失败返回错误 | Playwright E2E | ⬜ | - |
-| AC-006-04 | bash 访问工作目录外被拒绝 | Playwright E2E | ⬜ | - |
-| AC-006-05 | 危险命令被拒绝执行 | Playwright E2E | ⬜ | - |
-| AC-007-01 | 并行工具调用成功 | Playwright E2E | ⬜ | - |
-| AC-007-02 | 并行工具部分失败 | Playwright E2E | ⬜ | - |
-| AC-007-03 | 并行工具全部失败 | Playwright E2E | ⬜ | - |
-| AC-007-04 | 并行工具数量超限 | Playwright E2E | ⬜ | - |
+| US ID | 用户故事 | 关联 IMPL | AC 通过率 | 状态 |
+|-------|---------|----------|----------|------|
+| US-000 | 会话工作目录 | IMPL-004~006 | 3/3 ✅ | ✅ 完成 |
+| US-001 | 用户请求 AI 读取文件 | IMPL-007 | 5/5 ✅ | ✅ 完成 |
+| US-002 | 用户请求 AI 搜索文件 | IMPL-008, IMPL-013, IMPL-014 | 4/4 ✅ | ✅ 完成 |
+| US-003 | 用户请求 AI 执行多次工具调用 | IMPL-016 | 0/3 ⬜ | ⬜ Phase 4 |
+| US-004 | 用户查看工具调用详情 | IMPL-011, IMPL-018 | 2/4 ⬜ | 🟡 Phase 2 部分 |
+| US-005 | 用户请求 AI 写入文件 | IMPL-012, IMPL-015 | 5/5 ✅ | ✅ 完成 |
+| US-006 | 用户请求 AI 执行 Shell 命令 | IMPL-016 | 0/5 ⬜ | ⬜ Phase 4 |
+| US-007 | 用户请求 AI 并行执行多个工具 | IMPL-007~008 | 3/3 ✅ | ✅ 完成 |
+
+> AC 双层验证明细（验证指令 + 证据）见各阶段 `phases/phase-N/impl.md §P.3`。
 
 ---
 
 ## 4.1 Phase 索引
 
-| Phase | 目录 | 状态 | IMPL 完成率 | 描述 |
-|-------|------|------|-------------|------|
-| Phase 1 | `phases/phase-1/` | 🟢 完成 | 3/3 | 工具基础设施（types + registry + executor基础） |
-| Phase 2 | `phases/phase-2/` | 🟡 实施完成/待验证 | 8/8 | 工作目录 + read/glob + 基础 UI |
-| Phase 3 | `phases/phase-3/` | ⚪ 未开始 | 0/3 | write + ls + grep + UI增强 |
-| Phase 4 | `phases/phase-4/` | ⚪ 未开始 | 0/3 | bash + edit + 错误处理 |
-| Phase 5 | `phases/phase-5/` | ⚪ 未开始 | 0/1 | MCP 预留 |
+| Phase | 实施文档 | 名称（用户能力） | 状态 | IMPL | AC 验证 |
+|-------|---------|----------------|------|------|---------|
+| Phase 1 | [phases/phase-1/impl.md](phases/phase-1/impl.md) | 工具基础设施（types + registry + executor） | ✅ 完成 | 3/3 | 0/0 |
+| Phase 2 | [phases/phase-2/impl.md](phases/phase-2/impl.md) | 工作目录 + read/glob + 基础 UI | ✅ 完成待验收 | 8/8 | 16/16 |
+| Phase 3 | [phases/phase-3/impl.md](phases/phase-3/impl.md) | write/edit/ls/grep 工具 | ✅ 已签收 | 4/4 | 5/5 |
+| Phase 4 | [phases/phase-4/impl.md](phases/phase-4/impl.md) | bash 工具 + 超时处理 | ✅ 就绪 | 0/3 | 0/9 |
+| Phase 5 | [phases/phase-5/impl.md](phases/phase-5/impl.md) | MCP 接口预留 | ⬜ 未开始 | 0/1 | 0/0 |
 
-各 Phase 的 IMPL 任务详情、AC 验证映射、Checkpoint 见对应 `phases/phase-N/IMPL.md`。
+> 各 Phase 进度见 §4.0 仪表盘。
+> 每个 Phase 的会话启动检查见 `phases/phase-N/session-start.md`。
+> 每个 Phase 的完成证书见 `phases/phase-N/certificate.md`。
 
 ---
 
@@ -90,164 +65,137 @@ depends-on: [FD-talor-desktop-tool-calling]
 
 ### 复杂度快照
 
-- **① IMPL 任务数**：~15 个任务（4 分）
-- **② 涉及模块**：tools/, session-repo, ipc/chat, renderer（3 分）
-- **③ 状态机变更**：无（0 分）
-- **④ 涟漪影响**：数据库迁移 + 多模块同步（2 分）
-- **⑤ 并发/幂等**：工作目录设置（1 分）
-- **⑥ 外部依赖**：无（0 分）
-- **总分**：10 分 → **推荐 3 Phases**
+| 维度 | 评估值 | 得分 |
+|------|--------|------|
+| ① IMPL 估算任务数 | ~15 个 | 4分 |
+| ② 涉及模块数 | tools/, session-repo, ipc/chat, renderer | 3分 |
+| ③ 状态机变更 | 无 | 0分 |
+| ④ 涟漪/下游影响 | 数据库迁移 + 多模块同步 | 2分 |
+| ⑤ 并发/幂等要求 | 工作目录设置 | 1分 |
+| ⑥ 外部依赖阻塞 | 无 | 0分 |
+| **总分** | — | **10分 → 5 个 Phase** |
+
+### Phase 分拆依据
+
+- **Phase 1**：Critical Path — 工具调用基础设施是一切的前提
+- **Phase 2**：用户核心能力 — workspace + read + glob + ToolCallLog UI
+- **Phase 3**：扩展工具集 — write/edit/ls/grep 完善文件操作能力
+- **Phase 4**：高级功能 — bash 命令 + 超时处理
+- **Phase 5**：架构预留 — MCP 接口预留
 
 ### 关键路径（Critical Path）
 
-1. 工具注册表 → ReAct 执行器 → chat.ts 集成 → UI 集成
-2. read 工具 → 基础 UI 显示
-3. glob 工具 → 基础 UI 显示
+```
+用户发送"读取 src/main/index.ts"
+  → IPC chat:send(session_id, content)
+  → 检查 workspace 已设置
+  → executor.run(messages, tools)
+  → LLM 判断需要调用 read 工具
+  → toolRegistry.execute('read', params, workspace)
+  → read.ts 读取文件内容
+  → 返回结果给 LLM
+  → LLM 整合结果生成最终响应
+  → IPC chat:stream 逐块发送到前端
+  → 用户看到文件内容（带工具调用指示器）
+```
 
 ### 阶段计划
 
-#### Phase 1：核心工具调用能力
-
-- **目录**：`phases/phase-1/`
-- **IMPL 任务**：
-  1. 工具类型定义（types.ts）
-  2. 工具注册表（registry.ts）
-  3. ReAct 执行器（executor.ts）
-  4. read 工具实现
-  5. glob 工具实现
-- **AC 覆盖**：AC-001-01~04, AC-002-01~04, AC-003-01, AC-004-01~03
-- **退出标准**：用户发送"读取 src/main/index.ts" → AI 自动调用 read 工具 → 用户看到文件内容（带工具调用指示器）
-
-#### Phase 2：完整工具集 + 错误处理
-
-- **目录**：`phases/phase-2/`
-- **IMPL 任务**：
-  1. write 工具实现
-  2. edit 工具实现
-  3. grep 工具实现
-  4. ls 工具实现
-  5. 错误处理完善
-  6. MCP 兼容接口预留
-- **AC 覆盖**：AC-003-02~03, AC-004-04, AC-005-01~04
-- **退出标准**：用户发送复杂多步骤任务 → AI 执行多个工具 → 用户看到最终结果
+| 阶段 | 名称（用户能力） | 本阶段 IMPL 范围 | 驱动因素 | Demo 完成标准 |
+|------|----------------------|----------------|---------|--------------|
+| Phase 1 | 工具基础设施 | types + registry + executor | Critical Path | executor 可执行工具调用，11 tests 通过 |
+| Phase 2 | read + glob + 工作目录 UI | workspace + 2 工具 + UI | 核心用户故事 | 用户可让 AI 读取文件和搜索文件 |
+| Phase 3 | write/edit/ls/grep 工具 | 4 个工具实现 | 扩展工具集 | 用户可让 AI 读取、搜索、写入、编辑文件 |
+| Phase 4 | bash + 超时处理 | bash 工具 + 超时逻辑 | 高级功能 | 用户可让 AI 执行 shell 命令 |
+| Phase 5 | MCP 接口预留 | 接口设计 | 架构预留 | 工具注册表支持 MCP 扩展 |
 
 ### 进入/退出条件
 
-**Phase 1 进入条件**：
-- requirements.md 已 approved
-- feature.md 已 approved
-- 项目环境可运行（npm run dev 正常）
-
-**Phase 1 退出条件**：
-- IMPL 任务全部完成
-- Layer 1 单元测试通过
-- Layer 2 E2E 测试通过（read + glob 工具）
-- 用户可完成"读取文件"和"搜索文件"端到端流程
-
-**Phase 2 进入条件**：
-- Phase 1 已完成并签收
-
-**Phase 2 退出条件**：
-- IMPL 任务全部完成
-- Layer 1 单元测试通过
-- Layer 2 E2E 测试通过（所有工具）
-- 用户可完成"创建/编辑文件"端到端流程
-
-### Shippable Increment
-
-| Phase | 增量描述 | 用户可感知能力 |
-|-------|---------|---------------|
-| Phase 1 | 工具调用基础框架 + read + glob | 用户可以让 AI 读取文件和搜索文件 |
-| Phase 2 | 完整工具集 + 错误处理 | 用户可以让 AI 执行完整的文件操作任务 |
+| 阶段 | 进入条件 | 退出条件 |
+|------|---------|---------|
+| Phase 1 | requirements.md + feature.md 已 approved | IMPL 全部完成 + Layer 1 全部通过 |
+| Phase 2 | Phase 1 已完成 | IMPL 全部完成 + Layer 1 + Layer 2 E2E 通过 |
+| Phase 3 | Phase 2 已签收 | IMPL 全部完成 + Layer 1 全部通过 |
+| Phase 4 | Phase 3 已签收 | IMPL 全部完成 + Layer 1 + Layer 2 E2E 通过 |
+| Phase 5 | Phase 4 已签收 | 接口设计完成 |
 
 ---
 
 ## 4.3 已知陷阱列表（Gotchas）
 
 | ⚠️ 陷阱描述 | 正确做法 | 关联文档 |
-|-----------|---------|---------|
+|------------|---------|---------|
 | 模型不支持 tool calling 时需回退 | 在 chat.ts 中检测模型能力，不支持时走纯文本路径 | feature.md §F.4 |
 | 工具执行超时需正确处理 | 设置 30s 超时，超时后返回错误给 LLM | requirements.md §1.7 |
 | 文件路径安全验证 | 所有工具必须验证路径在工作目录范围内，禁止访问系统敏感路径 | requirements.md §1.7 |
 | MCP 扩展预留 | 工具注册表接口设计需支持未来 MCP 工具接入 | feature.md §F.2 |
+| streamText 单次调用只做一轮工具调用 | 需手动管理 ReAct 循环：调用 LLM → 执行工具 → 追加结果 → 再调用 LLM | chat.ts 实现 |
+| AI SDK v6 要求 jsonSchema() 包装 JSON Schema | dynamicTool inputSchema 需用 jsonSchema(schema.parameters) 包装 | chat.ts 实现 |
+| ReAct 循环中 tool-call 累积 | 每次迭代使用新的 assistant message，不要累积历史 tool-call | executor.ts / chat.ts |
+| 工具名称区分 | 前端用 toolName，后端用 tool_name，保持一致 | types.ts / chat.ts IPC |
 
 ---
 
-## 4.4 功能验收标准
+## 4.4 发布清单
 
-### AC 验证方式
+### 配置项
+- [ ] 新增/修改的环境变量已在 dev/staging/prod 配置
+- [ ] Feature Flag 状态确认
 
-| 验证层 | 工具 | 执行命令 |
-|-------|------|---------|
-| Layer 1 | vitest | `cd talor-desktop && npx vitest run` |
-| Layer 2 | Playwright E2E | `cd talor-desktop && node tests/e2e/layer2-tool-calling.js` |
+### 数据库
+- [ ] Migration 脚本已编写并在 staging 验证
+- [ ] 回滚 Migration 脚本已准备
 
-### AC 状态追踪
+### 中间件
+- [ ] Kafka topic 已创建（如新增）
+- [ ] Redis key 命名已确认，TTL 已设置
 
-见 §4.0 仪表盘 AC 验证明细表。
+### 监控
+- [ ] 关键 API 的 P99 延迟监控已设置
+- [ ] 错误率告警已设置
 
-### 回滚验证步骤
+### 回滚
+- [ ] 回滚方案已文档化
+- [ ] 回滚脚本已测试
 
-1. 回滚代码改动
-2. 运行 Layer 1 测试确保无回归
-3. 确认原有聊天功能正常
+**回滚命令**：
+```bash
+# 1. 回滚服务版本
+git revert [commit-hash]
 
-### Playwright E2E 测试框架
-
-**测试文件结构**：
+# 2. 验证服务健康
+curl http://localhost:5173/health
 ```
-tests/e2e/
-├── layer2-tool-calling.js    # 主入口，执行所有 AC
-├── pages/
-│   └── ChatPage.ts            # Chat 页面 POM
-├── fixtures/
-│   └── test-workspace/        # 测试用工作目录
-└── utils/
-    └── run-playwright.ts     # Playwright 运行工具
-```
 
-**测试执行前提**：
-1. Electron 应用已启动（`npm run dev`）
-2. 已配置 CDP 连接（默认 `http://localhost:9222`）
-3. 已创建测试工作目录 `tests/e2e/fixtures/test-workspace/`
+**回滚后验证检查点**：
+- [ ] 关键 API 可正常返回
+- [ ] DB 数据一致性
+- [ ] 之前的 Demo 场景仍可跑通
+- [ ] 监控指标恢复正常
 
-**验证流程**：
-1. 选择工作目录 → 验证目录被保存
-2. 发送需要工具的消息 → 验证工具被调用
-3. 验证工具返回结果在响应中
-4. 验证 UI 指示器显示正确
+### 文档更新（⭐ 迭代完成后必须执行）
+- [ ] overview.md 已更新（合并 FEATURE 中的全局变更：ADR、Schema、Patterns）
+- [ ] overview-<module>.md 已更新（合并 FEATURE 中的模块变更：状态机、接口）
+- [ ] feature.md 标记为 `status: archived`
 
 ---
 
-## 4.5 发布清单
+## 4.5 范围外功能（Deferred Backlog）
 
-| 类别 | 变更项 | 验证方式 |
-|------|--------|---------|
-| 配置 | 无 | - |
-| 数据库 | 无 | - |
-| 实验 | 无 | - |
-| 中间件 | 无 | - |
-| 监控 | 无 | - |
-| 回滚 | 依赖 git revert | 验证聊天功能正常 |
+> 实施中发现的超出当前阶段范围的功能，统一记录到 `deferred.md`（唯一权威来源）。
 
-**迭代归档**：Phase 完成后调用 klook-vibe-overview 完成 L3→L1 合并。
+**操作规则**：
+- 发现超出范围的功能 → 立即写入 `deferred.md`，不得「顺便实现」
+- 每次会话结束时通知用户确认 pending 项
+- 查看当前 pending 项：见 [`deferred.md`](deferred.md)
 
 ---
 
-## 4.6 范围外功能列表
+## 4.6 统一变更日志
 
-| 功能 | 原因 | 延期至 |
-|------|------|-------|
-| bash/shell 工具 | 安全考虑，v1 排除 | 未来版本 |
-| MCP 客户端 | 设计兼容，实际实现 v2 | v2 |
-| 自定义工具注册 | UI 开发量较大 | 未来版本 |
-
-详见 `runtime/DEFERRED.md`。
-
----
-
-## 4.7 统一变更日志
-
-| 日期 | 变更 | 文档版本 |
-|------|------|---------|
-| 2026-03-23 | Phase 1 完成（IMPL-001~003），工具基础设施（types + registry + executor），50 个测试通过 | v1.1 |
+| 日期 | 变更文档 | 变更摘要 | 影响的关联文档/ID | 已同步? |
+|------|---------|---------|----------------|--------|
+| 2026-03-24 | implementation.md | Phase 3 签收完成，Phase 4 就绪（IMPL-016~018 待实施） | phase-3/certificate.md, phase-4/IMPL.md, phase-4/session-start.md, phase-4/certificate.md | ✅ |
+| 2026-03-24 | implementation.md | Phase 3 完成，IMPL-012~015 实现，write/edit/ls/grep 工具 | phase-3/IMPL.md, phase-3/certificate.md, phase-3/verify-report.md | ✅ |
+| 2026-03-24 | implementation.md | Phase 2 完成，IMPL-004~011 实现，流式渲染修复 Round 7 | phase-2/IMPL.md, phase-2/certificate.md | ✅ |
+| 2026-03-23 | implementation.md | Phase 1 完成，IMPL-001~003 实现，工具基础设施 | phase-1/IMPL.md | ✅ |
