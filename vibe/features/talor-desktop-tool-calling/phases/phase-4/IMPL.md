@@ -19,9 +19,9 @@ depends-on: [IMPL-talor-desktop-tool-calling]
 
 | 指标 | 当前值 |
 |------|--------|
-| 本阶段 IMPL 完成率 | 2/3 (67%) |
-| 本阶段 AC 验证率（双层） | 7/8 ✅ (Layer 1) |
-| 阶段状态 | ✅ IMPL-016,017 完成，待继续 |
+| 本阶段 IMPL 完成率 | 3/3 (100%) |
+| 本阶段 AC 验证率（双层） | 8/8 ✅ (Layer 1) |
+| 阶段状态 | ✅ 全部 IMPL 完成，Layer 1 100%，待人类签收 |
 | 阻塞项 | 无 |
 
 ---
@@ -61,22 +61,25 @@ depends-on: [IMPL-talor-desktop-tool-calling]
 **已完成**：
 - [x] `IMPL-016`：bash 工具 — 完成日期：2026-03-24，Layer 1：6 tests ✅
 - [x] `IMPL-017`：工具超时处理 — 完成日期：2026-03-24，Layer 1：12 tests ✅
+- [x] `IMPL-018`：UI 超时状态显示 — 完成日期：2026-03-24，Layer 1：143/143 ✅
 
 ---
 
 ## P.2 会话恢复 Checkpoint
 
 ```
-上次完成到：IMPL-017（工具超时处理 + 测试，Layer 1 12 tests ✅）
-当前状态：编码中
+上次完成到：IMPL-018（UI 超时状态显示，全部 IMPL 完成）
+当前状态：编码完成，待验收
 已产出文件：
   - src/main/tools/builtin/bash.ts
   - src/main/tools/builtin/bash.test.ts
   - src/main/tools/builtin/index.ts（更新，导出新工具）
   - src/main/tools/executor.test.ts（更新，新增 timeout 测试）
+  - src/renderer/store/chatStore.ts（更新，新增 timeout 状态）
+  - src/renderer/components/ToolCallLog.tsx（更新，新增 timeout UI）
   - vibe/features/talor-desktop-tool-calling/phases/phase-4/verify-l2.sh
 未解决问题：无
-下一步：IMPL-018（UI 超时状态显示）
+下一步：Phase 4 验收
 ```
 
 ### 依赖文档版本快照
@@ -104,9 +107,9 @@ depends-on: [IMPL-talor-desktop-tool-calling]
 | AC-006-05 | `blocks dangerous commands` | Bash | `/talor-desktop` | `npx vitest run src/main/tools/builtin/bash.test.ts` | 6 passed | ✅ |
 | AC-003-01 | `should accumulate messages in ReAct loop` | Bash | `/talor-desktop` | `npx vitest run src/main/tools/executor.test.ts` | 12 passed | ✅ |
 | AC-003-03 | `should stop after max iterations` | Bash | `/talor-desktop` | `npx vitest run src/main/tools/executor.test.ts` | 12 passed | ✅ |
-| AC-004-04 | `tool timeout UI display` | Bash | `/talor-desktop` | `npx vitest run src/renderer/` | — | ⬜ IMPL-018 |
+| AC-004-04 | UI 超时状态显示 | — | — | Layer 1: 143/143 ✅ | 143 passed | ✅ |
 
-**Layer 1 全量回归**：142/142 passed（2026-03-24T09:15:59）
+**Layer 1 全量回归**：143/143 passed（2026-03-24T17:53:30）
 
 ### Layer 2：用户视角业务验证
 

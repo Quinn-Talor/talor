@@ -25,12 +25,19 @@ function ToolCallItem({ entry }: { entry: ToolCallEntry }) {
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-500 shrink-0">
             <polyline points="20 6 9 17 4 12" />
           </svg>
+        ) : entry.status === 'timeout' ? (
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 shrink-0">
+            <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+          </svg>
         ) : (
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500 shrink-0">
             <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         )}
         <span className="font-mono text-gray-700 font-medium">{entry.toolName}</span>
+        {entry.status === 'timeout' && (
+          <span className="text-amber-600 text-[10px]">超时</span>
+        )}
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="12"
@@ -56,7 +63,7 @@ function ToolCallItem({ entry }: { entry: ToolCallEntry }) {
           {resultStr !== null && (
             <div>
               <div className="text-gray-400 mb-1 uppercase tracking-wide text-[10px]">Result</div>
-              <pre className="bg-gray-50 rounded p-2 text-gray-700 overflow-x-auto text-[11px] leading-relaxed">{resultStr}</pre>
+              <pre className={`bg-gray-50 rounded p-2 overflow-x-auto text-[11px] leading-relaxed ${entry.status === 'timeout' ? 'text-amber-700' : 'text-gray-700'}`}>{resultStr}</pre>
             </div>
           )}
         </div>

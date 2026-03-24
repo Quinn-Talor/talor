@@ -6,7 +6,7 @@ export interface ToolCallEntry {
   toolName: string
   input: Record<string, unknown>
   result?: unknown
-  status: 'pending' | 'done' | 'error'
+  status: 'pending' | 'done' | 'error' | 'timeout'
 }
 
 interface ChatState {
@@ -33,7 +33,7 @@ interface ChatState {
   removeAttachment: (index: number) => void
   clearAttachments: () => void
   addToolCall: (entry: Omit<ToolCallEntry, 'status'>) => void
-  updateToolResult: (toolCallId: string, result: unknown, status: 'done' | 'error') => void
+  updateToolResult: (toolCallId: string, result: unknown, status: 'done' | 'error' | 'timeout') => void
   clearToolCalls: () => void
 }
 

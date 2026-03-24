@@ -22,9 +22,9 @@ depends-on: [FD-talor-desktop-tool-calling]
 
 | 指标 | 当前值 | 说明 |
 |------|--------|------|
-| IMPL 完成率 | 16/18 (89%) | IMPL-001~016 完成，IMPL-017~018 待实施 |
-| AC 验证率 | 35/41 (85%) | Phase 1-3 AC 已验证 + Phase 4 AC-006-01~05 Layer 1 |
-| Phase 进度 | Phase 4 编码中 | IMPL-016 完成，IMPL-017~018 待实施 |
+| IMPL 完成率 | 18/18 (100%) | IMPL-001~018 全部完成 |
+| AC 验证率 | 38/41 (93%) | Phase 1-3 AC 已验证 + Phase 4 AC-006-01~05, AC-003-01,003-03, AC-004-04 Layer 1 |
+| Phase 进度 | Phase 4 编码完成 | 全部 IMPL 完成，待验收 |
 | 阻塞项 | 0 | 无 |
 | DEFERRED 项 | 0 pending | 见 deferred.md |
 
