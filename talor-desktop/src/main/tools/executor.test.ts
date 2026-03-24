@@ -32,9 +32,11 @@ const mockContext: ToolExecuteContext = {
 }
 
 type ModelDoGenerate = (opts: unknown) => Promise<{
-  text?: string
+  content: Array<
+    | { type: 'text'; text: string }
+    | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+  >
   finishReason: string
-  toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>
 }>
 
 function createMockModel() {
@@ -81,7 +83,7 @@ describe('toolExecutor.executeStream', () => {
   it('should return text when no tool calls', async () => {
     const { toolExecutor } = await import('./executor')
     const model = createMockModel()
-    model.doGenerate.mockResolvedValue({ text: 'Hello world', finishReason: 'stop' })
+    model.doGenerate.mockResolvedValue({ content: [{ type: 'text', text: 'Hello world' }], finishReason: 'stop' })
 
     const chunks: StreamChunk[] = []
     await toolExecutor.executeStream({
@@ -105,11 +107,11 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [{ toolCallId: 'call-1', toolName: 'read', input: { path: '/test.txt' } }],
+        content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'read', input: { path: '/test.txt' } }],
         finishReason: 'tool-calls',
       })
       .mockResolvedValueOnce({
-        text: 'The file contains: file content',
+        content: [{ type: 'text', text: 'The file contains: file content' }],
         finishReason: 'stop',
       })
 
@@ -138,14 +140,14 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [
-          { toolCallId: 'call-1', toolName: 'read', input: { path: '/a.txt' } },
-          { toolCallId: 'call-2', toolName: 'grep', input: { pattern: 'todo' } },
+        content: [
+          { type: 'tool-call', toolCallId: 'call-1', toolName: 'read', input: { path: '/a.txt' } },
+          { type: 'tool-call', toolCallId: 'call-2', toolName: 'grep', input: { pattern: 'todo' } },
         ],
         finishReason: 'tool-calls',
       })
       .mockResolvedValueOnce({
-        text: 'Found results from both tools',
+        content: [{ type: 'text', text: 'Found results from both tools' }],
         finishReason: 'stop',
       })
 
@@ -175,14 +177,14 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [
-          { toolCallId: 'call-1', toolName: 'read', input: {} },
-          { toolCallId: 'call-2', toolName: 'grep', input: {} },
-          { toolCallId: 'call-3', toolName: 'ls', input: {} },
+        content: [
+          { type: 'tool-call', toolCallId: 'call-1', toolName: 'read', input: {} },
+          { type: 'tool-call', toolCallId: 'call-2', toolName: 'grep', input: {} },
+          { type: 'tool-call', toolCallId: 'call-3', toolName: 'ls', input: {} },
         ],
         finishReason: 'tool-calls',
       })
-      .mockResolvedValueOnce({ text: 'Done', finishReason: 'stop' })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'Done' }], finishReason: 'stop' })
 
     const chunks: StreamChunk[] = []
     await toolExecutor.executeStream({
@@ -208,11 +210,11 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [{ toolCallId: 'call-1', toolName: 'failing', input: {} }],
+        content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'failing', input: {} }],
         finishReason: 'tool-calls',
       })
       .mockResolvedValueOnce({
-        text: 'The tool failed: File not found',
+        content: [{ type: 'text', text: 'The tool failed: File not found' }],
         finishReason: 'stop',
       })
 
@@ -235,7 +237,7 @@ describe('toolExecutor.executeStream', () => {
     toolRegistry.register(tool)
 
     model.doGenerate.mockResolvedValue({
-      toolCalls: [{ toolCallId: 'call-1', toolName: 'read', input: {} }],
+      content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'read', input: {} }],
       finishReason: 'tool-calls',
     })
 
@@ -278,10 +280,10 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [{ toolCallId: 'call-1', toolName: 'read', input: {} }],
+        content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'read', input: {} }],
         finishReason: 'tool-calls',
       })
-      .mockResolvedValueOnce({ text: 'Done', finishReason: 'stop' })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'Done' }], finishReason: 'stop' })
 
     const chunks: StreamChunk[] = []
     await toolExecutor.executeStream({
@@ -304,11 +306,11 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [{ toolCallId: 'call-1', toolName: 'read', input: {} }],
+        content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'read', input: {} }],
         finishReason: 'tool-calls',
       })
       .mockResolvedValueOnce({
-        text: 'The secret is: secret data',
+        content: [{ type: 'text', text: 'The secret is: secret data' }],
         finishReason: 'stop',
       })
 
@@ -332,10 +334,10 @@ describe('toolExecutor.executeStream', () => {
 
     model.doGenerate
       .mockResolvedValueOnce({
-        toolCalls: [{ toolCallId: 'call-1', toolName: 'unknown_tool', input: {} }],
+        content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'unknown_tool', input: {} }],
         finishReason: 'tool-calls',
       })
-      .mockResolvedValueOnce({ text: 'Unknown tool', finishReason: 'stop' })
+      .mockResolvedValueOnce({ content: [{ type: 'text', text: 'Unknown tool' }], finishReason: 'stop' })
 
     const chunks: StreamChunk[] = []
     await toolExecutor.executeStream({

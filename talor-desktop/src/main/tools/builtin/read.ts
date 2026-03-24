@@ -49,6 +49,10 @@ const readTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
+    if (isPathSensitive(params.path)) {
+      return { output: 'Cannot access sensitive system path' }
+    }
+
     const resolvedPath = resolveInWorkspace(workspace, params.path)
     if (!resolvedPath) {
       return { output: 'Cannot access path outside workspace' }

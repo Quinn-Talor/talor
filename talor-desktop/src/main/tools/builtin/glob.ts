@@ -4,6 +4,8 @@ import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
 const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/']
+const SKIP_DIRS = new Set(['node_modules', '.git', '.cache', 'dist', 'build', '.venv', 'venv'])
+const MAX_RESULTS = 200
 
 function isPathSensitive(path: string): boolean {
   return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
@@ -19,18 +21,26 @@ function matchGlob(pattern: string, filePath: string): boolean {
   return new RegExp(`^${regexPattern}$`).test(filePath)
 }
 
-function searchRecursive(dir: string, pattern: string, results: string[], depth: number, maxDepth: number = 10): void {
-  if (depth > maxDepth) return
+function searchRecursive(
+  workspace: string,
+  dir: string,
+  pattern: string,
+  results: string[],
+  depth: number,
+  maxDepth: number = 10,
+): void {
+  if (depth > maxDepth || results.length >= MAX_RESULTS) return
   try {
     const entries = readdirSync(dir, { withFileTypes: true })
     for (const entry of entries) {
+      if (results.length >= MAX_RESULTS) break
+      if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue
+
       const fullPath = join(dir, entry.name)
-      const relativePath = relative(dir, fullPath)
+      const relativePath = relative(workspace, fullPath)
+
       if (entry.isDirectory()) {
-        if (matchGlob(pattern, relativePath + '/')) {
-          results.push(relativePath + '/')
-        }
-        searchRecursive(fullPath, pattern, results, depth + 1, maxDepth)
+        searchRecursive(workspace, fullPath, pattern, results, depth + 1, maxDepth)
       } else if (entry.isFile()) {
         if (matchGlob(pattern, relativePath)) {
           results.push(relativePath)
@@ -75,8 +85,14 @@ const globTool = {
 
     try {
       const results: string[] = []
-      searchRecursive(workspace, params.pattern, results, 0)
-      return { output: results.length > 0 ? results : [] }
+      searchRecursive(workspace, workspace, params.pattern, results, 0)
+      if (results.length === 0) return { output: [] }
+      const truncated = results.length >= MAX_RESULTS
+      return {
+        output: truncated
+          ? [...results, `... (truncated, showing first ${MAX_RESULTS} matches)`]
+          : results,
+      }
     } catch (err) {
       return { output: err instanceof Error ? err.message : String(err) }
     }

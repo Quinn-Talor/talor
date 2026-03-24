@@ -55,12 +55,15 @@ export function initChatDb(): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-db.exec(CREATE_SESSIONS)
+  db.exec(CREATE_SESSIONS)
     db.exec(CREATE_MESSAGES)
     db.exec(CREATE_INDEX)
-    
-    db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
-    log.info('[ChatDB] Migrated: added workspace column')
+
+    const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
+    if (!cols.some(c => c.name === 'workspace')) {
+      db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
+      log.info('[ChatDB] Migrated: added workspace column')
+    }
 
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db

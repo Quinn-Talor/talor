@@ -7,6 +7,8 @@ import { SessionItem } from '../../components/SessionItem'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { EmptyState } from '../../components/EmptyState'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
+import { WorkspaceSelector } from '../../components/WorkspaceSelector'
+import { ToolCallLog } from '../../components/ToolCallLog'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
 
@@ -29,9 +31,11 @@ export function ChatPage() {
     setSessions,
     setCurrentSession,
     setMessages,
+    addMessage,
+    clearStreaming,
+    clearToolCalls,
     setAttachments,
     removeAttachment,
-
   } = useChatStore()
 
   const [input, setInput] = useState('')
@@ -40,6 +44,7 @@ export function ChatPage() {
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined)
+  const [currentWorkspace, setCurrentWorkspace] = useState<string | undefined>(undefined)
   const [modelSwitchedToast, setModelSwitchedToast] = useState(false)
   const [modelUnavailable, setModelUnavailable] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -96,6 +101,7 @@ export function ChatPage() {
       loadMessages(currentSessionId)
       const session = sessions.find(s => s.id === currentSessionId)
       setCurrentModelId(session?.model_id)
+      setCurrentWorkspace(session?.workspace ?? undefined)
       setModelUnavailable(false)
       if (session?.model_id) {
         talorAPI.session.checkModelAvailability({ session_id: currentSessionId }).then(result => {
@@ -105,6 +111,7 @@ export function ChatPage() {
     } else {
       setMessages([])
       setCurrentModelId(undefined)
+      setCurrentWorkspace(undefined)
       setModelUnavailable(false)
     }
   }, [currentSessionId])
@@ -113,6 +120,7 @@ export function ChatPage() {
     if (currentSessionId) {
       const session = sessions.find(s => s.id === currentSessionId)
       setCurrentModelId(session?.model_id)
+      setCurrentWorkspace(session?.workspace ?? undefined)
     }
   }, [sessions, currentSessionId])
 
@@ -202,11 +210,21 @@ export function ChatPage() {
     }
   }
 
-   const handleSend = async () => {
+  const handleSend = async () => {
     if ((!input.trim() && attachments.length === 0) || !currentSessionId || streamState === 'streaming') return
 
     const content = input.trim()
     setInput('')
+    clearStreaming()
+    clearToolCalls()
+
+    addMessage({
+      id: `temp-${Date.now()}`,
+      session_id: currentSessionId,
+      role: 'user',
+      content,
+      created_at: new Date().toISOString(),
+    })
     
     try {
       await talorAPI.chat.send({ 
@@ -247,6 +265,7 @@ export function ChatPage() {
     if (currentSessionId) {
       try {
         await talorAPI.chat.abort(currentSessionId)
+        clearToolCalls()
       } catch (e) {
         console.error('Failed to abort:', e)
       }
@@ -445,6 +464,9 @@ export function ChatPage() {
                   {messages.map(msg => (
                     <MessageBubble key={msg.id} message={msg} />
                   ))}
+                  {streamState === 'streaming' && (
+                    <ToolCallLog />
+                  )}
                   {streamState === 'streaming' && streamingContent && (
                     <MessageBubble 
                       message={{ role: 'assistant', content: streamingContent }} 
@@ -484,7 +506,20 @@ export function ChatPage() {
                 </div>
               )}
               
-              <div className="max-w-4xl mx-auto flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition-all">
+              <div className="max-w-4xl mx-auto flex items-stretch gap-2">
+                {currentSessionId && (
+                  <WorkspaceSelector
+                    sessionId={currentSessionId}
+                    workspace={currentWorkspace}
+                    onWorkspaceChange={(ws) => {
+                      setCurrentWorkspace(ws)
+                      loadSessions()
+                    }}
+                    disabled={streamState === 'streaming'}
+                  />
+                )}
+
+                <div className="flex-1 flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition-all">
                 {/* Attachment button */}
                 <button
                   onClick={handleAttachmentClick}
@@ -496,7 +531,7 @@ export function ChatPage() {
                     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
                   </svg>
                 </button>
-                
+
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -576,6 +611,7 @@ export function ChatPage() {
                     </svg>
                   </button>
                 )}
+              </div>
               </div>
             </div>
           </>

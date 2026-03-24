@@ -1,5 +1,5 @@
 import type { ProviderType, ConnectionTestResult, Provider, ProviderInput } from '../types/config'
-import type { ChatSession, ChatMessage, ChatStreamEvent, Attachment } from '../types/chat'
+import type { ChatSession, ChatMessage, ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent, Attachment } from '../types/chat'
 import type { ProviderModelResponse, ModelInfo } from '../types/models'
 
 declare global {
@@ -27,6 +27,7 @@ declare global {
         get: (id: string) => Promise<ChatSession | null>
         rename: (params: { session_id: string; title: string }) => Promise<ChatSession | null>
         updateModel: (params: { session_id: string; model_id: string }) => Promise<ChatSession | null>
+        updateWorkspace: (params: { session_id: string; workspace: string }) => Promise<ChatSession | null>
         checkModelAvailability: (params: { session_id: string }) => Promise<{ available: boolean; model_id?: string }>
         delete: (sessionId: string) => Promise<void>
         getMessages: (sessionId: string) => Promise<ChatMessage[]>
@@ -36,6 +37,8 @@ declare global {
         send: (params: { session_id: string; content: string; attachments?: Attachment[] }) => Promise<{ message_id: string }>
         abort: (sessionId: string) => Promise<void>
         onStream: (callback: (event: ChatStreamEvent) => void) => () => void
+        onToolCall: (callback: (event: ChatToolCallEvent) => void) => () => void
+        onToolResult: (callback: (event: ChatToolResultEvent) => void) => () => void
       }
       window: {
         minimize: () => void
@@ -80,6 +83,7 @@ const stubSession = {
   get: () => Promise.resolve(null),
   rename: () => Promise.resolve(null),
   updateModel: () => Promise.resolve(null),
+  updateWorkspace: () => Promise.resolve(null),
   checkModelAvailability: () => Promise.resolve({ available: true }),
   delete: () => Promise.resolve(),
   getMessages: () => Promise.resolve([] as ChatMessage[]),
@@ -90,6 +94,8 @@ const stubChat = {
   send: () => Promise.resolve({ message_id: '' }),
   abort: () => Promise.resolve(),
   onStream: () => () => {},
+  onToolCall: () => () => {},
+  onToolResult: () => () => {},
 }
 
 const stubWindow = {

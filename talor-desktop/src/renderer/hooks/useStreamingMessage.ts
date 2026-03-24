@@ -1,67 +1,59 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect } from 'react'
 import { useChatStore } from '../store/chatStore'
-import type { ChatStreamEvent } from '../types/chat'
+import type { ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent } from '../types/chat'
 import { talorAPI } from '../api/talorAPI'
 
 export function useStreamingMessage(sessionId: string | null) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingRef = useRef<ChatStreamEvent[]>([])
-
-  const {
-    appendStreamingContent,
-    commitStreaming,
-    setStreamState,
-    setError,
-  } = useChatStore()
-
-  const flushPending = useCallback(() => {
-    if (pendingRef.current.length === 0) return
-    const pending = pendingRef.current
-    pendingRef.current = []
-
-    for (const event of pending) {
-      if (event.error_code) {
-        if (event.delta) {
-          appendStreamingContent(event.delta)
-        }
-        setError({ code: event.error_code, message: event.error_message ?? '' })
-        setStreamState('error')
-        timerRef.current = null
-        return
-      }
-      if (event.delta) {
-        appendStreamingContent(event.delta)
-      }
-      if (event.done) {
-        commitStreaming(event.message_id)
-      }
-    }
-
-    if (pending.some(e => !e.done && e.delta)) {
-      setStreamState('streaming')
-    }
-
-    timerRef.current = null
-  }, [appendStreamingContent, commitStreaming, setStreamState, setError])
-
   useEffect(() => {
     if (!sessionId) return
 
-    const unsubscribe = talorAPI.chat.onStream((event: ChatStreamEvent) => {
-      if (event.session_id !== sessionId) return
-      pendingRef.current.push(event)
+    const store = useChatStore.getState()
+    store.clearToolCalls()
 
-      if (timerRef.current === null) {
-        timerRef.current = setTimeout(flushPending, 0)
+    const unsubscribeStream = talorAPI.chat.onStream((event: ChatStreamEvent) => {
+      if (event.session_id !== sessionId) return
+      const s = useChatStore.getState()
+
+      if (event.error_code) {
+        if (event.delta) s.appendStreamingContent(event.delta)
+        s.setError({ code: event.error_code, message: event.error_message ?? '' })
+        s.setStreamState('error')
+        return
+      }
+
+      if (event.delta) {
+        s.appendStreamingContent(event.delta)
+        s.setStreamState('streaming')
+      }
+
+      if (event.done) {
+        // Defer commit by one tick so React renders the final delta before
+        // commitStreaming clears streamingContent.
+        const messageId = event.message_id
+        setTimeout(() => useChatStore.getState().commitStreaming(messageId), 0)
       }
     })
 
+    const unsubscribeToolCall = talorAPI.chat.onToolCall((event: ChatToolCallEvent) => {
+      if (event.session_id !== sessionId) return
+      const s = useChatStore.getState()
+      s.addToolCall({
+        toolCallId: event.tool_call_id,
+        toolName: event.tool_name,
+        input: event.input,
+      })
+      s.setStreamState('streaming')
+    })
+
+    const unsubscribeToolResult = talorAPI.chat.onToolResult((event: ChatToolResultEvent) => {
+      if (event.session_id !== sessionId) return
+      useChatStore.getState().updateToolResult(event.tool_call_id, event.result, 'done')
+    })
+
     return () => {
-      unsubscribe()
-      if (timerRef.current !== null) {
-        clearTimeout(timerRef.current)
-        timerRef.current = null
-      }
+      unsubscribeStream()
+      unsubscribeToolCall()
+      unsubscribeToolResult()
     }
-  }, [sessionId, flushPending])
+  }, [sessionId])
 }

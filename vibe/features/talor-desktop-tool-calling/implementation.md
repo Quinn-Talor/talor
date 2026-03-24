@@ -21,10 +21,10 @@ depends-on: [FD-talor-desktop-tool-calling]
 
 | 指标 | 当前值 | 目标值 | 状态 |
 |------|--------|--------|------|
-| IMPL 完成率 | 3/15 | 100% | 🟡 进行中 |
-| AC 验证率 | 0/32 | 100% | 🔴 未开始 |
+| IMPL 完成率 | 11/15 | 100% | 🟡 进行中 |
+| AC 验证率 | 0/32 | 100% | 🔴 待 E2E 验证 |
 | Phase 1 进度 | 完成 | 完成 | 🟢 |
-| Phase 2 进度 | 未开始 | 完成 | ⚪ |
+| Phase 2 进度 | 实施完成 | 完成 | 🟡 待 E2E 验证 |
 | Phase 3 进度 | 未开始 | 完成 | ⚪ |
 | 阻塞项 | 0 | 0 | 🟢 |
 | DEFERRED 项 | 0 | - | - |
@@ -77,7 +77,7 @@ depends-on: [FD-talor-desktop-tool-calling]
 | Phase | 目录 | 状态 | IMPL 完成率 | 描述 |
 |-------|------|------|-------------|------|
 | Phase 1 | `phases/phase-1/` | 🟢 完成 | 3/3 | 工具基础设施（types + registry + executor基础） |
-| Phase 2 | `phases/phase-2/` | ⚪ 未开始 | 0/3 | 工作目录 + read/glob + 基础 UI |
+| Phase 2 | `phases/phase-2/` | 🟡 实施完成/待验证 | 8/8 | 工作目录 + read/glob + 基础 UI |
 | Phase 3 | `phases/phase-3/` | ⚪ 未开始 | 0/3 | write + ls + grep + UI增强 |
 | Phase 4 | `phases/phase-4/` | ⚪ 未开始 | 0/3 | bash + edit + 错误处理 |
 | Phase 5 | `phases/phase-5/` | ⚪ 未开始 | 0/1 | MCP 预留 |

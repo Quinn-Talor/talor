@@ -1,5 +1,6 @@
 import type { LanguageModel } from 'ai'
 import { dynamicTool } from 'ai'
+import log from 'electron-log'
 import { toolRegistry } from './registry'
 import type { ToolExecuteContext } from './types'
 import {
@@ -45,7 +46,7 @@ export type ExecutorChunk =
 
 export interface ExecuteOptions {
   model: LanguageModel
-  messages: Array<{ role: string; content: string }>
+  messages: unknown[]
   context: ToolExecuteContext
   onChunk: (chunk: ExecutorChunk) => void
   maxIterations?: number
@@ -99,35 +100,58 @@ export const toolExecutor = {
       iteration++
 
       try {
+        type ContentPart =
+          | { type: 'text'; text: string }
+          | { type: 'reasoning'; text: string }
+          | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+
         const sdkModel = model as unknown as {
           doGenerate: (opts: {
             prompt: unknown
             tools?: unknown
             abortSignal?: AbortSignal
           }) => Promise<{
-            text?: string
-            finishReason: string
-            toolCalls?: Array<{
-              toolCallId: string
-              toolName: string
-              input: unknown
-            }>
+            content: ContentPart[]
+            finishReason: { unified: string; raw: string } | string
           }>
         }
 
+        const rawToolsForDoGenerate =
+          schemas.length > 0
+            ? schemas.map((schema) => ({
+                type: 'function' as const,
+                name: schema.name,
+                description: schema.description,
+                parameters: schema.parameters,
+              }))
+            : undefined
+
         const result = await sdkModel.doGenerate({
           prompt: currentMessages,
-          tools: Object.keys(sdkTools).length > 0 ? sdkTools : undefined,
+          tools: rawToolsForDoGenerate,
           abortSignal,
         })
 
-        if (result.text) {
-          onChunk({ type: 'text-delta', text: result.text })
+        const content = result.content ?? []
+        log.info('[Executor] doGenerate result content:', JSON.stringify(content))
+        log.info('[Executor] doGenerate finishReason:', JSON.stringify(result.finishReason))
+        const finishReasonStr =
+          typeof result.finishReason === 'object'
+            ? result.finishReason.unified
+            : (result.finishReason ?? 'stop')
+
+        for (const part of content) {
+          if (part.type === 'text' && part.text) {
+            onChunk({ type: 'text-delta', text: part.text })
+          }
         }
 
-        const toolCalls = result.toolCalls ?? []
+        const toolCalls = content.filter(
+          (p): p is { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown } =>
+            p.type === 'tool-call',
+        )
         if (toolCalls.length === 0) {
-          onChunk({ type: 'finish', finishReason: result.finishReason ?? 'stop' })
+          onChunk({ type: 'finish', finishReason: finishReasonStr })
           return
         }
 
@@ -156,11 +180,16 @@ export const toolExecutor = {
                 ),
               )
               try {
-                await Promise.race([
-                  toolRegistry.execute(tc.toolName, tc.input ?? {}, context),
+                const parsedInput = (() => {
+                  if (typeof tc.input === 'string') {
+                    try { return JSON.parse(tc.input) } catch { return {} }
+                  }
+                  return tc.input ?? {}
+                })()
+                const result = await Promise.race([
+                  toolRegistry.execute(tc.toolName, parsedInput, context),
                   timeoutPromise,
                 ])
-                const result = await toolRegistry.execute(tc.toolName, tc.input ?? {}, context)
                 return {
                   toolCallId: tc.toolCallId,
                   toolName: tc.toolName,
@@ -180,23 +209,30 @@ export const toolExecutor = {
 
           const assistantMessage = {
             role: 'assistant' as const,
-            content: JSON.stringify(
-              toolCalls.map((tc) => ({
-                tool_call_id: tc.toolCallId,
-                tool_name: tc.toolName,
-                input: tc.input,
-              })),
-            ),
+            content: toolCalls.map((tc) => ({
+              type: 'tool-call' as const,
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              input: (() => {
+                if (typeof tc.input === 'string') {
+                  try { return JSON.parse(tc.input) } catch { return tc.input }
+                }
+                return tc.input
+              })(),
+            })),
           }
 
           const toolMessage = {
             role: 'tool' as const,
-            content: JSON.stringify(
-              toolResults.map((r) => ({
-                tool_call_id: r.toolCallId,
-                content: r.isError ? `Error: ${r.result}` : String(r.result ?? ''),
-              })),
-            ),
+            content: toolResults.map((r) => ({
+              type: 'tool-result' as const,
+              toolCallId: r.toolCallId,
+              toolName: r.toolName,
+              output: {
+                type: r.isError ? ('error-text' as const) : ('text' as const),
+                value: r.isError ? `Error: ${r.result}` : String(r.result ?? ''),
+              },
+            })),
           }
 
           currentMessages = [...currentMessages, assistantMessage, toolMessage]

@@ -84,8 +84,30 @@ export interface ChatSession {
   title: string
   provider_id: string
   model_id?: string
+  workspace?: string
   created_at: string
   updated_at: string
+}
+
+export interface ChatToolCallEvent {
+  session_id: string
+  message_id: string
+  tool_call_id: string
+  tool_name: string
+  input: Record<string, unknown>
+}
+
+export interface ChatToolResultEvent {
+  session_id: string
+  message_id: string
+  tool_call_id: string
+  tool_name: string
+  result: unknown
+}
+
+export interface SessionUpdateWorkspaceParams {
+  session_id: string
+  workspace: string
 }
 
 export interface ChatMessage {
@@ -199,7 +221,9 @@ const talorAPI = {
     delete: (sessionId: string): Promise<void> => ipcRenderer.invoke('session:delete', sessionId),
     getMessages: (sessionId: string): Promise<ChatMessage[]> =>
       ipcRenderer.invoke('session:getMessages', sessionId),
-    touch: (sessionId: string): Promise<void> => ipcRenderer.invoke('session:touch', sessionId)
+    touch: (sessionId: string): Promise<void> => ipcRenderer.invoke('session:touch', sessionId),
+    updateWorkspace: (params: SessionUpdateWorkspaceParams): Promise<ChatSession | null> =>
+      ipcRenderer.invoke('session:updateWorkspace', params)
   },
 
   chat: {
@@ -210,6 +234,16 @@ const talorAPI = {
       const handler = (_: Electron.IpcRendererEvent, data: ChatStreamEvent) => callback(data)
       ipcRenderer.on('chat:stream', handler)
       return () => ipcRenderer.removeListener('chat:stream', handler)
+    },
+    onToolCall: (callback: (event: ChatToolCallEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: ChatToolCallEvent) => callback(data)
+      ipcRenderer.on('chat:tool-call', handler)
+      return () => ipcRenderer.removeListener('chat:tool-call', handler)
+    },
+    onToolResult: (callback: (event: ChatToolResultEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: ChatToolResultEvent) => callback(data)
+      ipcRenderer.on('chat:tool-result', handler)
+      return () => ipcRenderer.removeListener('chat:tool-result', handler)
     }
   },
 

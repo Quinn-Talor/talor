@@ -12,9 +12,9 @@ import type { MessagePart, ImagePart, FilePart } from '../../renderer/types/chat
 import { decodeMessageContent } from '../../renderer/types/chat'
 import fs from 'fs/promises'
 import mime from 'mime-types'
-import { toolExecutor, type ExecutorChunk } from '../tools/executor'
 import { toolRegistry } from '../tools/registry'
 import '../tools/builtin'
+import { dynamicTool, jsonSchema } from 'ai'
 
 /**
  * 检查 Provider 是否支持视觉（多模态）
@@ -146,7 +146,7 @@ function toCoreMessages(sessionId: string, userContent: string, attachments?: Ar
         contentParts.length > 0 ? contentParts : row.content
       messages.push({ role: 'user', content } as UserModelMessage)
     } else if (row.role === 'assistant') {
-      messages.push({ role: 'assistant', content: row.content } as AssistantModelMessage)
+      messages.push({ role: 'assistant', content: [{ type: 'text', text: row.content }] } as AssistantModelMessage)
     }
   }
 
@@ -256,12 +256,29 @@ export function registerChatHandlers(): void {
       }
       
       const model = createModel(provider, session?.model_id)
-
       const hasWorkspace = !!(session?.workspace && session.workspace.trim() !== '')
-      
+
+      // 构建 tools（如果 workspace 已设置）
+      let tools: Record<string, ReturnType<typeof dynamicTool>> | undefined
       if (hasWorkspace) {
         const schemas = toolRegistry.getAllSchemas()
-        log.info('[Chat] Tools enabled, workspace:', session.workspace, 'tools:', schemas.map(s => s.name).join(', '))
+        tools = schemas.reduce((acc, schema) => {
+          const toolDef = toolRegistry.getTool(schema.name)
+          if (!toolDef) return acc
+          acc[schema.name] = dynamicTool({
+            description: schema.description,
+            inputSchema: jsonSchema(schema.parameters),
+            execute: async (input: unknown) => {
+              const result = await toolRegistry.execute(schema.name, input, {
+                sessionId,
+                workspace: session.workspace,
+              })
+              return result.output ?? null
+            },
+          })
+          return acc
+        }, {} as Record<string, ReturnType<typeof dynamicTool>>)
+        log.info('[Chat] Tools enabled, workspace:', session.workspace, 'tools:', Object.keys(tools).join(', '))
       }
 
       const messages = toCoreMessages(sessionId, userContent, validatedAttachments)
@@ -275,18 +292,39 @@ export function registerChatHandlers(): void {
       })
       sessionRepo.touch(sessionId)
 
-      let fullText = ''
+      log.info('[Chat] Starting ReAct loop, model:', session?.model_id || 'default', 'tools:', tools ? Object.keys(tools).length : 0)
 
-if (hasWorkspace) {
-        await toolExecutor.executeStream({
+      let fullText = ''
+      let currentMessages = [...messages]
+      const maxSteps = 10
+
+      for (let step = 0; step < maxSteps; step++) {
+        if (abortController.signal.aborted) break
+
+        log.info(`[Chat] ReAct step ${step + 1}/${maxSteps}`)
+
+        const stepToolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
+
+        const result = streamText({
           model,
-          messages,
-          context: {
-            sessionId,
-            workspace: session.workspace,
-          },
-          onChunk: (chunk: ExecutorChunk) => {
-            if (chunk.type === 'tool-call') {
+          messages: currentMessages,
+          tools,
+          abortSignal: abortController.signal,
+          onChunk({ chunk }) {
+            if (chunk.type === 'text-delta') {
+              fullText += chunk.text
+              mainWindow.webContents.send('chat:stream', {
+                session_id: sessionId,
+                message_id: messageId,
+                delta: chunk.text,
+                done: false
+              })
+            } else if (chunk.type === 'tool-call') {
+              stepToolCalls.push({
+                toolCallId: chunk.toolCallId,
+                toolName: chunk.toolName,
+                input: chunk.input,
+              })
               mainWindow.webContents.send('chat:tool-call', {
                 session_id: sessionId,
                 message_id: messageId,
@@ -300,83 +338,58 @@ if (hasWorkspace) {
                 message_id: messageId,
                 tool_call_id: chunk.toolCallId,
                 tool_name: chunk.toolName,
-                result: chunk.result,
-              })
-            } else if (chunk.type === 'text-delta') {
-              fullText += chunk.text
-              mainWindow.webContents.send('chat:stream', {
-                session_id: sessionId,
-                message_id: messageId,
-                delta: chunk.text,
-                done: false
-              })
-            } else if (chunk.type === 'error') {
-              log.error('[Chat] Tool executor error:', chunk.error)
-              mainWindow.webContents.send('chat:stream', {
-                session_id: sessionId,
-                message_id: messageId,
-                delta: '',
-                done: true,
-                error_code: 'TOOL_ERROR',
-                error_message: chunk.error
-              })
-            } else if (chunk.type === 'finish') {
-              log.info('[Chat] Tool executor finished, reason:', chunk.finishReason)
-            }
-          },
-          abortSignal: abortController.signal,
-        })
-      } else {
-        log.info('[Chat] Starting streamText with model:', session?.model_id || 'default', 'messages:', messages.length)
-        
-        const result = streamText({
-          model,
-          messages,
-          abortSignal: abortController.signal,
-          onChunk({ chunk }) {
-            log.info('[Chat] Received chunk:', chunk.type)
-            if (chunk.type === 'text-delta') {
-              fullText += chunk.text
-              mainWindow.webContents.send('chat:stream', {
-                session_id: sessionId,
-                message_id: messageId,
-                delta: chunk.text,
-                done: false
+                result: chunk.output,
               })
             }
           },
           onError({ error }) {
             log.error('[Chat] Stream error:', error)
-            mainWindow.webContents.send('chat:stream', {
-              session_id: sessionId,
-              message_id: messageId,
-              delta: '',
-              done: true,
-              error_code: 'LLM_ERROR',
-              error_message: String(error)
-            })
           }
         })
 
-        log.info('[Chat] Awaiting consumeStream...')
         await result.consumeStream()
-        log.info('[Chat] consumeStream completed')
 
-        messageRepo.create({
-          id: messageId,
-          session_id: sessionId,
-          role: 'assistant',
-          content: fullText
-        })
-        sessionRepo.touch(sessionId)
+        if (stepToolCalls.length === 0) {
+          log.info('[Chat] No tool calls, ReAct loop done')
+          break
+        }
 
-        mainWindow.webContents.send('chat:stream', {
-          session_id: sessionId,
-          message_id: messageId,
-          delta: '',
-          done: true
-        })
+        const toolResults = await result.toolResults
+        log.info(`[Chat] Executed ${stepToolCalls.length} tool calls, got ${toolResults.length} results`)
+
+        currentMessages = [
+          ...currentMessages,
+          { role: 'assistant' as const, content: stepToolCalls.map(tc => ({
+            type: 'tool-call' as const,
+            toolCallId: tc.toolCallId,
+            toolName: tc.toolName,
+            input: typeof tc.input === 'string' ? (() => { try { return JSON.parse(tc.input) } catch { return tc.input } })() : tc.input,
+          }))},
+          { role: 'tool' as const, content: toolResults.map(tr => ({
+            type: 'tool-result' as const,
+            toolCallId: tr.toolCallId,
+            toolName: tr.toolName,
+            output: { type: 'text' as const, value: String(tr.output ?? '') },
+          }))},
+        ]
       }
+
+      messageRepo.create({
+        id: messageId,
+        session_id: sessionId,
+        role: 'assistant',
+        content: fullText
+      })
+      sessionRepo.touch(sessionId)
+
+      mainWindow.webContents.send('chat:stream', {
+        session_id: sessionId,
+        message_id: messageId,
+        delta: '',
+        done: true
+      })
+
+      return { message_id: messageId }
     } catch (error) {
       log.error('[chat:send] error:', error)
       activeStreams.delete(sessionId)

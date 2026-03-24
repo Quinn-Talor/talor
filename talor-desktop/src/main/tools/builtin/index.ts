@@ -1,9 +1,11 @@
-export { registerBuiltinTools as registerReadTool } from './read'
-export { registerBuiltinTools as registerGlobTool } from './glob'
-
-import './read'
-import './glob'
+import { registerBuiltinTools as registerReadTool } from './read'
+import { registerBuiltinTools as registerGlobTool } from './glob'
 
 export function registerAllBuiltinTools(): void {
-  // Tools are registered when imported
+  registerReadTool()
+  registerGlobTool()
 }
+
+registerAllBuiltinTools()
+
+export { registerReadTool, registerGlobTool }

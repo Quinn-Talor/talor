@@ -37,8 +37,25 @@ export interface ChatSession {
   title: string
   provider_id: string
   model_id?: string
+  workspace?: string
   created_at: string
   updated_at: string
+}
+
+export interface ChatToolCallEvent {
+  session_id: string
+  message_id: string
+  tool_call_id: string
+  tool_name: string
+  input: Record<string, unknown>
+}
+
+export interface ChatToolResultEvent {
+  session_id: string
+  message_id: string
+  tool_call_id: string
+  tool_name: string
+  result: unknown
 }
 
 export type StreamState = 'idle' | 'streaming' | 'done' | 'error' | 'aborted'
