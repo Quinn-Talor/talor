@@ -40,6 +40,16 @@ declare global {
         onToolCall: (callback: (event: ChatToolCallEvent) => void) => () => void
         onToolResult: (callback: (event: ChatToolResultEvent) => void) => () => void
       }
+      
+      mcp: {
+        list: () => Promise<import('../../preload/index').MCPServer[]>
+        create: (server: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPServer>
+        get: (id: string) => Promise<import('../../preload/index').MCPServer>
+        update: (id: string, updates: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPServer>
+        delete: (id: string) => Promise<void>
+        setEnabled: (id: string, enabled: boolean) => Promise<import('../../preload/index').MCPServer>
+        testConnection: (server: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPConnectionTestResult>
+      }
       window: {
         minimize: () => void
         maximize: () => void
@@ -98,6 +108,17 @@ const stubChat = {
   onToolResult: () => () => {},
 }
 
+
+const stubMcp = {
+  list: () => Promise.resolve([]),
+  create: () => Promise.resolve({}),
+  get: () => Promise.resolve({}),
+  update: () => Promise.resolve({}),
+  delete: () => Promise.resolve(),
+  setEnabled: () => Promise.resolve({}),
+  testConnection: () => Promise.resolve({ status: 'failure' }),
+}
+
 const stubWindow = {
   minimize: () => {},
   maximize: () => {},
@@ -132,6 +153,12 @@ export const talorAPI = new Proxy({} as Window['talorAPI'], {
       return new Proxy({}, {
         get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubChat as Record<string, unknown>)?.[p as string],
       }) as Window['talorAPI']['chat']
+    }
+    
+    if (prop === 'mcp') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubMcp as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['mcp']
     }
     if (prop === 'window') {
       return new Proxy({}, {

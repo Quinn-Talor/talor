@@ -50,3 +50,21 @@ export const DEFAULT_MAX_READ_SIZE_BYTES = 10 * 1024 * 1024
 export const DEFAULT_MAX_WRITE_SIZE_BYTES = 10 * 1024 * 1024
 export const DEFAULT_MAX_PARALLEL_TOOLS = 5
 export const DEFAULT_TOOL_TIMEOUT_MS = 30_000
+
+export interface ToolMetadata {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+  schema?: Record<string, unknown>
+}
+
+export interface MCPToolProvider {
+  name: string
+  version?: string
+  listTools(): ToolMetadata[]
+  execute(
+    toolName: string,
+    input: unknown,
+    context: ToolExecuteContext,
+  ): Promise<{ output: unknown }>
+}

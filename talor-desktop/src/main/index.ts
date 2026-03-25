@@ -11,6 +11,7 @@ import { registerProviderHandlers } from './ipc/providers'
 import { registerSessionHandlers } from './ipc/session'
 import { registerChatHandlers } from './ipc/chat'
 import { registerFileHandlers } from './ipc/fileHandlers'
+import { registerMCPHandlers } from './ipc/mcp'
 import { initChatDb, closeChatDb } from './db/index'
 
 log.initialize()
@@ -22,6 +23,7 @@ registerProviderHandlers()
 registerSessionHandlers()
 registerChatHandlers()
 registerFileHandlers()
+registerMCPHandlers()
 
 let mainWindow: BrowserWindow | null = null
 

@@ -32,6 +32,22 @@ const CREATE_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 `
 
+const CREATE_MCP_SERVERS = `
+CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('stdio', 'http')),
+    command TEXT,
+    args TEXT,
+    env TEXT,
+    url TEXT,
+    auth TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+`
+
 let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
@@ -55,9 +71,10 @@ export function initChatDb(): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-  db.exec(CREATE_SESSIONS)
+    db.exec(CREATE_SESSIONS)
     db.exec(CREATE_MESSAGES)
     db.exec(CREATE_INDEX)
+    db.exec(CREATE_MCP_SERVERS)
 
     const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
     if (!cols.some(c => c.name === 'workspace')) {

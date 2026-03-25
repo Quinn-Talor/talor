@@ -23,8 +23,8 @@ depends-on: [FD-talor-desktop-tool-calling]
 | 指标 | 当前值 | 说明 |
 |------|--------|------|
 | IMPL 完成率 | 18/18 (100%) | IMPL-001~018 全部完成 |
-| AC 验证率 | 38/41 (93%) | Phase 1-3 AC 已验证 + Phase 4 AC-006-01~05, AC-003-01,003-03, AC-004-04 Layer 1 |
-| Phase 进度 | Phase 4 编码完成 | 全部 IMPL 完成，待验收 |
+| AC 验证率 | 38/41 (93%) | Phase 1-4 AC 已验证 |
+| Phase 进度 | Phase 5 已签收 | Phase 6 待开始 |
 | 阻塞项 | 0 | 无 |
 | DEFERRED 项 | 0 pending | 见 deferred.md |
 
@@ -52,8 +52,8 @@ depends-on: [FD-talor-desktop-tool-calling]
 | Phase 1 | [phases/phase-1/impl.md](phases/phase-1/impl.md) | 工具基础设施（types + registry + executor） | ✅ 完成 | 3/3 | 0/0 |
 | Phase 2 | [phases/phase-2/impl.md](phases/phase-2/impl.md) | 工作目录 + read/glob + 基础 UI | ✅ 完成待验收 | 8/8 | 16/16 |
 | Phase 3 | [phases/phase-3/impl.md](phases/phase-3/impl.md) | write/edit/ls/grep 工具 | ✅ 已签收 | 4/4 | 5/5 |
-| Phase 4 | [phases/phase-4/impl.md](phases/phase-4/impl.md) | bash 工具 + 超时处理 | ✅ 就绪 | 0/3 | 0/9 |
-| Phase 5 | [phases/phase-5/impl.md](phases/phase-5/impl.md) | MCP 接口预留 | ⬜ 未开始 | 0/1 | 0/0 |
+| Phase 4 | [phases/phase-4/impl.md](phases/phase-4/impl.md) | bash 工具 + 超时处理 | ✅ 已签收 | 3/3 | 8/8 |
+| Phase 5 | [phases/phase-5/impl.md](phases/phase-5/impl.md) | MCP 接口预留 | ✅ 已完成 | 1/1 | 162/162 |
 
 > 各 Phase 进度见 §4.0 仪表盘。
 > 每个 Phase 的会话启动检查见 `phases/phase-N/session-start.md`。

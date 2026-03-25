@@ -77,6 +77,47 @@ export interface ConnectionTestResult {
   message?: string
 }
 
+export type MCPServerType = 'stdio' | 'http'
+
+export interface MCPAuthConfig {
+  type: 'none' | 'bearer' | 'apiKey'
+  token?: string
+  apiKey?: string
+}
+
+export interface MCPServer {
+  id: string
+  name: string
+  type: MCPServerType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  auth?: MCPAuthConfig
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface MCPServerInput {
+  name: string
+  type: MCPServerType
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  auth?: MCPAuthConfig
+  enabled?: boolean
+}
+
+export interface MCPConnectionTestResult {
+  status: 'success' | 'failure'
+  latency_ms?: number
+  tools_count?: number
+  error_code?: 'TIMEOUT' | 'CONNECTION_FAILED' | 'INVALID_CONFIG' | 'AUTH_FAILED'
+  message?: string
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system'
 
 export interface ChatSession {
@@ -198,6 +239,26 @@ const talorAPI = {
       ipcRenderer.invoke('providers:detectCapabilities', params),
     updateModelCapabilities: (params: { providerId: string; modelId: string; capabilities: ModelCapability[] }): Promise<ModelInfo> =>
       ipcRenderer.invoke('providers:updateModelCapabilities', params)
+  },
+
+  mcp: {
+    list: (): Promise<MCPServer[]> => ipcRenderer.invoke('mcp:servers:list'),
+    create: (server: MCPServerInput): Promise<MCPServer> =>
+      ipcRenderer.invoke('mcp:servers:create', server),
+    get: (id: string): Promise<MCPServer> =>
+      ipcRenderer.invoke('mcp:servers:get', id),
+    update: (id: string, updates: MCPServerInput): Promise<MCPServer> =>
+      ipcRenderer.invoke('mcp:servers:update', id, updates),
+    delete: (id: string): Promise<void> =>
+      ipcRenderer.invoke('mcp:servers:delete', id),
+    setEnabled: (id: string, enabled: boolean): Promise<MCPServer> =>
+      ipcRenderer.invoke('mcp:servers:setEnabled', id, enabled),
+    importConfig: (configJson: string): Promise<Array<{ name: string; status: 'created' | 'updated' }>> =>
+      ipcRenderer.invoke('mcp:servers:importConfig', configJson),
+    exportConfig: (): Promise<string> =>
+      ipcRenderer.invoke('mcp:servers:exportConfig'),
+    testConnection: (server: MCPServerInput): Promise<MCPConnectionTestResult> =>
+      ipcRenderer.invoke('mcp:servers:testConnection', server),
   },
 
   window: {

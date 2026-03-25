@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { toolRegistry, type ToolDefinition, type ToolExecuteContext } from './registry'
+import { toolRegistry, type ToolDefinition, type ToolExecuteContext, type MCPToolProvider } from './registry'
 
 const mockTool: ToolDefinition = {
   name: 'read',
@@ -160,5 +160,202 @@ describe('toolRegistry.listTools', () => {
     toolRegistry.register(mockTool)
     toolRegistry.register({ ...mockTool, name: 'write', execute: vi.fn() })
     expect(toolRegistry.listTools()).toEqual(['read', 'write'])
+  })
+})
+
+describe('toolRegistry.registerExternalProvider', () => {
+  const mockProvider: MCPToolProvider = {
+    name: 'mcp-server',
+    version: '1.0.0',
+    listTools: () => [
+      { name: 'filesystem_read', description: 'Read from filesystem', parameters: { type: 'object' } },
+      { name: 'filesystem_write', description: 'Write to filesystem', parameters: { type: 'object' } },
+    ],
+    execute: vi.fn(async () => ({ output: 'external result' })),
+  }
+
+  it('should register an external provider', () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    expect(toolRegistry.getExternalProvider('mcp-server')).toBe(mockProvider)
+  })
+
+  it('should reject duplicate provider names', () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    expect(() => toolRegistry.registerExternalProvider(mockProvider)).toThrow(
+      'Provider already registered: mcp-server',
+    )
+  })
+
+  it('should require provider name', () => {
+    const noName = { ...mockProvider, name: '' }
+    expect(() => toolRegistry.registerExternalProvider(noName as MCPToolProvider)).toThrow(
+      'Provider must have a name',
+    )
+  })
+
+  it('should require listTools function', () => {
+    const noListTools = { name: 'test', listTools: undefined }
+    expect(() => toolRegistry.registerExternalProvider(noListTools as unknown as MCPToolProvider)).toThrow(
+      'Provider must have a listTools function',
+    )
+  })
+
+  it('should require execute function', () => {
+    const noExecute = { name: 'test', listTools: () => [], execute: undefined }
+    expect(() => toolRegistry.registerExternalProvider(noExecute as unknown as MCPToolProvider)).toThrow(
+      'Provider must have an execute function',
+    )
+  })
+})
+
+describe('toolRegistry.unregisterExternalProvider', () => {
+  const mockProvider: MCPToolProvider = {
+    name: 'test-provider',
+    listTools: () => [],
+    execute: vi.fn(),
+  }
+
+  it('should remove a registered provider', () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    toolRegistry.unregisterExternalProvider('test-provider')
+    expect(toolRegistry.getExternalProvider('test-provider')).toBeUndefined()
+  })
+
+  it('should throw for non-existent provider', () => {
+    expect(() => toolRegistry.unregisterExternalProvider('non_existent')).toThrow(
+      'Provider not found: non_existent',
+    )
+  })
+})
+
+describe('toolRegistry.listExternalProviders', () => {
+  it('should list all registered provider names', () => {
+    toolRegistry.registerExternalProvider({
+      name: 'provider-a',
+      listTools: () => [],
+      execute: vi.fn(),
+    })
+    toolRegistry.registerExternalProvider({
+      name: 'provider-b',
+      listTools: () => [],
+      execute: vi.fn(),
+    })
+    expect(toolRegistry.listExternalProviders()).toEqual(['provider-a', 'provider-b'])
+  })
+
+  it('should return empty array when no providers registered', () => {
+    expect(toolRegistry.listExternalProviders()).toEqual([])
+  })
+})
+
+describe('toolRegistry.listAllTools', () => {
+  const mockProvider: MCPToolProvider = {
+    name: 'mcp-server',
+    listTools: () => [
+      { name: 'ext_tool_1', description: 'External tool 1', parameters: { type: 'object' } },
+      { name: 'ext_tool_2', description: 'External tool 2', parameters: { type: 'object' } },
+    ],
+    execute: vi.fn(),
+  }
+
+  it('should merge builtin and external tools', () => {
+    toolRegistry.register(mockTool)
+    toolRegistry.registerExternalProvider(mockProvider)
+    const allTools = toolRegistry.listAllTools()
+    expect(allTools).toHaveLength(3)
+    expect(allTools.map((t) => t.name)).toEqual(['read', 'ext_tool_1', 'ext_tool_2'])
+  })
+
+  it('should mark builtin tools with provider=builtin', () => {
+    toolRegistry.register(mockTool)
+    const allTools = toolRegistry.listAllTools()
+    expect(allTools.find((t) => t.name === 'read')?.provider).toBe('builtin')
+  })
+
+  it('should mark external tools with provider name', () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    const allTools = toolRegistry.listAllTools()
+    expect(allTools.find((t) => t.name === 'ext_tool_1')?.provider).toBe('mcp-server')
+  })
+
+  it('should return builtin tools only when no external providers', () => {
+    toolRegistry.register(mockTool)
+    toolRegistry.register({ ...mockTool, name: 'write', execute: vi.fn() })
+    const allTools = toolRegistry.listAllTools()
+    expect(allTools).toHaveLength(2)
+    expect(allTools.every((t) => t.provider === 'builtin')).toBe(true)
+  })
+})
+
+describe('toolRegistry.getToolFromExternal', () => {
+  const mockProvider: MCPToolProvider = {
+    name: 'test-provider',
+    listTools: () => [
+      { name: 'external_tool', description: 'An external tool', parameters: { type: 'object' } },
+    ],
+    execute: vi.fn(),
+  }
+
+  it('should find tool in external provider', () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    const result = toolRegistry.getToolFromExternal('external_tool')
+    expect(result).toBeDefined()
+    expect(result?.provider.name).toBe('test-provider')
+  })
+
+  it('should return undefined for non-existent external tool', () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    expect(toolRegistry.getToolFromExternal('non_existent')).toBeUndefined()
+  })
+})
+
+describe('toolRegistry.execute with external tools', () => {
+  const mockProvider: MCPToolProvider = {
+    name: 'exec-provider',
+    listTools: () => [
+      { name: 'remote_exec', description: 'Execute remotely', parameters: { type: 'object' } },
+    ],
+    execute: vi.fn(async (name, input) => ({ output: `executed ${name} with ${JSON.stringify(input)}` })),
+  }
+
+  it('should execute tool from external provider', async () => {
+    toolRegistry.registerExternalProvider(mockProvider)
+    const result = await toolRegistry.execute('remote_exec', { cmd: 'ls' }, mockContext)
+    expect(result.output).toBe('executed remote_exec with {"cmd":"ls"}')
+    expect(result.toolName).toBe('remote_exec')
+  })
+
+  it('should prioritize builtin over external tools', async () => {
+    toolRegistry.register(mockTool)
+    toolRegistry.registerExternalProvider(mockProvider)
+    const result = await toolRegistry.execute('read', { path: '/test' }, mockContext)
+    expect(result.output).toBe('file content')
+  })
+
+  it('should catch execution errors from external provider', async () => {
+    const failingProvider: MCPToolProvider = {
+      name: 'failing',
+      listTools: () => [{ name: 'fail_tool', description: 'Fails', parameters: {} }],
+      execute: vi.fn(async () => {
+        throw new Error('External provider error')
+      }),
+    }
+    toolRegistry.registerExternalProvider(failingProvider)
+    const result = await toolRegistry.execute('fail_tool', {}, mockContext)
+    expect(result.error).toBe('External provider error')
+  })
+})
+
+describe('toolRegistry.clear with external providers', () => {
+  it('should clear both builtin tools and external providers', () => {
+    toolRegistry.register(mockTool)
+    toolRegistry.registerExternalProvider({
+      name: 'test-provider',
+      listTools: () => [],
+      execute: vi.fn(),
+    })
+    toolRegistry.clear()
+    expect(toolRegistry.getTool('read')).toBeUndefined()
+    expect(toolRegistry.listExternalProviders()).toEqual([])
   })
 })
