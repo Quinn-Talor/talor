@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   summary_text   TEXT NOT NULL,
   covered_until  TEXT NOT NULL,
   token_estimate INTEGER NOT NULL,
-  created_at     TEXT NOT NULL
+  created_at     TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 `
 

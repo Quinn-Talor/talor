@@ -29,13 +29,11 @@ export class PromptPipeline {
     const { AgentPromptPlugin } = await import('./plugins/AgentPromptPlugin')
     const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
     const { ToolSelectionPlugin } = await import('./plugins/ToolSelectionPlugin')
-    const { UserMessagePlugin } = await import('./plugins/UserMessagePlugin')
     this.plugins = [
       new SystemPlugin(),
       new AgentPromptPlugin(),
       new MemoryPlugin(this.memoryManager),
       new ToolSelectionPlugin(),
-      new UserMessagePlugin(),
     ]
     return this.plugins
   }
