@@ -35,6 +35,9 @@ export class ToolSelectionPlugin implements PromptPlugin {
       })
       const selectedNames = extractJsonArray(text)
       const selected = allowed.filter(t => selectedNames.includes(t.name))
+      if (selected.length === 0) {
+        throw new Error('LLM returned empty tool selection')
+      }
       return { messages: [], tools: selected, tokenEstimate: this.estimateTools(selected) }
     } catch (err) {
       log.warn('[ToolSelectionPlugin] LLM 动态选择失败，降级到前 19 个工具', err)
