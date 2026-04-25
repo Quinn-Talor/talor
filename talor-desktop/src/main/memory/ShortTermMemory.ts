@@ -115,10 +115,24 @@ async function generateSummary(
   }
   parts.push('[需压缩的对话]')
   for (const msg of oldMessages) {
-    const raw = msg.content.length > MAX_CONTENT_BYTES
-      ? msg.content.slice(0, MAX_CONTENT_BYTES) + '…[已截断]'
-      : msg.content
-    parts.push(`${msg.role}: ${raw}`)
+    let textContent: string
+    try {
+      const blocks = JSON.parse(msg.content) as Array<{ type: string; text?: string; output?: string; input?: unknown }>
+      const texts: string[] = []
+      for (const b of blocks) {
+        if (b.type === 'text' && b.text) texts.push(b.text)
+        else if (b.type === 'tool_result' && b.output) texts.push(`[工具结果: ${b.output}]`)
+        else if (b.type === 'tool_use' && b.input) texts.push(`[工具调用: ${JSON.stringify(b.input)}]`)
+      }
+      textContent = texts.join('\n')
+    } catch {
+      textContent = msg.content
+    }
+    const byteLen = Buffer.byteLength(textContent, 'utf8')
+    const raw = byteLen > MAX_CONTENT_BYTES
+      ? textContent.slice(0, Math.floor(MAX_CONTENT_BYTES * 0.8)) + '…[已截断]'
+      : textContent
+    if (raw.trim()) parts.push(`${msg.role}: ${raw}`)
   }
 
   const userContent = parts.join('\n\n')
