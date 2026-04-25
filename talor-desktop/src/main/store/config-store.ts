@@ -17,6 +17,7 @@ interface AppConfig {
   config_dir: string
   providers: Record<string, Provider>
   window_bounds: WindowBounds
+  default_context_limit?: number
 }
 
 export interface Provider {
@@ -33,6 +34,9 @@ export interface Provider {
   // New fields for model caching
   models_last_updated?: string   // ISO timestamp of last model list update
   models_cache_ttl?: number      // Cache TTL in seconds (default: 300)
+  context_limit?: number
+  recent_ratio?: number
+  summary_ratio?: number
 }
 
 export interface ProviderInput {
@@ -59,7 +63,8 @@ const DEFAULT_CONFIG: AppConfig = {
     x: 0,
     y: 0,
     is_maximized: false
-  }
+  },
+  default_context_limit: 8000
 }
 
 export class ConfigStore {
