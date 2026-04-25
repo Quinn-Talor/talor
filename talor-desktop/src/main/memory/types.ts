@@ -14,7 +14,15 @@ export function estimateMessage(msg: ChatMessage): number {
       .map(b => b.text ?? '')
       .join('')
     const imageCount = blocks.filter(b => b.type === 'image').length
-    return estimate(text) + imageCount * 85
+    const toolResultText = blocks
+      .filter(b => b.type === 'tool_result')
+      .map(b => (b as unknown as { output: string }).output ?? '')
+      .join('')
+    const toolUseText = blocks
+      .filter(b => b.type === 'tool_use')
+      .map(b => JSON.stringify((b as unknown as { input: unknown }).input ?? ''))
+      .join('')
+    return estimate(text + toolResultText + toolUseText) + imageCount * 85
   } catch {
     return estimate(msg.content)
   }
@@ -54,10 +62,11 @@ export function messagesToCoreMessages(messages: ChatMessage[]): CoreMessage[] {
       const text = blocks.filter(b => b.type === 'text').map(b => b.text as string).join('\n')
       result.push({ role: 'system', content: text })
     } else if (msg.role === 'user') {
-      const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: string }> = []
+      const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: string } | { type: 'file'; data: string; mediaType: string }> = []
       for (const b of blocks) {
         if (b.type === 'text') parts.push({ type: 'text', text: b.text as string })
         else if (b.type === 'image') parts.push({ type: 'image', image: b.image as string })
+        else if (b.type === 'file') parts.push({ type: 'file', data: `File: ${b.filename as string}`, mediaType: b.mimeType as string })
       }
       result.push({ role: 'user', content: parts.length > 0 ? parts : '' } as CoreMessage)
     } else if (msg.role === 'assistant') {
