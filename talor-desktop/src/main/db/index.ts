@@ -49,6 +49,16 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 );
 `
 
+const CREATE_SESSION_SUMMARIES = `
+CREATE TABLE IF NOT EXISTS session_summaries (
+  session_id     TEXT NOT NULL PRIMARY KEY,
+  summary_text   TEXT NOT NULL,
+  covered_until  TEXT NOT NULL,
+  token_estimate INTEGER NOT NULL,
+  created_at     TEXT NOT NULL
+);
+`
+
 let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
@@ -74,6 +84,7 @@ export function initChatDb(): Database.Database {
 
     db.exec(CREATE_SESSIONS)
     db.exec(CREATE_MCP_SERVERS)
+    db.exec(CREATE_SESSION_SUMMARIES)
 
     // Migrate sessions: add workspace column if missing
     const sessionCols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
