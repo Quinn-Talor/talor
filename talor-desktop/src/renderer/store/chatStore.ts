@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ChatSession, ChatMessage, Attachment } from '../types/chat'
+import type { ToolConfirmRequest } from '@shared/types/message'
 
 export interface ToolCallEntry {
   toolCallId: string
@@ -18,6 +19,7 @@ interface ChatState {
   error: { code: string; message: string } | null
   attachments: Attachment[]
   toolCalls: ToolCallEntry[]
+  pendingToolConfirm: ToolConfirmRequest | null
 
   setSessions: (sessions: ChatSession[]) => void
   setCurrentSession: (id: string | null) => void
@@ -35,6 +37,7 @@ interface ChatState {
   addToolCall: (entry: Omit<ToolCallEntry, 'status'>) => void
   updateToolResult: (toolCallId: string, result: unknown, status: 'done' | 'error' | 'timeout') => void
   clearToolCalls: () => void
+  setPendingToolConfirm: (req: ToolConfirmRequest | null) => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -46,6 +49,7 @@ export const useChatStore = create<ChatState>((set) => ({
   error: null,
   attachments: [],
   toolCalls: [],
+  pendingToolConfirm: null,
 
   setSessions: (sessions) => set({ sessions }),
   setCurrentSession: (id) => set({ 
@@ -78,4 +82,5 @@ export const useChatStore = create<ChatState>((set) => ({
     ),
   })),
   clearToolCalls: () => set({ toolCalls: [] }),
+  setPendingToolConfirm: (req) => set({ pendingToolConfirm: req }),
 }))

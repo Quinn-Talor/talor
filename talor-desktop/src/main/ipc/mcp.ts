@@ -1,5 +1,9 @@
 import { ipcMain } from 'electron'
 import { mcpServerRepo, MCPServerType, MCPAuthConfig } from '../repos/mcp-server-repo'
+import { toolRegistry } from '../tools/registry'
+import { mcpClient } from '../mcp/client'
+import { StdioTransport } from '../mcp/transport/stdio'
+import { MCPServerConfig, MCPError } from '../mcp/types'
 import log from 'electron-log'
 
 export interface MCPServerInput {
@@ -171,11 +175,33 @@ export function registerMCPHandlers(): void {
       }
 
       if (server.type === 'stdio' && server.command) {
-        return {
-          status: 'success',
-          latency_ms: Date.now() - start,
-          tools_count: 0,
-          message: 'STDIO 模式连接测试需要启动进程（暂仅支持 HTTP）'
+        const config: MCPServerConfig = {
+          id: 'test-' + Date.now(),
+          name: 'test',
+          type: 'stdio',
+          command: server.command,
+          args: server.args || [],
+          env: server.env || {},
+          enabled: true,
+        }
+
+        const transport = new StdioTransport(config)
+        try {
+          await transport.connect()
+          const tools = await transport.listTools()
+          transport.disconnect()
+          return {
+            status: 'success',
+            latency_ms: Date.now() - start,
+            tools_count: tools.length,
+            message: `✅ 连接成功，发现 ${tools.length} 个工具`
+          }
+        } catch (err) {
+          return {
+            status: 'failure',
+            error_code: 'CONNECTION_FAILED',
+            message: `❌ 连接失败：${err instanceof Error ? err.message : '未知错误'}`
+          }
         }
       }
 
@@ -192,5 +218,45 @@ export function registerMCPHandlers(): void {
         message: `❌ 连接失败：${error instanceof Error ? error.message : '未知错误'}`
       }
     }
+  })
+
+  ipcMain.handle('mcp:connect', async (_event, serverId: string) => {
+    try {
+      await mcpClient.connectServer(serverId)
+      return { status: 'success', message: 'MCP Server connected' }
+    } catch (error) {
+      log.error('[MCP] Connect failed:', error)
+      return {
+        status: 'failure',
+        error_code: 'CONNECTION_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  ipcMain.handle('mcp:disconnect', async (_event, serverId: string) => {
+    try {
+      await mcpClient.disconnectServer(serverId)
+      return { status: 'success', message: 'MCP Server disconnected' }
+    } catch (error) {
+      log.error('[MCP] Disconnect failed:', error)
+      return {
+        status: 'failure',
+        error_code: 'DISCONNECT_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  })
+
+  ipcMain.handle('mcp:tools:list', () => {
+    return toolRegistry.listAllTools()
+  })
+
+  ipcMain.handle('mcp:servers:connected', () => {
+    return mcpClient.getConnectedServers()
+  })
+
+  ipcMain.handle('mcp:servers:status', () => {
+    return mcpClient.getAllServerStatus()
   })
 }

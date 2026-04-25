@@ -7,6 +7,7 @@ import type { ProviderInput } from '../../types/config'
 import { MCPServerList } from './MCPServerList'
 import { MCPServerForm } from './MCPServerForm'
 import type { MCPServer, MCPServerInput } from '../../../preload/index'
+import { talorAPI } from '../../api/talorAPI'
 
 export function SettingsPage() {
   const {
@@ -34,6 +35,7 @@ export function SettingsPage() {
   const [mcpLoading, setMcpLoading] = useState(false)
   const [mcpFormMode, setMcpFormMode] = useState<'closed' | 'creating' | 'editing'>('closed')
   const [mcpEditingId, setMcpEditingId] = useState<string | null>(null)
+  const [mcpServerStatus, setMcpServerStatus] = useState<Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>>([])
 
   useEffect(() => {
     fetchProviders()
@@ -42,8 +44,12 @@ export function SettingsPage() {
   const fetchMcpServers = useCallback(async () => {
     setMcpLoading(true)
     try {
-      const servers = await window.talorAPI.mcp.list()
+      const [servers, status] = await Promise.all([
+        talorAPI.mcp.list(),
+        talorAPI.mcp.getServerStatus()
+      ])
       setMcpServers(servers)
+      setMcpServerStatus(status)
     } catch (error) {
       console.error('Failed to fetch MCP servers:', error)
     } finally {
@@ -86,9 +92,9 @@ export function SettingsPage() {
   const handleMcpSubmit = async (data: MCPServerInput) => {
     try {
       if (mcpFormMode === 'creating') {
-        await window.talorAPI.mcp.create(data)
+        await talorAPI.mcp.create(data)
       } else if (mcpFormMode === 'editing' && mcpEditingId) {
-        await window.talorAPI.mcp.update(mcpEditingId, data)
+        await talorAPI.mcp.update(mcpEditingId, data)
       }
       await fetchMcpServers()
       setMcpFormMode('closed')
@@ -101,7 +107,7 @@ export function SettingsPage() {
 
   const handleMcpDelete = async (id: string) => {
     try {
-      await window.talorAPI.mcp.delete(id)
+      await talorAPI.mcp.delete(id)
       await fetchMcpServers()
     } catch (error) {
       console.error('Failed to delete MCP server:', error)
@@ -111,7 +117,7 @@ export function SettingsPage() {
 
   const handleMcpToggleStatus = async (id: string, enabled: boolean) => {
     try {
-      await window.talorAPI.mcp.setEnabled(id, enabled)
+      await talorAPI.mcp.setEnabled(id, enabled)
       await fetchMcpServers()
     } catch (error) {
       console.error('Failed to toggle MCP server:', error)
@@ -134,7 +140,7 @@ export function SettingsPage() {
         auth: server.auth,
         enabled: server.enabled
       }
-      const result = await window.talorAPI.mcp.testConnection(input)
+      const result = await talorAPI.mcp.testConnection(input)
       if (result.status === 'success') {
         alert(`测试成功！可用工具数: ${result.tools_count || 0}`)
       } else {
@@ -296,6 +302,7 @@ export function SettingsPage() {
             <div className={mcpFormMode !== 'closed' ? 'hidden' : ''}>
               <MCPServerList
                 servers={mcpServers}
+                serverStatus={mcpServerStatus}
                 onEdit={openMcpEdit}
                 onDelete={handleMcpDelete}
                 onToggleStatus={handleMcpToggleStatus}

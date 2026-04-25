@@ -2,8 +2,16 @@ import { useState } from 'react'
 import type { MCPServer } from '../../../preload/index'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 
+interface MCPServerStatus {
+  serverId: string
+  name: string
+  connected: boolean
+  toolCount: number
+}
+
 interface MCPServerListProps {
   servers: MCPServer[]
+  serverStatus: MCPServerStatus[]
   onEdit: (id: string) => void
   onDelete: (id: string) => void
   onToggleStatus: (id: string, enabled: boolean) => void
@@ -19,8 +27,14 @@ function getServerIcon(server: MCPServer) {
   return '🔧'
 }
 
+function getServerStatus(serverId: string, statusList: MCPServerStatus[]): { connected: boolean; toolCount: number } {
+  const status = statusList.find(s => s.serverId === serverId)
+  return status ? { connected: status.connected, toolCount: status.toolCount } : { connected: false, toolCount: 0 }
+}
+
 export function MCPServerList({
   servers,
+  serverStatus,
   onEdit,
   onDelete,
   onToggleStatus,
@@ -30,12 +44,23 @@ export function MCPServerList({
 
   const serverToDelete = deleteId ? servers.find((s) => s.id === deleteId) : null
 
-  if (servers.length === 0) return null
+  if (servers.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="w-16 h-16 mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+          <span className="text-3xl">📭</span>
+        </div>
+        <p className="text-gray-500 text-sm">暂无 MCP Server</p>
+        <p className="text-gray-400 text-xs mt-1">点击上方按钮添加</p>
+      </div>
+    )
+  }
 
   return (
     <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {servers.map((server) => {
+          const status = getServerStatus(server.id, serverStatus)
           return (
             <div
               key={server.id}
@@ -50,13 +75,17 @@ export function MCPServerList({
                     <div className="flex items-center gap-2 mb-1">
                       <h4 className="text-sm font-medium text-gray-900 truncate">{server.name}</h4>
                       <div className="flex items-center shrink-0">
-                        {server.enabled ? (
+                        {!server.enabled ? (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-gray-400">
+                            <span className="w-2 h-2 rounded-full bg-gray-300 border border-gray-400"></span> Disabled
+                          </span>
+                        ) : status.connected ? (
                           <span className="flex items-center gap-1 text-[10px] font-medium text-green-600">
                             <span className="w-2 h-2 rounded-full bg-green-500"></span> Connected
                           </span>
                         ) : (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-gray-400">
-                            <span className="w-2 h-2 rounded-full bg-gray-300 border border-gray-400"></span> Disabled
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-red-500">
+                            <span className="w-2 h-2 rounded-full bg-red-400"></span> Disconnected
                           </span>
                         )}
                       </div>
@@ -67,9 +96,15 @@ export function MCPServerList({
                       }`}>
                         {server.type}
                       </span>
-                      <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-600">
-                        Tools: -
-                      </span>
+                      {status.connected ? (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-700">
+                          {status.toolCount} 工具
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-600">
+                          未连接
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

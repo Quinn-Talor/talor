@@ -1,0 +1,23 @@
+version: "1.0"
+phase: 6
+
+git:
+  repository: talor-desktop-mcp
+  branch: feature/mcp
+  working_dir: /Users/quinn.li/Desktop/talor/vibe/features/talor-desktop-mcp
+
+services:
+  - name: talor-desktop
+    type: electron
+    url: http://localhost:5174
+    health_check:
+      type: page_load
+      timeout: 30000
+
+databases:
+  - name: talor-desktop-db
+    type: sqlite
+    path: /Users/quinn.li/.talor/talor.db
+
+auth:
+  mode: none

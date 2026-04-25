@@ -22,6 +22,7 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
 const writeTool = {
   name: 'write',
   description: 'Write content to a file. Creates a new file or overwrites existing file.',
+  riskLevel: 'HIGH' as const,
   parameters: {
     type: 'object',
     properties: {

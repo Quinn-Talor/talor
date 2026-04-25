@@ -6,5 +6,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["src/preload/**/*"]
+  "include": ["src/preload/**/*", "src/shared/**/*"]
 }

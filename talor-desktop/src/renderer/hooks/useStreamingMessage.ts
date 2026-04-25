@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useChatStore } from '../store/chatStore'
 import type { ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent } from '../types/chat'
+import type { ToolConfirmRequest } from '@shared/types/message'
 import { talorAPI } from '../api/talorAPI'
 
 export function useStreamingMessage(sessionId: string | null) {
@@ -50,10 +51,16 @@ export function useStreamingMessage(sessionId: string | null) {
       useChatStore.getState().updateToolResult(event.tool_call_id, event.result, 'done')
     })
 
+    const unsubscribeToolConfirm = talorAPI.chat.onToolConfirm((event: ToolConfirmRequest) => {
+      if (event.sessionId !== sessionId) return
+      useChatStore.getState().setPendingToolConfirm(event)
+    })
+
     return () => {
       unsubscribeStream()
       unsubscribeToolCall()
       unsubscribeToolResult()
+      unsubscribeToolConfirm()
     }
   }, [sessionId])
 }

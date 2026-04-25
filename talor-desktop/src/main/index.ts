@@ -12,6 +12,7 @@ import { registerSessionHandlers } from './ipc/session'
 import { registerChatHandlers } from './ipc/chat'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerMCPHandlers } from './ipc/mcp'
+import { mcpClient } from './mcp/client'
 import { initChatDb, closeChatDb } from './db/index'
 
 log.initialize()
@@ -98,6 +99,9 @@ app.whenReady().then(() => {
   configStore.ensureInitialized()
   initChatDb()
   createWindow()
+  mcpClient.connectAllEnabled().catch((err) => {
+    log.warn('[Main] Failed to connect MCP servers:', err)
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

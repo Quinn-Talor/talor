@@ -19,11 +19,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 const CREATE_MESSAGES = `
 CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
-    content TEXT NOT NULL,
-    created_at TEXT NOT NULL,
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL,
+    role         TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
+    content      TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'blocks',
+    created_at   TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 `
@@ -72,15 +73,26 @@ export function initChatDb(): Database.Database {
   db.pragma('foreign_keys = ON')
 
     db.exec(CREATE_SESSIONS)
-    db.exec(CREATE_MESSAGES)
-    db.exec(CREATE_INDEX)
     db.exec(CREATE_MCP_SERVERS)
 
-    const cols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
-    if (!cols.some(c => c.name === 'workspace')) {
+    // Migrate sessions: add workspace column if missing
+    const sessionCols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
+    if (!sessionCols.some(c => c.name === 'workspace')) {
       db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
       log.info('[ChatDB] Migrated: added workspace column')
     }
+
+    // Clear-and-recreate messages table when schema is outdated
+    const msgCols = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>
+    const hasContentType = msgCols.some(c => c.name === 'content_type')
+    const hasToolRole = msgCols.length > 0 // table exists
+    if (!hasContentType && hasToolRole) {
+      // Old schema without content_type — drop and recreate (clear-and-recreate migration)
+      log.info('[ChatDB] Migrating messages table: dropping old schema')
+      db.exec('DROP TABLE IF EXISTS messages;')
+    }
+    db.exec(CREATE_MESSAGES)
+    db.exec(CREATE_INDEX)
 
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db

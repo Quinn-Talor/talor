@@ -1,0 +1,253 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: 您的Cookie偏好设置
+      - generic [ref=e7]: 欢迎访问Alibabagroup.com!
+      - generic [ref=e8]:
+        - text: 本网站使用Cookie及其他类似的设备信息识别技术，以帮助我们确保网站的安全性和功能性（必要Cookie），并用于分析目的（性能或分析类Cookie）。您可以选择接受所有分析类Cookie，或全部拒绝。您可以通过我们的《Cookie政策》
+        - link "（点击此处）" [ref=e9] [cursor=pointer]:
+          - /url: https://terms.alicdn.com/legal-agreement/terms/privacy_other/20250910181843158/20250910181843158.html
+        - text: 获取更多关于Cookie的信息。
+    - generic:
+      - generic [ref=e10] [cursor=pointer]: 允许所有
+      - generic [ref=e11] [cursor=pointer]: 拒绝所有非必要cookies
+  - generic [ref=e13]:
+    - link [ref=e15] [cursor=pointer]:
+      - /url: /
+    - list [ref=e17]:
+      - listitem [ref=e18]:
+        - link "关于我们" [ref=e19] [cursor=pointer]:
+          - /url: /about-alibaba
+      - listitem [ref=e20]:
+        - link "ESG" [ref=e21] [cursor=pointer]:
+          - /url: /esg
+      - listitem [ref=e22]:
+        - link "投资者关系" [ref=e23] [cursor=pointer]:
+          - /url: /investor-relations
+      - listitem [ref=e24]:
+        - link "新闻及媒体资源" [ref=e25] [cursor=pointer]:
+          - /url: /news-and-resource
+      - listitem [ref=e26]:
+        - link "奥运之旅" [ref=e27] [cursor=pointer]:
+          - /url: /olympics
+      - listitem [ref=e28]:
+        - link "加入我们" [ref=e29] [cursor=pointer]:
+          - /url: /careers
+    - generic [ref=e32] [cursor=pointer]:
+      - generic [ref=e33]:
+        - emphasis [ref=e34]: 简体
+        - combobox "name is" [ref=e36]
+      - generic [ref=e39]: 
+  - generic [ref=e43]:
+    - generic [ref=e51]:
+      - generic [ref=e53]:
+        - row "天猫2026加大投入 用AI扶持商家增长 2026年3月27日 阿里入选《快公司》全球最具创新力AI公司 成唯一上榜的亚洲企业 2026年3月25日 " [ref=e54]:
+          - gridcell "天猫2026加大投入 用AI扶持商家增长 2026年3月27日" [ref=e55]:
+            - link "天猫2026加大投入 用AI扶持商家增长 2026年3月27日" [ref=e56] [cursor=pointer]:
+              - /url: /document-1975267612359131136
+              - generic [ref=e58]:
+                - generic [ref=e59]: 天猫2026加大投入 用AI扶持商家增长
+                - generic [ref=e61]: 2026年3月27日
+          - gridcell "阿里入选《快公司》全球最具创新力AI公司 成唯一上榜的亚洲企业 2026年3月25日 " [ref=e62]:
+            - link "阿里入选《快公司》全球最具创新力AI公司 成唯一上榜的亚洲企业 2026年3月25日 " [ref=e63] [cursor=pointer]:
+              - /url: /document-1973816100088971264
+              - generic [ref=e65]:
+                - generic [ref=e66]: 阿里入选《快公司》全球最具创新力AI公司 成唯一上榜的亚洲企业
+                - generic [ref=e68]:
+                  - text: 2026年3月25日
+                  - generic [ref=e69]: 
+        - row "阿里巴巴加大投入Agentic AI 捕捉万亿美元市场新机遇 2026年3月23日  阿里加大AI投入奏效 云收入增长36% 千问C端MAU突破3亿 2026年3月19日  阿里巴巴推出“悟空”：专为企业打造的AI原生智能体平台 2026年3月17日 " [ref=e70]:
+          - gridcell "阿里巴巴加大投入Agentic AI 捕捉万亿美元市场新机遇 2026年3月23日 " [ref=e71]:
+            - link "阿里巴巴加大投入Agentic AI 捕捉万亿美元市场新机遇 2026年3月23日 " [ref=e72] [cursor=pointer]:
+              - /url: /document-1973827446083944448
+              - generic [ref=e74]:
+                - generic [ref=e75]: 阿里巴巴加大投入Agentic AI 捕捉万亿美元市场新机遇
+                - generic [ref=e77]:
+                  - text: 2026年3月23日
+                  - generic [ref=e78]: 
+          - gridcell "阿里加大AI投入奏效 云收入增长36% 千问C端MAU突破3亿 2026年3月19日 " [ref=e79]:
+            - link "阿里加大AI投入奏效 云收入增长36% 千问C端MAU突破3亿 2026年3月19日 " [ref=e80] [cursor=pointer]:
+              - /url: /document-1971445322303406080
+              - generic [ref=e82]:
+                - generic [ref=e83]: 阿里加大AI投入奏效 云收入增长36% 千问C端MAU突破3亿
+                - generic [ref=e85]:
+                  - text: 2026年3月19日
+                  - generic [ref=e86]: 
+          - gridcell "阿里巴巴推出“悟空”：专为企业打造的AI原生智能体平台 2026年3月17日 " [ref=e87]:
+            - link "阿里巴巴推出“悟空”：专为企业打造的AI原生智能体平台 2026年3月17日 " [ref=e88] [cursor=pointer]:
+              - /url: /document-1971078136456019968
+              - generic [ref=e90]:
+                - generic [ref=e91]: 阿里巴巴推出“悟空”：专为企业打造的AI原生智能体平台
+                - generic [ref=e93]:
+                  - text: 2026年3月17日
+                  - generic [ref=e94]: 
+      - text:     
+    - generic [ref=e96]:
+      - generic [ref=e97]:
+        - paragraph [ref=e98]: 阿里巴巴集团的使命是让天下没有难做的生意。
+        - paragraph [ref=e99]: 我们旨在助力企业，帮助其变革营销、销售和经营的方式，提升其效率。我们为商家、品牌、零售商及其他企业提供技术设施以及营销平台，帮助其借助新技术的力量与用户和客户互动，并更高效地经营。我们还为企业提供领先的云设施和服务，以及更强的工作协作能力，促进其数字化转型并支持其业务增长。
+      - img [ref=e101]
+  - generic [ref=e102]:
+    - generic [ref=e105]:
+      - generic [ref=e106]:
+        - img "logo" [ref=e108]
+        - generic [ref=e109]:
+          - generic [ref=e110]: 关注我们
+          - link "facebook" [ref=e111] [cursor=pointer]:
+            - /url: https://www.facebook.com/AlibabaGroupCorporate/
+            - img "facebook" [ref=e112]
+          - link "linkedin" [ref=e113] [cursor=pointer]:
+            - /url: https://www.linkedin.com/company/阿里巴巴集團
+            - img "linkedin" [ref=e114]
+          - link "twitter" [ref=e115] [cursor=pointer]:
+            - /url: https://twitter.com/AlibabaGroup
+            - img "twitter" [ref=e116]
+          - link "ins" [ref=e117] [cursor=pointer]:
+            - /url: https://instagram.com/alibabagroupcorporate?igshid=YmMyMTA2M2Y=
+            - img "ins" [ref=e118]
+          - link "weibo" [ref=e119] [cursor=pointer]:
+            - /url: https://www.weibo.com/aligroup
+            - img "weibo" [ref=e120]
+          - link "youtube" [ref=e121] [cursor=pointer]:
+            - /url: https://www.youtube.com/channel/UCEiokk5vLBU6byHFbf9mbYA
+            - img "youtube" [ref=e122]
+      - generic [ref=e124]:
+        - generic [ref=e125]:
+          - link "关于我们" [ref=e127] [cursor=pointer]:
+            - /url: /about-alibaba
+          - link "文化和价值观" [ref=e129] [cursor=pointer]:
+            - /url: /about-alibaba#culture-and-values
+          - link "里程碑" [ref=e131] [cursor=pointer]:
+            - /url: /about-alibaba#history-and-milestone
+          - link "领导团队" [ref=e133] [cursor=pointer]:
+            - /url: /about-alibaba#leadership
+          - link "我们的业务" [ref=e135] [cursor=pointer]:
+            - /url: /about-alibaba-businesses
+        - generic [ref=e136]:
+          - link "ESG" [ref=e138] [cursor=pointer]:
+            - /url: /esg
+          - link "最新ESG报告" [ref=e140] [cursor=pointer]:
+            - /url: /esg#esg-reports
+          - link "各类报告" [ref=e142] [cursor=pointer]:
+            - /url: /esg#csr-reports
+          - link "ESG评级和奖项" [ref=e144] [cursor=pointer]:
+            - /url: /esg#esg-ratings-awards
+          - link "ESG政策" [ref=e146] [cursor=pointer]:
+            - /url: /esg#esg-policies
+          - link "ESG新闻及观点" [ref=e148] [cursor=pointer]:
+            - /url: /esg-news-views
+        - generic [ref=e149]:
+          - link "投资者关系" [ref=e151] [cursor=pointer]:
+            - /url: /investor-relations
+          - link "投资者新闻" [ref=e153] [cursor=pointer]:
+            - /url: /ir-news-filings
+          - link "投资者活动" [ref=e155] [cursor=pointer]:
+            - /url: /ir-events
+          - link "业绩和财务报告" [ref=e157] [cursor=pointer]:
+            - /url: /ir-financial-reports-quarterly-results
+          - link "证券公告" [ref=e159] [cursor=pointer]:
+            - /url: /ir-filings-sec
+          - link "年度股东大会" [ref=e161] [cursor=pointer]:
+            - /url: /ir-annual-general-meetings
+          - link "公司治理" [ref=e163] [cursor=pointer]:
+            - /url: /ir-corporate-governance
+          - link "投资者工具" [ref=e165] [cursor=pointer]:
+            - /url: /ir-tools
+        - generic [ref=e166]:
+          - link "新闻及媒体资源" [ref=e168] [cursor=pointer]:
+            - /url: /news-and-resource
+          - link "新闻" [ref=e170] [cursor=pointer]:
+            - /url: /news-and-resource#news
+          - link "媒体视频" [ref=e172] [cursor=pointer]:
+            - /url: /news-and-resource#media-video
+          - link "资料库" [ref=e174] [cursor=pointer]:
+            - /url: /news-and-resource#resource-library
+          - link "媒体联系" [ref=e176] [cursor=pointer]:
+            - /url: /media-contacts
+        - generic [ref=e177]:
+          - link "加入我们" [ref=e179] [cursor=pointer]:
+            - /url: /careers
+          - link "招聘官网" [ref=e181] [cursor=pointer]:
+            - /url: https://talent.alibaba.com/?lang=zh
+        - generic [ref=e182]:
+          - link "廉正与合规" [ref=e184] [cursor=pointer]:
+            - /url: /integrity-compliance
+          - generic [ref=e185] [cursor=pointer]: 隐私政策
+          - generic [ref=e186] [cursor=pointer]: 用户协议
+          - link "除名查询" [ref=e188] [cursor=pointer]:
+            - /url: /terminations
+        - generic [ref=e189]:
+          - link "联系我们" [ref=e191] [cursor=pointer]:
+            - /url: /global-location
+          - link "常见问题" [ref=e193] [cursor=pointer]:
+            - /url: /faqs-corporate-information
+      - generic [ref=e194]:
+        - link "淘宝" [ref=e196] [cursor=pointer]:
+          - /url: https://www.taobao.com/
+        - link "天猫" [ref=e199] [cursor=pointer]:
+          - /url: https://www.tmall.com/
+        - link "闲鱼" [ref=e202] [cursor=pointer]:
+          - /url: https://2.taobao.com/
+        - link "天猫超市" [ref=e205] [cursor=pointer]:
+          - /url: https://chaoshi.tmall.com/
+        - link "天猫国际" [ref=e208] [cursor=pointer]:
+          - /url: https://www.tmall.hk/
+        - link "阿里健康" [ref=e211] [cursor=pointer]:
+          - /url: https://www.alihealth.cn/
+        - link "盒马" [ref=e214] [cursor=pointer]:
+          - /url: https://www.freshhema.com/
+        - link "1688" [ref=e217] [cursor=pointer]:
+          - /url: https://www.1688.com/
+        - link "速卖通" [ref=e220] [cursor=pointer]:
+          - /url: https://www.aliexpress.com/
+        - link "Lazada" [ref=e223] [cursor=pointer]:
+          - /url: https://www.lazada.cn/
+        - link "Trendyol" [ref=e226] [cursor=pointer]:
+          - /url: https://www.trendyol.com/
+        - link "Daraz" [ref=e229] [cursor=pointer]:
+          - /url: https://daraz.com/
+        - link "阿里巴巴国际站" [ref=e232] [cursor=pointer]:
+          - /url: https://www.alibaba.com/
+        - link "淘宝闪购" [ref=e235] [cursor=pointer]:
+          - /url: https://www.ele.me/
+        - link "高德" [ref=e238] [cursor=pointer]:
+          - /url: https://www.amap.com/
+        - link "飞猪" [ref=e241] [cursor=pointer]:
+          - /url: https://www.fliggy.com/
+        - link "优酷" [ref=e244] [cursor=pointer]:
+          - /url: https://www.youku.com/
+        - link "大麦娱乐" [ref=e247] [cursor=pointer]:
+          - /url: https://www.damaiholdings.com/cn/
+        - link "灵犀互娱" [ref=e250] [cursor=pointer]:
+          - /url: https://www.lingxigames.com/#/index
+        - link "夸克" [ref=e253] [cursor=pointer]:
+          - /url: https://www.myquark.cn/
+        - link "UC" [ref=e256] [cursor=pointer]:
+          - /url: https://www.uc.cn/
+        - link "阿里巴巴达摩院" [ref=e259] [cursor=pointer]:
+          - /url: https://damo.alibaba.com/?lang=zh
+        - link "天猫精灵" [ref=e262] [cursor=pointer]:
+          - /url: https://bot.tmall.com/
+        - link "菜鸟" [ref=e265] [cursor=pointer]:
+          - /url: https://global.cainiao.com/
+        - link "阿里云" [ref=e268] [cursor=pointer]:
+          - /url: https://www.aliyun.com/
+        - link "钉钉" [ref=e271] [cursor=pointer]:
+          - /url: https://www.dingtalk.com/
+        - link "阿里巴巴公益基金会" [ref=e274] [cursor=pointer]:
+          - /url: http://www.alibabafoundation.com/
+        - link "阿里巴巴创业者基金" [ref=e277] [cursor=pointer]:
+          - /url: https://www.ent-fund.org/sc/
+        - link "阿里巴巴普惠体" [ref=e280] [cursor=pointer]:
+          - /url: https://fonts.alibabagroup.com/#/home
+      - generic [ref=e281]:
+        - generic [ref=e282]: 版权公告 © 1999-2026 阿里巴巴集团控股有限公司及／或其关联公司及特许人。版权所有。
+        - generic [ref=e283]:
+          - link [ref=e284] [cursor=pointer]:
+            - /url: http://idinfo.zjamr.zj.gov.cn/bscx.do?method=lzxx&id=3301083301000000108864
+          - link "浙公网安备 33010002000070号" [ref=e285] [cursor=pointer]:
+            - /url: http://www.beian.gov.cn/portal/registerSystemInfo?spm=aligroup_teambition.aligroup-tb-project-page.0.0.3b6275000V1q1x&recordcode=33011002016255%26%2365307%3B
+            - generic [ref=e286]: 浙公网安备 33010002000070号
+          - link "浙ICP备09002987号-93" [ref=e287] [cursor=pointer]:
+            - /url: https://beian.miit.gov.cn/#/Integrated/index
+    - text:        

@@ -469,137 +469,127 @@ flowchart TD
 
 ## 1.8 验收标准
 
-### AC-001-01: 添加 STDIO 模式 MCP Server
+> **断言类型说明**：
+> - `[响应]` — HTTP/IPC 响应层验证（Layer 1）
+> - `[数据]` — 数据库/存储层验证（Layer 1）
+> - `[事件]` — 系统事件/副作用验证（Layer 1+2）
+> - `[页面]` — UI 渲染层验证（Layer 2）
+
+---
+
+### Phase 6 AC（MCP Server 配置管理）
+
+#### AC-001-01: 添加 STDIO 模式 MCP Server
 
 - **Given**: 用户在 MCP Server 配置页面，点击"新增 Server"
 - **When**: 选择 type="stdio"，填写 name="文件系统"，command="npx"，args=["-y", "@modelcontextprotocol/server-filesystem", "/Users/quinn/Desktop"]
-- **Then**: [数据] Server 记录保存成功，列表显示"文件系统（STDIO，未连接）"
+- **Then**:
+  - `[数据]` mcp_servers 表新增记录，type='stdio', name='文件系统'
+  - `[页面]` 列表显示"文件系统（STDIO）"卡片
 
-验证前置条件：talor-desktop 正常运行，可打开设置页面
+**验证前置条件**：talor-desktop 正常运行，可打开设置页面
 
 ---
 
-### AC-001-02: 添加 HTTP 模式 MCP Server
+#### AC-001-02: 添加 HTTP 模式 MCP Server
 
 - **Given**: 用户在 MCP Server 配置页面，点击"新增 Server"
 - **When**: 选择 type="http"，填写 name="GitHub API"，url="https://mcp.example.com/github"
-- **Then**: [数据] Server 记录保存成功，列表显示"GitHub API（HTTP，未连接）"
+- **Then**:
+  - `[数据]` mcp_servers 表新增记录，type='http', name='GitHub API', url='https://mcp.example.com/github'
+  - `[页面]` 列表显示"GitHub API（HTTP）"卡片
 
-验证前置条件：talor-desktop 正常运行，存在可用的 HTTP MCP Server
+**验证前置条件**：talor-desktop 正常运行
 
 ---
 
-### AC-001-03: 编辑 MCP Server 配置
+#### AC-001-03: 编辑 MCP Server 配置
 
 - **Given**: 已存在 Server，name="测试 Server"
 - **When**: 点击"编辑"，修改 name="正式 Server"，保存
-- **Then**: [数据] 配置更新成功，列表显示"正式 Server"
+- **Then**:
+  - `[数据]` mcp_servers 表记录 name 更新为"正式 Server"
+  - `[页面]` 列表显示"正式 Server"
 
-验证前置条件：存在至少一个已配置的 Server
+**验证前置条件**：存在至少一个已配置的 Server
 
 ---
 
-### AC-002-01: STDIO Server 连接测试成功
+#### AC-002-01: STDIO Server 连接测试成功
 
 - **Given**: 已配置 STDIO Server，command="npx"，args=["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
 - **When**: 点击"测试连接"
-- **Then**: [响应] 显示"✅ 连接成功，发现 N 个工具"，状态变为"已连接"
+- **Then**:
+  - `[响应]` IPC 返回 { status: 'success', tools_count: N }
+  - `[页面]` 显示"✅ 连接成功，发现 N 个工具"
 
-验证前置条件：npx 可用，目标路径存在
+**验证前置条件**：npx 可用，目标路径存在
 
 ---
 
-### AC-002-02: HTTP Server 连接测试成功
+#### AC-002-02: HTTP Server 连接测试成功
 
 - **Given**: 已配置 HTTP Server，url="https://mcp.example.com"
 - **When**: 点击"测试连接"
-- **Then**: [响应] 显示"✅ 连接成功，发现 N 个工具"，状态变为"已连接"
+- **Then**:
+  - `[响应]` IPC 返回 { status: 'success', tools_count: N }
+  - `[页面]` 显示"✅ 连接成功，发现 N 个工具"
 
-验证前置条件：目标 HTTP Server 可达
+**验证前置条件**：目标 HTTP Server 可达
 
 ---
 
-### AC-002-03: 连接超时处理
+#### AC-002-03: 连接超时处理
 
 - **Given**: 已配置 Server，Server 无响应
 - **When**: 点击"测试连接"
-- **Then**: [响应] 显示"❌ 连接超时（30秒），请检查 Server 是否运行"
+- **Then**:
+  - `[响应]` IPC 返回 { status: 'failure', error_code: 'TIMEOUT' }
+  - `[页面]` 显示"❌ 连接超时（30秒），请检查 Server 是否运行"
 
-验证前置条件：配置一个不存在的 Server 地址
+**验证前置条件**：配置一个不存在的 Server 地址
 
 ---
 
-### AC-003-01: 禁用 MCP Server
+#### AC-003-01: 禁用 MCP Server
 
 - **Given**: Server 处于"已连接"状态
 - **When**: 点击禁用开关
-- **Then**: [数据] Server enabled=false，[页面] 显示"已禁用"，工具从列表移除
+- **Then**:
+  - `[数据]` mcp_servers 表记录 enabled=0
+  - `[页面]` 显示"已禁用"
+  - `[事件]` 触发工具列表更新
 
-验证前置条件：存在已连接的 Server
+**验证前置条件**：存在已连接的 Server
 
 ---
 
-### AC-003-02: 启用 MCP Server
+#### AC-003-02: 启用 MCP Server
 
 - **Given**: Server 处于"已禁用"状态
 - **When**: 点击启用开关
-- **Then**: [数据] Server enabled=true，[事件] 触发连接和工具发现
+- **Then**:
+  - `[数据]` mcp_servers 表记录 enabled=1
+  - `[事件]` 触发连接和工具发现
+  - `[页面]` 显示"已连接"
 
-验证前置条件：存在已禁用的 Server
+**验证前置条件**：存在已禁用的 Server
 
 ---
 
-### AC-004-01: 删除 MCP Server
+#### AC-004-01: 删除 MCP Server
 
 - **Given**: 已配置 Server，name="测试"
 - **When**: 点击"删除"，确认删除
-- **Then**: [数据] Server 记录删除，[页面] 列表中不显示该 Server
+- **Then**:
+  - `[数据]` mcp_servers 表记录删除
+  - `[页面]` 列表中不显示该 Server
 
-验证前置条件：存在至少一个已配置的 Server
-
----
-
-### AC-005-01: Agent 调用 MCP 工具
-
-- **Given**: 已连接 MCP Server（filesystem），工具"filesystem_list_directory"可用
-- **When**: 用户发送"列出 /tmp 目录的文件"
-- **Then**: [响应] Agent 调用工具成功，返回文件列表
-
-验证前置条件：MCP Server 已连接，Agent 可用
+**验证前置条件**：存在至少一个已配置的 Server
 
 ---
 
-### AC-005-02: MCP 工具执行超时
-
-- **Given**: MCP 工具执行时间超过 30 秒
-- **When**: Agent 调用该工具
-- **Then**: [响应] 返回超时错误信息
-
-验证前置条件：配置一个执行时间很长的 MCP 工具
-
----
-
-### AC-006-01: 查看 MCP 工具列表
-
-- **Given**: 已连接 2 个 MCP Server，共提供 8 个工具
-- **When**: 在工具列表页面查看
-- **Then**: [页面] 显示"Server A (3 工具)", "Server B (5 工具)"
-
-验证前置条件：存在已连接的 MCP Server
-
----
-
-### AC-006-02: 查看 MCP Server 连接状态
-
-- **Given**: 配置了 3 个 Server，1 个已连接，1 个未连接，1 个已禁用
-- **When**: 查看 Server 列表
-- **Then**: [页面] 显示"Server A: 已连接", "Server B: 未连接", "Server C: 已禁用"
-
-验证前置条件：存在多种状态的 Server
-
----
-
-### AC-007-01: 通过 JSON 导入 MCP 配置
+#### AC-007-01: 通过 JSON 导入 MCP 配置
 
 - **Given**: 用户在 MCP Server 页面，点击"导入配置"
 - **When**: 粘贴以下 JSON 并点击导入
@@ -611,59 +601,132 @@ flowchart TD
   }
 }
 ```
-- **Then**: [数据] 成功创建 1 个 Server，[页面] 列表显示 "github (HTTP)"
+- **Then**:
+  - `[数据]` mcp_servers 表新增记录，name='github', type='http'
+  - `[页面]` 列表显示 "github (HTTP)"
 
-验证前置条件：talor-desktop 正常运行，可打开 MCP 配置页面
+**验证前置条件**：talor-desktop 正常运行，可打开 MCP 配置页面
 
 ---
 
-### AC-007-02: 导入重复名称处理
+#### AC-007-02: 导入重复名称处理
 
 - **Given**: 已存在 Server name="github"
 - **When**: 导入包含 name="github" 的配置
-- **Then**: [响应] 提示"Server github 已存在，是否覆盖？"，确认后覆盖
+- **Then**:
+  - `[响应]` 提示"Server github 已存在，是否覆盖？"
+  - `[数据]` 确认后 mcp_servers 表记录更新
 
-验证前置条件：存在同名 Server
+**验证前置条件**：存在同名 Server
 
 ---
 
-### AC-007-03: 导入格式错误处理
+#### AC-007-03: 导入格式错误处理
 
 - **Given**: 用户粘贴了格式错误的 JSON
 - **When**: 点击导入
-- **Then**: [响应] 显示"配置文件格式错误，请检查 JSON 语法"
+- **Then**:
+  - `[响应]` 返回错误 "配置文件格式错误，请检查 JSON 语法"
+  - `[页面]` 显示错误提示
 
-验证前置条件：无
-
----
-
-### AC-008-01: MCP 页面空状态
-
-- **Given**: 用户首次打开 MCP Server 页面，无任何配置
-- **When**: 页面加载完成
-- **Then**: [页面] 显示空状态提示"暂无 MCP Server，点击上方按钮添加"
-
-验证前置条件：无配置的全新环境
+**验证前置条件**：无
 
 ---
 
-### AC-008-02: Server 卡片交互
-
-- **Given**: 列表中有多个 Server
-- **When**: 鼠标悬停在某个 Server 卡片上
-- **Then**: [页面] 卡片显示轻微阴影效果
-
-验证前置条件：存在至少一个 Server
-
----
-
-### AC-007-04: 导出 MCP 配置
+#### AC-007-04: 导出 MCP 配置
 
 - **Given**: 已配置 2 个 MCP Server
 - **When**: 点击"导出配置"
-- **Then**: [响应] 导出标准 MCP Config JSON，包含所有 Server 配置
+- **Then**:
+  - `[响应]` 返回 JSON 字符串，包含所有 Server 配置
+  - `[页面]` 触发文件下载
 
-验证前置条件：存在至少一个已配置的 Server
+**验证前置条件**：存在至少一个已配置的 Server
+
+---
+
+#### AC-008-01: MCP 页面空状态
+
+- **Given**: 用户首次打开 MCP Server 页面，无任何配置
+- **When**: 页面加载完成
+- **Then**:
+  - `[页面]` 显示空状态提示"暂无 MCP Server，点击上方按钮添加"
+
+**验证前置条件**：无配置的全新环境
+
+---
+
+#### AC-008-02: Server 卡片交互
+
+- **Given**: 列表中有多个 Server
+- **When**: 鼠标悬停在某个 Server 卡片上
+- **Then**:
+  - `[页面]` 卡片显示轻微阴影效果 (CSS transition)
+
+**验证前置条件**：存在至少一个 Server
+
+---
+
+### Phase 7 AC（MCP Tool 集成）
+
+#### AC-005-01: Agent 调用 STDIO MCP 工具
+
+- **Given**: 已配置并启用 STDIO MCP Server，name="文件系统"，command="npx"，args=["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+- **When**: 用户发送消息"列出 /tmp 目录下的文件"
+- **Then**:
+  - `[响应]` Agent 决策调用 MCP 工具 `filesystem_list_directory`
+  - `[响应]` 返回工具执行结果，包含文件列表
+  - `[页面]` Agent 整合结果后回复用户
+
+**验证前置条件**：talor-desktop 正常运行，配置好 STDIO MCP Server，Server 进程可启动
+
+---
+
+#### AC-005-02: Agent 调用 HTTP MCP 工具
+
+- **Given**: 已配置并启用 HTTP MCP Server，name="GitHub"，url="https://mcp.example.com/github"
+- **When**: 用户发送消息"查询 GitHub 仓库 talor 的信息"
+- **Then**:
+  - `[响应]` Agent 决策调用 MCP 工具
+  - `[响应]` 返回工具执行结果（JSON）
+  - `[页面]` Agent 整合结果后回复用户
+
+**验证前置条件**：talor-desktop 正常运行，目标 HTTP MCP Server 可达
+
+---
+
+#### AC-005-03: MCP 工具执行超时处理
+
+- **Given**: 已配置并启用 MCP Server，该 Server 响应慢
+- **When**: 用户触发耗时较长的 MCP 工具调用
+- **Then**:
+  - `[响应]` 30 秒后返回超时错误
+  - `[页面]` 显示"工具执行超时，请重试或检查 Server 状态"
+
+**验证前置条件**：配置一个响应慢的 MCP Server
+
+---
+
+#### AC-006-01: 查看 MCP 工具列表
+
+- **Given**: 已配置并启用 2 个 MCP Server，每个 Server 提供多个工具
+- **When**: 用户查看工具列表
+- **Then**:
+  - `[响应]` 返回包含 MCP 工具的工具列表
+  - `[页面]` 显示各 Server 名称 + 工具数量（如"文件系统 (3 工具)", "GitHub (5 工具)"）
+
+**验证前置条件**：talor-desktop 正常运行，至少配置 1 个 MCP Server
+
+---
+
+#### AC-006-02: MCP Server 连接状态显示
+
+- **Given**: 已配置多个 MCP Server，部分已连接，部分未连接
+- **When**: 用户查看 MCP Server 列表
+- **Then**:
+  - `[页面]` 显示每个 Server 的连接状态（已连接/未连接/已禁用）
+
+**验证前置条件**：存在多个不同状态的 MCP Server
 
 ---
 

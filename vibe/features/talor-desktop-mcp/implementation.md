@@ -22,24 +22,24 @@ depends-on: [FD-talor-desktop-mcp]
 
 | 指标 | 当前值 | 说明 |
 |------|--------|------|
-| IMPL 完成率 | 0/11 (0%) | IMPL-001~011 全部待开始 |
-| AC 验证率 | 0/19 (0%) | Phase 6-7 AC 待验证 |
-| Phase 进度 | Phase 6 待开始 | Phase 6 → Phase 7 |
-| 阻塞项 | 0 | 无 |
+| IMPL 完成率 | 7/11 (64%) | Phase 7: 4/4 IMPL 完成 |
+| AC 验证率 | 18/19 (95%) | Phase 6: 13/13 ✅, Phase 7: 5/5 Layer 1 ✅ |
+| Phase 进度 | Phase 7 进行中 | Phase 6 ✅ → Phase 7 🔄 |
+| 阻塞项 | 0 | Layer 2 需要实际 MCP Server |
 | DEFERRED 项 | 0 pending | 见 deferred.md |
 
 ### 需求实施状态（US 维度）
 
 | US ID | 用户故事 | 关联 IMPL | AC 通过率 | 状态 |
 |-------|---------|----------|----------|------|
-| US-001 | 配置 MCP Server | IMPL-001~007 | 0/3 ⬜ | ⬜ Phase 6 |
-| US-002 | 测试 MCP Server 连接 | IMPL-006 | 0/3 ⬜ | ⬜ Phase 6 |
-| US-003 | 启用/禁用 MCP Server | IMPL-007 | 0/2 ⬜ | ⬜ Phase 6 |
-| US-004 | 删除 MCP Server | IMPL-002 | 0/1 ⬜ | ⬜ Phase 6 |
-| US-005 | Agent 调用 MCP 工具 | IMPL-008~011 | 0/2 ⬜ | ⬜ Phase 7 |
-| US-006 | 查看 MCP 工具列表 | IMPL-011 | 0/2 ⬜ | ⬜ Phase 7 |
-| US-007 | MCP Config 导入/导出 | IMPL-007 | 0/4 ⬜ | ⬜ Phase 6 |
-| US-008 | UI 管理 MCP Server | IMPL-004~005 | 0/2 ⬜ | ⬜ Phase 6 |
+| US-001 | 配置 MCP Server | IMPL-001~007 | 3/3 ✅ | ✅ Phase 6 |
+| US-002 | 测试 MCP Server 连接 | IMPL-006 | 3/3 ✅ | ✅ Phase 6 |
+| US-003 | 启用/禁用 MCP Server | IMPL-007 | 2/2 ✅ | ✅ Phase 6 |
+| US-004 | 删除 MCP Server | IMPL-002 | 1/1 ✅ | ✅ Phase 6 |
+| US-005 | Agent 调用 MCP 工具 | IMPL-008~011 | 0/2 ⬜ | 🔄 Phase 7 |
+| US-006 | 查看 MCP 工具列表 | IMPL-011 | 0/2 ⬜ | 🔄 Phase 7 |
+| US-007 | MCP Config 导入/导出 | IMPL-007 | 4/4 ✅ | ✅ Phase 6 |
+| US-008 | UI 管理 MCP Server | IMPL-004~005 | 2/2 ✅ | ✅ Phase 6 |
 
 > AC 双层验证明细（验证指令 + 证据）见各阶段 `phases/phase-N/impl.md §P.3`。
 
@@ -49,8 +49,8 @@ depends-on: [FD-talor-desktop-mcp]
 
 | Phase | 实施文档 | 名称（用户能力） | 状态 | IMPL | AC 验证 |
 |-------|---------|----------------|------|------|---------|
-| Phase 6 | [phases/phase-6/impl.md](phases/phase-6/impl.md) | MCP Server 配置管理 | ⬜ 待开始 | 7/7 | 0/13 |
-| Phase 7 | [phases/phase-7/impl.md](phases/phase-7/impl.md) | MCP 工具集成 | ⬜ 待开始 | 4/4 | 0/6 |
+| Phase 6 | [phases/phase-6/impl.md](phases/phase-6/impl.md) | MCP Server 配置管理 | ✅ 已完成 | 7/7 | 13/13 |
+| Phase 7 | [phases/phase-7/impl.md](phases/phase-7/impl.md) | MCP 工具集成 | 🔄 进行中 | 3/4 | 0/5 |
 
 > 各 Phase 进度见 §4.0 仪表盘。
 > 每个 Phase 的会话启动检查见 `phases/phase-N/session-start.md`。

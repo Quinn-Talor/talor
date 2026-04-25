@@ -1,4 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
+
+console.log('[Preload] Script loading...')
 
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google'
 
@@ -118,7 +121,7 @@ export interface MCPConnectionTestResult {
   message?: string
 }
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface ChatSession {
   id: string
@@ -259,6 +262,21 @@ const talorAPI = {
       ipcRenderer.invoke('mcp:servers:exportConfig'),
     testConnection: (server: MCPServerInput): Promise<MCPConnectionTestResult> =>
       ipcRenderer.invoke('mcp:servers:testConnection', server),
+    connect: (serverId: string): Promise<{ status: string; message?: string; error_code?: string }> =>
+      ipcRenderer.invoke('mcp:connect', serverId),
+    disconnect: (serverId: string): Promise<{ status: string; message?: string; error_code?: string }> =>
+      ipcRenderer.invoke('mcp:disconnect', serverId),
+    listTools: (): Promise<Array<{
+      name: string
+      description: string
+      parameters: Record<string, unknown>
+      schema?: Record<string, unknown>
+      provider?: string
+    }>> => ipcRenderer.invoke('mcp:tools:list'),
+    connectedServers: (): Promise<string[]> =>
+      ipcRenderer.invoke('mcp:servers:connected'),
+    getServerStatus: (): Promise<Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>> =>
+      ipcRenderer.invoke('mcp:servers:status'),
   },
 
   window: {
@@ -305,7 +323,15 @@ const talorAPI = {
       const handler = (_: Electron.IpcRendererEvent, data: ChatToolResultEvent) => callback(data)
       ipcRenderer.on('chat:tool-result', handler)
       return () => ipcRenderer.removeListener('chat:tool-result', handler)
-    }
+    },
+    onToolConfirm: (callback: (event: ToolConfirmRequest) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: ToolConfirmRequest) => callback(data)
+      ipcRenderer.on('chat:tool-confirm', handler)
+      return () => ipcRenderer.removeListener('chat:tool-confirm', handler)
+    },
+    sendToolConfirmResponse: (response: ToolConfirmResponse): void => {
+      ipcRenderer.send('chat:tool-confirm-response', response)
+    },
   },
 
   file: {
@@ -321,5 +347,6 @@ const talorAPI = {
 }
 
 contextBridge.exposeInMainWorld('talorAPI', talorAPI)
+console.log('[Preload] talorAPI exposed to window.talorAPI')
 
 export type TalorAPI = typeof talorAPI

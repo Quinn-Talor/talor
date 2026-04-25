@@ -337,6 +337,12 @@ sequenceDiagram
 
 ## F.8 AC 验证契约
 
+> **分层断言说明**：
+> - `@response` — IPC/HTTP 响应层验证（工具：vitest + ipcMain mock）
+> - `@db` — 数据库/存储层验证（工具：vitest + SQLite 直接查询）
+> - `@event` — 系统事件/副作用验证（工具：vitest + spy/mock）
+> - `@ui` — UI 渲染层验证（工具：Playwright + page assertions）
+
 ### F.8.0 验证环境规划
 
 **代码分支**：`feature/mcp` 或现有开发分支
@@ -355,29 +361,176 @@ sequenceDiagram
 | Server CRUD | 名称唯一性 | 每条 AC 使用独立名称 |
 | 连接测试 | 端口占用 | 使用不同端口的 mock server |
 
-### F.8.1 验证契约表
+### F.8.1 Phase 6 验证契约表
 
-| AC ID | 验证策略 | 断言要点 | 关键参数溯源 |
-|-------|---------|---------|--------------|
-| AC-001-01 | 前端表单提交 | Server 出现在列表 | name="文件系统", type="stdio" |
-| AC-001-02 | 前端表单提交 | Server 出现在列表 | name="GitHub API", type="http" |
-| AC-001-03 | 前端编辑 | 名称更新成功 | 原 name="测试", 新 name="正式" |
-| AC-002-01 | 点击测试按钮 | 显示成功提示 + 工具数量 | STDIO command |
-| AC-002-02 | 点击测试按钮 | 显示成功提示 + 工具数量 | HTTP url |
-| AC-002-03 | 点击测试按钮 | 显示超时错误 | 不存在的地址 |
-| AC-003-01 | 点击禁用开关 | 状态变为已禁用 | enabled=false |
-| AC-003-02 | 点击启用开关 | 触发连接+发现 | enabled=true |
-| AC-004-01 | 点击删除+确认 | 列表中消失 | Server 存在 |
-| AC-005-01 | 发送消息触发工具 | 返回文件列表 | MCP Server 已连接 |
-| AC-005-02 | 调用耗时工具 | 返回超时错误 | 工具执行 >30s |
-| AC-006-01 | 查看工具列表 | 显示 Server 名称+数量 | 已连接 Server |
-| AC-006-02 | 查看 Server 列表 | 显示各 Server 状态 | 多种状态 Server |
-| AC-007-01 | 粘贴 JSON 导入 | 创建对应 Server | JSON 格式正确 |
-| AC-007-02 | 导入重复名称 | 提示覆盖确认 | 同名 Server 存在 |
-| AC-007-03 | 导入错误 JSON | 显示格式错误 | JSON 语法错误 |
-| AC-007-04 | 点击导出按钮 | 导出标准 JSON | 至少一个 Server |
-| AC-008-01 | 首次打开页面 | 显示空状态提示 | 无配置 |
-| AC-008-02 | 鼠标悬停卡片 | 显示阴影效果 | 至少一个 Server |
+#### AC-001-01: 添加 STDIO 模式 MCP Server
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表新增记录，type='stdio', name='文件系统' | vitest | SELECT * FROM mcp_servers WHERE name='文件系统' |
+| `@response` | IPC mcp:servers:create 返回成功 | vitest | 验证 create 方法返回值 |
+| `@ui` | 列表显示"文件系统（STDIO）"卡片 | Playwright | 断言页面包含"文件系统"文本 |
+
+**参数溯源**：name="文件系统", type="stdio", command="npx", args=["-y", "@modelcontextprotocol/server-filesystem", "/Users/quinn/Desktop"]
+
+---
+
+#### AC-001-02: 添加 HTTP 模式 MCP Server
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表新增记录，type='http', name='GitHub API' | vitest | SELECT * FROM mcp_servers WHERE name='GitHub API' |
+| `@response` | IPC mcp:servers:create 返回成功 | vitest | 验证 create 方法返回值 |
+| `@ui` | 列表显示"GitHub API（HTTP）"卡片 | Playwright | 断言页面包含"GitHub API"文本 |
+
+**参数溯源**：name="GitHub API", type="http", url="https://mcp.example.com/github"
+
+---
+
+#### AC-001-03: 编辑 MCP Server 配置
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表记录 name 更新为"正式 Server" | vitest | SELECT * FROM mcp_servers WHERE id=? → name='正式 Server' |
+| `@response` | IPC mcp:servers:update 返回更新后数据 | vitest | 验证 update 方法返回值 name='正式 Server' |
+| `@ui` | 列表显示"正式 Server" | Playwright | 断言页面包含"正式 Server"文本 |
+
+**参数溯源**：原 name="测试 Server", 新 name="正式 Server"
+
+---
+
+#### AC-002-01: STDIO Server 连接测试成功
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@response` | IPC mcp:servers:testConnection 返回 { status: 'success', tools_count: N } | vitest | 验证返回值包含 status='success' |
+| `@ui` | 显示"✅ 连接成功，发现 N 个工具" | Playwright | 断言页面包含成功消息 |
+
+**参数溯源**：command="npx", args=["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+---
+
+#### AC-002-02: HTTP Server 连接测试成功
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@response` | IPC mcp:servers:testConnection 返回 { status: 'success', tools_count: N } | vitest | 验证返回值包含 status='success' |
+| `@ui` | 显示"✅ 连接成功，发现 N 个工具" | Playwright | 断言页面包含成功消息 |
+
+**参数溯源**：url="https://mcp.example.com"
+
+---
+
+#### AC-002-03: 连接超时处理
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@response` | IPC mcp:servers:testConnection 返回 { status: 'failure', error_code: 'TIMEOUT' } | vitest | 验证返回值包含 error_code='TIMEOUT' |
+| `@ui` | 显示"❌ 连接超时（30秒），请检查 Server 是否运行" | Playwright | 断言页面包含超时错误消息 |
+
+**参数溯源**：配置不存在的地址
+
+---
+
+#### AC-003-01: 禁用 MCP Server
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表记录 enabled=0 | vitest | SELECT enabled FROM mcp_servers WHERE id=? → 0 |
+| `@response` | IPC mcp:servers:setEnabled 返回更新后数据 | vitest | 验证返回值 enabled=false |
+| `@ui` | 显示"已禁用" | Playwright | 断言页面包含"已禁用"文本 |
+
+**参数溯源**：Server 处于"已连接"状态
+
+---
+
+#### AC-003-02: 启用 MCP Server
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表记录 enabled=1 | vitest | SELECT enabled FROM mcp_servers WHERE id=? → 1 |
+| `@response` | IPC mcp:servers:setEnabled 返回更新后数据 | vitest | 验证返回值 enabled=true |
+| `@event` | 触发连接和工具发现事件 | vitest | 验证相关事件被触发 |
+| `@ui` | 显示"已连接" | Playwright | 断言页面包含"已连接"文本 |
+
+**参数溯源**：Server 处于"已禁用"状态
+
+---
+
+#### AC-004-01: 删除 MCP Server
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表记录删除 | vitest | SELECT * FROM mcp_servers WHERE id=? → null |
+| `@response` | IPC mcp:servers:delete 返回成功 | vitest | 验证 delete 方法无错误 |
+| `@ui` | 列表中不显示该 Server | Playwright | 断言页面不包含 Server 名称 |
+
+**参数溯源**：已配置 Server，name="测试"
+
+---
+
+#### AC-007-01: 通过 JSON 导入 MCP 配置
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@db` | mcp_servers 表新增记录，name='github', type='http' | vitest | SELECT * FROM mcp_servers WHERE name='github' |
+| `@response` | IPC mcp:servers:importConfig 返回 [{ name: 'github', status: 'created' }] | vitest | 验证返回值包含成功项 |
+| `@ui` | 列表显示 "github (HTTP)" | Playwright | 断言页面包含 "github" 文本 |
+
+**参数溯源**：JSON 配置 { "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp/" } }
+
+---
+
+#### AC-007-02: 导入重复名称处理
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@response` | 提示"Server github 已存在，是否覆盖？" | Playwright | 断言页面包含覆盖提示 |
+| `@db` | 确认后 mcp_servers 表记录更新 | vitest | SELECT * FROM mcp_servers WHERE name='github' → 更新后数据 |
+
+**参数溯源**：已存在 Server name="github"
+
+---
+
+#### AC-007-03: 导入格式错误处理
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@response` | IPC 返回错误 "配置文件格式错误，请检查 JSON 语法" | vitest | 验证返回值包含错误消息 |
+| `@ui` | 显示错误提示 | Playwright | 断言页面包含错误消息 |
+
+**参数溯源**：格式错误的 JSON
+
+---
+
+#### AC-007-04: 导出 MCP 配置
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@response` | IPC mcp:servers:exportConfig 返回 JSON 字符串 | vitest | 验证返回值为有效 JSON |
+| `@ui` | 触发文件下载 | Playwright | 断言下载事件被触发 |
+
+**参数溯源**：已配置 2 个 MCP Server
+
+---
+
+#### AC-008-01: MCP 页面空状态
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@ui` | 显示空状态提示"暂无 MCP Server，点击上方按钮添加" | Playwright | 断言页面包含空状态消息 |
+
+**参数溯源**：无配置的全新环境
+
+---
+
+#### AC-008-02: Server 卡片交互
+
+| 层级 | 断言内容 | 验证工具 | 验证指令 |
+|------|---------|---------|---------|
+| `@ui` | 鼠标悬停时卡片显示阴影效果 | Playwright | 断言卡片 hover 状态 CSS 变化 |
+
+**参数溯源**：存在至少一个 Server
 
 ---
 

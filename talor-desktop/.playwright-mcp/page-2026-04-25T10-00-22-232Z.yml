@@ -1,0 +1,14 @@
+- generic [active] [ref=e1]:
+  - table:
+    - rowgroup:
+      - row:
+        - cell
+  - table [ref=e2]:
+    - rowgroup [ref=e3]:
+      - row "页面没有找到 5秒钟之后将会带您进入新浪首页!" [ref=e4]:
+        - cell "页面没有找到 5秒钟之后将会带您进入新浪首页!" [ref=e5]:
+          - table [ref=e6]:
+            - rowgroup [ref=e7]:
+              - row "页面没有找到 5秒钟之后将会带您进入新浪首页!" [ref=e8]:
+                - cell "页面没有找到 5秒钟之后将会带您进入新浪首页!" [ref=e9]:
+                  - strong [ref=e10]: 页面没有找到 5秒钟之后将会带您进入新浪首页!

@@ -1,0 +1,1160 @@
+- generic [ref=e2]:
+  - link "Skip to navigation":
+    - /url: "#navigation-container"
+  - link "Skip to main content":
+    - /url: "#nimbus-app"
+  - link "Skip to right column":
+    - /url: "#right-rail"
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - banner [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - heading "Yahoo Finance" [level=1] [ref=e8]
+            - link "Yahoo Finance" [ref=e9] [cursor=pointer]:
+              - /url: /
+              - img [ref=e11]
+          - search [ref=e15]:
+            - searchbox "Search for news, tickers or companies" [ref=e16]
+            - button "Search" [ref=e17] [cursor=pointer]:
+              - img [ref=e18]
+          - navigation [ref=e20]:
+            - list [ref=e21]:
+              - listitem [ref=e22]:
+                - link "News" [ref=e23] [cursor=pointer]:
+                  - /url: https://www.yahoo.com/
+              - listitem [ref=e24]:
+                - link "Finance" [ref=e25] [cursor=pointer]:
+                  - /url: https://finance.yahoo.com/
+              - listitem [ref=e26]:
+                - link "Sports" [ref=e27] [cursor=pointer]:
+                  - /url: https://sports.yahoo.com/
+              - listitem [ref=e28]:
+                - button "More" [ref=e31] [cursor=pointer]:
+                  - text: More
+                  - img [ref=e33]
+          - toolbar [ref=e35]:
+            - button "Notifications" [ref=e37] [cursor=pointer]:
+              - img [ref=e38]
+            - link "Check your mail, link" [ref=e41] [cursor=pointer]:
+              - /url: https://mail.yahoo.com/
+              - img [ref=e42]
+            - link "Sign in" [ref=e45] [cursor=pointer]:
+              - /url: https://login.yahoo.com/?done=https%3A%2F%2Ffinance.yahoo.com%2Fquote%2FBABA%2Fkey-statistics%2F&intl=us&lang=en-US&activity=ybar-signin&pspid=95993639&src=finance
+      - navigation "Navigation" [ref=e46]:
+        - menubar "Navigation menubar" [ref=e47]:
+          - menuitem "My Portfolio" [ref=e48] [cursor=pointer]:
+            - generic [ref=e49]: My Portfolio
+          - menuitem "News" [ref=e50] [cursor=pointer]:
+            - generic [ref=e51]: News
+          - menuitem "Markets" [ref=e52] [cursor=pointer]:
+            - generic [ref=e53]: Markets
+          - menuitem "Research" [ref=e54] [cursor=pointer]:
+            - generic [ref=e55]: Research
+          - menuitem "Community" [ref=e56] [cursor=pointer]:
+            - generic [ref=e57]: Community
+          - menuitem "Personal Finance" [ref=e58] [cursor=pointer]:
+            - generic [ref=e59]: Personal Finance
+          - menuitem "Videos" [ref=e60] [cursor=pointer]:
+            - generic [ref=e61]: Videos
+          - menuitem "Watch Now" [ref=e62] [cursor=pointer]:
+            - generic [ref=e63]: Watch Now
+        - button "Our Partners" [ref=e67] [cursor=pointer]:
+          - img [ref=e69]
+          - generic [ref=e71]:
+            - generic [ref=e72]: Our Partners
+            - img [ref=e74]
+  - generic [ref=e76]:
+    - complementary [ref=e77]:
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - button "U.S. markets closed" [ref=e86]:
+            - img [ref=e88]
+          - menu [ref=e90]:
+            - button "US Markets" [ref=e91] [cursor=pointer]:
+              - generic [ref=e92]:
+                - text: US Markets
+                - img [ref=e94]
+        - generic [ref=e96]:
+          - generic [ref=e100]:
+            - generic [ref=e103]:
+              - generic [ref=e104]:
+                - link "S&P 500" [ref=e105] [cursor=pointer]:
+                  - /url: /quote/%5EGSPC/
+                  - generic [ref=e106]: S&P 500
+                - generic [ref=e107]:
+                  - generic [ref=e108]: 7,165.08
+                  - generic [ref=e109]:
+                    - generic [ref=e110]: "+56.68"
+                    - generic [ref=e111]: +0.80%
+              - img [ref=e114]
+            - generic [ref=e120]:
+              - generic [ref=e121]:
+                - link "Dow 30" [ref=e122] [cursor=pointer]:
+                  - /url: /quote/%5EDJI/
+                  - generic [ref=e123]: Dow 30
+                - generic [ref=e124]:
+                  - generic [ref=e125]: 49,230.71
+                  - generic [ref=e126]:
+                    - generic [ref=e127]: "-79.61"
+                    - generic [ref=e128]: "-0.16%"
+              - img [ref=e131]
+            - generic [ref=e137]:
+              - generic [ref=e138]:
+                - link "Nasdaq" [ref=e139] [cursor=pointer]:
+                  - /url: /quote/%5EIXIC/
+                  - generic [ref=e140]: Nasdaq
+                - generic [ref=e141]:
+                  - generic [ref=e142]: 24,836.60
+                  - generic [ref=e143]:
+                    - generic [ref=e144]: "+398.09"
+                    - generic [ref=e145]: +1.63%
+              - img [ref=e148]
+            - generic [ref=e154]:
+              - generic [ref=e155]:
+                - link "Russell 2000" [ref=e156] [cursor=pointer]:
+                  - /url: /quote/%5ERUT/
+                  - generic [ref=e157]: Russell 2000
+                - generic [ref=e158]:
+                  - generic [ref=e159]: 2,787.00
+                  - generic [ref=e160]:
+                    - generic [ref=e161]: "+11.90"
+                    - generic [ref=e162]: +0.43%
+              - img [ref=e165]
+            - generic [ref=e179]:
+              - generic [ref=e180]:
+                - link "VIX" [ref=e181] [cursor=pointer]:
+                  - /url: /quote/%5EVIX/
+                  - generic [ref=e182]: VIX
+                - generic [ref=e183]:
+                  - generic [ref=e184]: "18.71"
+                  - generic [ref=e185]:
+                    - generic [ref=e186]: "-0.60"
+                    - generic [ref=e187]: "-3.11%"
+              - img [ref=e190]
+            - generic [ref=e200]:
+              - generic [ref=e201]:
+                - link "Gold" [ref=e202] [cursor=pointer]:
+                  - /url: /quote/GC%3DF/
+                  - generic [ref=e203]: Gold
+                - generic [ref=e204]:
+                  - generic [ref=e205]: 4,740.90
+                  - generic [ref=e206]:
+                    - generic [ref=e207]: "+16.90"
+                    - generic [ref=e208]: +0.36%
+              - img [ref=e211]
+            - generic [ref=e239]:
+              - generic [ref=e240]:
+                - link "Bitcoin USD" [ref=e241] [cursor=pointer]:
+                  - /url: /quote/BTC-USD/
+                  - generic [ref=e242]: Bitcoin USD
+                - generic [ref=e243]:
+                  - generic [ref=e244]: 77,790.92
+                  - generic [ref=e245]:
+                    - generic [ref=e246]: "+239.04"
+                    - generic [ref=e247]: +0.31%
+              - img [ref=e250]
+            - generic [ref=e262]:
+              - generic [ref=e263]:
+                - link "Crude Oil" [ref=e264] [cursor=pointer]:
+                  - /url: /quote/CL%3DF/
+                  - generic [ref=e265]: Crude Oil
+                - generic [ref=e266]:
+                  - generic [ref=e267]: "94.40"
+                  - generic [ref=e268]:
+                    - generic [ref=e269]: "-1.45"
+                    - generic [ref=e270]: "-1.51%"
+              - img [ref=e273]
+          - generic [ref=e293]:
+            - button "prev" [disabled]:
+              - generic:
+                - img
+            - button "next" [ref=e294] [cursor=pointer]:
+              - img [ref=e296]
+      - generic [ref=e298]:
+        - generic:
+          - generic: ADVERTISEMENT
+    - main [ref=e299]:
+      - generic [ref=e301]:
+        - complementary "Left navigation" [ref=e302]:
+          - navigation "BABA navigation" [ref=e304]:
+            - menubar "BABA navigation menubar" [ref=e305]:
+              - menuitem "Summary" [ref=e306] [cursor=pointer]:
+                - generic [ref=e307]: Summary
+              - menuitem "News" [ref=e308] [cursor=pointer]:
+                - generic [ref=e309]: News
+              - menuitem "Chart" [ref=e310] [cursor=pointer]:
+                - generic [ref=e311]: Chart
+              - menuitem "Conversations" [ref=e312] [cursor=pointer]:
+                - generic [ref=e313]: Conversations
+              - menuitem "Statistics" [ref=e314] [cursor=pointer]:
+                - generic [ref=e315]: Statistics
+              - menuitem "Historical Data" [ref=e316] [cursor=pointer]:
+                - generic [ref=e317]: Historical Data
+              - menuitem "Profile" [ref=e318] [cursor=pointer]:
+                - generic [ref=e319]: Profile
+              - menuitem "Financials" [ref=e320] [cursor=pointer]:
+                - generic [ref=e321]: Financials
+              - menuitem "Analysis" [ref=e322] [cursor=pointer]:
+                - generic [ref=e323]: Analysis
+              - menuitem "Options" [ref=e324] [cursor=pointer]:
+                - generic [ref=e325]: Options
+              - menuitem "Holders" [ref=e326] [cursor=pointer]:
+                - generic [ref=e327]: Holders
+        - generic [ref=e328]:
+          - generic [ref=e329]:
+            - generic [ref=e330]:
+              - generic [ref=e331]:
+                - generic [ref=e332]:
+                  - generic [ref=e333]: NYSE - Nasdaq Real Time Price
+                  - generic [ref=e334]: •
+                  - generic [ref=e335]: USD
+                - generic [ref=e336]:
+                  - generic [ref=e337]:
+                    - heading "Alibaba Group Holding Limited (BABA)" [level=1] [ref=e339]
+                    - button "Follow" [ref=e341] [cursor=pointer]:
+                      - img [ref=e343]
+                  - link "Is BABA a long-term buy?" [ref=e346] [cursor=pointer]:
+                    - /url: https://www.fool.com/vip/investor-alert/should-you-invest-in-alibaba-baba?utm_source=yahoo_report&utm_medium=affiliate&utm_campaign=Foolcom_Yahoo_Reports&utm_content=Is%2BBABA%2Ba%2Blong-term%2Bbuy%253F&utm_term=BABA&source=isaedirep0000001?partner=yahoo&utm_source=yahoo
+                    - generic [ref=e347]:
+                      - img [ref=e348]
+                      - generic [ref=e357]: Is BABA a long-term buy?
+              - generic [ref=e361]:
+                - generic [ref=e362]:
+                  - generic [ref=e363]:
+                    - generic [ref=e364]: "135.82"
+                    - generic [ref=e365]: "+4.12"
+                    - generic [ref=e366]: (+3.13%)
+                  - generic [ref=e368]: "At close: April 24 at 4:03:11 PM EDT"
+                - generic [ref=e369]:
+                  - generic [ref=e370]:
+                    - generic [ref=e371]: "136.04"
+                    - generic [ref=e372]: "+0.22"
+                    - generic [ref=e373]: (+0.16%)
+                  - generic [ref=e375]:
+                    - img [ref=e378]
+                    - text: "After hours: April 24 at 7:59:54 PM EDT"
+            - generic [ref=e384]:
+              - generic [ref=e386]:
+                - generic [ref=e387]:
+                  - img [ref=e388]
+                  - heading "Financials" [level=2] [ref=e392]
+                - button "Collapse" [expanded]
+              - region "Collapse" [ref=e393]:
+                - generic [ref=e396]:
+                  - paragraph [ref=e398]:
+                    - text: Alibaba Group Holding Ltd has shown a mixed performance in its financial metrics for FY 2025, with revenue growth at
+                    - strong [ref=e399]: 5.33%
+                    - text: ", indicating modest expansion, while EPS growth surged impressively by"
+                    - strong [ref=e400]: 70.51%
+                    - text: ", reflecting strong profitability for shareholders. However, free cash flow growth declined significantly by"
+                    - strong [ref=e401]: "-36.53%"
+                    - text: ", raising concerns about cash generation efficiency. Profitability metrics remain robust, with gross margin at"
+                    - strong [ref=e402]: 39.95%
+                    - text: and operating margin at
+                    - strong [ref=e403]: 14.14%
+                    - text: ", highlighting effective cost management despite the challenges."
+                  - generic [ref=e404]:
+                    - generic [ref=e406]: Updated 11h ago · Powered by Yahoo Scout
+                    - button "View more" [ref=e408] [cursor=pointer]
+            - generic [ref=e409]:
+              - heading "Valuation Measures" [level=3] [ref=e411]
+              - table [ref=e413]:
+                - rowgroup [ref=e414]:
+                  - row "Current 12/31/2025 9/30/2025 6/30/2025 3/31/2025 12/31/2024" [ref=e415]:
+                    - columnheader [ref=e416]
+                    - columnheader "Current" [ref=e417]
+                    - columnheader "12/31/2025" [ref=e418]
+                    - columnheader "9/30/2025" [ref=e419]
+                    - columnheader "6/30/2025" [ref=e420]
+                    - columnheader "3/31/2025" [ref=e421]
+                    - columnheader "12/31/2024" [ref=e422]
+                - rowgroup [ref=e423]:
+                  - row "Market Cap 322.94B 350.50B 434.10B 266.99B 312.60B 203.26B" [ref=e424]:
+                    - cell "Market Cap" [ref=e425]
+                    - cell "322.94B" [ref=e426]
+                    - cell "350.50B" [ref=e427]
+                    - cell "434.10B" [ref=e428]
+                    - cell "266.99B" [ref=e429]
+                    - cell "312.60B" [ref=e430]
+                    - cell "203.26B" [ref=e431]
+                  - row "Enterprise Value 311.90B 337.35B 408.21B 241.90B 282.07B 177.71B" [ref=e432]:
+                    - cell "Enterprise Value" [ref=e433]
+                    - cell "311.90B" [ref=e434]
+                    - cell "337.35B" [ref=e435]
+                    - cell "408.21B" [ref=e436]
+                    - cell "241.90B" [ref=e437]
+                    - cell "282.07B" [ref=e438]
+                    - cell "177.71B" [ref=e439]
+                  - row "Trailing P/E 23.94 19.60 20.63 15.18 19.27 17.58" [ref=e440]:
+                    - cell "Trailing P/E" [ref=e441]
+                    - cell "23.94" [ref=e442]
+                    - cell "19.60" [ref=e443]
+                    - cell "20.63" [ref=e444]
+                    - cell "15.18" [ref=e445]
+                    - cell "19.27" [ref=e446]
+                    - cell "17.58" [ref=e447]
+                  - row "Forward P/E 19.92 16.10 22.22 11.61 13.07 8.81" [ref=e448]:
+                    - cell "Forward P/E" [ref=e449]
+                    - cell "19.92" [ref=e450]
+                    - cell "16.10" [ref=e451]
+                    - cell "22.22" [ref=e452]
+                    - cell "11.61" [ref=e453]
+                    - cell "13.07" [ref=e454]
+                    - cell "8.81" [ref=e455]
+                  - row "PEG Ratio (5yr expected) 0.81 1.88 1.77 0.90 0.75 0.56" [ref=e456]:
+                    - cell "PEG Ratio (5yr expected)" [ref=e457]
+                    - cell "0.81" [ref=e458]
+                    - cell "1.88" [ref=e459]
+                    - cell "1.77" [ref=e460]
+                    - cell "0.90" [ref=e461]
+                    - cell "0.75" [ref=e462]
+                    - cell "0.56" [ref=e463]
+                  - row "Price/Sales 2.19 2.43 3.05 1.97 2.39 1.59" [ref=e464]:
+                    - cell "Price/Sales" [ref=e465]
+                    - cell "2.19" [ref=e466]
+                    - cell "2.43" [ref=e467]
+                    - cell "3.05" [ref=e468]
+                    - cell "1.97" [ref=e469]
+                    - cell "2.39" [ref=e470]
+                    - cell "1.59" [ref=e471]
+                  - row "Price/Book 2.14 2.37 3.00 1.92 2.28 1.54" [ref=e472]:
+                    - cell "Price/Book" [ref=e473]
+                    - cell "2.14" [ref=e474]
+                    - cell "2.37" [ref=e475]
+                    - cell "3.00" [ref=e476]
+                    - cell "1.92" [ref=e477]
+                    - cell "2.28" [ref=e478]
+                    - cell "1.54" [ref=e479]
+                  - row "Enterprise Value/Revenue 2.09 2.33 2.90 1.74 2.09 1.35" [ref=e480]:
+                    - cell "Enterprise Value/Revenue" [ref=e481]
+                    - cell "2.09" [ref=e482]
+                    - cell "2.33" [ref=e483]
+                    - cell "2.90" [ref=e484]
+                    - cell "1.74" [ref=e485]
+                    - cell "2.09" [ref=e486]
+                    - cell "1.35" [ref=e487]
+                  - row "Enterprise Value/EBITDA 16.40 14.61 15.55 8.36 12.10 8.77" [ref=e488]:
+                    - cell "Enterprise Value/EBITDA" [ref=e489]
+                    - cell "16.40" [ref=e490]
+                    - cell "14.61" [ref=e491]
+                    - cell "15.55" [ref=e492]
+                    - cell "8.36" [ref=e493]
+                    - cell "12.10" [ref=e494]
+                    - cell "8.77" [ref=e495]
+            - article [ref=e497]:
+              - generic [ref=e498]:
+                - generic [ref=e499]:
+                  - heading "Financial Highlights" [level=3] [ref=e501]
+                  - generic [ref=e502]:
+                    - generic [ref=e503]:
+                      - heading "Fiscal Year" [level=3] [ref=e506]
+                      - table [ref=e507]:
+                        - rowgroup [ref=e508]:
+                          - row "Fiscal Year Ends 3/31/2025" [ref=e509]:
+                            - cell "Fiscal Year Ends" [ref=e510]
+                            - cell "3/31/2025" [ref=e511]
+                          - row "Most Recent Quarter (mrq) 12/31/2025" [ref=e512]:
+                            - cell "Most Recent Quarter (mrq)" [ref=e513]
+                            - cell "12/31/2025" [ref=e514]
+                    - generic [ref=e515]:
+                      - heading "Profitability" [level=3] [ref=e518]
+                      - table [ref=e519]:
+                        - rowgroup [ref=e520]:
+                          - row "Profit Margin 8.91%" [ref=e521]:
+                            - cell "Profit Margin" [ref=e522]
+                            - cell "8.91%" [ref=e523]
+                          - row "Operating Margin (ttm) 7.08%" [ref=e524]:
+                            - cell "Operating Margin (ttm)" [ref=e525]
+                            - cell "7.08%" [ref=e526]
+                    - generic [ref=e527]:
+                      - heading "Management Effectiveness" [level=3] [ref=e530]
+                      - table [ref=e531]:
+                        - rowgroup [ref=e532]:
+                          - row "Return on Assets (ttm) 3.13%" [ref=e533]:
+                            - cell "Return on Assets (ttm)" [ref=e534]
+                            - cell "3.13%" [ref=e535]
+                          - row "Return on Equity (ttm) 8.23%" [ref=e536]:
+                            - cell "Return on Equity (ttm)" [ref=e537]
+                            - cell "8.23%" [ref=e538]
+                    - generic [ref=e539]:
+                      - heading "Income Statement" [level=3] [ref=e542]
+                      - table [ref=e543]:
+                        - rowgroup [ref=e544]:
+                          - row "Revenue (ttm) 1.02T" [ref=e545]:
+                            - cell "Revenue (ttm)" [ref=e546]
+                            - cell "1.02T" [ref=e547]
+                          - row "Revenue Per Share (ttm) 438.61" [ref=e548]:
+                            - cell "Revenue Per Share (ttm)" [ref=e549]
+                            - cell "438.61" [ref=e550]
+                          - row "Quarterly Revenue Growth (yoy) 1.70%" [ref=e551]:
+                            - cell "Quarterly Revenue Growth (yoy)" [ref=e552]
+                            - cell "1.70%" [ref=e553]
+                          - row "Gross Profit (ttm) 414.37B" [ref=e554]:
+                            - cell "Gross Profit (ttm)" [ref=e555]
+                            - cell "414.37B" [ref=e556]
+                          - row "EBITDA 138.66B" [ref=e557]:
+                            - cell "EBITDA" [ref=e558]
+                            - cell "138.66B" [ref=e559]
+                          - row "Net Income Avi to Common (ttm) 92.81B" [ref=e560]:
+                            - cell "Net Income Avi to Common (ttm)" [ref=e561]
+                            - cell "92.81B" [ref=e562]
+                          - row "Diluted EPS (ttm) 5.68" [ref=e563]:
+                            - cell "Diluted EPS (ttm)" [ref=e564]
+                            - cell "5.68" [ref=e565]
+                          - row "Quarterly Earnings Growth (yoy) -66.70%" [ref=e566]:
+                            - cell "Quarterly Earnings Growth (yoy)" [ref=e567]
+                            - cell "-66.70%" [ref=e568]
+                    - generic [ref=e569]:
+                      - heading "Balance Sheet" [level=3] [ref=e572]
+                      - table [ref=e573]:
+                        - rowgroup [ref=e574]:
+                          - row "Total Cash (mrq) 338.11B" [ref=e575]:
+                            - cell "Total Cash (mrq)" [ref=e576]
+                            - cell "338.11B" [ref=e577]
+                          - row "Total Cash Per Share (mrq) 18.21" [ref=e578]:
+                            - cell "Total Cash Per Share (mrq)" [ref=e579]
+                            - cell "18.21" [ref=e580]
+                          - row "Total Debt (mrq) 286.53B" [ref=e581]:
+                            - cell "Total Debt (mrq)" [ref=e582]
+                            - cell "286.53B" [ref=e583]
+                          - row "Total Debt/Equity (mrq) 25.91%" [ref=e584]:
+                            - cell "Total Debt/Equity (mrq)" [ref=e585]
+                            - cell "25.91%" [ref=e586]
+                          - row "Current Ratio (mrq) 1.33" [ref=e587]:
+                            - cell "Current Ratio (mrq)" [ref=e588]
+                            - cell "1.33" [ref=e589]
+                          - row "Book Value Per Share (mrq) 65.69" [ref=e590]:
+                            - cell "Book Value Per Share (mrq)" [ref=e591]
+                            - cell "65.69" [ref=e592]
+                    - generic [ref=e593]:
+                      - heading "Cash Flow Statement" [level=3] [ref=e596]
+                      - table [ref=e597]:
+                        - rowgroup [ref=e598]:
+                          - row "Operating Cash Flow (ttm) 94.32B" [ref=e599]:
+                            - cell "Operating Cash Flow (ttm)" [ref=e600]
+                            - cell "94.32B" [ref=e601]
+                          - row "Levered Free Cash Flow (ttm) -26.12B" [ref=e602]:
+                            - cell "Levered Free Cash Flow (ttm)" [ref=e603]
+                            - cell "-26.12B" [ref=e604]
+                - generic [ref=e605]:
+                  - heading "Trading Information" [level=3] [ref=e607]
+                  - generic [ref=e608]:
+                    - generic [ref=e609]:
+                      - heading "Stock Price History" [level=3] [ref=e612]
+                      - table [ref=e613]:
+                        - rowgroup [ref=e614]:
+                          - row "Beta (5Y Monthly) 0.49" [ref=e615]:
+                            - cell "Beta (5Y Monthly)" [ref=e616]
+                            - cell "0.49" [ref=e617]
+                          - row "52 Week Change 3 14.74%" [ref=e618]:
+                            - cell "52 Week Change 3" [ref=e619]:
+                              - text: 52 Week Change
+                              - superscript [ref=e620]: "3"
+                            - cell "14.74%" [ref=e621]
+                          - row "S&P 500 52-Week Change 3 29.60%" [ref=e622]:
+                            - cell "S&P 500 52-Week Change 3" [ref=e623]:
+                              - text: S&P 500 52-Week Change
+                              - superscript [ref=e624]: "3"
+                            - cell "29.60%" [ref=e625]
+                          - row "52 Week High 3 192.67" [ref=e626]:
+                            - cell "52 Week High 3" [ref=e627]:
+                              - text: 52 Week High
+                              - superscript [ref=e628]: "3"
+                            - cell "192.67" [ref=e629]
+                          - row "52 Week Low 3 103.71" [ref=e630]:
+                            - cell "52 Week Low 3" [ref=e631]:
+                              - text: 52 Week Low
+                              - superscript [ref=e632]: "3"
+                            - cell "103.71" [ref=e633]
+                          - row "50-Day Moving Average 3 135.69" [ref=e634]:
+                            - cell "50-Day Moving Average 3" [ref=e635]:
+                              - text: 50-Day Moving Average
+                              - superscript [ref=e636]: "3"
+                            - cell "135.69" [ref=e637]
+                          - row "200-Day Moving Average 3 147.73" [ref=e638]:
+                            - cell "200-Day Moving Average 3" [ref=e639]:
+                              - text: 200-Day Moving Average
+                              - superscript [ref=e640]: "3"
+                            - cell "147.73" [ref=e641]
+                    - generic [ref=e642]:
+                      - heading "Share Statistics" [level=3] [ref=e645]
+                      - table [ref=e646]:
+                        - rowgroup [ref=e647]:
+                          - row "Avg Vol (3 month) 3 10.67M" [ref=e648]:
+                            - cell "Avg Vol (3 month) 3" [ref=e649]:
+                              - text: Avg Vol (3 month)
+                              - superscript [ref=e650]: "3"
+                            - cell "10.67M" [ref=e651]
+                          - row "Avg Vol (10 day) 3 10.43M" [ref=e652]:
+                            - cell "Avg Vol (10 day) 3" [ref=e653]:
+                              - text: Avg Vol (10 day)
+                              - superscript [ref=e654]: "3"
+                            - cell "10.43M" [ref=e655]
+                          - row "Shares Outstanding 5 2.4B" [ref=e656]:
+                            - cell "Shares Outstanding 5" [ref=e657]:
+                              - text: Shares Outstanding
+                              - superscript [ref=e658]: "5"
+                            - cell "2.4B" [ref=e659]
+                          - row "Implied Shares Outstanding 6 2.47B" [ref=e660]:
+                            - cell "Implied Shares Outstanding 6" [ref=e661]:
+                              - text: Implied Shares Outstanding
+                              - superscript [ref=e662]: "6"
+                            - cell "2.47B" [ref=e663]
+                          - row "Float 8 17.58B" [ref=e664]:
+                            - cell "Float 8" [ref=e665]:
+                              - text: Float
+                              - superscript [ref=e666]: "8"
+                            - cell "17.58B" [ref=e667]
+                          - row "% Held by Insiders 1 0.01%" [ref=e668]:
+                            - cell "% Held by Insiders 1" [ref=e669]:
+                              - text: "% Held by Insiders"
+                              - superscript [ref=e670]: "1"
+                            - cell "0.01%" [ref=e671]
+                          - row "% Held by Institutions 1 11.65%" [ref=e672]:
+                            - cell "% Held by Institutions 1" [ref=e673]:
+                              - text: "% Held by Institutions"
+                              - superscript [ref=e674]: "1"
+                            - cell "11.65%" [ref=e675]
+                          - row "Shares Short (4/15/2026) 4 37.03M" [ref=e676]:
+                            - cell "Shares Short (4/15/2026) 4" [ref=e677]:
+                              - text: Shares Short (4/15/2026)
+                              - superscript [ref=e678]: "4"
+                            - cell "37.03M" [ref=e679]
+                          - row "Short Ratio (4/15/2026) 4 3.21" [ref=e680]:
+                            - cell "Short Ratio (4/15/2026) 4" [ref=e681]:
+                              - text: Short Ratio (4/15/2026)
+                              - superscript [ref=e682]: "4"
+                            - cell "3.21" [ref=e683]
+                          - row "Short % of Float (4/15/2026) 4 1.84%" [ref=e684]:
+                            - cell "Short % of Float (4/15/2026) 4" [ref=e685]:
+                              - text: Short % of Float (4/15/2026)
+                              - superscript [ref=e686]: "4"
+                            - cell "1.84%" [ref=e687]
+                          - row "Short % of Shares Outstanding (4/15/2026) 4 1.54%" [ref=e688]:
+                            - cell "Short % of Shares Outstanding (4/15/2026) 4" [ref=e689]:
+                              - text: Short % of Shares Outstanding (4/15/2026)
+                              - superscript [ref=e690]: "4"
+                            - cell "1.54%" [ref=e691]
+                          - row "Shares Short (prior month 3/13/2026) 4 41.06M" [ref=e692]:
+                            - cell "Shares Short (prior month 3/13/2026) 4" [ref=e693]:
+                              - text: Shares Short (prior month 3/13/2026)
+                              - superscript [ref=e694]: "4"
+                            - cell "41.06M" [ref=e695]
+                    - generic [ref=e696]:
+                      - heading "Dividends & Splits" [level=3] [ref=e699]
+                      - table [ref=e700]:
+                        - rowgroup [ref=e701]:
+                          - row "Forward Annual Dividend Rate 4 1.05" [ref=e702]:
+                            - cell "Forward Annual Dividend Rate 4" [ref=e703]:
+                              - text: Forward Annual Dividend Rate
+                              - superscript [ref=e704]: "4"
+                            - cell "1.05" [ref=e705]
+                          - row "Forward Annual Dividend Yield 4 0.77%" [ref=e706]:
+                            - cell "Forward Annual Dividend Yield 4" [ref=e707]:
+                              - text: Forward Annual Dividend Yield
+                              - superscript [ref=e708]: "4"
+                            - cell "0.77%" [ref=e709]
+                          - row "Trailing Annual Dividend Rate 3 0.00" [ref=e710]:
+                            - cell "Trailing Annual Dividend Rate 3" [ref=e711]:
+                              - text: Trailing Annual Dividend Rate
+                              - superscript [ref=e712]: "3"
+                            - cell "0.00" [ref=e713]
+                          - row "Trailing Annual Dividend Yield 3 0.00%" [ref=e714]:
+                            - cell "Trailing Annual Dividend Yield 3" [ref=e715]:
+                              - text: Trailing Annual Dividend Yield
+                              - superscript [ref=e716]: "3"
+                            - cell "0.00%" [ref=e717]
+                          - row "5 Year Average Dividend Yield 4 --" [ref=e718]:
+                            - cell "5 Year Average Dividend Yield 4" [ref=e719]:
+                              - text: 5 Year Average Dividend Yield
+                              - superscript [ref=e720]: "4"
+                            - cell "--" [ref=e721]
+                          - row "Payout Ratio 4 19.45%" [ref=e722]:
+                            - cell "Payout Ratio 4" [ref=e723]:
+                              - text: Payout Ratio
+                              - superscript [ref=e724]: "4"
+                            - cell "19.45%" [ref=e725]
+                          - row "Dividend Date 3 7/10/2025" [ref=e726]:
+                            - cell "Dividend Date 3" [ref=e727]:
+                              - text: Dividend Date
+                              - superscript [ref=e728]: "3"
+                            - cell "7/10/2025" [ref=e729]
+                          - row "Ex-Dividend Date 4 6/12/2025" [ref=e730]:
+                            - cell "Ex-Dividend Date 4" [ref=e731]:
+                              - text: Ex-Dividend Date
+                              - superscript [ref=e732]: "4"
+                            - cell "6/12/2025" [ref=e733]
+                          - row "Last Split Factor 2 --" [ref=e734]:
+                            - cell "Last Split Factor 2" [ref=e735]:
+                              - text: Last Split Factor
+                              - superscript [ref=e736]: "2"
+                            - cell "--" [ref=e737]
+                          - row "Last Split Date 3 --" [ref=e738]:
+                            - cell "Last Split Date 3" [ref=e739]:
+                              - text: Last Split Date
+                              - superscript [ref=e740]: "3"
+                            - cell "--" [ref=e741]
+                - generic [ref=e742]:
+                  - heading "Footnotes" [level=3] [ref=e744]
+                  - list [ref=e745]:
+                    - listitem [ref=e746]:
+                      - superscript [ref=e747]: "1"
+                      - text: Data provided by Refinitiv.
+                    - listitem [ref=e748]:
+                      - superscript [ref=e749]: "2"
+                      - text: Data provided by EDGAR Online.
+                    - listitem [ref=e750]:
+                      - superscript [ref=e751]: "3"
+                      - text: Data derived from multiple sources or calculated by Yahoo Finance.
+                    - listitem [ref=e752]:
+                      - superscript [ref=e753]: "4"
+                      - text: Data provided by Morningstar, Inc.
+                    - listitem [ref=e754]:
+                      - superscript [ref=e755]: "5"
+                      - text: Shares outstanding is taken from the most recently filed quarterly or annual report and Market Cap is calculated using shares outstanding.
+                    - listitem [ref=e756]:
+                      - superscript [ref=e757]: "6"
+                      - text: Implied Shares Outstanding of common equity, assuming the conversion of all convertible subsidiary equity into common.
+                    - listitem [ref=e758]:
+                      - superscript [ref=e759]: "7"
+                      - text: EBITDA is calculated by S&P Global Market Intelligence using methodology that may differ from that used by a company in its reporting.
+                    - listitem [ref=e760]:
+                      - superscript [ref=e761]: "8"
+                      - text: A company's float is a measure of the number of shares available for trading by the public. It's calculated by taking the number of issued and outstanding shares minus any restricted stock, which may not be publicly traded.
+                - generic [ref=e762]:
+                  - heading "Abbreviation Guide" [level=3] [ref=e764]
+                  - generic [ref=e765]:
+                    - list [ref=e766]:
+                      - listitem [ref=e767]: mrq = Most Recent Quarter
+                      - listitem [ref=e768]: ttm = Trailing Twelve Months
+                      - listitem [ref=e769]: yoy = Year Over Year
+                      - listitem [ref=e770]: lfy = Last Fiscal Year
+                      - listitem [ref=e771]: fye = Fiscal Year Ending
+                    - generic [ref=e772]:
+                      - text: See
+                      - link "Statistics Help" [ref=e773] [cursor=pointer]:
+                        - /url: https://help.yahoo.com/kb/finance/SLN2347.html?impressions=true
+                      - text: for definitions of terms used.
+            - generic [ref=e774]:
+              - heading "Related Tickers" [level=3] [ref=e776]
+              - generic [ref=e779]:
+                - generic [ref=e780]:
+                  - generic [ref=e781]:
+                    - generic [ref=e784]:
+                      - generic [ref=e785]: JD
+                      - generic "JD.com, Inc." [ref=e786]
+                    - generic [ref=e787]:
+                      - strong [ref=e788]: "30.27"
+                      - generic [ref=e789]: +0.97%
+                  - link "JD" [ref=e790] [cursor=pointer]:
+                    - /url: /quote/JD/
+                - generic [ref=e791]:
+                  - generic [ref=e792]:
+                    - generic [ref=e795]:
+                      - generic [ref=e796]: AMZN
+                      - generic "Amazon.com, Inc." [ref=e797]
+                    - generic [ref=e798]:
+                      - strong [ref=e799]: "263.99"
+                      - generic [ref=e800]: +3.49%
+                  - link "AMZN" [ref=e801] [cursor=pointer]:
+                    - /url: /quote/AMZN/
+                - generic [ref=e802]:
+                  - generic [ref=e803]:
+                    - generic [ref=e806]:
+                      - generic [ref=e807]: PDD
+                      - generic "PDD Holdings Inc." [ref=e808]
+                    - generic [ref=e809]:
+                      - strong [ref=e810]: "98.03"
+                      - generic [ref=e811]: +0.27%
+                  - link "PDD" [ref=e812] [cursor=pointer]:
+                    - /url: /quote/PDD/
+                - generic [ref=e813]:
+                  - generic [ref=e814]:
+                    - generic [ref=e817]:
+                      - generic [ref=e818]: MELI
+                      - generic "MercadoLibre, Inc." [ref=e819]
+                    - generic [ref=e820]:
+                      - strong [ref=e821]: 1,835.22
+                      - generic [ref=e822]: +1.44%
+                  - link "MELI" [ref=e823] [cursor=pointer]:
+                    - /url: /quote/MELI/
+                - generic [ref=e824]:
+                  - generic [ref=e825]:
+                    - generic [ref=e828]:
+                      - generic [ref=e829]: SE
+                      - generic "Sea Limited" [ref=e830]
+                    - generic [ref=e831]:
+                      - strong [ref=e832]: "85.44"
+                      - generic [ref=e833]: +2.51%
+                  - link "SE" [ref=e834] [cursor=pointer]:
+                    - /url: /quote/SE/
+                - generic [ref=e835]:
+                  - generic [ref=e836]:
+                    - generic [ref=e839]:
+                      - generic [ref=e840]: CPNG
+                      - generic "Coupang, Inc." [ref=e841]
+                    - generic [ref=e842]:
+                      - strong [ref=e843]: "20.51"
+                      - generic [ref=e844]: "-0.34%"
+                  - link "CPNG" [ref=e845] [cursor=pointer]:
+                    - /url: /quote/CPNG/
+                - generic [ref=e846]:
+                  - generic [ref=e847]:
+                    - generic [ref=e850]:
+                      - generic [ref=e851]: DASH
+                      - generic "DoorDash, Inc." [ref=e852]
+                    - generic [ref=e853]:
+                      - strong [ref=e854]: "176.78"
+                      - generic [ref=e855]: "-0.12%"
+                  - link "DASH" [ref=e856] [cursor=pointer]:
+                    - /url: /quote/DASH/
+                - generic [ref=e857]:
+                  - generic [ref=e858]:
+                    - generic [ref=e861]:
+                      - generic [ref=e862]: CHWY
+                      - generic "Chewy, Inc." [ref=e863]
+                    - generic [ref=e864]:
+                      - strong [ref=e865]: "26.02"
+                      - generic [ref=e866]: +1.44%
+                  - link "CHWY" [ref=e867] [cursor=pointer]:
+                    - /url: /quote/CHWY/
+                - generic [ref=e868]:
+                  - generic [ref=e869]:
+                    - generic [ref=e872]:
+                      - generic [ref=e873]: EBAY
+                      - generic "eBay Inc." [ref=e874]
+                    - generic [ref=e875]:
+                      - strong [ref=e876]: "97.94"
+                      - generic [ref=e877]: "-5.28%"
+                  - link "EBAY" [ref=e878] [cursor=pointer]:
+                    - /url: /quote/EBAY/
+                - generic [ref=e879]:
+                  - generic [ref=e880]:
+                    - generic [ref=e883]:
+                      - generic [ref=e884]: W
+                      - generic "Wayfair Inc." [ref=e885]
+                    - generic [ref=e886]:
+                      - strong [ref=e887]: "78.78"
+                      - generic [ref=e888]: +2.39%
+                  - link "W" [ref=e889] [cursor=pointer]:
+                    - /url: /quote/W/
+          - generic [ref=e893]:
+            - generic [ref=e894]:
+              - link "Yahoo Finance" [ref=e895] [cursor=pointer]:
+                - /url: /
+              - generic [ref=e898]: Copyright © 2026 Yahoo. All rights reserved.
+              - generic [ref=e899]:
+                - link "Follow on Twitter" [ref=e900] [cursor=pointer]:
+                  - /url: https://twitter.com/YahooFinance
+                  - img [ref=e902]
+                - link "Follow on Facebook" [ref=e905] [cursor=pointer]:
+                  - /url: https://facebook.com/yahoofinance
+                  - img [ref=e907]
+                - link "Follow on LinkedIn" [ref=e909] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/company/yahoo-finance
+                  - img [ref=e911]
+            - generic [ref=e913]:
+              - generic [ref=e914]: Trending Topics
+              - link "Dow Jones" [ref=e915] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/%5EDJI/
+              - link "S&P 500" [ref=e916] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/SPY/
+              - link "DAX Index" [ref=e917] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/%5EGDAXI/
+              - link "Nvidia" [ref=e918] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/NVDA/
+              - link "Tesla" [ref=e919] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/TSLA/
+              - link "DJT" [ref=e920] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/DJT/
+              - link "Tariffs" [ref=e921] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/topic/tariffs/
+            - generic [ref=e922]:
+              - generic [ref=e923]: Explore Further
+              - link "Mortgages" [ref=e924] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/personal-finance/mortgages/
+              - link "Credit Cards" [ref=e925] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/personal-finance/credit-cards/
+              - link "Sectors" [ref=e926] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/sectors/
+              - link "Crypto Heatmap" [ref=e927] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/crypto/heatmap/
+              - link "Financial News" [ref=e928] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/news/
+            - generic [ref=e929]:
+              - generic [ref=e930]: About
+              - link "Data Disclaimer" [ref=e931] [cursor=pointer]:
+                - /url: https://help.yahoo.com/kb/finance-for-web/SLN2310.html?locale=en_US
+              - link "Help" [ref=e932] [cursor=pointer]:
+                - /url: https://help.yahoo.com/kb/finance-for-web
+              - link "Feedback" [ref=e933] [cursor=pointer]:
+                - /url: https://yahoo.uservoice.com/forums/952723-finance-b3
+              - link "Sitemap" [ref=e934] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/sitemap/
+              - link "Licensing" [ref=e935] [cursor=pointer]:
+                - /url: https://info.wrightsmedia.com/yahoo-finance-licensing
+              - link "What's New" [ref=e936] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/about/whatsnew/
+              - link "About Our Ads" [ref=e937] [cursor=pointer]:
+                - /url: https://policies.oath.com/us/en/oath/privacy/adinfo/index.html
+              - generic [ref=e938]:
+                - generic [ref=e939]:
+                  - link "Terms" [ref=e940] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/terms?locale=en-US
+                  - text: and
+                  - link "Privacy Policy" [ref=e941] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/privacy-policy?locale=en-US
+                - link "Privacy Dashboard" [ref=e943] [cursor=pointer]:
+                  - /url: https://guce.yahoo.com/privacy-dashboard?locale=en-US
+      - complementary "Dock" [ref=e944]:
+        - dialog "Dock" [ref=e945]:
+          - generic [ref=e947]:
+            - search [ref=e952]:
+              - img [ref=e954]
+              - textbox "Quote Lookup" [ref=e956]
+            - generic [ref=e957]:
+              - list [ref=e958]:
+                - listitem [ref=e959]:
+                  - generic [ref=e962]:
+                    - link "Trending tickers" [ref=e966] [cursor=pointer]:
+                      - /url: /trending-tickers
+                      - generic [ref=e967]: Trending tickers
+                    - list [ref=e968]:
+                      - listitem [ref=e969]:
+                        - generic [ref=e970]:
+                          - link "BTC-USD Bitcoin USD 77,790.92 +239.04 (+0.31%)" [ref=e971] [cursor=pointer]:
+                            - /url: /quote/BTC-USD/
+                            - generic [ref=e972]:
+                              - generic [ref=e973]: BTC-USD
+                              - generic "Bitcoin USD" [ref=e974]
+                              - generic [ref=e975]: 77,790.92
+                              - generic [ref=e976]:
+                                - generic [ref=e977]: "+239.04"
+                                - generic [ref=e978]: (+0.31%)
+                          - button "Follow" [ref=e979] [cursor=pointer]:
+                            - img [ref=e981]
+                      - listitem [ref=e983]:
+                        - generic [ref=e984]:
+                          - link "XE X-Energy, Inc. Class A Common Stock 29.20 +6.20 (+26.96%)" [ref=e985] [cursor=pointer]:
+                            - /url: /quote/XE/
+                            - generic [ref=e986]:
+                              - generic [ref=e987]: XE
+                              - generic "X-Energy, Inc. Class A Common Stock" [ref=e988]
+                              - generic [ref=e989]: "29.20"
+                              - generic [ref=e990]:
+                                - generic [ref=e991]: "+6.20"
+                                - generic [ref=e992]: (+26.96%)
+                          - button "Follow" [ref=e993] [cursor=pointer]:
+                            - img [ref=e995]
+                      - listitem [ref=e997]:
+                        - generic [ref=e998]:
+                          - link "^GSPC S&P 500 7,165.08 +56.68 (+0.80%)" [ref=e999] [cursor=pointer]:
+                            - /url: /quote/%5EGSPC/
+                            - generic [ref=e1000]:
+                              - generic [ref=e1001]: ^GSPC
+                              - generic "S&P 500" [ref=e1002]
+                              - generic [ref=e1003]: 7,165.08
+                              - generic [ref=e1004]:
+                                - generic [ref=e1005]: "+56.68"
+                                - generic [ref=e1006]: (+0.80%)
+                          - button "Follow" [ref=e1007] [cursor=pointer]:
+                            - img [ref=e1009]
+                      - listitem [ref=e1011]:
+                        - generic [ref=e1012]:
+                          - link "NVDA NVIDIA Corporation 208.27 +8.63 (+4.32%)" [ref=e1013] [cursor=pointer]:
+                            - /url: /quote/NVDA/
+                            - generic [ref=e1014]:
+                              - generic [ref=e1015]: NVDA
+                              - generic "NVIDIA Corporation" [ref=e1016]
+                              - generic [ref=e1017]: "208.27"
+                              - generic [ref=e1018]:
+                                - generic [ref=e1019]: "+8.63"
+                                - generic [ref=e1020]: (+4.32%)
+                          - button "Follow" [ref=e1021] [cursor=pointer]:
+                            - img [ref=e1023]
+                      - listitem [ref=e1025]:
+                        - generic [ref=e1026]:
+                          - link "^IXIC NASDAQ Composite 24,836.60 +398.09 (+1.63%)" [ref=e1027] [cursor=pointer]:
+                            - /url: /quote/%5EIXIC/
+                            - generic [ref=e1028]:
+                              - generic [ref=e1029]: ^IXIC
+                              - generic "NASDAQ Composite" [ref=e1030]
+                              - generic [ref=e1031]: 24,836.60
+                              - generic [ref=e1032]:
+                                - generic [ref=e1033]: "+398.09"
+                                - generic [ref=e1034]: (+1.63%)
+                          - button "Follow" [ref=e1035] [cursor=pointer]:
+                            - img [ref=e1037]
+                - listitem [ref=e1039]:
+                  - generic [ref=e1041]:
+                    - generic:
+                      - generic: ADVERTISEMENT
+                - listitem [ref=e1042]:
+                  - generic [ref=e1046]:
+                    - link "Portfolio" [ref=e1050] [cursor=pointer]:
+                      - /url: /portfolios
+                    - generic [ref=e1051]:
+                      - paragraph [ref=e1052]: Sign in to access your portfolio
+                      - link "Sign in" [ref=e1053] [cursor=pointer]:
+                        - /url: https://login.yahoo.com/config/login?done=https%3A%2F%2Ffinance.yahoo.com%2Fquote%2FBABA%2Fkey-statistics%2F&intl=us&lang=en-US&activity=dock-portfolio&pspid=95993639&src=finance
+                - listitem
+                - listitem [ref=e1054]:
+                  - generic [ref=e1057]:
+                    - link "Top gainers" [ref=e1061] [cursor=pointer]:
+                      - /url: /gainers/
+                      - generic [ref=e1062]: Top gainers
+                    - list [ref=e1063]:
+                      - listitem [ref=e1064]:
+                        - generic [ref=e1065]:
+                          - link "MXL MaxLinear, Inc. 60.32 +26.07 (+76.12%)" [ref=e1066] [cursor=pointer]:
+                            - /url: /quote/MXL/
+                            - generic [ref=e1067]:
+                              - generic [ref=e1068]: MXL
+                              - generic "MaxLinear, Inc." [ref=e1069]
+                              - generic [ref=e1070]: "60.32"
+                              - generic [ref=e1071]:
+                                - generic [ref=e1072]: "+26.07"
+                                - generic [ref=e1073]: (+76.12%)
+                          - button "Follow" [ref=e1074] [cursor=pointer]:
+                            - img [ref=e1076]
+                      - listitem [ref=e1078]:
+                        - generic [ref=e1079]:
+                          - link "OGN Organon & Co. 11.26 +2.66 (+30.93%)" [ref=e1080] [cursor=pointer]:
+                            - /url: /quote/OGN/
+                            - generic [ref=e1081]:
+                              - generic [ref=e1082]: OGN
+                              - generic "Organon & Co." [ref=e1083]
+                              - generic [ref=e1084]: "11.26"
+                              - generic [ref=e1085]:
+                                - generic [ref=e1086]: "+2.66"
+                                - generic [ref=e1087]: (+30.93%)
+                          - button "Follow" [ref=e1088] [cursor=pointer]:
+                            - img [ref=e1090]
+                      - listitem [ref=e1092]:
+                        - generic [ref=e1093]:
+                          - link "POET POET Technologies Inc. 15.10 +3.38 (+28.84%)" [ref=e1094] [cursor=pointer]:
+                            - /url: /quote/POET/
+                            - generic [ref=e1095]:
+                              - generic [ref=e1096]: POET
+                              - generic "POET Technologies Inc." [ref=e1097]
+                              - generic [ref=e1098]: "15.10"
+                              - generic [ref=e1099]:
+                                - generic [ref=e1100]: "+3.38"
+                                - generic [ref=e1101]: (+28.84%)
+                          - button "Follow" [ref=e1102] [cursor=pointer]:
+                            - img [ref=e1104]
+                      - listitem [ref=e1106]:
+                        - generic [ref=e1107]:
+                          - link "SXT Sensient Technologies Corporation 123.15 +23.92 (+24.11%)" [ref=e1108] [cursor=pointer]:
+                            - /url: /quote/SXT/
+                            - generic [ref=e1109]:
+                              - generic [ref=e1110]: SXT
+                              - generic "Sensient Technologies Corporation" [ref=e1111]
+                              - generic [ref=e1112]: "123.15"
+                              - generic [ref=e1113]:
+                                - generic [ref=e1114]: "+23.92"
+                                - generic [ref=e1115]: (+24.11%)
+                          - button "Follow" [ref=e1116] [cursor=pointer]:
+                            - img [ref=e1118]
+                      - listitem [ref=e1120]:
+                        - generic [ref=e1121]:
+                          - link "INTC Intel Corporation 82.54 +15.76 (+23.60%)" [ref=e1122] [cursor=pointer]:
+                            - /url: /quote/INTC/
+                            - generic [ref=e1123]:
+                              - generic [ref=e1124]: INTC
+                              - generic "Intel Corporation" [ref=e1125]
+                              - generic [ref=e1126]: "82.54"
+                              - generic [ref=e1127]:
+                                - generic [ref=e1128]: "+15.76"
+                                - generic [ref=e1129]: (+23.60%)
+                          - button "Follow" [ref=e1130] [cursor=pointer]:
+                            - img [ref=e1132]
+                - listitem [ref=e1134]:
+                  - generic [ref=e1137]:
+                    - link "Top losers" [ref=e1141] [cursor=pointer]:
+                      - /url: /losers/
+                      - generic [ref=e1142]: Top losers
+                    - list [ref=e1143]:
+                      - listitem [ref=e1144]:
+                        - generic [ref=e1145]:
+                          - link "LBRDA Liberty Broadband Corporation 41.89 -14.52 (-25.74%)" [ref=e1146] [cursor=pointer]:
+                            - /url: /quote/LBRDA/
+                            - generic [ref=e1147]:
+                              - generic [ref=e1148]: LBRDA
+                              - generic "Liberty Broadband Corporation" [ref=e1149]
+                              - generic [ref=e1150]: "41.89"
+                              - generic [ref=e1151]:
+                                - generic [ref=e1152]: "-14.52"
+                                - generic [ref=e1153]: (-25.74%)
+                          - button "Follow" [ref=e1154] [cursor=pointer]:
+                            - img [ref=e1156]
+                      - listitem [ref=e1158]:
+                        - generic [ref=e1159]:
+                          - link "LBRDK Liberty Broadband Corporation 41.94 -14.53 (-25.73%)" [ref=e1160] [cursor=pointer]:
+                            - /url: /quote/LBRDK/
+                            - generic [ref=e1161]:
+                              - generic [ref=e1162]: LBRDK
+                              - generic "Liberty Broadband Corporation" [ref=e1163]
+                              - generic [ref=e1164]: "41.94"
+                              - generic [ref=e1165]:
+                                - generic [ref=e1166]: "-14.53"
+                                - generic [ref=e1167]: (-25.73%)
+                          - button "Follow" [ref=e1168] [cursor=pointer]:
+                            - img [ref=e1170]
+                      - listitem [ref=e1172]:
+                        - generic [ref=e1173]:
+                          - link "CHTR Charter Communications, Inc. 180.13 -61.65 (-25.50%)" [ref=e1174] [cursor=pointer]:
+                            - /url: /quote/CHTR/
+                            - generic [ref=e1175]:
+                              - generic [ref=e1176]: CHTR
+                              - generic "Charter Communications, Inc." [ref=e1177]
+                              - generic [ref=e1178]: "180.13"
+                              - generic [ref=e1179]:
+                                - generic [ref=e1180]: "-61.65"
+                                - generic [ref=e1181]: (-25.50%)
+                          - button "Follow" [ref=e1182] [cursor=pointer]:
+                            - img [ref=e1184]
+                      - listitem [ref=e1186]:
+                        - generic [ref=e1187]:
+                          - link "STNE StoneCo Ltd. 12.22 -2.33 (-16.01%)" [ref=e1188] [cursor=pointer]:
+                            - /url: /quote/STNE/
+                            - generic [ref=e1189]:
+                              - generic [ref=e1190]: STNE
+                              - generic "StoneCo Ltd." [ref=e1191]
+                              - generic [ref=e1192]: "12.22"
+                              - generic [ref=e1193]:
+                                - generic [ref=e1194]: "-2.33"
+                                - generic [ref=e1195]: (-16.01%)
+                          - button "Follow" [ref=e1196] [cursor=pointer]:
+                            - img [ref=e1198]
+                      - listitem [ref=e1200]:
+                        - generic [ref=e1201]:
+                          - link "YSS York Space Systems, Inc. 31.06 -4.65 (-13.02%)" [ref=e1202] [cursor=pointer]:
+                            - /url: /quote/YSS/
+                            - generic [ref=e1203]:
+                              - generic [ref=e1204]: YSS
+                              - generic "York Space Systems, Inc." [ref=e1205]
+                              - generic [ref=e1206]: "31.06"
+                              - generic [ref=e1207]:
+                                - generic [ref=e1208]: "-4.65"
+                                - generic [ref=e1209]: (-13.02%)
+                          - button "Follow" [ref=e1210] [cursor=pointer]:
+                            - img [ref=e1212]
+                - listitem [ref=e1214]:
+                  - generic [ref=e1217]:
+                    - link "Most active" [ref=e1221] [cursor=pointer]:
+                      - /url: /most-active/
+                      - generic [ref=e1222]: Most active
+                    - list [ref=e1223]:
+                      - listitem [ref=e1224]:
+                        - generic [ref=e1225]:
+                          - link "INTC Intel Corporation 82.54 +15.76 (+23.60%)" [ref=e1226] [cursor=pointer]:
+                            - /url: /quote/INTC/
+                            - generic [ref=e1227]:
+                              - generic [ref=e1228]: INTC
+                              - generic "Intel Corporation" [ref=e1229]
+                              - generic [ref=e1230]: "82.54"
+                              - generic [ref=e1231]:
+                                - generic [ref=e1232]: "+15.76"
+                                - generic [ref=e1233]: (+23.60%)
+                          - button "Follow" [ref=e1234] [cursor=pointer]:
+                            - img [ref=e1236]
+                      - listitem [ref=e1238]:
+                        - generic [ref=e1239]:
+                          - link "NVDA NVIDIA Corporation 208.27 +8.63 (+4.32%)" [ref=e1240] [cursor=pointer]:
+                            - /url: /quote/NVDA/
+                            - generic [ref=e1241]:
+                              - generic [ref=e1242]: NVDA
+                              - generic "NVIDIA Corporation" [ref=e1243]
+                              - generic [ref=e1244]: "208.27"
+                              - generic [ref=e1245]:
+                                - generic [ref=e1246]: "+8.63"
+                                - generic [ref=e1247]: (+4.32%)
+                          - button "Follow" [ref=e1248] [cursor=pointer]:
+                            - img [ref=e1250]
+                      - listitem [ref=e1252]:
+                        - generic [ref=e1253]:
+                          - link "NOK Nokia Oyj 10.46 +0.13 (+1.26%)" [ref=e1254] [cursor=pointer]:
+                            - /url: /quote/NOK/
+                            - generic [ref=e1255]:
+                              - generic [ref=e1256]: NOK
+                              - generic "Nokia Oyj" [ref=e1257]
+                              - generic [ref=e1258]: "10.46"
+                              - generic [ref=e1259]:
+                                - generic [ref=e1260]: "+0.13"
+                                - generic [ref=e1261]: (+1.26%)
+                          - button "Follow" [ref=e1262] [cursor=pointer]:
+                            - img [ref=e1264]
+                      - listitem [ref=e1266]:
+                        - generic [ref=e1267]:
+                          - link "POET POET Technologies Inc. 15.10 +3.38 (+28.84%)" [ref=e1268] [cursor=pointer]:
+                            - /url: /quote/POET/
+                            - generic [ref=e1269]:
+                              - generic [ref=e1270]: POET
+                              - generic "POET Technologies Inc." [ref=e1271]
+                              - generic [ref=e1272]: "15.10"
+                              - generic [ref=e1273]:
+                                - generic [ref=e1274]: "+3.38"
+                                - generic [ref=e1275]: (+28.84%)
+                          - button "Follow" [ref=e1276] [cursor=pointer]:
+                            - img [ref=e1278]
+                      - listitem [ref=e1280]:
+                        - generic [ref=e1281]:
+                          - link "AMD Advanced Micro Devices, Inc. 347.81 +42.48 (+13.91%)" [ref=e1282] [cursor=pointer]:
+                            - /url: /quote/AMD/
+                            - generic [ref=e1283]:
+                              - generic [ref=e1284]: AMD
+                              - generic "Advanced Micro Devices, Inc." [ref=e1285]
+                              - generic [ref=e1286]: "347.81"
+                              - generic [ref=e1287]:
+                                - generic [ref=e1288]: "+42.48"
+                                - generic [ref=e1289]: (+13.91%)
+                          - button "Follow" [ref=e1290] [cursor=pointer]:
+                            - img [ref=e1292]
+                - listitem [ref=e1294]:
+                  - generic [ref=e1298]:
+                    - generic [ref=e1299]:
+                      - link "Top economic events" [ref=e1301] [cursor=pointer]:
+                        - /url: /calendar/economic
+                        - generic [ref=e1302]: Top economic events
+                      - button "Singapore" [ref=e1305] [cursor=pointer]:
+                        - generic:
+                          - img
+                        - generic [ref=e1307]: Singapore
+                    - generic [ref=e1308]:
+                      - img [ref=e1310]
+                      - text: There are no important events for this country at this time. Select "All" to see top events in other countries or view all events.
+                      - link "View All Events" [ref=e1313] [cursor=pointer]:
+                        - /url: /calendar/economic
+                - listitem [ref=e1314]:
+                  - generic [ref=e1317]:
+                    - generic [ref=e1319]:
+                      - link "Earnings events" [ref=e1321] [cursor=pointer]:
+                        - /url: /calendar/earnings?day=2026-04-25
+                        - generic [ref=e1322]: Earnings events
+                      - group [ref=e1323]:
+                        - generic [ref=e1325]:
+                          - checkbox "My earnings events" [ref=e1326] [cursor=pointer]
+                          - generic [ref=e1327]: My earnings events
+                          - img [ref=e1329]
+                        - generic [ref=e1332]:
+                          - checkbox "Earnings events" [checked] [ref=e1333] [cursor=pointer]
+                          - generic [ref=e1334]: Earnings events
+                          - img [ref=e1336]
+                    - img "Progress Spinner" [ref=e1340]
+              - button "Edit your Dock" [ref=e1373] [cursor=pointer]:
+                - generic [ref=e1374]: Edit your Dock
+              - generic [ref=e1377]:
+                - generic:
+                  - generic: ADVERTISEMENT
+              - generic [ref=e1379]:
+                - generic [ref=e1380]:
+                  - link "Terms" [ref=e1381] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/terms?locale=en-US
+                  - text: and
+                  - link "Privacy Policy" [ref=e1382] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/privacy-policy?locale=en-US
+                - link "Privacy Dashboard" [ref=e1384] [cursor=pointer]:
+                  - /url: https://guce.yahoo.com/privacy-dashboard?locale=en-US
+      - complementary

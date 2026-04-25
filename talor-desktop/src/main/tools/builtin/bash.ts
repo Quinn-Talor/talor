@@ -43,6 +43,7 @@ function resolveInWorkspace(workspace: string, targetPath: string): string | nul
 const bashTool = {
   name: 'bash',
   description: 'Execute a shell command in the workspace directory.',
+  riskLevel: 'HIGH' as const,
   parameters: {
     type: 'object',
     properties: {

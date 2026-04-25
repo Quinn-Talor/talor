@@ -8,6 +8,7 @@ export interface ToolDefinition {
   description: string
   parameters: Record<string, unknown>
   schema?: Record<string, unknown>
+  riskLevel?: 'HIGH' | 'LOW'
   execute: (input: unknown, context: ToolExecuteContext) => Promise<{ output: unknown }>
 }
 

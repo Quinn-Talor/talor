@@ -21,6 +21,7 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
 const editTool = {
   name: 'edit',
   description: 'Edit a file by replacing a specific string. Use to make targeted changes to a file.',
+  riskLevel: 'HIGH' as const,
   parameters: {
     type: 'object',
     properties: {

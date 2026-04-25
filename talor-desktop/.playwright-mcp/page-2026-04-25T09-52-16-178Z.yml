@@ -1,0 +1,1508 @@
+- generic [ref=e2]:
+  - link "Skip to navigation":
+    - /url: "#navigation-container"
+  - link "Skip to main content":
+    - /url: "#nimbus-app"
+  - link "Skip to right column":
+    - /url: "#right-rail"
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - banner [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]:
+            - heading "Yahoo Finance" [level=1] [ref=e8]
+            - link "Yahoo Finance" [ref=e9] [cursor=pointer]:
+              - /url: /
+              - img [ref=e11]
+          - search [ref=e15]:
+            - searchbox "Search for news, tickers or companies" [ref=e16]
+            - button "Search" [ref=e17] [cursor=pointer]:
+              - img [ref=e18]
+          - navigation [ref=e20]:
+            - list [ref=e21]:
+              - listitem [ref=e22]:
+                - link "News" [ref=e23] [cursor=pointer]:
+                  - /url: https://www.yahoo.com/
+              - listitem [ref=e24]:
+                - link "Finance" [ref=e25] [cursor=pointer]:
+                  - /url: https://finance.yahoo.com/
+              - listitem [ref=e26]:
+                - link "Sports" [ref=e27] [cursor=pointer]:
+                  - /url: https://sports.yahoo.com/
+              - listitem [ref=e28]:
+                - button "More" [ref=e31] [cursor=pointer]:
+                  - text: More
+                  - img [ref=e33]
+          - toolbar [ref=e35]:
+            - button "Notifications" [ref=e37] [cursor=pointer]:
+              - img [ref=e38]
+            - link "Check your mail, link" [ref=e41] [cursor=pointer]:
+              - /url: https://mail.yahoo.com/
+              - img [ref=e42]
+            - link "Sign in" [ref=e45] [cursor=pointer]:
+              - /url: https://login.yahoo.com/?done=https%3A%2F%2Ffinance.yahoo.com%2Fquote%2FBABA%2F&intl=us&lang=en-US&activity=ybar-signin&pspid=95993639&src=finance
+      - navigation "Navigation" [ref=e46]:
+        - menubar "Navigation menubar" [ref=e47]:
+          - menuitem "My Portfolio" [ref=e48] [cursor=pointer]:
+            - generic [ref=e49]: My Portfolio
+          - menuitem "News" [ref=e50] [cursor=pointer]:
+            - generic [ref=e51]: News
+          - menuitem "Markets" [ref=e52] [cursor=pointer]:
+            - generic [ref=e53]: Markets
+          - menuitem "Research" [ref=e54] [cursor=pointer]:
+            - generic [ref=e55]: Research
+          - menuitem "Community" [ref=e56] [cursor=pointer]:
+            - generic [ref=e57]: Community
+          - menuitem "Personal Finance" [ref=e58] [cursor=pointer]:
+            - generic [ref=e59]: Personal Finance
+          - menuitem "Videos" [ref=e60] [cursor=pointer]:
+            - generic [ref=e61]: Videos
+          - menuitem "Watch Now" [ref=e62] [cursor=pointer]:
+            - generic [ref=e63]: Watch Now
+        - button "Our Partners" [ref=e67] [cursor=pointer]:
+          - img [ref=e69]
+          - generic [ref=e71]:
+            - generic [ref=e72]: Our Partners
+            - img [ref=e74]
+  - generic [ref=e76]:
+    - complementary [ref=e77]:
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - button "U.S. markets closed" [ref=e86]:
+            - img [ref=e88]
+          - menu [ref=e90]:
+            - button "US Markets" [ref=e91] [cursor=pointer]:
+              - generic [ref=e92]:
+                - text: US Markets
+                - img [ref=e94]
+        - generic [ref=e96]:
+          - generic [ref=e100]:
+            - generic [ref=e103]:
+              - generic [ref=e104]:
+                - link "S&P 500" [ref=e105] [cursor=pointer]:
+                  - /url: /quote/%5EGSPC/
+                  - generic [ref=e106]: S&P 500
+                - generic [ref=e107]:
+                  - generic [ref=e108]: 7,165.08
+                  - generic [ref=e109]:
+                    - generic [ref=e110]: "+56.68"
+                    - generic [ref=e111]: +0.80%
+              - img [ref=e114]
+            - generic [ref=e120]:
+              - generic [ref=e121]:
+                - link "Dow 30" [ref=e122] [cursor=pointer]:
+                  - /url: /quote/%5EDJI/
+                  - generic [ref=e123]: Dow 30
+                - generic [ref=e124]:
+                  - generic [ref=e125]: 49,230.71
+                  - generic [ref=e126]:
+                    - generic [ref=e127]: "-79.61"
+                    - generic [ref=e128]: "-0.16%"
+              - img [ref=e131]
+            - generic [ref=e137]:
+              - generic [ref=e138]:
+                - link "Nasdaq" [ref=e139] [cursor=pointer]:
+                  - /url: /quote/%5EIXIC/
+                  - generic [ref=e140]: Nasdaq
+                - generic [ref=e141]:
+                  - generic [ref=e142]: 24,836.60
+                  - generic [ref=e143]:
+                    - generic [ref=e144]: "+398.09"
+                    - generic [ref=e145]: +1.63%
+              - img [ref=e148]
+            - generic [ref=e154]:
+              - generic [ref=e155]:
+                - link "Russell 2000" [ref=e156] [cursor=pointer]:
+                  - /url: /quote/%5ERUT/
+                  - generic [ref=e157]: Russell 2000
+                - generic [ref=e158]:
+                  - generic [ref=e159]: 2,787.00
+                  - generic [ref=e160]:
+                    - generic [ref=e161]: "+11.90"
+                    - generic [ref=e162]: +0.43%
+              - img [ref=e165]
+            - generic [ref=e179]:
+              - generic [ref=e180]:
+                - link "VIX" [ref=e181] [cursor=pointer]:
+                  - /url: /quote/%5EVIX/
+                  - generic [ref=e182]: VIX
+                - generic [ref=e183]:
+                  - generic [ref=e184]: "18.71"
+                  - generic [ref=e185]:
+                    - generic [ref=e186]: "-0.60"
+                    - generic [ref=e187]: "-3.11%"
+              - img [ref=e190]
+            - generic [ref=e200]:
+              - generic [ref=e201]:
+                - link "Gold" [ref=e202] [cursor=pointer]:
+                  - /url: /quote/GC%3DF/
+                  - generic [ref=e203]: Gold
+                - generic [ref=e204]:
+                  - generic [ref=e205]: 4,740.90
+                  - generic [ref=e206]:
+                    - generic [ref=e207]: "+16.90"
+                    - generic [ref=e208]: +0.36%
+              - img [ref=e211]
+            - generic [ref=e239]:
+              - generic [ref=e240]:
+                - link "Bitcoin USD" [ref=e241] [cursor=pointer]:
+                  - /url: /quote/BTC-USD/
+                  - generic [ref=e242]: Bitcoin USD
+                - generic [ref=e243]:
+                  - generic [ref=e244]: 77,765.52
+                  - generic [ref=e245]:
+                    - generic [ref=e246]: "+213.64"
+                    - generic [ref=e247]: +0.28%
+              - img [ref=e250]
+            - generic [ref=e262]:
+              - generic [ref=e263]:
+                - link "Crude Oil" [ref=e264] [cursor=pointer]:
+                  - /url: /quote/CL%3DF/
+                  - generic [ref=e265]: Crude Oil
+                - generic [ref=e266]:
+                  - generic [ref=e267]: "94.40"
+                  - generic [ref=e268]:
+                    - generic [ref=e269]: "-1.45"
+                    - generic [ref=e270]: "-1.51%"
+              - img [ref=e273]
+          - generic [ref=e293]:
+            - button "prev" [disabled]:
+              - generic:
+                - img
+            - button "next" [ref=e294] [cursor=pointer]:
+              - img [ref=e296]
+      - generic [ref=e298]:
+        - generic:
+          - generic: ADVERTISEMENT
+    - main [ref=e299]:
+      - generic [ref=e301]:
+        - complementary "Left navigation" [ref=e302]:
+          - navigation "BABA navigation" [ref=e304]:
+            - menubar "BABA navigation menubar" [ref=e305]:
+              - menuitem "Summary" [ref=e306] [cursor=pointer]:
+                - generic [ref=e307]: Summary
+              - menuitem "News" [ref=e308] [cursor=pointer]:
+                - generic [ref=e309]: News
+              - menuitem "Chart" [ref=e310] [cursor=pointer]:
+                - generic [ref=e311]: Chart
+              - menuitem "Conversations" [ref=e312] [cursor=pointer]:
+                - generic [ref=e313]: Conversations
+              - menuitem "Statistics" [ref=e314] [cursor=pointer]:
+                - generic [ref=e315]: Statistics
+              - menuitem "Historical Data" [ref=e316] [cursor=pointer]:
+                - generic [ref=e317]: Historical Data
+              - menuitem "Profile" [ref=e318] [cursor=pointer]:
+                - generic [ref=e319]: Profile
+              - menuitem "Financials" [ref=e320] [cursor=pointer]:
+                - generic [ref=e321]: Financials
+              - menuitem "Analysis" [ref=e322] [cursor=pointer]:
+                - generic [ref=e323]: Analysis
+              - menuitem "Options" [ref=e324] [cursor=pointer]:
+                - generic [ref=e325]: Options
+              - menuitem "Holders" [ref=e326] [cursor=pointer]:
+                - generic [ref=e327]: Holders
+        - generic [ref=e328]:
+          - generic [ref=e329]:
+            - generic [ref=e330]:
+              - generic [ref=e331]:
+                - generic [ref=e332]:
+                  - generic [ref=e333]: NYSE - Nasdaq Real Time Price
+                  - generic [ref=e334]: •
+                  - generic [ref=e335]: USD
+                - generic [ref=e336]:
+                  - generic [ref=e337]:
+                    - heading "Alibaba Group Holding Limited (BABA)" [level=1] [ref=e339]
+                    - button "Follow" [ref=e341] [cursor=pointer]:
+                      - img [ref=e343]
+                  - link "Is BABA a buy now?" [ref=e346] [cursor=pointer]:
+                    - /url: https://www.fool.com/vip/investor-alert/should-you-invest-in-alibaba-baba?utm_source=yahoo_report&utm_medium=affiliate&utm_campaign=Foolcom_Yahoo_Reports&utm_content=Is%2BBABA%2Ba%2Bbuy%2Bnow%253F&utm_term=BABA&source=isaedirep0000001?partner=yahoo&utm_source=yahoo
+                    - generic [ref=e347]:
+                      - img [ref=e348]
+                      - generic [ref=e357]: Is BABA a buy now?
+              - generic [ref=e361]:
+                - generic [ref=e362]:
+                  - generic [ref=e363]:
+                    - generic [ref=e364]: "135.82"
+                    - generic [ref=e365]: "+4.12"
+                    - generic [ref=e366]: (+3.13%)
+                  - generic [ref=e368]: "At close: 4:03:11 PM EDT"
+                - generic [ref=e369]:
+                  - generic [ref=e370]:
+                    - generic [ref=e371]: "136.04"
+                    - generic [ref=e372]: "+0.22"
+                    - generic [ref=e373]: (+0.16%)
+                  - generic [ref=e375]:
+                    - img [ref=e378]
+                    - text: "After hours: 7:59:54 PM EDT"
+            - generic [ref=e382]:
+              - tablist "Chart Range Bar" [ref=e383]:
+                - tab "1D" [selected] [ref=e384]
+                - tab "5D" [ref=e385] [cursor=pointer]:
+                  - generic [ref=e387]: 5D
+                - tab "1M" [ref=e388] [cursor=pointer]:
+                  - generic [ref=e390]: 1M
+                - tab "6M" [ref=e391] [cursor=pointer]:
+                  - generic [ref=e393]: 6M
+                - tab "YTD" [ref=e394] [cursor=pointer]:
+                  - generic [ref=e396]: YTD
+                - tab "1Y" [ref=e397] [cursor=pointer]:
+                  - generic [ref=e399]: 1Y
+                - tab "5Y" [ref=e400] [cursor=pointer]:
+                  - generic [ref=e402]: 5Y
+                - tab "All" [ref=e403] [cursor=pointer]:
+                  - generic [ref=e405]: All
+              - generic [ref=e407]:
+                - generic [ref=e409] [cursor=pointer]:
+                  - text: Key Events
+                  - switch "Key Events" [checked] [ref=e410]
+                - button "Chart Type" [ref=e413] [cursor=pointer]:
+                  - generic:
+                    - img
+                  - generic:
+                    - img
+                - link "Advanced Chart" [ref=e415] [cursor=pointer]:
+                  - /url: /chart/BABA
+                  - img [ref=e417]
+                - button "Chart settings" [ref=e419] [cursor=pointer]:
+                  - img [ref=e421]
+              - generic [ref=e425]:
+                - generic [ref=e427]: Loading chart for BABA
+                - table [ref=e433]:
+                  - rowgroup [ref=e434]:
+                    - row "Date:" [ref=e435]:
+                      - cell "Date:" [ref=e436]
+                      - cell [ref=e437]
+                    - row "Close:" [ref=e438]:
+                      - cell "Close:" [ref=e439]
+                      - cell [ref=e440]
+                    - row "Open:" [ref=e441]:
+                      - cell "Open:" [ref=e442]
+                      - cell [ref=e443]
+                    - row "High:" [ref=e444]:
+                      - cell "High:" [ref=e445]
+                      - cell [ref=e446]
+                    - row "Low:" [ref=e447]:
+                      - cell "Low:" [ref=e448]
+                      - cell [ref=e449]
+                    - row "Volume:" [ref=e450]:
+                      - cell "Volume:" [ref=e451]
+                      - cell [ref=e452]
+            - generic [ref=e457]:
+              - generic [ref=e459]:
+                - generic [ref=e460]:
+                  - img [ref=e461]
+                  - heading "News headlines" [level=2] [ref=e465]
+                - button "Collapse" [expanded]
+              - region "Collapse" [ref=e466]:
+                - generic [ref=e469]:
+                  - paragraph [ref=e471]: Alibaba is making significant strides in AI and social commerce while facing challenges in its financial performance and market positioning. Recent partnerships and market dynamics highlight both opportunities and risks for the company.
+                  - generic [ref=e472]:
+                    - generic [ref=e474]: Updated 1h ago · Powered by Yahoo Scout
+                    - button "View more" [ref=e476] [cursor=pointer]
+            - list [ref=e481]:
+              - listitem [ref=e482]:
+                - generic "Previous Close" [ref=e483]
+                - generic [ref=e484]: "131.70"
+              - listitem [ref=e485]:
+                - generic "Open" [ref=e486]
+                - generic [ref=e487]: "133.68"
+              - listitem [ref=e488]:
+                - generic "Bid" [ref=e489]
+                - generic [ref=e490]: 136.12 x 20000
+              - listitem [ref=e491]:
+                - generic "Ask" [ref=e492]
+                - generic [ref=e493]: 136.14 x 70000
+              - listitem [ref=e494]:
+                - generic "Day's Range" [ref=e495]
+                - generic [ref=e496]: 133.00 - 136.19
+              - listitem [ref=e497]:
+                - generic "52 Week Range" [ref=e498]
+                - generic [ref=e499]: 103.71 - 192.67
+              - listitem [ref=e500]:
+                - generic "Volume" [ref=e501]
+                - generic [ref=e502]: 8,984,061
+              - listitem [ref=e503]:
+                - generic "Avg. Volume" [ref=e504]
+                - generic [ref=e505]: 10,665,874
+              - listitem [ref=e506]:
+                - generic "Market Cap (intraday)" [ref=e507]
+                - generic [ref=e508]: 335.147B
+              - listitem [ref=e509]:
+                - generic "Beta (5Y Monthly)" [ref=e510]
+                - generic [ref=e511]: "0.49"
+              - listitem [ref=e512]:
+                - generic "PE Ratio (TTM)" [ref=e513]
+                - generic [ref=e514]: "23.91"
+              - listitem [ref=e515]:
+                - generic "EPS (TTM)" [ref=e516]
+                - generic [ref=e517]: "5.68"
+              - listitem [ref=e518]:
+                - generic "Earnings Date (est.)" [ref=e519]
+                - generic [ref=e520]: May 14, 2026
+              - listitem [ref=e521]:
+                - generic "Forward Dividend & Yield" [ref=e522]
+                - generic [ref=e523]: 1.05 (0.77%)
+              - listitem [ref=e524]:
+                - generic "Ex-Dividend Date" [ref=e525]
+                - generic [ref=e526]: Jun 12, 2025
+              - listitem [ref=e527]:
+                - generic "1y Target Est" [ref=e528]
+                - generic [ref=e529]: "188.67"
+            - generic [ref=e532]:
+              - button "Expand" [ref=e535] [cursor=pointer]:
+                - img [ref=e537]
+                - heading "Alibaba Group Holding Limited Overview - Internet Retail / Consumer Cyclical" [level=2] [ref=e540]:
+                  - generic [ref=e541]: Alibaba Group Holding Limited Overview
+                  - text: "- Internet Retail / Consumer Cyclical"
+              - region "Expand":
+                - generic:
+                  - generic [ref=e542]:
+                    - generic [ref=e543]:
+                      - paragraph [ref=e544]: Alibaba Group Holding Limited, through its subsidiaries, provides technology infrastructure and marketing reach to help merchants, brands, retailers, and other businesses to engage with their users and customers in the People's Republic of China and internationally. It operates digital retail platforms under the Taobao and Tmall names; wholesale marketplaces through 1688.com and Alibaba.com; global e-commerce platform under the AliExpress name; e-commerce platforms under the Lazada, Trendyol, and Daraz names; and consumer-to-consumer community and marketplace under the Tmall Global, Tmall Supermarket, and Xianyu names. The company also operates Cainiao, an e-commerce logistics solution; Ele.me, an on-demand delivery and local services platform; and Amap, a provider of mobile digital map, navigation, and real-time traffic information; Youku, an online video platform; and Damai Entertainment that provides content production, promotion and distribution, performance and event ticketing management, IP-related licensing and operations, cinema ticketing management, and internet data services for the entertainment industry. In addition, it provides elastic computing, storage, network, security, database, big data, cloud native, and Alibaba cloud model studio services; and hardware, software license and installation, and application development and maintenance services, as well as sells membership packages and subscriptions. Further, the company offers Freshippo, a retail platform for groceries and goods; Alibaba Health for medical and healthcare solutions; mobile games under the Lingxi Games name; UC Browser, an information service platform; Quark, an information services platform for young users; Fliggy, an online travel platform; and DingTalk, a collaboration workplace and enterprise management platform. It also offers the Alibaba Token Hub (ATH) Business, which develops multimodal foundation models; the MaaS Business Line, which builds AI technical infrastructure; and the Qwen Business Unit, which is responsible for a personal AI assistant. Alibaba Group Holding Limited was incorporated in 1999 and is based in Causeway Bay, Hong Kong.
+                      - link "www.alibabagroup.com" [ref=e545] [cursor=pointer]:
+                        - /url: https://www.alibabagroup.com
+                    - generic [ref=e546]:
+                      - generic [ref=e547]:
+                        - paragraph [ref=e548]: 128,197
+                        - heading "Full Time Employees" [level=3] [ref=e549]
+                      - generic [ref=e550]:
+                        - paragraph [ref=e551]: March 31
+                        - heading "Fiscal Year Ends" [level=3] [ref=e552]
+                      - generic [ref=e553]:
+                        - paragraph [ref=e554]:
+                          - link "Consumer Cyclical" [ref=e555] [cursor=pointer]:
+                            - /url: /sectors/consumer-cyclical/
+                        - heading "Sector" [level=3] [ref=e556]
+                      - generic [ref=e557]:
+                        - paragraph [ref=e558]:
+                          - link "Internet Retail" [ref=e559] [cursor=pointer]:
+                            - /url: /sectors/consumer-cyclical/internet-retail/
+                        - heading "Industry" [level=3] [ref=e560]
+                  - link "More about Alibaba Group Holding Limited" [ref=e562] [cursor=pointer]:
+                    - /url: /quote/BABA/profile/
+            - generic [ref=e564]:
+              - generic [ref=e565]:
+                - 'heading "Recent News: BABA" [level=3] [ref=e566]'
+                - link "View More" [ref=e567] [cursor=pointer]:
+                  - /url: /quote/BABA/news/
+                  - text: View More
+                  - img [ref=e569]
+              - generic [ref=e571]:
+                - tablist [ref=e572]:
+                  - tab "All" [selected] [ref=e573]
+                  - tab "News" [ref=e574] [cursor=pointer]
+                  - tab "Earnings Calls" [ref=e575] [cursor=pointer]
+                  - tab "Press Releases" [ref=e576] [cursor=pointer]
+                  - tab "SEC Filings" [ref=e577] [cursor=pointer]
+                - generic [ref=e581]:
+                  - article [ref=e583]:
+                    - generic [ref=e584]:
+                      - link "Microsoft (MSFT) Must Face a UK lawsuit Over Cloud Computing Licenses" [ref=e585] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/markets/stocks/articles/microsoft-msft-must-face-uk-055714218.html
+                        - heading "Microsoft (MSFT) Must Face a UK lawsuit Over Cloud Computing Licenses" [level=3] [ref=e586]
+                      - generic [ref=e588]:
+                        - text: Insider Monkey
+                        - generic [ref=e589]: •
+                        - text: 3h ago
+                  - article [ref=e591]:
+                    - generic [ref=e592]:
+                      - link "DEM’s 4% Yield Hides a Taiwan Bet as China Falters in 2026" [ref=e593] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/markets/stocks/articles/dem-4-yield-hides-taiwan-191529772.html
+                        - heading "DEM’s 4% Yield Hides a Taiwan Bet as China Falters in 2026" [level=3] [ref=e594]
+                      - generic [ref=e596]:
+                        - text: 24/7 Wall St.
+                        - generic [ref=e597]: •
+                        - text: 14h ago
+                  - article [ref=e599]:
+                    - generic [ref=e600]:
+                      - link "Why Is Chewy (CHWY) Down 5% Since Last Earnings Report?" [ref=e601] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/markets/stocks/articles/why-chewy-chwy-down-5-153003013.html
+                        - heading "Why Is Chewy (CHWY) Down 5% Since Last Earnings Report?" [level=3] [ref=e602]
+                      - generic [ref=e604]:
+                        - text: Zacks
+                        - generic [ref=e605]: •
+                        - text: 18h ago
+                  - article [ref=e607]:
+                    - generic [ref=e608]:
+                      - link "Alibaba’s Qwen AI Partnerships Highlight New Use Cases And Valuation Gap" [ref=e609] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/markets/stocks/articles/alibaba-qwen-ai-partnerships-highlight-070951608.html
+                        - heading "Alibaba’s Qwen AI Partnerships Highlight New Use Cases And Valuation Gap" [level=3] [ref=e610]
+                      - generic [ref=e612]:
+                        - text: Simply Wall St.
+                        - generic [ref=e613]: •
+                        - text: 1d ago
+                  - article [ref=e615]:
+                    - generic [ref=e616]:
+                      - link "Tencent Unveils AI Model in High-Stakes Test for OpenAI Hire" [ref=e617] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/sectors/technology/articles/tencent-unveils-ai-model-high-103407484.html
+                        - heading "Tencent Unveils AI Model in High-Stakes Test for OpenAI Hire" [level=3] [ref=e618]
+                      - generic [ref=e620]:
+                        - text: Bloomberg
+                        - generic [ref=e621]: •
+                        - text: 1d ago
+                  - article [ref=e623]:
+                    - generic [ref=e624]:
+                      - link "Zelos Technology Targets $600 Million Hong Kong IPO With Autonomous Delivery Scale" [ref=e625] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/markets/stocks/articles/zelos-technology-targets-600-million-181528135.html
+                        - heading "Zelos Technology Targets $600 Million Hong Kong IPO With Autonomous Delivery Scale" [level=3] [ref=e626]
+                      - generic [ref=e628]:
+                        - text: GuruFocus.com
+                        - generic [ref=e629]: •
+                        - text: 1d ago
+                  - article [ref=e631]:
+                    - generic [ref=e632]:
+                      - link "Alibaba Opens Qwen AI To China Eastern, Enabling Flight Booking Via Chat" [ref=e633] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/sectors/technology/articles/alibaba-opens-qwen-ai-china-165111030.html
+                        - heading "Alibaba Opens Qwen AI To China Eastern, Enabling Flight Booking Via Chat" [level=3] [ref=e634]
+                      - generic [ref=e636]:
+                        - text: GuruFocus.com
+                        - generic [ref=e637]: •
+                        - text: 1d ago
+                  - article [ref=e639]:
+                    - generic [ref=e640]:
+                      - 'link "Alibaba.com president: How small businesses win online" [ref=e641] [cursor=pointer]':
+                        - /url: https://finance.yahoo.com/video/alibabacom-president-how-small-businesses-win-online-100000967.html
+                        - 'heading "Alibaba.com president: How small businesses win online" [level=3] [ref=e642]'
+                      - generic [ref=e644]:
+                        - text: Yahoo Finance Video
+                        - generic [ref=e645]: •
+                        - text: 1d ago
+                  - article [ref=e647]:
+                    - generic [ref=e648]:
+                      - link "X Square Robot Unveils New Embodied AI Model, Says Robots Will Arrive in Homes in 35 Days" [ref=e649] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/sectors/technology/articles/x-square-robot-unveils-embodied-052400519.html
+                        - heading "X Square Robot Unveils New Embodied AI Model, Says Robots Will Arrive in Homes in 35 Days" [level=3] [ref=e650]
+                      - generic [ref=e652]:
+                        - text: PR Newswire
+                        - generic [ref=e653]: •
+                        - text: 2d ago
+                  - article [ref=e655]:
+                    - generic [ref=e656]:
+                      - link "0G to Make Alibaba's Qwen wModels Accessible to AI Agents via Blockchain Integration" [ref=e657] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/sectors/technology/articles/0g-alibabas-qwen-wmodels-accessible-050000205.html
+                        - heading "0G to Make Alibaba's Qwen wModels Accessible to AI Agents via Blockchain Integration" [level=3] [ref=e658]
+                      - generic [ref=e660]:
+                        - text: GlobeNewswire
+                        - generic [ref=e661]: •
+                        - text: 2d ago
+                  - article [ref=e663]:
+                    - generic [ref=e664]:
+                      - link "Alibaba Adds China Eastern Flight Booking to Flagship Qwen App" [ref=e665] [cursor=pointer]:
+                        - /url: https://finance.yahoo.com/sectors/technology/articles/alibaba-adds-china-eastern-flight-023442327.html
+                        - heading "Alibaba Adds China Eastern Flight Booking to Flagship Qwen App" [level=3] [ref=e666]
+                      - generic [ref=e668]:
+                        - text: Bloomberg
+                        - generic [ref=e669]: •
+                        - text: 2d ago
+            - generic [ref=e674]:
+              - 'heading "Related Videos: BABA" [level=3] [ref=e676]'
+              - generic [ref=e678]:
+                - iframe [ref=e683]:
+                  - region "Video Player" [ref=f8e4]:
+                    - 'generic "Alibaba.com president: How small businesses win online" [ref=f8e5]'
+                    - generic:
+                      - generic: "Alibaba.com president: How small businesses win online"
+                      - generic: Alibaba.com President, Kuo Zhang, chats with Host, Elizabeth Gore, about how AI-powered tools and global supply chains are enabling small businesses to scale faster and compete in the evolving world of e-commerce.
+                    - button "Play Video" [ref=f8e6] [cursor=pointer]:
+                      - text: 
+                      - generic [ref=f8e7]: Play Video
+                    - text:          
+                - generic [ref=e684]:
+                  - 'link "Alibaba.com president: How small businesses win online" [ref=e685] [cursor=pointer]':
+                    - /url: https://finance.yahoo.com/video/alibabacom-president-how-small-businesses-win-online-100000967.html
+                    - generic [ref=e686]:
+                      - 'heading "Alibaba.com president: How small businesses win online" [level=3] [ref=e687]'
+                      - paragraph [ref=e688]: Alibaba.com President, Kuo Zhang, chats with Host, Elizabeth Gore, about how AI-powered tools and global supply chains are enabling small businesses to scale faster and compete in the evolving world of e-commerce.
+                  - generic [ref=e689]:
+                    - generic [ref=e690]: Yahoo Finance Video · yesterday
+                    - generic [ref=e691]:
+                      - link "GOOG" [ref=e692] [cursor=pointer]:
+                        - /url: /quote/GOOG/
+                        - generic [ref=e694]: GOOG
+                        - generic [ref=e696]: +1.35%
+                      - button "Follow" [ref=e698] [cursor=pointer]:
+                        - img [ref=e700]
+                    - generic [ref=e702]:
+                      - link "BABA" [ref=e703] [cursor=pointer]:
+                        - /url: /quote/BABA/
+                        - generic [ref=e705]: BABA
+                        - generic [ref=e707]: +3.13%
+                      - button "Follow" [ref=e709] [cursor=pointer]:
+                        - img [ref=e711]
+            - generic [ref=e714]:
+              - 'heading "Performance Overview: BABA" [level=3] [ref=e716]'
+              - paragraph [ref=e717]:
+                - text: Trailing total returns as of 4/24/2026, which may include dividends or other distributions.
+                - generic [ref=e718]:
+                  - text: Benchmark is
+                  - link "HANG SENG INDEX (^HSI)" [ref=e719] [cursor=pointer]:
+                    - /url: /quote/%5EHSI/
+                  - text: .
+              - generic [ref=e720]:
+                - generic [ref=e721]:
+                  - heading "YTD Return" [level=3] [ref=e724]
+                  - generic [ref=e725]:
+                    - generic [ref=e726]:
+                      - generic [ref=e727]: BABA
+                      - generic [ref=e728]: "- 7.83%"
+                    - generic [ref=e729]:
+                      - generic [ref=e730]: HANG SENG INDEX (^HSI)
+                      - generic [ref=e731]: + 1.36%
+                - generic [ref=e732]:
+                  - heading "1-Year Return" [level=3] [ref=e735]
+                  - generic [ref=e736]:
+                    - generic [ref=e737]:
+                      - generic [ref=e738]: BABA
+                      - generic [ref=e739]: + 16.09%
+                    - generic [ref=e740]:
+                      - generic [ref=e741]: HANG SENG INDEX (^HSI)
+                      - generic [ref=e742]: + 18.57%
+                - generic [ref=e743]:
+                  - heading "3-Year Return" [level=3] [ref=e746]
+                  - generic [ref=e747]:
+                    - generic [ref=e748]:
+                      - generic [ref=e749]: BABA
+                      - generic [ref=e750]: + 60.46%
+                    - generic [ref=e751]:
+                      - generic [ref=e752]: HANG SENG INDEX (^HSI)
+                      - generic [ref=e753]: + 30.15%
+                - generic [ref=e754]:
+                  - heading "5-Year Return" [level=3] [ref=e757]
+                  - generic [ref=e758]:
+                    - generic [ref=e759]:
+                      - generic [ref=e760]: BABA
+                      - generic [ref=e761]: "- 38.38%"
+                    - generic [ref=e762]:
+                      - generic [ref=e763]: HANG SENG INDEX (^HSI)
+                      - generic [ref=e764]: "- 10.66%"
+            - generic [ref=e766]:
+              - generic [ref=e767]:
+                - 'heading "Earnings Trends: BABA" [level=3] [ref=e768]'
+                - link "View More" [ref=e769] [cursor=pointer]:
+                  - /url: /quote/BABA/analysis/
+                  - text: View More
+                  - img [ref=e771]
+              - generic [ref=e773]:
+                - generic [ref=e774]:
+                  - generic [ref=e775]:
+                    - heading "Earnings Per Share" [level=3] [ref=e777]
+                    - group [ref=e781]:
+                      - generic [ref=e782]:
+                        - checkbox "gaap" [ref=e783] [cursor=pointer]
+                        - generic [ref=e784]: gaap
+                        - generic [ref=e785]: GAAP
+                      - generic [ref=e786]:
+                        - checkbox "nongaap" [checked] [ref=e787] [cursor=pointer]
+                        - generic [ref=e788]: nongaap
+                        - generic [ref=e789]: Normalized
+                  - figure [ref=e791]:
+                    - generic [ref=e792]:
+                      - generic [ref=e793]: Q3 FY26
+                      - generic [ref=e794]:
+                        - generic [ref=e796]: Estimate
+                        - generic [ref=e797]: "+10.94"
+                      - generic [ref=e798]:
+                        - generic [ref=e800]: Actual
+                        - generic [ref=e801]: "+7.09"
+                  - link "Earnings Per Share" [ref=e804] [cursor=pointer]:
+                    - /url: /quote/BABA/analysis/
+                - generic [ref=e805]:
+                  - generic [ref=e806]:
+                    - heading "Revenue vs. Earnings" [level=3] [ref=e808]
+                    - group [ref=e812]:
+                      - generic [ref=e813]:
+                        - checkbox "yearly" [ref=e814] [cursor=pointer]
+                        - generic [ref=e815]: yearly
+                        - generic [ref=e816]: Annual
+                      - generic [ref=e817]:
+                        - checkbox "quarterly" [checked] [ref=e818] [cursor=pointer]
+                        - generic [ref=e819]: quarterly
+                        - generic [ref=e820]: Quarterly
+                  - generic [ref=e821]:
+                    - generic [ref=e823]: Q3 FY26
+                    - generic [ref=e824]:
+                      - generic [ref=e826]: Revenue
+                      - generic [ref=e827]: 284.84B
+                    - generic [ref=e828]:
+                      - generic [ref=e830]: Earnings
+                      - generic [ref=e831]: 17.11B
+                  - generic [ref=e833]:
+                    - generic [ref=e834]:
+                      - generic [ref=e835]:
+                        - generic [ref=e837]:
+                          - paragraph [ref=e838]: Q4
+                          - paragraph [ref=e839]: FY25
+                        - generic [ref=e841]:
+                          - paragraph [ref=e842]: Q1
+                          - paragraph [ref=e843]: FY26
+                        - generic [ref=e845]:
+                          - paragraph [ref=e846]: Q2
+                          - paragraph [ref=e847]: FY26
+                        - generic [ref=e849]:
+                          - paragraph [ref=e850]: Q3
+                          - paragraph [ref=e851]: FY26
+                      - generic [ref=e852]:
+                        - generic [ref=e855]: "0"
+                        - generic [ref=e858]: 100B
+                        - generic [ref=e861]: 200B
+                    - img [ref=e862]:
+                      - generic [ref=e863]:
+                        - group [ref=e864]
+                        - group [ref=e869]
+                        - group [ref=e874]
+                        - group [ref=e879] [cursor=pointer]
+                    - iframe [ref=e884]:
+                      
+                  - link "Revenue vs. Earnings" [ref=e885] [cursor=pointer]:
+                    - /url: /quote/BABA/analysis/
+            - generic [ref=e887]:
+              - generic [ref=e888]:
+                - 'heading "Analyst Insights: BABA" [level=3] [ref=e889]'
+                - link "View More" [ref=e890] [cursor=pointer]:
+                  - /url: /quote/BABA/analyst-insights/
+                  - text: View More
+                  - img [ref=e892]
+              - generic [ref=e894]:
+                - generic [ref=e896]:
+                  - heading "Top Analyst" [level=3] [ref=e899]:
+                    - text: Top Analyst
+                    - img [ref=e901]
+                  - generic [ref=e903]:
+                    - generic [ref=e904]:
+                      - generic [ref=e905]: Barclays
+                      - generic [ref=e908]: 60/100
+                    - generic [ref=e909]:
+                      - generic [ref=e910]: Latest Rating
+                      - generic [ref=e911]: Overweight
+                  - link "Top Analyst" [ref=e912] [cursor=pointer]:
+                    - /url: /quote/BABA/analyst-insights/?ratingsScoreType=fin_score#top-analyst
+                - generic [ref=e913]:
+                  - heading "Analyst Price Targets" [level=3] [ref=e916]
+                  - generic [ref=e918]:
+                    - generic [ref=e922]:
+                      - generic [ref=e923]: "112.84"
+                      - generic [ref=e924]: Low
+                    - generic [ref=e926]:
+                      - generic [ref=e927]: "188.67"
+                      - generic [ref=e928]: Average
+                    - generic [ref=e934]:
+                      - generic [ref=e935]: "135.82"
+                      - generic [ref=e936]: Current
+                    - generic [ref=e939]:
+                      - generic [ref=e940]: "259.92"
+                      - generic [ref=e941]: High
+                  - link "Analyst Price Targets" [ref=e942] [cursor=pointer]:
+                    - /url: /quote/BABA/analyst-insights/
+                - generic [ref=e943]:
+                  - heading "Analyst Recommendations" [level=3] [ref=e946]
+                  - figure "Strong Buy Buy Hold Underperform Sell" [ref=e947]:
+                    - list [ref=e952]:
+                      - listitem [ref=e953]:
+                        - generic [ref=e955]: Strong Buy
+                      - listitem [ref=e956]:
+                        - generic [ref=e958]: Buy
+                      - listitem [ref=e959]:
+                        - generic [ref=e961]: Hold
+                      - listitem [ref=e962]:
+                        - generic [ref=e964]: Underperform
+                      - listitem [ref=e965]:
+                        - generic [ref=e967]: Sell
+                  - link "Analyst Recommendations" [ref=e968] [cursor=pointer]:
+                    - /url: /quote/BABA/analyst-insights/
+                - generic [ref=e969]:
+                  - heading "Latest Rating" [level=3] [ref=e972]
+                  - generic [ref=e973]:
+                    - generic [ref=e974]:
+                      - generic [ref=e975]: Date
+                      - generic [ref=e976]: 4/14/2026
+                    - generic [ref=e977]:
+                      - generic [ref=e978]: Analyst
+                      - generic [ref=e979]: Barclays
+                    - generic [ref=e980]:
+                      - generic [ref=e981]: Rating Action
+                      - generic [ref=e982]: Maintains
+                    - generic [ref=e983]:
+                      - generic [ref=e984]: Rating
+                      - generic [ref=e985]: Overweight
+                    - generic [ref=e986]:
+                      - generic [ref=e987]: Price Action
+                      - generic [ref=e988]: Lowers
+                    - generic [ref=e989]:
+                      - generic [ref=e990]: Price Target
+                      - generic [ref=e991]: 190 -> 186
+                  - link "Latest Rating" [ref=e992] [cursor=pointer]:
+                    - /url: /quote/BABA/analyst-insights/#upgrade-downgrade-table
+            - generic [ref=e994]:
+              - generic [ref=e995]:
+                - 'heading "Statistics: BABA" [level=3] [ref=e996]'
+                - link "View More" [ref=e997] [cursor=pointer]:
+                  - /url: /quote/BABA/key-statistics/
+                  - text: View More
+                  - img [ref=e999]
+              - generic [ref=e1001]:
+                - generic [ref=e1002]:
+                  - heading "Valuation Measures" [level=3] [ref=e1005]
+                  - generic [ref=e1006]:
+                    - generic [ref=e1007]: As of 4/24/2026
+                    - list [ref=e1008]:
+                      - listitem [ref=e1009]:
+                        - paragraph [ref=e1010]: Market Cap
+                        - paragraph [ref=e1011]: 322.94B
+                      - listitem [ref=e1012]:
+                        - paragraph [ref=e1013]: Enterprise Value
+                        - paragraph [ref=e1014]: 311.90B
+                      - listitem [ref=e1015]:
+                        - paragraph [ref=e1016]: Trailing P/E
+                        - paragraph [ref=e1017]: "23.94"
+                      - listitem [ref=e1018]:
+                        - paragraph [ref=e1019]: Forward P/E
+                        - paragraph [ref=e1020]: "19.92"
+                      - listitem [ref=e1021]:
+                        - paragraph [ref=e1022]: PEG Ratio (5yr expected)
+                        - paragraph [ref=e1023]: "0.81"
+                      - listitem [ref=e1024]:
+                        - paragraph [ref=e1025]: Price/Sales (ttm)
+                        - paragraph [ref=e1026]: "2.19"
+                      - listitem [ref=e1027]:
+                        - paragraph [ref=e1028]: Price/Book (mrq)
+                        - paragraph [ref=e1029]: "2.14"
+                      - listitem [ref=e1030]:
+                        - paragraph [ref=e1031]: Enterprise Value/Revenue
+                        - paragraph [ref=e1032]: "2.09"
+                      - listitem [ref=e1033]:
+                        - paragraph [ref=e1034]: Enterprise Value/EBITDA
+                        - paragraph [ref=e1035]: "16.40"
+                - generic [ref=e1036]:
+                  - heading "Financial Highlights" [level=3] [ref=e1039]
+                  - generic [ref=e1040]:
+                    - heading "Profitability and Income Statement" [level=4] [ref=e1041]
+                    - list [ref=e1042]:
+                      - listitem [ref=e1043]:
+                        - paragraph [ref=e1044]: Profit Margin
+                        - paragraph [ref=e1045]: 8.91%
+                      - listitem [ref=e1046]:
+                        - paragraph [ref=e1047]: Return on Assets (ttm)
+                        - paragraph [ref=e1048]: 3.13%
+                      - listitem [ref=e1049]:
+                        - paragraph [ref=e1050]: Return on Equity (ttm)
+                        - paragraph [ref=e1051]: 8.23%
+                      - listitem [ref=e1052]:
+                        - paragraph [ref=e1053]: Revenue (ttm)
+                        - paragraph [ref=e1054]: 1.02T
+                      - listitem [ref=e1055]:
+                        - paragraph [ref=e1056]: Net Income Avi to Common (ttm)
+                        - paragraph [ref=e1057]: 92.81B
+                      - listitem [ref=e1058]:
+                        - paragraph [ref=e1059]: Diluted EPS (ttm)
+                        - paragraph [ref=e1060]: "5.68"
+                  - generic [ref=e1061]:
+                    - heading "Balance Sheet and Cash Flow" [level=4] [ref=e1062]
+                    - list [ref=e1063]:
+                      - listitem [ref=e1064]:
+                        - paragraph [ref=e1065]: Total Cash (mrq)
+                        - paragraph [ref=e1066]: 338.11B
+                      - listitem [ref=e1067]:
+                        - paragraph [ref=e1068]: Total Debt/Equity (mrq)
+                        - paragraph [ref=e1069]: 25.91%
+                      - listitem [ref=e1070]:
+                        - paragraph [ref=e1071]: Levered Free Cash Flow (ttm)
+                        - paragraph [ref=e1072]: "-26.12B"
+            - generic [ref=e1074]:
+              - generic [ref=e1075]:
+                - 'heading "Compare To: BABA" [level=3] [ref=e1076]'
+                - generic [ref=e1077]:
+                  - link "Compare" [ref=e1078] [cursor=pointer]:
+                    - /url: /compare/BABA
+                    - generic [ref=e1079]: Compare
+                  - generic [ref=e1081]:
+                    - button "prev" [disabled]:
+                      - generic:
+                        - img
+                    - button "next" [ref=e1082] [cursor=pointer]:
+                      - img [ref=e1084]
+              - paragraph [ref=e1086]: Select to analyze similar companies using key performance metrics; select up to 4 stocks.
+              - generic [ref=e1089]:
+                - generic [ref=e1091]:
+                  - generic [ref=e1092]:
+                    - link "BABA" [ref=e1093] [cursor=pointer]:
+                      - /url: /quote/BABA/
+                      - generic [ref=e1094]:
+                        - text: BABA
+                        - generic [ref=e1095]: Alibaba Group Holding Limited
+                    - button "add-to-compare" [ref=e1097] [cursor=pointer]:
+                      - img [ref=e1099]
+                  - generic [ref=e1102]:
+                    - generic [ref=e1103]: "135.82"
+                    - generic [ref=e1105]: +3.13%
+                  - generic [ref=e1106]:
+                    - generic [ref=e1107]:
+                      - generic [ref=e1108]: Mkt Cap
+                      - generic [ref=e1109]: 335.147B
+                    - generic [ref=e1110]:
+                      - generic [ref=e1111]: Industry
+                      - generic [ref=e1112]: Internet Retail
+                - generic [ref=e1114]:
+                  - generic [ref=e1115]:
+                    - link "JD" [ref=e1116] [cursor=pointer]:
+                      - /url: /quote/JD/
+                      - generic [ref=e1117]:
+                        - text: JD
+                        - generic [ref=e1118]: JD.com, Inc.
+                    - button "add-to-compare" [ref=e1120] [cursor=pointer]:
+                      - img [ref=e1122]
+                  - generic [ref=e1125]:
+                    - generic [ref=e1126]: "30.27"
+                    - generic [ref=e1128]: +0.97%
+                  - generic [ref=e1129]:
+                    - generic [ref=e1130]:
+                      - generic [ref=e1131]: Mkt Cap
+                      - generic [ref=e1132]: 41.343B
+                    - generic [ref=e1133]:
+                      - generic [ref=e1134]: Industry
+                      - generic [ref=e1135]: Internet Retail
+                - generic [ref=e1137]:
+                  - generic [ref=e1138]:
+                    - link "AMZN" [ref=e1139] [cursor=pointer]:
+                      - /url: /quote/AMZN/
+                      - generic [ref=e1140]:
+                        - text: AMZN
+                        - generic [ref=e1141]: Amazon.com, Inc.
+                    - button "add-to-compare" [ref=e1143] [cursor=pointer]:
+                      - img [ref=e1145]
+                  - generic [ref=e1148]:
+                    - generic [ref=e1149]: "263.99"
+                    - generic [ref=e1151]: +3.49%
+                  - generic [ref=e1152]:
+                    - generic [ref=e1153]:
+                      - generic [ref=e1154]: Mkt Cap
+                      - generic [ref=e1155]: 2.839T
+                    - generic [ref=e1156]:
+                      - generic [ref=e1157]: Industry
+                      - generic [ref=e1158]: Internet Retail
+                - generic [ref=e1160]:
+                  - generic [ref=e1161]:
+                    - link "PDD" [ref=e1162] [cursor=pointer]:
+                      - /url: /quote/PDD/
+                      - generic [ref=e1163]:
+                        - text: PDD
+                        - generic [ref=e1164]: PDD Holdings Inc.
+                    - button "add-to-compare" [ref=e1166] [cursor=pointer]:
+                      - img [ref=e1168]
+                  - generic [ref=e1171]:
+                    - generic [ref=e1172]: "98.03"
+                    - generic [ref=e1174]: +0.27%
+                  - generic [ref=e1175]:
+                    - generic [ref=e1176]:
+                      - generic [ref=e1177]: Mkt Cap
+                      - generic [ref=e1178]: 139.168B
+                    - generic [ref=e1179]:
+                      - generic [ref=e1180]: Industry
+                      - generic [ref=e1181]: Internet Retail
+                - generic [ref=e1183]:
+                  - generic [ref=e1184]:
+                    - link "MELI" [ref=e1185] [cursor=pointer]:
+                      - /url: /quote/MELI/
+                      - generic [ref=e1186]:
+                        - text: MELI
+                        - generic [ref=e1187]: MercadoLibre, Inc.
+                    - button "add-to-compare" [ref=e1189] [cursor=pointer]:
+                      - img [ref=e1191]
+                  - generic [ref=e1194]:
+                    - generic [ref=e1195]: 1,835.22
+                    - generic [ref=e1197]: +1.44%
+                  - generic [ref=e1198]:
+                    - generic [ref=e1199]:
+                      - generic [ref=e1200]: Mkt Cap
+                      - generic [ref=e1201]: 93.04B
+                    - generic [ref=e1202]:
+                      - generic [ref=e1203]: Industry
+                      - generic [ref=e1204]: Internet Retail
+                - generic [ref=e1206]:
+                  - generic [ref=e1207]:
+                    - link "SE" [ref=e1208] [cursor=pointer]:
+                      - /url: /quote/SE/
+                      - generic [ref=e1209]:
+                        - text: SE
+                        - generic [ref=e1210]: Sea Limited
+                    - button "add-to-compare" [ref=e1212] [cursor=pointer]:
+                      - img [ref=e1214]
+                  - generic [ref=e1217]:
+                    - generic [ref=e1218]: "85.44"
+                    - generic [ref=e1220]: +2.51%
+                  - generic [ref=e1221]:
+                    - generic [ref=e1222]:
+                      - generic [ref=e1223]: Mkt Cap
+                      - generic [ref=e1224]: 52.331B
+                    - generic [ref=e1225]:
+                      - generic [ref=e1226]: Industry
+                      - generic [ref=e1227]: Internet Retail
+                - generic [ref=e1229]:
+                  - generic [ref=e1230]:
+                    - link "CPNG" [ref=e1231] [cursor=pointer]:
+                      - /url: /quote/CPNG/
+                      - generic [ref=e1232]:
+                        - text: CPNG
+                        - generic [ref=e1233]: Coupang, Inc.
+                    - button "add-to-compare" [ref=e1235] [cursor=pointer]:
+                      - img [ref=e1237]
+                  - generic [ref=e1240]:
+                    - generic [ref=e1241]: "20.51"
+                    - generic [ref=e1243]: "-0.34%"
+                  - generic [ref=e1244]:
+                    - generic [ref=e1245]:
+                      - generic [ref=e1246]: Mkt Cap
+                      - generic [ref=e1247]: 37.496B
+                    - generic [ref=e1248]:
+                      - generic [ref=e1249]: Industry
+                      - generic [ref=e1250]: Internet Retail
+                - generic [ref=e1252]:
+                  - generic [ref=e1253]:
+                    - link "DASH" [ref=e1254] [cursor=pointer]:
+                      - /url: /quote/DASH/
+                      - generic [ref=e1255]:
+                        - text: DASH
+                        - generic [ref=e1256]: DoorDash, Inc.
+                    - button "add-to-compare" [ref=e1258] [cursor=pointer]:
+                      - img [ref=e1260]
+                  - generic [ref=e1263]:
+                    - generic [ref=e1264]: "176.78"
+                    - generic [ref=e1266]: "-0.12%"
+                  - generic [ref=e1267]:
+                    - generic [ref=e1268]:
+                      - generic [ref=e1269]: Mkt Cap
+                      - generic [ref=e1270]: 77.031B
+                    - generic [ref=e1271]:
+                      - generic [ref=e1272]: Industry
+                      - generic [ref=e1273]: Internet Retail
+                - generic [ref=e1275]:
+                  - generic [ref=e1276]:
+                    - link "CHWY" [ref=e1277] [cursor=pointer]:
+                      - /url: /quote/CHWY/
+                      - generic [ref=e1278]:
+                        - text: CHWY
+                        - generic [ref=e1279]: Chewy, Inc.
+                    - button "add-to-compare" [ref=e1281] [cursor=pointer]:
+                      - img [ref=e1283]
+                  - generic [ref=e1286]:
+                    - generic [ref=e1287]: "26.02"
+                    - generic [ref=e1289]: +1.44%
+                  - generic [ref=e1290]:
+                    - generic [ref=e1291]:
+                      - generic [ref=e1292]: Mkt Cap
+                      - generic [ref=e1293]: 10.842B
+                    - generic [ref=e1294]:
+                      - generic [ref=e1295]: Industry
+                      - generic [ref=e1296]: Internet Retail
+                - generic [ref=e1298]:
+                  - generic [ref=e1299]:
+                    - link "EBAY" [ref=e1300] [cursor=pointer]:
+                      - /url: /quote/EBAY/
+                      - generic [ref=e1301]:
+                        - text: EBAY
+                        - generic [ref=e1302]: eBay Inc.
+                    - button "add-to-compare" [ref=e1304] [cursor=pointer]:
+                      - img [ref=e1306]
+                  - generic [ref=e1309]:
+                    - generic [ref=e1310]: "97.94"
+                    - generic [ref=e1312]: "-5.28%"
+                  - generic [ref=e1313]:
+                    - generic [ref=e1314]:
+                      - generic [ref=e1315]: Mkt Cap
+                      - generic [ref=e1316]: 43.877B
+                    - generic [ref=e1317]:
+                      - generic [ref=e1318]: Industry
+                      - generic [ref=e1319]: Internet Retail
+                - generic [ref=e1321]:
+                  - generic [ref=e1322]:
+                    - link "W" [ref=e1323] [cursor=pointer]:
+                      - /url: /quote/W/
+                      - generic [ref=e1324]:
+                        - text: W
+                        - generic [ref=e1325]: Wayfair Inc.
+                    - button "add-to-compare" [ref=e1327] [cursor=pointer]:
+                      - img [ref=e1329]
+                  - generic [ref=e1332]:
+                    - generic [ref=e1333]: "78.78"
+                    - generic [ref=e1335]: +2.39%
+                  - generic [ref=e1336]:
+                    - generic [ref=e1337]:
+                      - generic [ref=e1338]: Mkt Cap
+                      - generic [ref=e1339]: 10.301B
+                    - generic [ref=e1340]:
+                      - generic [ref=e1341]: Industry
+                      - generic [ref=e1342]: Internet Retail
+            - generic [ref=e1345]:
+              - heading "People Also Watch" [level=3] [ref=e1347]
+              - generic [ref=e1350]:
+                - generic [ref=e1351]:
+                  - generic [ref=e1352]:
+                    - generic [ref=e1355]:
+                      - generic [ref=e1356]: BIDU
+                      - generic "Baidu, Inc." [ref=e1357]
+                    - generic [ref=e1358]:
+                      - strong [ref=e1359]: "128.71"
+                      - generic [ref=e1360]: +5.91%
+                  - link "BIDU" [ref=e1361] [cursor=pointer]:
+                    - /url: /quote/BIDU/
+                - generic [ref=e1362]:
+                  - generic [ref=e1363]:
+                    - generic [ref=e1366]:
+                      - generic [ref=e1367]: NFLX
+                      - generic "Netflix, Inc." [ref=e1368]
+                    - generic [ref=e1369]:
+                      - strong [ref=e1370]: "92.44"
+                      - generic [ref=e1371]: "-0.41%"
+                  - link "NFLX" [ref=e1372] [cursor=pointer]:
+                    - /url: /quote/NFLX/
+                - generic [ref=e1373]:
+                  - generic [ref=e1374]:
+                    - generic [ref=e1377]:
+                      - generic [ref=e1378]: PYPL
+                      - generic "PayPal Holdings, Inc." [ref=e1379]
+                    - generic [ref=e1380]:
+                      - strong [ref=e1381]: "50.48"
+                      - generic [ref=e1382]: +1.47%
+                  - link "PYPL" [ref=e1383] [cursor=pointer]:
+                    - /url: /quote/PYPL/
+                - generic [ref=e1384]:
+                  - generic [ref=e1385]:
+                    - generic [ref=e1388]:
+                      - generic [ref=e1389]: JD
+                      - generic "JD.com, Inc." [ref=e1390]
+                    - generic [ref=e1391]:
+                      - strong [ref=e1392]: "30.27"
+                      - generic [ref=e1393]: +0.97%
+                  - link "JD" [ref=e1394] [cursor=pointer]:
+                    - /url: /quote/JD/
+                - generic [ref=e1395]:
+                  - generic [ref=e1396]:
+                    - generic [ref=e1399]:
+                      - generic [ref=e1400]: NIO
+                      - generic "NIO Inc." [ref=e1401]
+                    - generic [ref=e1402]:
+                      - strong [ref=e1403]: "6.21"
+                      - generic [ref=e1404]: "-1.11%"
+                  - link "NIO" [ref=e1405] [cursor=pointer]:
+                    - /url: /quote/NIO/
+          - generic [ref=e1408]:
+            - generic [ref=e1409]:
+              - link "Yahoo Finance" [ref=e1410] [cursor=pointer]:
+                - /url: /
+                - img [ref=e1412]
+              - generic [ref=e1416]: Copyright © 2026 Yahoo. All rights reserved.
+              - generic [ref=e1417]:
+                - link "Follow on Twitter" [ref=e1418] [cursor=pointer]:
+                  - /url: https://twitter.com/YahooFinance
+                  - img [ref=e1420]
+                - link "Follow on Facebook" [ref=e1423] [cursor=pointer]:
+                  - /url: https://facebook.com/yahoofinance
+                  - img [ref=e1425]
+                - link "Follow on LinkedIn" [ref=e1427] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/company/yahoo-finance
+                  - img [ref=e1429]
+            - generic [ref=e1431]:
+              - generic [ref=e1432]: Trending Topics
+              - link "Dow Jones" [ref=e1433] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/%5EDJI/
+              - link "S&P 500" [ref=e1434] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/SPY/
+              - link "DAX Index" [ref=e1435] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/%5EGDAXI/
+              - link "Nvidia" [ref=e1436] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/NVDA/
+              - link "Tesla" [ref=e1437] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/TSLA/
+              - link "DJT" [ref=e1438] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/quote/DJT/
+              - link "Tariffs" [ref=e1439] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/topic/tariffs/
+            - generic [ref=e1440]:
+              - generic [ref=e1441]: Explore Further
+              - link "Mortgages" [ref=e1442] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/personal-finance/mortgages/
+              - link "Credit Cards" [ref=e1443] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/personal-finance/credit-cards/
+              - link "Sectors" [ref=e1444] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/sectors/
+              - link "Crypto Heatmap" [ref=e1445] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/crypto/heatmap/
+              - link "Financial News" [ref=e1446] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/news/
+            - generic [ref=e1447]:
+              - generic [ref=e1448]: About
+              - link "Data Disclaimer" [ref=e1449] [cursor=pointer]:
+                - /url: https://help.yahoo.com/kb/finance-for-web/SLN2310.html?locale=en_US
+              - link "Help" [ref=e1450] [cursor=pointer]:
+                - /url: https://help.yahoo.com/kb/finance-for-web
+              - link "Feedback" [ref=e1451] [cursor=pointer]:
+                - /url: https://yahoo.uservoice.com/forums/952723-finance-b3
+              - link "Sitemap" [ref=e1452] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/sitemap/
+              - link "Licensing" [ref=e1453] [cursor=pointer]:
+                - /url: https://info.wrightsmedia.com/yahoo-finance-licensing
+              - link "What's New" [ref=e1454] [cursor=pointer]:
+                - /url: https://finance.yahoo.com/about/whatsnew/
+              - link "About Our Ads" [ref=e1455] [cursor=pointer]:
+                - /url: https://policies.oath.com/us/en/oath/privacy/adinfo/index.html
+              - generic [ref=e1456]:
+                - generic [ref=e1457]:
+                  - link "Terms" [ref=e1458] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/terms?locale=en-US
+                  - text: and
+                  - link "Privacy Policy" [ref=e1459] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/privacy-policy?locale=en-US
+                - link "Privacy Dashboard" [ref=e1461] [cursor=pointer]:
+                  - /url: https://guce.yahoo.com/privacy-dashboard?locale=en-US
+      - complementary "Dock" [ref=e1462]:
+        - dialog "Dock" [ref=e1463]:
+          - generic [ref=e1465]:
+            - search [ref=e1470]:
+              - img [ref=e1472]
+              - textbox "Quote Lookup" [ref=e1474]
+            - generic [ref=e1475]:
+              - list [ref=e1476]:
+                - listitem [ref=e1477]:
+                  - generic [ref=e1480]:
+                    - link "Trending tickers" [ref=e1484] [cursor=pointer]:
+                      - /url: /trending-tickers
+                      - generic [ref=e1485]: Trending tickers
+                    - list [ref=e1486]:
+                      - listitem [ref=e1487]:
+                        - generic [ref=e1488]:
+                          - link "BTC-USD Bitcoin USD 77,765.52 +213.64 (+0.28%)" [ref=e1489] [cursor=pointer]:
+                            - /url: /quote/BTC-USD/
+                            - generic [ref=e1490]:
+                              - generic [ref=e1491]: BTC-USD
+                              - generic "Bitcoin USD" [ref=e1492]
+                              - generic [ref=e1493]: 77,765.52
+                              - generic [ref=e1494]:
+                                - generic [ref=e1496]: "+213.64"
+                                - generic [ref=e1497]: (+0.28%)
+                          - button "Follow" [ref=e1498] [cursor=pointer]:
+                            - img [ref=e1500]
+                      - listitem [ref=e1502]:
+                        - generic [ref=e1503]:
+                          - link "XE X-Energy, Inc. Class A Common Stock 29.20 +6.20 (+26.96%)" [ref=e1504] [cursor=pointer]:
+                            - /url: /quote/XE/
+                            - generic [ref=e1505]:
+                              - generic [ref=e1506]: XE
+                              - generic "X-Energy, Inc. Class A Common Stock" [ref=e1507]
+                              - generic [ref=e1508]: "29.20"
+                              - generic [ref=e1509]:
+                                - generic [ref=e1511]: "+6.20"
+                                - generic [ref=e1512]: (+26.96%)
+                          - button "Follow" [ref=e1513] [cursor=pointer]:
+                            - img [ref=e1515]
+                      - listitem [ref=e1517]:
+                        - generic [ref=e1518]:
+                          - link "^GSPC S&P 500 7,165.08 +56.68 (+0.80%)" [ref=e1519] [cursor=pointer]:
+                            - /url: /quote/%5EGSPC/
+                            - generic [ref=e1520]:
+                              - generic [ref=e1521]: ^GSPC
+                              - generic "S&P 500" [ref=e1522]
+                              - generic [ref=e1523]: 7,165.08
+                              - generic [ref=e1524]:
+                                - generic [ref=e1526]: "+56.68"
+                                - generic [ref=e1527]: (+0.80%)
+                          - button "Follow" [ref=e1528] [cursor=pointer]:
+                            - img [ref=e1530]
+                      - listitem [ref=e1532]:
+                        - generic [ref=e1533]:
+                          - link "NVDA NVIDIA Corporation 208.27 +8.63 (+4.32%)" [ref=e1534] [cursor=pointer]:
+                            - /url: /quote/NVDA/
+                            - generic [ref=e1535]:
+                              - generic [ref=e1536]: NVDA
+                              - generic "NVIDIA Corporation" [ref=e1537]
+                              - generic [ref=e1538]: "208.27"
+                              - generic [ref=e1539]:
+                                - generic [ref=e1541]: "+8.63"
+                                - generic [ref=e1542]: (+4.32%)
+                          - button "Follow" [ref=e1543] [cursor=pointer]:
+                            - img [ref=e1545]
+                      - listitem [ref=e1547]:
+                        - generic [ref=e1548]:
+                          - link "^IXIC NASDAQ Composite 24,836.60 +398.09 (+1.63%)" [ref=e1549] [cursor=pointer]:
+                            - /url: /quote/%5EIXIC/
+                            - generic [ref=e1550]:
+                              - generic [ref=e1551]: ^IXIC
+                              - generic "NASDAQ Composite" [ref=e1552]
+                              - generic [ref=e1553]: 24,836.60
+                              - generic [ref=e1554]:
+                                - generic [ref=e1556]: "+398.09"
+                                - generic [ref=e1557]: (+1.63%)
+                          - button "Follow" [ref=e1558] [cursor=pointer]:
+                            - img [ref=e1560]
+                - listitem [ref=e1562]:
+                  - generic [ref=e1564]:
+                    - generic:
+                      - generic: ADVERTISEMENT
+                - listitem [ref=e1565]:
+                  - generic [ref=e1569]:
+                    - link "Portfolio" [ref=e1573] [cursor=pointer]:
+                      - /url: /portfolios
+                    - generic [ref=e1574]:
+                      - paragraph [ref=e1575]: Sign in to access your portfolio
+                      - link "Sign in" [ref=e1576] [cursor=pointer]:
+                        - /url: https://login.yahoo.com/config/login?done=https%3A%2F%2Ffinance.yahoo.com%2Fquote%2FBABA%2F&intl=us&lang=en-US&activity=dock-portfolio&pspid=95993639&src=finance
+                - listitem
+                - listitem [ref=e1577]:
+                  - generic [ref=e1580]:
+                    - link "Top gainers" [ref=e1584] [cursor=pointer]:
+                      - /url: /gainers/
+                      - generic [ref=e1585]: Top gainers
+                    - list [ref=e1586]:
+                      - listitem [ref=e1587]:
+                        - generic [ref=e1588]:
+                          - link "MXL MaxLinear, Inc. 60.32 +26.07 (+76.12%)" [ref=e1589] [cursor=pointer]:
+                            - /url: /quote/MXL/
+                            - generic [ref=e1590]:
+                              - generic [ref=e1591]: MXL
+                              - generic "MaxLinear, Inc." [ref=e1592]
+                              - generic [ref=e1593]: "60.32"
+                              - generic [ref=e1594]:
+                                - generic [ref=e1596]: "+26.07"
+                                - generic [ref=e1597]: (+76.12%)
+                          - button "Follow" [ref=e1598] [cursor=pointer]:
+                            - img [ref=e1600]
+                      - listitem [ref=e1602]:
+                        - generic [ref=e1603]:
+                          - link "OGN Organon & Co. 11.26 +2.66 (+30.93%)" [ref=e1604] [cursor=pointer]:
+                            - /url: /quote/OGN/
+                            - generic [ref=e1605]:
+                              - generic [ref=e1606]: OGN
+                              - generic "Organon & Co." [ref=e1607]
+                              - generic [ref=e1608]: "11.26"
+                              - generic [ref=e1609]:
+                                - generic [ref=e1611]: "+2.66"
+                                - generic [ref=e1612]: (+30.93%)
+                          - button "Follow" [ref=e1613] [cursor=pointer]:
+                            - img [ref=e1615]
+                      - listitem [ref=e1617]:
+                        - generic [ref=e1618]:
+                          - link "POET POET Technologies Inc. 15.10 +3.38 (+28.84%)" [ref=e1619] [cursor=pointer]:
+                            - /url: /quote/POET/
+                            - generic [ref=e1620]:
+                              - generic [ref=e1621]: POET
+                              - generic "POET Technologies Inc." [ref=e1622]
+                              - generic [ref=e1623]: "15.10"
+                              - generic [ref=e1624]:
+                                - generic [ref=e1626]: "+3.38"
+                                - generic [ref=e1627]: (+28.84%)
+                          - button "Follow" [ref=e1628] [cursor=pointer]:
+                            - img [ref=e1630]
+                      - listitem [ref=e1632]:
+                        - generic [ref=e1633]:
+                          - link "SXT Sensient Technologies Corporation 123.15 +23.92 (+24.11%)" [ref=e1634] [cursor=pointer]:
+                            - /url: /quote/SXT/
+                            - generic [ref=e1635]:
+                              - generic [ref=e1636]: SXT
+                              - generic "Sensient Technologies Corporation" [ref=e1637]
+                              - generic [ref=e1638]: "123.15"
+                              - generic [ref=e1639]:
+                                - generic [ref=e1641]: "+23.92"
+                                - generic [ref=e1642]: (+24.11%)
+                          - button "Follow" [ref=e1643] [cursor=pointer]:
+                            - img [ref=e1645]
+                      - listitem [ref=e1647]:
+                        - generic [ref=e1648]:
+                          - link "INTC Intel Corporation 82.54 +15.76 (+23.60%)" [ref=e1649] [cursor=pointer]:
+                            - /url: /quote/INTC/
+                            - generic [ref=e1650]:
+                              - generic [ref=e1651]: INTC
+                              - generic "Intel Corporation" [ref=e1652]
+                              - generic [ref=e1653]: "82.54"
+                              - generic [ref=e1654]:
+                                - generic [ref=e1656]: "+15.76"
+                                - generic [ref=e1657]: (+23.60%)
+                          - button "Follow" [ref=e1658] [cursor=pointer]:
+                            - img [ref=e1660]
+                - listitem [ref=e1662]:
+                  - generic [ref=e1665]:
+                    - link "Top losers" [ref=e1669] [cursor=pointer]:
+                      - /url: /losers/
+                      - generic [ref=e1670]: Top losers
+                    - list [ref=e1671]:
+                      - listitem [ref=e1672]:
+                        - generic [ref=e1673]:
+                          - link "LBRDA Liberty Broadband Corporation 41.89 -14.52 (-25.74%)" [ref=e1674] [cursor=pointer]:
+                            - /url: /quote/LBRDA/
+                            - generic [ref=e1675]:
+                              - generic [ref=e1676]: LBRDA
+                              - generic "Liberty Broadband Corporation" [ref=e1677]
+                              - generic [ref=e1678]: "41.89"
+                              - generic [ref=e1679]:
+                                - generic [ref=e1681]: "-14.52"
+                                - generic [ref=e1682]: (-25.74%)
+                          - button "Follow" [ref=e1683] [cursor=pointer]:
+                            - img [ref=e1685]
+                      - listitem [ref=e1687]:
+                        - generic [ref=e1688]:
+                          - link "LBRDK Liberty Broadband Corporation 41.94 -14.53 (-25.73%)" [ref=e1689] [cursor=pointer]:
+                            - /url: /quote/LBRDK/
+                            - generic [ref=e1690]:
+                              - generic [ref=e1691]: LBRDK
+                              - generic "Liberty Broadband Corporation" [ref=e1692]
+                              - generic [ref=e1693]: "41.94"
+                              - generic [ref=e1694]:
+                                - generic [ref=e1696]: "-14.53"
+                                - generic [ref=e1697]: (-25.73%)
+                          - button "Follow" [ref=e1698] [cursor=pointer]:
+                            - img [ref=e1700]
+                      - listitem [ref=e1702]:
+                        - generic [ref=e1703]:
+                          - link "CHTR Charter Communications, Inc. 180.13 -61.65 (-25.50%)" [ref=e1704] [cursor=pointer]:
+                            - /url: /quote/CHTR/
+                            - generic [ref=e1705]:
+                              - generic [ref=e1706]: CHTR
+                              - generic "Charter Communications, Inc." [ref=e1707]
+                              - generic [ref=e1708]: "180.13"
+                              - generic [ref=e1709]:
+                                - generic [ref=e1711]: "-61.65"
+                                - generic [ref=e1712]: (-25.50%)
+                          - button "Follow" [ref=e1713] [cursor=pointer]:
+                            - img [ref=e1715]
+                      - listitem [ref=e1717]:
+                        - generic [ref=e1718]:
+                          - link "STNE StoneCo Ltd. 12.22 -2.33 (-16.01%)" [ref=e1719] [cursor=pointer]:
+                            - /url: /quote/STNE/
+                            - generic [ref=e1720]:
+                              - generic [ref=e1721]: STNE
+                              - generic "StoneCo Ltd." [ref=e1722]
+                              - generic [ref=e1723]: "12.22"
+                              - generic [ref=e1724]:
+                                - generic [ref=e1726]: "-2.33"
+                                - generic [ref=e1727]: (-16.01%)
+                          - button "Follow" [ref=e1728] [cursor=pointer]:
+                            - img [ref=e1730]
+                      - listitem [ref=e1732]:
+                        - generic [ref=e1733]:
+                          - link "YSS York Space Systems, Inc. 31.06 -4.65 (-13.02%)" [ref=e1734] [cursor=pointer]:
+                            - /url: /quote/YSS/
+                            - generic [ref=e1735]:
+                              - generic [ref=e1736]: YSS
+                              - generic "York Space Systems, Inc." [ref=e1737]
+                              - generic [ref=e1738]: "31.06"
+                              - generic [ref=e1739]:
+                                - generic [ref=e1741]: "-4.65"
+                                - generic [ref=e1742]: (-13.02%)
+                          - button "Follow" [ref=e1743] [cursor=pointer]:
+                            - img [ref=e1745]
+                - listitem [ref=e1747]:
+                  - generic [ref=e1750]:
+                    - link "Most active" [ref=e1754] [cursor=pointer]:
+                      - /url: /most-active/
+                      - generic [ref=e1755]: Most active
+                    - list [ref=e1756]:
+                      - listitem [ref=e1757]:
+                        - generic [ref=e1758]:
+                          - link "INTC Intel Corporation 82.54 +15.76 (+23.60%)" [ref=e1759] [cursor=pointer]:
+                            - /url: /quote/INTC/
+                            - generic [ref=e1760]:
+                              - generic [ref=e1761]: INTC
+                              - generic "Intel Corporation" [ref=e1762]
+                              - generic [ref=e1763]: "82.54"
+                              - generic [ref=e1764]:
+                                - generic [ref=e1766]: "+15.76"
+                                - generic [ref=e1767]: (+23.60%)
+                          - button "Follow" [ref=e1768] [cursor=pointer]:
+                            - img [ref=e1770]
+                      - listitem [ref=e1772]:
+                        - generic [ref=e1773]:
+                          - link "NVDA NVIDIA Corporation 208.27 +8.63 (+4.32%)" [ref=e1774] [cursor=pointer]:
+                            - /url: /quote/NVDA/
+                            - generic [ref=e1775]:
+                              - generic [ref=e1776]: NVDA
+                              - generic "NVIDIA Corporation" [ref=e1777]
+                              - generic [ref=e1778]: "208.27"
+                              - generic [ref=e1779]:
+                                - generic [ref=e1781]: "+8.63"
+                                - generic [ref=e1782]: (+4.32%)
+                          - button "Follow" [ref=e1783] [cursor=pointer]:
+                            - img [ref=e1785]
+                      - listitem [ref=e1787]:
+                        - generic [ref=e1788]:
+                          - link "NOK Nokia Oyj 10.46 +0.13 (+1.26%)" [ref=e1789] [cursor=pointer]:
+                            - /url: /quote/NOK/
+                            - generic [ref=e1790]:
+                              - generic [ref=e1791]: NOK
+                              - generic "Nokia Oyj" [ref=e1792]
+                              - generic [ref=e1793]: "10.46"
+                              - generic [ref=e1794]:
+                                - generic [ref=e1796]: "+0.13"
+                                - generic [ref=e1797]: (+1.26%)
+                          - button "Follow" [ref=e1798] [cursor=pointer]:
+                            - img [ref=e1800]
+                      - listitem [ref=e1802]:
+                        - generic [ref=e1803]:
+                          - link "POET POET Technologies Inc. 15.10 +3.38 (+28.84%)" [ref=e1804] [cursor=pointer]:
+                            - /url: /quote/POET/
+                            - generic [ref=e1805]:
+                              - generic [ref=e1806]: POET
+                              - generic "POET Technologies Inc." [ref=e1807]
+                              - generic [ref=e1808]: "15.10"
+                              - generic [ref=e1809]:
+                                - generic [ref=e1811]: "+3.38"
+                                - generic [ref=e1812]: (+28.84%)
+                          - button "Follow" [ref=e1813] [cursor=pointer]:
+                            - img [ref=e1815]
+                      - listitem [ref=e1817]:
+                        - generic [ref=e1818]:
+                          - link "AMD Advanced Micro Devices, Inc. 347.81 +42.48 (+13.91%)" [ref=e1819] [cursor=pointer]:
+                            - /url: /quote/AMD/
+                            - generic [ref=e1820]:
+                              - generic [ref=e1821]: AMD
+                              - generic "Advanced Micro Devices, Inc." [ref=e1822]
+                              - generic [ref=e1823]: "347.81"
+                              - generic [ref=e1824]:
+                                - generic [ref=e1826]: "+42.48"
+                                - generic [ref=e1827]: (+13.91%)
+                          - button "Follow" [ref=e1828] [cursor=pointer]:
+                            - img [ref=e1830]
+                - listitem [ref=e1832]:
+                  - generic [ref=e1836]:
+                    - generic [ref=e1837]:
+                      - link "Top economic events" [ref=e1839] [cursor=pointer]:
+                        - /url: /calendar/economic
+                        - generic [ref=e1840]: Top economic events
+                      - button "Singapore" [ref=e1843] [cursor=pointer]:
+                        - generic:
+                          - img
+                        - generic [ref=e1845]: Singapore
+                    - generic [ref=e1846]:
+                      - img [ref=e1848]
+                      - text: There are no important events for this country at this time. Select "All" to see top events in other countries or view all events.
+                      - link "View All Events" [ref=e1851] [cursor=pointer]:
+                        - /url: /calendar/economic
+                - listitem [ref=e1852]:
+                  - generic [ref=e1855]:
+                    - generic [ref=e1857]:
+                      - link "Earnings events" [ref=e1859] [cursor=pointer]:
+                        - /url: /calendar/earnings?day=2026-04-25
+                        - generic [ref=e1860]: Earnings events
+                      - group [ref=e1861]:
+                        - generic [ref=e1863]:
+                          - checkbox "My earnings events" [ref=e1864] [cursor=pointer]
+                          - generic [ref=e1865]: My earnings events
+                          - img [ref=e1867]
+                        - generic [ref=e1870]:
+                          - checkbox "Earnings events" [checked] [ref=e1871] [cursor=pointer]
+                          - generic [ref=e1872]: Earnings events
+                          - img [ref=e1874]
+                    - img "Progress Spinner" [ref=e1878]
+              - button "Edit your Dock" [ref=e1901] [cursor=pointer]:
+                - generic [ref=e1902]: Edit your Dock
+              - generic [ref=e1905]:
+                - generic:
+                  - generic: ADVERTISEMENT
+              - generic [ref=e1907]:
+                - generic [ref=e1908]:
+                  - link "Terms" [ref=e1909] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/terms?locale=en-US
+                  - text: and
+                  - link "Privacy Policy" [ref=e1910] [cursor=pointer]:
+                    - /url: https://guce.yahoo.com/privacy-policy?locale=en-US
+                - link "Privacy Dashboard" [ref=e1912] [cursor=pointer]:
+                  - /url: https://guce.yahoo.com/privacy-dashboard?locale=en-US
+            - iframe [ref=e1913]:
+              
+      - complementary

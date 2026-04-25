@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
+import { ToolConfirmDialog } from '../../components/ToolConfirmDialog'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
 
@@ -28,6 +29,7 @@ export function ChatPage() {
     streamingContent,
     error,
     attachments,
+    pendingToolConfirm,
     setSessions,
     setCurrentSession,
     setMessages,
@@ -36,6 +38,7 @@ export function ChatPage() {
     clearToolCalls,
     setAttachments,
     removeAttachment,
+    setPendingToolConfirm,
   } = useChatStore()
 
   const [input, setInput] = useState('')
@@ -390,8 +393,26 @@ export function ChatPage() {
     ? (modelOptions.find(m => m.id === currentModelId)?.displayName ?? currentModelId.split('/').pop() ?? currentModelId)
     : '选择模型'
 
+  const handleToolConfirmApprove = () => {
+    if (!pendingToolConfirm) return
+    talorAPI.chat.sendToolConfirmResponse({
+      toolCallId: pendingToolConfirm.toolCallId,
+      decision: 'approved',
+    })
+    setPendingToolConfirm(null)
+  }
+
+  const handleToolConfirmReject = () => {
+    if (!pendingToolConfirm) return
+    talorAPI.chat.sendToolConfirmResponse({
+      toolCallId: pendingToolConfirm.toolCallId,
+      decision: 'rejected',
+    })
+    setPendingToolConfirm(null)
+  }
+
   return (
-    <div 
+    <div
       className="flex h-full w-full bg-white overflow-hidden relative"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -461,7 +482,18 @@ export function ChatPage() {
                 </div>
               ) : (
                 <>
-                  {messages.map(msg => (
+                  {messages.filter(msg => {
+                    // Don't render tool messages (tool_result) — shown in ToolCallLog
+                    if (msg.role === 'tool') return false
+                    // Don't render assistant messages that contain only tool_use blocks (no visible text)
+                    if (msg.role === 'assistant') {
+                      try {
+                        const blocks = JSON.parse(msg.content) as Array<{ type: string }>
+                        if (Array.isArray(blocks) && blocks.every(b => b.type === 'tool_use')) return false
+                      } catch { /* render it */ }
+                    }
+                    return true
+                  }).map(msg => (
                     <MessageBubble key={msg.id} message={msg} />
                   ))}
                   {streamState === 'streaming' && (
@@ -630,6 +662,14 @@ export function ChatPage() {
           confirmLabel="删除"
           onConfirm={handleDeleteSession}
           onCancel={() => setSessionToDelete(null)}
+        />
+      )}
+
+      {pendingToolConfirm && (
+        <ToolConfirmDialog
+          request={pendingToolConfirm}
+          onApprove={handleToolConfirmApprove}
+          onReject={handleToolConfirmReject}
         />
       )}
 

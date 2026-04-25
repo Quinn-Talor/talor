@@ -1,6 +1,7 @@
 import type { ProviderType, ConnectionTestResult, Provider, ProviderInput } from '../types/config'
 import type { ChatSession, ChatMessage, ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent, Attachment } from '../types/chat'
 import type { ProviderModelResponse, ModelInfo } from '../types/models'
+import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
 
 declare global {
   interface Window {
@@ -39,6 +40,8 @@ declare global {
         onStream: (callback: (event: ChatStreamEvent) => void) => () => void
         onToolCall: (callback: (event: ChatToolCallEvent) => void) => () => void
         onToolResult: (callback: (event: ChatToolResultEvent) => void) => () => void
+        onToolConfirm: (callback: (event: ToolConfirmRequest) => void) => () => void
+        sendToolConfirmResponse: (response: ToolConfirmResponse) => void
       }
       
       mcp: {
@@ -49,6 +52,11 @@ declare global {
         delete: (id: string) => Promise<void>
         setEnabled: (id: string, enabled: boolean) => Promise<import('../../preload/index').MCPServer>
         testConnection: (server: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPConnectionTestResult>
+        connect: (serverId: string) => Promise<{ status: string; message?: string; error_code?: string }>
+        disconnect: (serverId: string) => Promise<{ status: string; message?: string; error_code?: string }>
+        listTools: () => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; schema?: Record<string, unknown>; provider?: string }>>
+        connectedServers: () => Promise<string[]>
+        getServerStatus: () => Promise<Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>>
       }
       window: {
         minimize: () => void
@@ -106,6 +114,8 @@ const stubChat = {
   onStream: () => () => {},
   onToolCall: () => () => {},
   onToolResult: () => () => {},
+  onToolConfirm: () => () => {},
+  sendToolConfirmResponse: () => {},
 }
 
 
@@ -116,7 +126,14 @@ const stubMcp = {
   update: () => Promise.resolve({}),
   delete: () => Promise.resolve(),
   setEnabled: () => Promise.resolve({}),
+  importConfig: () => Promise.resolve([]),
+  exportConfig: () => Promise.resolve('{}'),
   testConnection: () => Promise.resolve({ status: 'failure' }),
+  connect: () => Promise.resolve({ status: 'failure' }),
+  disconnect: () => Promise.resolve({ status: 'failure' }),
+  listTools: () => Promise.resolve([]),
+  connectedServers: () => Promise.resolve([]),
+  getServerStatus: () => Promise.resolve([]),
 }
 
 const stubWindow = {

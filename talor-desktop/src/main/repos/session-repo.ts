@@ -1,6 +1,9 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getDb } from '../db/index'
 import log from 'electron-log'
+import type { ContentBlock } from '@shared/types/message'
+
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface SessionRow {
   id: string
@@ -15,8 +18,9 @@ export interface SessionRow {
 export interface MessageRow {
   id: string
   session_id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
+  role: MessageRole
+  content: string        // JSON ContentBlock[]
+  content_type: string   // 'blocks'
   created_at: string
 }
 
@@ -33,8 +37,8 @@ export interface ChatSession {
 export interface ChatMessage {
   id: string
   session_id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
+  role: MessageRole
+  content: string        // JSON ContentBlock[]
   created_at: string
 }
 
@@ -55,8 +59,18 @@ function rowToMessage(row: MessageRow): ChatMessage {
     id: row.id,
     session_id: row.session_id,
     role: row.role,
-    content: row.content,
+    content: row.content,   // JSON ContentBlock[]
     created_at: row.created_at,
+  }
+}
+
+export function parseBlocks(content: string): ContentBlock[] {
+  try {
+    const parsed = JSON.parse(content)
+    if (Array.isArray(parsed)) return parsed as ContentBlock[]
+    return [{ type: 'text', text: String(content) }]
+  } catch {
+    return [{ type: 'text', text: String(content) }]
   }
 }
 
@@ -141,14 +155,15 @@ export const messageRepo = {
     return rows.map(rowToMessage)
   },
 
-  create(params: { id: string; session_id: string; role: 'user' | 'assistant' | 'system'; content: string }): ChatMessage {
+  create(params: { id: string; session_id: string; role: MessageRole; content: ContentBlock[] }): ChatMessage {
     const db = getDb()
     const now = new Date().toISOString()
+    const contentJson = JSON.stringify(params.content)
     db.prepare(`
-      INSERT INTO messages (id, session_id, role, content, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(params.id, params.session_id, params.role, params.content, now)
-    return { id: params.id, session_id: params.session_id, role: params.role, content: params.content, created_at: now }
+      INSERT INTO messages (id, session_id, role, content, content_type, created_at)
+      VALUES (?, ?, ?, ?, 'blocks', ?)
+    `).run(params.id, params.session_id, params.role, contentJson, now)
+    return { id: params.id, session_id: params.session_id, role: params.role, content: contentJson, created_at: now }
   },
 
   deleteBySession(sessionId: string): void {
