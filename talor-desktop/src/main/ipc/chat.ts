@@ -16,6 +16,9 @@ import { dynamicTool, jsonSchema } from 'ai'
 import type { ContentBlock } from '@shared/types/message'
 import { MAX_TOOL_RESULT_BYTES } from '@shared/types/message'
 import { requestToolConfirm, buildInputSummary } from './tool-confirm'
+import { PromptPipeline, resolveProviderConfig } from '../prompt/PromptPipeline'
+import { MemoryManager } from '../memory/MemoryManager'
+import type { PipelineContext } from '../prompt/types'
 
 /**
  * 检查 Provider 是否支持视觉（多模态）
@@ -212,6 +215,9 @@ function buildUserBlocks(
   return blocks
 }
 
+const _memoryManager = new MemoryManager()
+const _pipeline = new PromptPipeline(_memoryManager)
+
 export function registerChatHandlers(): void {
   ipcMain.handle('chat:send', async (_event, params: { session_id: string; content: string; attachments?: Array<{ path: string; mime_type: string; filename: string; size_bytes: number }> }) => {
     log.info('[chat:send] invoked, session:', params.session_id, 'content:', params.content.slice(0, 20))
@@ -356,7 +362,23 @@ export function registerChatHandlers(): void {
       for (let step = 0; step < maxSteps; step++) {
         if (abortController.signal.aborted) break
 
-        const currentMessages = toCoreMessages(sessionId)
+        const providerConfig = resolveProviderConfig(provider)
+        const pipelineCtx: PipelineContext = {
+          sessionId,
+          currentMessage: {
+            text: userContent,
+            attachments: validatedAttachments.map(a => ({
+              name: a.filename,
+              mediaType: a.mime_type,
+              base64: a.base64_data,
+              content: undefined,
+            })),
+          },
+          provider,
+          providerConfig,
+          workspacePath: session?.workspace ?? undefined,
+        }
+        const { messages: currentMessages } = await _pipeline.build(pipelineCtx)
         log.info(`[Chat] ReAct step ${step + 1}/${maxSteps}, messages count: ${currentMessages.length}`)
 
         const stepToolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
@@ -472,7 +494,23 @@ export function registerChatHandlers(): void {
       if (!wroteAssistantFinal && fullText.length === 0) {
         log.info('[Chat] ReAct loop complete with no final text — requesting forced summary')
         try {
-          const summaryMessages = toCoreMessages(sessionId)
+          const summaryProviderConfig = resolveProviderConfig(provider)
+          const summaryPipelineCtx: PipelineContext = {
+            sessionId,
+            currentMessage: {
+              text: userContent,
+              attachments: validatedAttachments.map(a => ({
+                name: a.filename,
+                mediaType: a.mime_type,
+                base64: a.base64_data,
+                content: undefined,
+              })),
+            },
+            provider,
+            providerConfig: summaryProviderConfig,
+            workspacePath: session?.workspace ?? undefined,
+          }
+          const { messages: summaryMessages } = await _pipeline.build(summaryPipelineCtx)
           const summaryResult = streamText({
             model,
             messages: summaryMessages,
