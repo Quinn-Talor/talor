@@ -68,8 +68,8 @@ dmypy.json
 # Ruff
 .ruff_cache/
 .claude
-.talor-desktop/build/
-.talor-desktop/node_modules/
-.talor-desktop/out/
-.talor-desktop/tests/
-.talor-desktop/test-results/
+build/
+node_modules/
+out/
+tests/
+vibe/
