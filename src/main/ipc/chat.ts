@@ -169,7 +169,6 @@ export function registerChatHandlers(): void {
       return { message_id: messageId }
     } catch (error) {
       log.error('[chat:send] error:', error)
-      activeStreams.delete(sessionId)
 
       if (error instanceof Error && error.name === 'AbortError') {
         mainWindow.webContents.send('chat:stream', {

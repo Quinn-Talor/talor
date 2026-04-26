@@ -61,6 +61,7 @@ export function classifyLlmError(error: unknown): ChatErrorCode {
   if (msg === 'FILE_TOO_LARGE') return 'FILE_TOO_LARGE'
   if (msg === 'UNSUPPORTED_FILE_TYPE') return 'UNSUPPORTED_FILE_TYPE'
   if (msg === 'FILE_NOT_FOUND') return 'FILE_NOT_FOUND'
+  if (msg === 'PROVIDER_NO_VISION') return 'PROVIDER_NO_VISION'
   return 'LLM_ERROR'
 }
 
