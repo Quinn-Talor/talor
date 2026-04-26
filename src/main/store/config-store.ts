@@ -18,6 +18,7 @@ interface AppConfig {
   providers: Record<string, Provider>
   window_bounds: WindowBounds
   default_context_limit?: number
+  max_react_steps?: number
 }
 
 export interface Provider {

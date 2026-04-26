@@ -9,6 +9,7 @@ import log from 'electron-log'
 import fs from 'fs/promises'
 import mime from 'mime-types'
 import { createModel } from '../providers/llm-provider'
+import { ConfigStore } from '../store/config-store'
 import '../tools/builtin'
 import type { ContentBlock } from '@shared/types/message'
 import { classifyLlmError } from './chat-utils'
@@ -133,6 +134,8 @@ export function registerChatHandlers(): void {
       log.info('[chat:send] Starting ReAct loop, model:', session?.model_id ?? 'default',
         'tools:', Object.keys(tools ?? {}).length)
 
+      const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
+
       await runReactLoop({
         model,
         tools,
@@ -150,6 +153,7 @@ export function registerChatHandlers(): void {
         provider,
         providerConfig: resolveProviderConfig(provider),
         workspace,
+        maxSteps: typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
         callbacks: {
           onTextDelta: (delta) => mainWindow.webContents.send('chat:stream', {
             session_id: sessionId, message_id: messageId, delta, done: false,

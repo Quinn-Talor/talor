@@ -7,7 +7,7 @@ import { toolResultPartsToBlocks, buildStreamSignal } from '../ipc/chat-utils'
 import type { ReactLoopOptions } from './types'
 import type { ContentBlock } from '@shared/types/message'
 
-const DEFAULT_MAX_STEPS = 30
+const DEFAULT_MAX_STEPS = 1000
 
 export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const {
