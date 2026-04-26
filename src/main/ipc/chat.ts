@@ -12,6 +12,7 @@ import { createModel } from '../providers/llm-provider'
 import '../tools/builtin'
 import type { ContentBlock } from '@shared/types/message'
 import { classifyLlmError } from './error-codes'
+import { requestToolConfirm } from './tool-confirm'
 import { resolveProviderConfig, PromptPipeline } from '../prompt/PromptPipeline'
 import { MemoryManager } from '../memory/MemoryManager'
 import { buildTools } from '../tools/build-tools'
@@ -120,7 +121,12 @@ export function registerChatHandlers(): void {
       const model = createModel(provider, session?.model_id)
       const workspace = session?.workspace ?? ''
 
-      const tools = await buildTools({ sessionId, messageId, workspace, mainWindow })
+      const tools = await buildTools({
+        sessionId,
+        messageId,
+        workspace,
+        confirmTool: (payload) => requestToolConfirm(mainWindow, payload),
+      })
 
       messageRepo.create({
         id: uuidv4(),
