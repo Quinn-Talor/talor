@@ -67,7 +67,12 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       },
     })
 
-    await result.consumeStream()
+    try {
+      await result.consumeStream()
+    } catch (streamErr) {
+      log.error(`[ReactLoop] consumeStream failed at step ${step + 1}:`, streamErr)
+      throw streamErr
+    }
     log.info(`[ReactLoop] consumed, toolCalls: ${stepToolCalls.length}, fullText: ${fullText.length}`)
 
     if (stepToolCalls.length === 0) {
@@ -132,6 +137,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
           role: 'assistant',
           content: [{ type: 'text', text: summaryText }],
         })
+        sessionRepo.touch(sessionId)
         log.info('[ReactLoop] Forced summary written, length:', summaryText.length)
       }
     } catch (err) {
