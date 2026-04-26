@@ -60,6 +60,10 @@ const bashTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
+    if (typeof params.command !== 'string' || !params.command) {
+      return { output: 'Command must be a non-empty string.' }
+    }
+
     if (isCommandDangerous(params.command)) {
       return { output: 'Dangerous command not allowed.' }
     }
