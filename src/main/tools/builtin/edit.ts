@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, statSync, realpathSync } from 'fs'
-import { join, isAbsolute, normalize, dirname } from 'path'
+import { join, isAbsolute, normalize, dirname, basename } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
@@ -22,18 +22,21 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — check parent to guard against symlink traversal
-    let parent = normalized
+    // path doesn't exist yet — walk up to find first existing parent and verify it
+    let parent = dirname(normalized)
+    let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        if (!realParent.startsWith(realWorkspace)) return null
-        break
+        const realWorkspace2 = realpathSync(workspace)
+        if (!realParent.startsWith(realWorkspace2)) return null
+        return join(realParent, suffix)
       } catch {
+        suffix = join(basename(parent), suffix)
         parent = dirname(parent)
       }
     }
-    return normalized
+    return null
   }
 }
 

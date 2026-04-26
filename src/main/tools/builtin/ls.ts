@@ -1,5 +1,5 @@
 import { readdirSync, existsSync, statSync, realpathSync } from 'fs'
-import { join, isAbsolute, normalize, dirname } from 'path'
+import { join, isAbsolute, normalize, dirname, basename } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
@@ -22,18 +22,21 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — check parent to guard against symlink traversal
-    let parent = normalized
+    // path doesn't exist yet — walk up to find first existing parent and verify it
+    let parent = dirname(normalized)
+    let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        if (!realParent.startsWith(realWorkspace)) return null
-        break
+        const realWorkspace2 = realpathSync(workspace)
+        if (!realParent.startsWith(realWorkspace2)) return null
+        return join(realParent, suffix)
       } catch {
+        suffix = join(basename(parent), suffix)
         parent = dirname(parent)
       }
     }
-    return normalized
+    return null
   }
 }
 
@@ -104,7 +107,14 @@ const lsTool = {
       const showHidden = params.showHidden || false
       const entries: string[] = []
 
-      function collectEntries(dir: string, currentDepth: number): void {
+      let realWorkspaceForEntries: string
+      try {
+        realWorkspaceForEntries = realpathSync(workspace)
+      } catch {
+        realWorkspaceForEntries = workspace
+      }
+
+      function collectEntries(dir: string, currentDepth: number, realWorkspaceArg: string): void {
         if (currentDepth > depth) return
 
         try {
@@ -114,6 +124,16 @@ const lsTool = {
             if (item.isDirectory() && SKIP_DIRS.has(item.name)) continue
 
             const fullPath = join(dir, item.name)
+
+            // verify symlinks don't escape workspace
+            let realFull: string
+            try {
+              realFull = realpathSync(fullPath)
+            } catch {
+              continue
+            }
+            if (!realFull.startsWith(realWorkspaceArg)) continue
+
             try {
               const stat = statSync(fullPath)
               const mode = formatMode(stat.mode)
@@ -123,7 +143,7 @@ const lsTool = {
               entries.push(`${mode} ${size} ${mtime} ${name}`)
 
               if (item.isDirectory() && currentDepth < depth) {
-                collectEntries(fullPath, currentDepth + 1)
+                collectEntries(fullPath, currentDepth + 1, realWorkspaceArg)
               }
             } catch {
               // skip inaccessible
@@ -134,7 +154,7 @@ const lsTool = {
         }
       }
 
-      collectEntries(resolvedPath, 1)
+      collectEntries(resolvedPath, 1, realWorkspaceForEntries)
 
       if (entries.length === 0) {
         return { output: '(empty directory)' }

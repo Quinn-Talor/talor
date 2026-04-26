@@ -35,18 +35,21 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — check parent to guard against symlink traversal
-    let parent = normalized
+    // path doesn't exist yet — walk up to find first existing parent and verify it
+    let parent = dirname(normalized)
+    let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        if (!realParent.startsWith(realWorkspace)) return null
-        break
+        const realWorkspace2 = realpathSync(workspace)
+        if (!realParent.startsWith(realWorkspace2)) return null
+        return join(realParent, suffix)
       } catch {
+        suffix = join(basename(parent), suffix)
         parent = dirname(parent)
       }
     }
-    return normalized
+    return null
   }
 }
 
@@ -130,7 +133,14 @@ const grepTool = {
         
         if (exts.length === 0) exts.push('*')
         
-        function collectFiles(dir: string, depth: number): void {
+        let realWorkspaceForCollect: string
+        try {
+          realWorkspaceForCollect = realpathSync(workspace)
+        } catch {
+          realWorkspaceForCollect = workspace
+        }
+
+        function collectFiles(dir: string, depth: number, realWorkspaceArg: string): void {
           if (depth > 5 || filesToSearch.length >= MAX_RESULTS) return
           try {
             const entries = readdirSync(dir, { withFileTypes: true })
@@ -139,7 +149,7 @@ const grepTool = {
 
               if (entry.isDirectory()) {
                 if (!SKIP_DIRS.has(entry.name)) {
-                  collectFiles(join(dir, entry.name), depth + 1)
+                  collectFiles(join(dir, entry.name), depth + 1, realWorkspaceArg)
                 }
               } else if (entry.isFile()) {
                 const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop() : ''
@@ -147,8 +157,7 @@ const grepTool = {
                   const candidatePath = join(dir, entry.name)
                   try {
                     const realCandidate = realpathSync(candidatePath)
-                    const realWorkspace = realpathSync(workspace)
-                    if (realCandidate.startsWith(realWorkspace)) {
+                    if (realCandidate.startsWith(realWorkspaceArg)) {
                       filesToSearch.push(candidatePath)
                     }
                   } catch {
@@ -162,7 +171,7 @@ const grepTool = {
           }
         }
 
-        collectFiles(resolvedPath, 0)
+        collectFiles(resolvedPath, 0, realWorkspaceForCollect)
       }
 
       const results: string[] = []
