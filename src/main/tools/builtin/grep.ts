@@ -3,9 +3,10 @@ import { join, isAbsolute, normalize, dirname, basename } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/']
+const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
 const MAX_RESULTS = 100
+const CONTEXT_LINES = 2
 
 const REDOS_PATTERNS = [
   /\(\?[^)]*\)\+/,
@@ -35,14 +36,13 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — walk up to find first existing parent and verify it
+    // new file — walk up to first existing parent and verify it's within workspace
     let parent = dirname(normalized)
     let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        const realWorkspace2 = realpathSync(workspace)
-        if (!realParent.startsWith(realWorkspace2)) return null
+        if (!realParent.startsWith(realWorkspace)) return null
         return join(realParent, suffix)
       } catch {
         suffix = join(basename(parent), suffix)
@@ -132,15 +132,17 @@ const grepTool = {
         }
         
         if (exts.length === 0) exts.push('*')
-        
-        let realWorkspaceForCollect: string
+
+        const matchAllExts = exts.includes('*')
+
+        let realWorkspace: string
         try {
-          realWorkspaceForCollect = realpathSync(workspace)
+          realWorkspace = realpathSync(workspace)
         } catch {
-          realWorkspaceForCollect = workspace
+          realWorkspace = workspace
         }
 
-        function collectFiles(dir: string, depth: number, realWorkspaceArg: string): void {
+        function collectFiles(dir: string, depth: number): void {
           if (depth > 5 || filesToSearch.length >= MAX_RESULTS) return
           try {
             const entries = readdirSync(dir, { withFileTypes: true })
@@ -148,22 +150,21 @@ const grepTool = {
               if (filesToSearch.length >= MAX_RESULTS) break
 
               if (entry.isDirectory()) {
-                if (!SKIP_DIRS.has(entry.name)) {
-                  collectFiles(join(dir, entry.name), depth + 1, realWorkspaceArg)
-                }
-              } else if (entry.isFile()) {
-                const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop() : ''
-                if (exts.includes(`*.${ext}`) || exts.includes('*') || exts.some(e => e === ext)) {
-                  const candidatePath = join(dir, entry.name)
-                  try {
-                    const realCandidate = realpathSync(candidatePath)
-                    if (realCandidate.startsWith(realWorkspaceArg)) {
-                      filesToSearch.push(candidatePath)
-                    }
-                  } catch {
-                    // skip unresolvable
-                  }
-                }
+                if (!SKIP_DIRS.has(entry.name)) collectFiles(join(dir, entry.name), depth + 1)
+                continue
+              }
+
+              if (!entry.isFile()) continue
+
+              const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop() : ''
+              if (!matchAllExts && !exts.includes(`*.${ext}`) && !exts.some(e => e === ext)) continue
+
+              const candidatePath = join(dir, entry.name)
+              try {
+                const realCandidate = realpathSync(candidatePath)
+                if (realCandidate.startsWith(realWorkspace)) filesToSearch.push(candidatePath)
+              } catch {
+                // skip unresolvable symlinks
               }
             }
           } catch {
@@ -171,11 +172,10 @@ const grepTool = {
           }
         }
 
-        collectFiles(resolvedPath, 0, realWorkspaceForCollect)
+        collectFiles(resolvedPath, 0)
       }
 
       const results: string[] = []
-      const contextLines = 2
 
       for (const filePath of filesToSearch) {
         if (results.length >= MAX_RESULTS) break
@@ -189,8 +189,8 @@ const grepTool = {
 
             regex.lastIndex = 0
             if (regex.test(lines[i])) {
-              const start = Math.max(0, i - contextLines)
-              const end = Math.min(lines.length, i + contextLines + 1)
+              const start = Math.max(0, i - CONTEXT_LINES)
+              const end = Math.min(lines.length, i + CONTEXT_LINES + 1)
               const context: string[] = []
 
               for (let j = start; j < end; j++) {

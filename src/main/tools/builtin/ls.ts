@@ -3,7 +3,7 @@ import { join, isAbsolute, normalize, dirname, basename } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/']
+const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
 
 function isPathSensitive(path: string): boolean {
@@ -22,14 +22,13 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — walk up to find first existing parent and verify it
+    // new file — walk up to first existing parent and verify it's within workspace
     let parent = dirname(normalized)
     let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        const realWorkspace2 = realpathSync(workspace)
-        if (!realParent.startsWith(realWorkspace2)) return null
+        if (!realParent.startsWith(realWorkspace)) return null
         return join(realParent, suffix)
       } catch {
         suffix = join(basename(parent), suffix)
@@ -107,14 +106,14 @@ const lsTool = {
       const showHidden = params.showHidden || false
       const entries: string[] = []
 
-      let realWorkspaceForEntries: string
+      let realWorkspace: string
       try {
-        realWorkspaceForEntries = realpathSync(workspace)
+        realWorkspace = realpathSync(workspace)
       } catch {
-        realWorkspaceForEntries = workspace
+        realWorkspace = workspace
       }
 
-      function collectEntries(dir: string, currentDepth: number, realWorkspaceArg: string): void {
+      function collectEntries(dir: string, currentDepth: number): void {
         if (currentDepth > depth) return
 
         try {
@@ -125,14 +124,13 @@ const lsTool = {
 
             const fullPath = join(dir, item.name)
 
-            // verify symlinks don't escape workspace
             let realFull: string
             try {
               realFull = realpathSync(fullPath)
             } catch {
               continue
             }
-            if (!realFull.startsWith(realWorkspaceArg)) continue
+            if (!realFull.startsWith(realWorkspace)) continue
 
             try {
               const stat = statSync(fullPath)
@@ -143,7 +141,7 @@ const lsTool = {
               entries.push(`${mode} ${size} ${mtime} ${name}`)
 
               if (item.isDirectory() && currentDepth < depth) {
-                collectEntries(fullPath, currentDepth + 1, realWorkspaceArg)
+                collectEntries(fullPath, currentDepth + 1)
               }
             } catch {
               // skip inaccessible
@@ -154,7 +152,7 @@ const lsTool = {
         }
       }
 
-      collectEntries(resolvedPath, 1, realWorkspaceForEntries)
+      collectEntries(resolvedPath, 1)
 
       if (entries.length === 0) {
         return { output: '(empty directory)' }

@@ -69,7 +69,7 @@ dmypy.json
 .ruff_cache/
 .claude
 build/
-node_modules/
 out/
 tests/
 vibe/
+node_modules

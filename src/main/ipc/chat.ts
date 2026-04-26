@@ -129,9 +129,10 @@ function getDefaultProvider(): Provider {
 
 type CoreMessage = SystemModelMessage | UserModelMessage | AssistantModelMessage | ToolModelMessage
 
-// Keep only the last N tool-result rows at full content; older ones get a short summary
+// Older tool results are replaced with a short placeholder to avoid bloating the context window.
 const TOOL_RESULT_FULL_WINDOW = 4
 
+/** Converts DB message rows to the CoreMessage format expected by the AI SDK. */
 function toCoreMessages(sessionId: string): CoreMessage[] {
   const rows = messageRepo.listBySession(sessionId)
 
@@ -352,20 +353,24 @@ export function registerChatHandlers(): void {
       let wroteAssistantFinal = false
       const maxSteps = 30
 
+      // ReAct loop: each step calls the LLM; if it returns tool calls we execute them,
+      // save assistant+tool messages, and loop again with the updated context.
+      // The loop exits when the LLM returns no tool calls (final answer) or maxSteps is reached.
+      const providerConfig = resolveProviderConfig(provider)
+      const mappedAttachments = validatedAttachments.map(a => ({
+        name: a.filename,
+        mediaType: a.mime_type,
+        base64: a.base64_data,
+        content: undefined,
+      }))
       for (let step = 0; step < maxSteps; step++) {
         if (abortController.signal.aborted) break
 
-        const providerConfig = resolveProviderConfig(provider)
         const pipelineCtx: PipelineContext = {
           sessionId,
           currentMessage: {
             text: userContent,
-            attachments: validatedAttachments.map(a => ({
-              name: a.filename,
-              mediaType: a.mime_type,
-              base64: a.base64_data,
-              content: undefined,
-            })),
+            attachments: mappedAttachments,
           },
           provider,
           providerConfig,
@@ -486,20 +491,11 @@ export function registerChatHandlers(): void {
       if (!wroteAssistantFinal && fullText.length === 0) {
         log.info('[Chat] ReAct loop complete with no final text — requesting forced summary')
         try {
-          const summaryProviderConfig = resolveProviderConfig(provider)
           const summaryPipelineCtx: PipelineContext = {
             sessionId,
-            currentMessage: {
-              text: userContent,
-              attachments: validatedAttachments.map(a => ({
-                name: a.filename,
-                mediaType: a.mime_type,
-                base64: a.base64_data,
-                content: undefined,
-              })),
-            },
+            currentMessage: { text: userContent, attachments: mappedAttachments },
             provider,
-            providerConfig: summaryProviderConfig,
+            providerConfig,
             workspacePath: session?.workspace ?? undefined,
           }
           const { messages: summaryMessages } = await _pipeline.build(summaryPipelineCtx)

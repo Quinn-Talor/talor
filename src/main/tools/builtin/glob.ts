@@ -3,7 +3,7 @@ import { join, relative } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/']
+const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache', 'dist', 'build', '.venv', 'venv'])
 const MAX_RESULTS = 200
 

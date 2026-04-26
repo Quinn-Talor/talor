@@ -1,4 +1,4 @@
-import { writeFileSync, existsSync, mkdirSync, statSync, realpathSync } from 'fs'
+import { writeFileSync, existsSync, mkdirSync, realpathSync } from 'fs'
 import { join, isAbsolute, normalize, dirname, basename } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
@@ -22,14 +22,13 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — walk up to find first existing parent and verify it
+    // new file — walk up to first existing parent and verify it's within workspace
     let parent = dirname(normalized)
     let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        const realWorkspace2 = realpathSync(workspace)
-        if (!realParent.startsWith(realWorkspace2)) return null
+        if (!realParent.startsWith(realWorkspace)) return null
         return join(realParent, suffix)
       } catch {
         suffix = join(basename(parent), suffix)
@@ -75,31 +74,22 @@ const writeTool = {
     }
 
     try {
-      // Check content size
       const contentBytes = Buffer.byteLength(params.content, 'utf-8')
       if (contentBytes > maxWriteSizeBytes) {
         return { output: `Content too large: ${contentBytes} bytes (max: ${maxWriteSizeBytes})` }
       }
 
-      // Create parent directories if needed
       const parentDir = dirname(resolvedPath)
-      if (parentDir && !existsSync(parentDir)) {
-        mkdirSync(parentDir, { recursive: true })
-      }
+      mkdirSync(parentDir, { recursive: true })
 
-      // Check if file exists
       const existed = existsSync(resolvedPath)
-      const oldSize = existed ? statSync(resolvedPath).size : 0
 
-      // Write content
       writeFileSync(resolvedPath, params.content, 'utf-8')
 
-      const newSize = contentBytes
       const lines = params.content.split('\n').length
-
       const action = existed ? 'Updated' : 'Created'
       return {
-        output: `${action} ${params.path} (${lines} lines, ${newSize} bytes)`,
+        output: `${action} ${params.path} (${lines} lines, ${contentBytes} bytes)`,
       }
     } catch (err) {
       return { output: err instanceof Error ? err.message : String(err) }

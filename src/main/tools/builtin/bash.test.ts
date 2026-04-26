@@ -1,15 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import path from 'path'
-import fs from 'fs'
-import { exec } from 'child_process'
-import { promisify } from 'util'
-
-const execAsync = promisify(exec)
-
-vi.mock('fs', async () => {
-  const actual = await vi.importActual('fs')
-  return actual
-})
+import { describe, it, expect, beforeEach } from 'vitest'
 
 describe('bash tool', () => {
   let bashTool: any
@@ -50,15 +39,12 @@ describe('bash tool', () => {
     expect(result.output).toContain('No such file')
   })
 
-  it('enforces workspace boundary', async () => {
+  it('blocks access to sensitive system paths', async () => {
     const result = await bashTool.execute(
       { command: 'ls /etc/passwd' },
       mockContext
     )
-    expect(typeof result.output).toBe('string')
-    // 要么是 workspace 限制，要么是危险命令检测，都是安全的
-    const output = result.output as string
-    expect(output.includes('outside workspace') || output.includes('not allowed')).toBe(true)
+    expect(result.output).toContain('not allowed')
   })
 
   it('blocks dangerous commands', async () => {

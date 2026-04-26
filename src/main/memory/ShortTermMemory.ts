@@ -14,6 +14,14 @@ import {
 import type { ChatMessage } from '../repos/session-repo'
 
 export class ShortTermMemory {
+  /**
+   * Returns the message context to include in the next LLM call.
+   *
+   * Path A (below 90% of context_limit): return all messages verbatim.
+   * Path B (above threshold): keep the most recent `recent_ratio` of tokens verbatim;
+   *   compress everything older into a summary stored in session_summaries.
+   *   The summary is reused on subsequent calls as long as `covered_until` hasn't changed.
+   */
   async getContext(sessionId: string, config: ProviderContextConfig): Promise<MemoryContext> {
     const allMessages: ChatMessage[] = messageRepo.listBySession(sessionId)
 

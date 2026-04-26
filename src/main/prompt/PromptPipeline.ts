@@ -5,6 +5,7 @@ import type { Provider } from '../store/config-store'
 import type { CoreMessage } from 'ai'
 import log from 'electron-log'
 
+/** Merges provider-level overrides with global defaults from ConfigStore. */
 export function resolveProviderConfig(provider: Provider): ProviderContextConfig {
   const configStore = ConfigStore.getInstance()
   const defaultLimit = configStore.get('default_context_limit') as number | undefined
@@ -39,6 +40,10 @@ export class PromptPipeline {
     return this.plugins
   }
 
+  /**
+   * Runs each plugin in order and concatenates their messages.
+   * Plugin failures are logged and skipped so one bad plugin never blocks the whole pipeline.
+   */
   async build(ctx: PipelineContext): Promise<{ messages: CoreMessage[]; tools: ToolSchema[] }> {
     const plugins = await this.getPlugins()
     const allMessages: CoreMessage[] = []

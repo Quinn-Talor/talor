@@ -22,14 +22,13 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — walk up to find first existing parent and verify it
+    // new file — walk up to first existing parent and verify it's within workspace
     let parent = dirname(normalized)
     let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        const realWorkspace2 = realpathSync(workspace)
-        if (!realParent.startsWith(realWorkspace2)) return null
+        if (!realParent.startsWith(realWorkspace)) return null
         return join(realParent, suffix)
       } catch {
         suffix = join(basename(parent), suffix)

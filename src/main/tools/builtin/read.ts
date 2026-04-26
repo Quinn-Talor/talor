@@ -21,6 +21,11 @@ function isBinaryFile(content: Buffer): boolean {
   return signatures.some(sig => content.slice(0, 4).equals(Buffer.from(sig)))
 }
 
+/**
+ * Resolves filePath to an absolute real path and verifies it stays inside workspace.
+ * Two-stage check: normalize() catches `../` traversal; realpathSync() catches symlinks.
+ * Returns null if the path escapes the workspace or can't be resolved.
+ */
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
@@ -33,14 +38,13 @@ function resolveInWorkspace(workspace: string, filePath: string): string | null 
     if (!real.startsWith(realWorkspace)) return null
     return real
   } catch {
-    // path doesn't exist yet — walk up to find first existing parent and verify it
+    // new file — walk up to first existing parent and verify it's within workspace
     let parent = dirname(normalized)
     let suffix = basename(normalized)
     while (parent !== dirname(parent)) {
       try {
         const realParent = realpathSync(parent)
-        const realWorkspace2 = realpathSync(workspace)
-        if (!realParent.startsWith(realWorkspace2)) return null
+        if (!realParent.startsWith(realWorkspace)) return null
         return join(realParent, suffix)
       } catch {
         suffix = join(basename(parent), suffix)
