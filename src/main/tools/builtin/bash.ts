@@ -1,43 +1,44 @@
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import { join, isAbsolute, normalize } from 'path'
-import { existsSync } from 'fs'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { DEFAULT_TOOL_TIMEOUT_MS } from '../types'
 
 const execAsync = promisify(exec)
 
-const DANGEROUS_PATTERNS = [
+const DANGEROUS_SUBSTRINGS = [
   'rm -rf /',
   'mkfs',
   'dd if=',
   ':(){:|:&};:',
   '> /dev/sda',
   'chmod -R 777 /',
-  'wget.*|curl.*sh',
 ]
 
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/usr/bin/', '/usr/sbin/', '/bin/', '/sbin/']
+const DANGEROUS_PATTERNS: RegExp[] = [
+  /\bcurl\b.*\|\s*(ba?sh|sh|zsh|fish)/i,
+  /\bwget\b.*\|\s*(ba?sh|sh|zsh|fish)/i,
+  /\b(env|printenv|export)\b/i,
+  /~\/\.(ssh|aws|gnupg|config|netrc|docker|kube)\//i,
+  /\/proc\/(self|[0-9]+)\/(environ|mem|maps)/i,
+]
 
-function isPatternDangerous(command: string): boolean {
-  return DANGEROUS_PATTERNS.some(pattern => command.includes(pattern))
-}
+const SENSITIVE_PATH_PATTERNS = [
+  '/etc/',
+  '/root/',
+  '/.ssh/',
+  '/.aws/',
+  '/usr/bin/',
+  '/usr/sbin/',
+  '/bin/',
+  '/sbin/',
+]
 
-function isPathSensitive(filePath: string): boolean {
-  return SENSITIVE_PATHS.some(sp => filePath.startsWith(sp))
-}
-
-function resolveInWorkspace(workspace: string, targetPath: string): string | null {
-  if (!targetPath) return workspace
-  
-  const resolved = isAbsolute(targetPath) ? targetPath : join(workspace, targetPath)
-  const normalized = normalize(resolved)
-  
-  if (!normalized.startsWith(workspace)) {
-    return null
-  }
-  return normalized
+function isCommandDangerous(command: string): boolean {
+  if (DANGEROUS_SUBSTRINGS.some(s => command.includes(s))) return true
+  if (DANGEROUS_PATTERNS.some(re => re.test(command))) return true
+  if (SENSITIVE_PATH_PATTERNS.some(p => command.includes(p))) return true
+  return false
 }
 
 const bashTool = {
@@ -61,37 +62,28 @@ const bashTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    if (isPatternDangerous(params.command)) {
+    if (isCommandDangerous(params.command)) {
       return { output: 'Dangerous command not allowed.' }
     }
 
-    const resolvedCommand = params.command
-    
-    if (resolvedCommand.includes('/etc/') || resolvedCommand.includes('/root/') || resolvedCommand.includes('/.ssh/')) {
-      return { output: 'Cannot access sensitive system paths outside workspace.' }
-    }
-
     try {
-      const result = await execAsync(resolvedCommand, {
+      const result = await execAsync(params.command, {
         cwd: workspace,
         timeout: toolTimeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         shell: '/bin/bash',
       })
-      
-      const output = result.stdout || '(no output)'
-      return {
-        output: output.trim(),
-      }
+
+      const stdout = result.stdout?.trim() || ''
+      const stderr = result.stderr?.trim() || ''
+      const output = stdout || (stderr ? `[stderr]: ${stderr}` : '(no output)')
+      return { output }
     } catch (err: any) {
-      if (err.killed) {
+      if (err.killed || err.signal === 'SIGTERM') {
         return { output: `Command timed out after ${toolTimeoutMs}ms` }
       }
-      
       const errorOutput = err.stderr || err.message || String(err)
-      return {
-        output: `Error: ${errorOutput.trim()}`,
-      }
+      return { output: `Error: ${errorOutput.trim()}` }
     }
   },
 }
