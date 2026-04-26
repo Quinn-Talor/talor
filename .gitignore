@@ -66,10 +66,11 @@ config.yaml
 dmypy.json
 
 # Ruff
-.ruff_cache/
+.ruff_cacheqq
 .claude
 build/
-out/
-tests/
-vibe/
+out
+tests
+vibe
 node_modules
+.playwright-mcp
