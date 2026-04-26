@@ -23,6 +23,9 @@ import type { ProviderContextConfig } from '../prompt/types'
 
 const DEFAULT_MAX_STEPS = 1000
 
+const SEPARATOR = '──────────────────────────────────────────'
+const DOUBLE_SEPARATOR = '══════════════════════════════════════════'
+
 // ── 内部类型 ────────────────────────────────────────────────────────────
 
 /** 单步 ReAct 所需的全部上下文（从 ReactLoopOptions 投射，去掉 maxSteps 等循环级参数）。 */
@@ -51,7 +54,23 @@ interface StepOutcome {
   wroteAssistantFinal: boolean
   /** 是否应继续下一步（工具调用且有 toolResults 时为 true） */
   shouldContinue: boolean
+  /** 本步耗时（毫秒） */
+  durationMs: number
+  /** 本步调用的工具名列表 */
+  toolNames: string[]
+  /** 循环终止原因（仅当 shouldContinue=false 时有值） */
+  exitReason?: LoopExitReason
 }
+
+/** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
+type LoopExitReason =
+  | 'no_tool_calls'       // 模型不再调用工具（正常终态）
+  | 'empty_text'          // 模型既无工具调用也无文本（触发兜底）
+  | 'empty_tool_results'  // SDK 返回了 tool-call 但 toolResults 为空（异常保护）
+  | 'abort'               // 调用方主动中止
+  | 'max_steps'           // 达到步数上限
+  | 'fallback_summary'    // 兜底摘要触发
+  | 'stream_error'        // consumeStream 异常
 
 // ── runReactStep ────────────────────────────────────────────────────────
 
@@ -73,6 +92,8 @@ interface StepOutcome {
  *      | 有工具 + toolResults 为空 | 不写（异常保护） | false | false |
  */
 async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: number): Promise<StepOutcome> {
+  const stepStart = Date.now()
+
   const pipelineCtx = {
     sessionId: ctx.sessionId,
     currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
@@ -81,7 +102,9 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     workspacePath: ctx.workspace || undefined,
   }
   const { messages } = await ctx.pipeline.build(pipelineCtx)
-  log.info(`[ReactLoop] step ${stepIndex + 1}/${maxSteps}, messages: ${messages.length}`)
+
+  log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
+  log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)
 
   const stepToolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
   let stepText = ''
@@ -103,21 +126,26 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
       }
     },
     onError({ error }) {
-      log.error('[ReactLoop] Stream error:', error)
+      log.error('[ReactLoop]   stream error:', error)
     },
   })
 
   try {
     await result.consumeStream()
   } catch (streamErr) {
-    log.error(`[ReactLoop] consumeStream failed at step ${stepIndex + 1}:`, streamErr)
+    const durationMs = Date.now() - stepStart
+    log.error(`[ReactLoop]   consumeStream failed (${durationMs}ms):`, streamErr)
     throw streamErr
   }
-  log.info(`[ReactLoop] consumed, toolCalls: ${stepToolCalls.length}, stepText: ${stepText.length}`)
+
+  const durationMs = Date.now() - stepStart
+  const toolNames = stepToolCalls.map(tc => tc.toolName)
 
   // 无工具调用 → 本次推理结束（正常终态）
   if (stepToolCalls.length === 0) {
     if (stepText) {
+      log.info(`[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms]`)
+      log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
       messageRepo.create({
         id: ctx.messageId,
         session_id: ctx.sessionId,
@@ -125,19 +153,23 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
         content: [{ type: 'text', text: stepText }],
       })
       sessionRepo.touch(ctx.sessionId)
-      return { stepText, hadToolCalls: false, wroteAssistantFinal: true, shouldContinue: false }
+      return { stepText, hadToolCalls: false, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls' }
     }
-    return { stepText: '', hadToolCalls: false, wroteAssistantFinal: false, shouldContinue: false }
+    log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
+    return { stepText: '', hadToolCalls: false, wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_text' }
   }
 
   // 有工具调用 → 落库 assistant + tool，继续下一步
   const toolResults = await result.toolResults
   if (toolResults.length === 0) {
-    // SDK 返回了 tool-call chunk 但没有对应的 toolResults——通常是 bug 或中止竞态。
-    // 安全退出，避免无限循环。
-    log.error('[ReactLoop] Tool calls made but no results returned, breaking')
-    return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: false }
+    log.error(`[ReactLoop]   → tools called but no results returned [${durationMs}ms]`)
+    return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_tool_results' }
   }
+
+  for (const tc of stepToolCalls) {
+    log.info(`[ReactLoop]   → tool: ${tc.toolName} [${durationMs}ms]`)
+  }
+  log.info(`[ReactLoop]   → persist: assistant(${stepText ? 'text+' : ''}tool_use×${stepToolCalls.length}) + tool(result×${toolResults.length})`)
 
   const assistantBlocks: ContentBlock[] = []
   if (stepText) assistantBlocks.push({ type: 'text', text: stepText })
@@ -148,9 +180,8 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
 
   const toolBlocks: ContentBlock[] = toolResultPartsToBlocks(toolResults)
   messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'tool', content: toolBlocks })
-  log.info(`[ReactLoop] Persisted assistant + tool messages for step ${stepIndex + 1}`)
 
-  return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: true }
+  return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames }
 }
 
 // ── runFallbackSummary ──────────────────────────────────────────────────
@@ -165,7 +196,8 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
  * 异常策略：catch 后仅记录，**不抛出**——避免破坏外层 orchestrator 的 onDone 语义。
  */
 async function runFallbackSummary(ctx: StepContext): Promise<void> {
-  log.info('[ReactLoop] No final text, requesting forced summary')
+  log.info(`[ReactLoop] ${SEPARATOR} fallback summary ${SEPARATOR}`)
+  const summaryStart = Date.now()
   try {
     const summaryCtx = {
       sessionId: ctx.sessionId,
@@ -185,6 +217,7 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
       summaryText += chunk
       ctx.callbacks.onTextDelta(chunk)
     }
+    const durationMs = Date.now() - summaryStart
     if (summaryText.trim()) {
       messageRepo.create({
         id: uuidv4(),
@@ -193,10 +226,12 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
         content: [{ type: 'text', text: summaryText }],
       })
       sessionRepo.touch(ctx.sessionId)
-      log.info('[ReactLoop] Forced summary written, length:', summaryText.length)
+      log.info(`[ReactLoop]   → summary: ${summaryText.length} chars [${durationMs}ms]`)
+    } else {
+      log.info(`[ReactLoop]   → summary: empty [${durationMs}ms]`)
     }
   } catch (err) {
-    log.error('[ReactLoop] Forced summary failed:', err)
+    log.error(`[ReactLoop]   → summary failed [${Date.now() - summaryStart}ms]:`, err)
   }
 }
 
@@ -216,7 +251,13 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
  * 仅在非 abort 场景触发——用户主动停止时不做兜底。
  */
 export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
+  const loopStart = Date.now()
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS
+
+  log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
+  log.info(`[ReactLoop] start | session: ${opts.sessionId} | maxSteps: ${maxSteps}`)
+  log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
+
   const ctx: StepContext = {
     model: opts.model,
     tools: opts.tools,
@@ -234,17 +275,41 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
   let fullText = ''
   let wroteAssistantFinal = false
+  let totalSteps = 0
+  let totalToolCalls = 0
+  let exitReason: LoopExitReason = 'no_tool_calls'
+  const allToolNames: string[] = []
 
   for (let step = 0; step < maxSteps; step++) {
-    if (opts.abortSignal.aborted) break
+    if (opts.abortSignal.aborted) {
+      exitReason = 'abort'
+      break
+    }
     const outcome = await runReactStep(ctx, step, maxSteps)
+    totalSteps++
     fullText += outcome.stepText
+    totalToolCalls += outcome.toolNames.length
+    allToolNames.push(...outcome.toolNames)
     if (outcome.wroteAssistantFinal) wroteAssistantFinal = true
-    if (!outcome.shouldContinue) break
+    if (!outcome.shouldContinue) {
+      exitReason = outcome.exitReason ?? 'no_tool_calls'
+      break
+    }
+    if (step === maxSteps - 1) {
+      exitReason = 'max_steps'
+    }
   }
 
   // 兜底摘要：整轮一字没吐且非 abort → 强制一次无工具 streamText
   if (!wroteAssistantFinal && fullText.length === 0 && !opts.abortSignal.aborted) {
+    exitReason = 'fallback_summary'
     await runFallbackSummary(ctx)
   }
+
+  // 循环结束报告
+  const totalMs = Date.now() - loopStart
+  log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
+  log.info(`[ReactLoop] done | steps: ${totalSteps} | total: ${(totalMs / 1000).toFixed(1)}s | exit: ${exitReason}`)
+  log.info(`[ReactLoop]      | text: ${fullText.length} chars | tools: ${totalToolCalls} calls [${[...new Set(allToolNames)].join(', ') || 'none'}]`)
+  log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
 }
