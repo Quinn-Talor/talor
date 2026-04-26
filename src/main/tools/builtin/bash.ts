@@ -74,7 +74,7 @@ const bashTool = {
     try {
       const result = await execAsync(resolvedCommand, {
         cwd: workspace,
-        timeout: toolTimeoutMs / 1000,
+        timeout: toolTimeoutMs,
         maxBuffer: 10 * 1024 * 1024,
         shell: '/bin/bash',
       })
@@ -85,7 +85,7 @@ const bashTool = {
       }
     } catch (err: any) {
       if (err.killed) {
-        return { output: `Command timed out after ${toolTimeoutMs / 1000}s` }
+        return { output: `Command timed out after ${toolTimeoutMs}ms` }
       }
       
       const errorOutput = err.stderr || err.message || String(err)

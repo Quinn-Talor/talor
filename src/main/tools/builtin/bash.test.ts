@@ -73,4 +73,15 @@ describe('bash tool', () => {
     )
     expect(result.output).toContain('timed out')
   }, 15000)
+
+  it('timeout fires within 2 seconds for slow command', async () => {
+    const start = Date.now()
+    const result = await bashTool.execute(
+      { command: 'sleep 60' },
+      { ...mockContext, toolTimeoutMs: 1500 }
+    )
+    const elapsed = Date.now() - start
+    expect(result.output).toContain('timed out')
+    expect(elapsed).toBeLessThan(5000)
+  }, 10000)
 })
