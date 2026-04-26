@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'fs'
-import { join, isAbsolute, normalize, dirname } from 'path'
+import { join, isAbsolute, normalize, dirname, basename } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
