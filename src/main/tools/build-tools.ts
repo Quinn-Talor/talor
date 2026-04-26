@@ -35,9 +35,9 @@ export async function buildTools(opts: {
 
   const tools = finalSchemas.reduce((acc, schema) => {
     const builtinTool = toolRegistry.getTool(schema.name)
-    const externalTool = !builtinTool ? toolRegistry.getToolFromExternal(schema.name) : undefined
+    const hasExternalTool = !builtinTool && !!toolRegistry.getToolFromExternal(schema.name)
 
-    if (!builtinTool && !externalTool) {
+    if (!builtinTool && !hasExternalTool) {
       log.warn('[buildTools] Tool not found, skipping:', schema.name)
       return acc
     }
