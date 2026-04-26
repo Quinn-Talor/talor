@@ -3,7 +3,7 @@ import { streamText } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
-import { toolResultPartsToBlocks, buildStreamSignal } from '../ipc/chat-utils'
+import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
 import type { ReactLoopOptions } from './types'
 import type { ContentBlock } from '@shared/types/message'
 

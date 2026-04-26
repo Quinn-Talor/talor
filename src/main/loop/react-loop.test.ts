@@ -7,7 +7,7 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }))
 
-vi.mock('../ipc/chat-utils', () => ({
+vi.mock('./stream-utils', () => ({
   buildStreamSignal: vi.fn((signal: AbortSignal) => signal),
   toolResultPartsToBlocks: vi.fn(() => []),
 }))
