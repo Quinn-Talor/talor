@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 `src/main/ipc/chat.ts` 里混杂的业务逻辑下沉到业务层（services/ · loop/ · tools/），消除业务层对 ipc 的反向依赖，为 ReAct 循环等关键流程补 JSDoc，并以 `ARCHITECTURE.md` 固化分层约定。
+**Goal:** 把 `src/main/ipc/chat.ts` 里混杂的业务逻辑下沉到业务层——chat 用例编排归入新增的 `chat/` 领域目录，ReAct 引擎保留在 `loop/`；消除业务层对 ipc 的反向依赖；为 ReAct 循环等关键流程补 JSDoc；以 `ARCHITECTURE.md` 固化分层约定。
 
-**Architecture:** 分层：入口（`ipc/`）→ 业务（`services/ · loop/ · tools/ · prompt/ · memory/ · mcp/ · providers/`）→ 仓储（`repos/`）→ 基础设施（`db/ · store/ · services/safe-storage`）。跨层通信通过 callback 或端口注入，严禁业务层 import 入口层。目录不迁，靠注释 + 架构文档声明。
+**Architecture:** 分层：入口（`ipc/`）→ 业务（按领域：`chat/ · loop/ · tools/ · prompt/ · memory/ · mcp/ · providers/`）→ 仓储（`repos/`）→ 基础设施（`db/ · store/ · services/*`）。`chat/` 是 chat 用例的**编排层**（orchestrator / attachments / provider-selector / stream-registry），`loop/` 是 **ReAct 引擎**（可被其他编排复用）；`services/` 保持原样作为原子基础能力。跨层通信通过 callback 或端口注入，严禁业务层 import 入口层。
 
 **Tech Stack:** TypeScript strict、Electron（main 进程）、Vercel AI SDK（`streamText / dynamicTool`）、better-sqlite3、Vitest、electron-log。
 
@@ -24,16 +24,16 @@
 | 删除 | `src/main/ipc/chat.test.ts`（迁入 T1/T2） | T3 |
 | 修改 | `src/main/loop/react-loop.ts`（换 import） | T3 |
 | 修改 | `src/main/ipc/chat.ts`（暂时过渡） | T3 |
-| 新建 | `src/main/services/stream-registry.ts` | T4 |
-| 新建 | `src/main/services/stream-registry.test.ts` | T4 |
-| 新建 | `src/main/services/provider-selector.ts` | T5 |
-| 新建 | `src/main/services/provider-selector.test.ts` | T5 |
-| 新建 | `src/main/services/attachment-service.ts` | T6 |
-| 新建 | `src/main/services/attachment-service.test.ts` | T6 |
+| 新建 | `src/main/chat/stream-registry.ts` | T4 |
+| 新建 | `src/main/chat/stream-registry.test.ts` | T4 |
+| 新建 | `src/main/chat/provider-selector.ts` | T5 |
+| 新建 | `src/main/chat/provider-selector.test.ts` | T5 |
+| 新建 | `src/main/chat/attachments.ts` | T6 |
+| 新建 | `src/main/chat/attachments.test.ts` | T6 |
 | 修改 | `src/main/ipc/tool-confirm.ts`（导出端口类型） | T7 |
 | 修改 | `src/main/tools/build-tools.ts`（端口注入） | T7 |
-| 新建 | `src/main/services/chat-service.ts` | T8 |
-| 新建 | `src/main/services/chat-service.test.ts` | T8 |
+| 新建 | `src/main/chat/orchestrator.ts` | T8 |
+| 新建 | `src/main/chat/orchestrator.test.ts` | T8 |
 | 修改 | `src/main/ipc/chat.ts`（精简为协议层） | T8 |
 | 修改 | `src/main/loop/react-loop.ts`（切分 + JSDoc） | T9 |
 | 修改 | `src/main/ipc/session.ts`（尾部 import 上移） | T9 |
@@ -513,18 +513,18 @@ EOF
 
 ---
 
-## Task 4: 新建 `services/stream-registry.ts`
+## Task 4: 新建 `chat/stream-registry.ts`
 
 `ipc/chat.ts` 里的 `activeStreams` Map 和"同 session 新请求 abort 旧请求"的策略是业务逻辑，下沉到业务层。
 
 **Files:**
-- Create: `src/main/services/stream-registry.ts`
-- Create: `src/main/services/stream-registry.test.ts`
+- Create: `src/main/chat/stream-registry.ts`
+- Create: `src/main/chat/stream-registry.test.ts`
 
 - [ ] **Step 1: 写失败测试**
 
 ```typescript
-// src/main/services/stream-registry.test.ts
+// src/main/chat/stream-registry.test.ts
 import { describe, it, expect, beforeEach } from 'vitest'
 import { streamRegistry } from './stream-registry'
 
@@ -570,7 +570,7 @@ describe('streamRegistry', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/stream-registry.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/stream-registry.test.ts 2>&1 | tail -10
 ```
 
 Expected: FAIL with module not found
@@ -578,7 +578,7 @@ Expected: FAIL with module not found
 - [ ] **Step 3: 实现 `stream-registry.ts`**
 
 ```typescript
-// src/main/services/stream-registry.ts —— 业务层：活跃流注册表
+// src/main/chat/stream-registry.ts —— 业务层：活跃流注册表
 //
 // 职责：维护 sessionId → (AbortController, messageId) 映射，实现两类策略：
 //  - 同 session 新请求到来时自动 abort 上一次请求
@@ -635,7 +635,7 @@ export const streamRegistry = {
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/stream-registry.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/stream-registry.test.ts 2>&1 | tail -10
 ```
 
 Expected: 5 tests pass
@@ -651,9 +651,9 @@ Expected: 无错误
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/main/services/stream-registry.ts src/main/services/stream-registry.test.ts
+git add src/main/chat/stream-registry.ts src/main/chat/stream-registry.test.ts
 git commit -m "$(cat <<'EOF'
-refactor(services): add stream-registry for active chat streams
+refactor(chat): add stream-registry for active chat streams
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -662,18 +662,18 @@ EOF
 
 ---
 
-## Task 5: 新建 `services/provider-selector.ts`
+## Task 5: 新建 `chat/provider-selector.ts`
 
 把 `ipc/chat.ts:70-77` 的 `getDefaultProvider` 抽到业务层。
 
 **Files:**
-- Create: `src/main/services/provider-selector.ts`
-- Create: `src/main/services/provider-selector.test.ts`
+- Create: `src/main/chat/provider-selector.ts`
+- Create: `src/main/chat/provider-selector.test.ts`
 
 - [ ] **Step 1: 写失败测试**
 
 ```typescript
-// src/main/services/provider-selector.test.ts
+// src/main/chat/provider-selector.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron-log', () => ({
@@ -740,7 +740,7 @@ describe('getDefaultProvider', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/provider-selector.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/provider-selector.test.ts 2>&1 | tail -10
 ```
 
 Expected: FAIL with module not found
@@ -748,7 +748,7 @@ Expected: FAIL with module not found
 - [ ] **Step 3: 实现 `provider-selector.ts`**
 
 ```typescript
-// src/main/services/provider-selector.ts —— 业务层：默认 provider 选取
+// src/main/chat/provider-selector.ts —— 业务层：默认 provider 选取
 //
 // 职责：从 ConfigStore 中按策略选一个 LLM provider。
 // 允许依赖：store/*
@@ -776,7 +776,7 @@ export function getDefaultProvider(): Provider {
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/provider-selector.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/provider-selector.test.ts 2>&1 | tail -10
 ```
 
 Expected: 4 tests pass
@@ -792,9 +792,9 @@ Expected: 无错误
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/main/services/provider-selector.ts src/main/services/provider-selector.test.ts
+git add src/main/chat/provider-selector.ts src/main/chat/provider-selector.test.ts
 git commit -m "$(cat <<'EOF'
-refactor(services): add provider-selector for default provider lookup
+refactor(chat): add provider-selector for default provider lookup
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -803,18 +803,18 @@ EOF
 
 ---
 
-## Task 6: 新建 `services/attachment-service.ts`
+## Task 6: 新建 `chat/attachments.ts`
 
 把 `ipc/chat.ts` 里的 `validateAttachment` / `buildUserBlocks` / `checkVisionSupport` 下沉。
 
 **Files:**
-- Create: `src/main/services/attachment-service.ts`
-- Create: `src/main/services/attachment-service.test.ts`
+- Create: `src/main/chat/attachments.ts`
+- Create: `src/main/chat/attachments.test.ts`
 
 - [ ] **Step 1: 写失败测试**
 
 ```typescript
-// src/main/services/attachment-service.test.ts
+// src/main/chat/attachments.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron-log', () => ({
@@ -842,7 +842,7 @@ import {
   validateAttachment,
   buildUserBlocks,
   checkVisionSupport,
-} from './attachment-service'
+} from './attachments'
 
 function baseAtt(overrides: Record<string, unknown> = {}) {
   return {
@@ -946,15 +946,15 @@ describe('buildUserBlocks', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/attachment-service.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/attachments.test.ts 2>&1 | tail -10
 ```
 
 Expected: FAIL with module not found
 
-- [ ] **Step 3: 实现 `attachment-service.ts`**
+- [ ] **Step 3: 实现 `attachments.ts`**
 
 ```typescript
-// src/main/services/attachment-service.ts —— 业务层：附件校验、视觉能力、消息 blocks 构造
+// src/main/chat/attachments.ts —— 业务层：附件校验、视觉能力、消息 blocks 构造
 //
 // 职责：
 //  1. validateAttachment —— 路径/大小/mime 校验；图片类型读 base64
@@ -1051,7 +1051,7 @@ export function buildUserBlocks(
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/attachment-service.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/attachments.test.ts 2>&1 | tail -10
 ```
 
 Expected: 12 tests pass
@@ -1067,9 +1067,9 @@ Expected: 无错误
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/main/services/attachment-service.ts src/main/services/attachment-service.test.ts
+git add src/main/chat/attachments.ts src/main/chat/attachments.test.ts
 git commit -m "$(cat <<'EOF'
-refactor(services): add attachment-service for validation and block construction
+refactor(chat): add attachments module for validation and block construction
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -1293,19 +1293,19 @@ EOF
 
 ---
 
-## Task 8: `services/chat-service.ts` + 精简 `ipc/chat.ts`
+## Task 8: `chat/orchestrator.ts` + 精简 `ipc/chat.ts`
 
-业务编排搬到 `chat-service.ts`，入口层 `chat.ts` 只做协议转换 + 回调桥接。
+业务编排搬到 `chat/orchestrator.ts`，入口层 `chat.ts` 只做协议转换 + 回调桥接。
 
 **Files:**
-- Create: `src/main/services/chat-service.ts`
-- Create: `src/main/services/chat-service.test.ts`
+- Create: `src/main/chat/orchestrator.ts`
+- Create: `src/main/chat/orchestrator.test.ts`
 - Modify: `src/main/ipc/chat.ts`（整体重写，精简到 ~50 行）
 
-- [ ] **Step 1: 写 `chat-service.test.ts`**
+- [ ] **Step 1: 写 `orchestrator.test.ts`**
 
 ```typescript
-// src/main/services/chat-service.test.ts
+// src/main/chat/orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron-log', () => ({
@@ -1332,7 +1332,7 @@ const { hoisted } = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('./attachment-service', () => ({
+vi.mock('./attachments', () => ({
   validateAttachment: hoisted.validateAttachment,
   buildUserBlocks: hoisted.buildUserBlocks,
   checkVisionSupport: hoisted.checkVisionSupport,
@@ -1346,7 +1346,7 @@ vi.mock('./stream-registry', () => ({
   streamRegistry: { register: hoisted.register, cleanup: hoisted.cleanup, abort: vi.fn() },
 }))
 
-vi.mock('./safe-storage', () => ({
+vi.mock('../services/safe-storage', () => ({
   SafeStorageService: { getInstance: () => ({ getApiKey: hoisted.getApiKey }) },
 }))
 
@@ -1378,7 +1378,7 @@ vi.mock('../store/config-store', () => ({
   ConfigStore: { getInstance: () => ({ get: hoisted.configGet }) },
 }))
 
-import { sendChat } from './chat-service'
+import { sendChat } from './orchestrator'
 
 function makeCallbacks() {
   return {
@@ -1463,26 +1463,27 @@ describe('sendChat', () => {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/chat-service.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/orchestrator.test.ts 2>&1 | tail -10
 ```
 
 Expected: FAIL with module not found
 
-- [ ] **Step 3: 实现 `chat-service.ts`**
+- [ ] **Step 3: 实现 `orchestrator.ts`**
 
 ```typescript
-// src/main/services/chat-service.ts —— 业务层：chat:send 编排
+// src/main/chat/orchestrator.ts —— 业务层（chat 领域）：chat:send 用例编排
 //
 // 职责：接收参数化的 chat 请求 + UI 回调，完成 "附件校验 → provider/model →
 // 工具装配 → 持久化用户消息 → 驱动 ReAct 循环" 全流程。不感知 Electron / IPC。
 //
-// 允许依赖：services/*、tools/*、loop/*、prompt/*、memory/*、repos/*、store/*
-// 禁止依赖：ipc/*
+// 允许依赖：chat/（同层）、tools/*、loop/*、prompt/*、memory/*、providers/*、
+//          repos/*、store/*（只读）、services/*（基础能力 safe-storage 等）
+// 禁止依赖：ipc/* 的运行时代码（仅允许 ipc/ 的纯类型 import，如 ToolConfirmPort / ChatErrorCode）
 
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { ConfigStore } from '../store/config-store'
-import { SafeStorageService } from './safe-storage'
+import { SafeStorageService } from '../services/safe-storage'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { createModel } from '../providers/llm-provider'
 import '../tools/builtin'
@@ -1495,7 +1496,7 @@ import {
   buildUserBlocks,
   checkVisionSupport,
   type ValidatedAttachment,
-} from './attachment-service'
+} from './attachments'
 import { getDefaultProvider } from './provider-selector'
 import { streamRegistry } from './stream-registry'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
@@ -1584,7 +1585,7 @@ export async function sendChat(
       confirmTool: ports.confirmTool,
     })
 
-    log.info('[chat-service] Starting ReAct loop, model:', session?.model_id ?? 'default',
+    log.info('[chat-orch] Starting ReAct loop, model:', session?.model_id ?? 'default',
       'tools:', Object.keys(tools ?? {}).length)
 
     // Step 7: run ReAct loop
@@ -1618,7 +1619,7 @@ export async function sendChat(
     callbacks.onDone(messageId)
     return { messageId }
   } catch (error) {
-    log.error('[chat-service] error:', error)
+    log.error('[chat-orch] error:', error)
     const code = classifyLlmError(error)
     const message = error instanceof Error ? error.message : String(error)
     callbacks.onDone(messageId, { code, message })
@@ -1632,7 +1633,7 @@ export async function sendChat(
 - [ ] **Step 4: 跑新测试确认通过**
 
 ```bash
-cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/services/chat-service.test.ts 2>&1 | tail -10
+cd /Users/quinn.li/Desktop/talor && npx vitest run src/main/chat/orchestrator.test.ts 2>&1 | tail -10
 ```
 
 Expected: 6 tests pass
@@ -1661,8 +1662,8 @@ import { ipcMain } from 'electron'
 import log from 'electron-log'
 import { getMainWindow } from './window'
 import { requestToolConfirm } from './tool-confirm'
-import { sendChat } from '../services/chat-service'
-import { streamRegistry } from '../services/stream-registry'
+import { sendChat } from '../chat/orchestrator'
+import { streamRegistry } from '../chat/stream-registry'
 
 interface ChatSendRawParams {
   session_id: string
@@ -1729,9 +1730,9 @@ Expected: 所有测试通过
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/main/services/chat-service.ts src/main/services/chat-service.test.ts src/main/ipc/chat.ts
+git add src/main/chat/orchestrator.ts src/main/chat/orchestrator.test.ts src/main/ipc/chat.ts
 git commit -m "$(cat <<'EOF'
-refactor(chat): extract chat-service; slim ipc/chat.ts to protocol layer
+refactor(chat): extract chat orchestrator; slim ipc/chat.ts to protocol layer
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 EOF
@@ -2050,7 +2051,7 @@ import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/ses
 **`src/main/ipc/session.ts`**
 ```typescript
 // src/main/ipc/session.ts —— 入口层：session IPC handlers
-// 允许依赖：services/*、repos/*、shared/*    禁止依赖：loop/*
+// 允许依赖：services/*（基础能力）、repos/*、shared/*    禁止依赖：loop/*
 ```
 
 **`src/main/ipc/config.ts`**
@@ -2062,7 +2063,7 @@ import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/ses
 **`src/main/ipc/fileHandlers.ts`**
 ```typescript
 // src/main/ipc/fileHandlers.ts —— 入口层：文件系统 IPC handlers
-// 允许依赖：services/*、shared/*
+// 允许依赖：shared/*、services/*（基础能力）
 ```
 
 **`src/main/ipc/mcp.ts`**
@@ -2074,7 +2075,7 @@ import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/ses
 **`src/main/ipc/providers.ts`**
 ```typescript
 // src/main/ipc/providers.ts —— 入口层：provider IPC handlers
-// 允许依赖：services/*、store/*、shared/*
+// 允许依赖：services/*（provider-fetcher 等基础能力）、store/*、shared/*
 ```
 
 **`src/main/ipc/window.ts`**
@@ -2100,17 +2101,19 @@ import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/ses
 
 | 层 | 目录 | 职责 | 允许依赖 | 禁止 |
 |----|------|------|---------|------|
-| 入口 | `ipc/` | IPC 协议注册、参数解包、事件转发、错误码映射 | `services/*`、`loop/*`、`tools/*`、`repos/*`、`shared/*` | 业务决策 |
-| 业务 | `services/`、`loop/`、`tools/`、`prompt/`、`memory/`、`mcp/`、`providers/` | ReAct 引擎、工具装配、附件处理、Prompt 构建、Memory、MCP 客户端、LLM Provider 适配 | `repos/*`、`store/*`（读）、`shared/*`、其他业务目录 | `ipc/*` |
+| 入口 | `ipc/` | IPC 协议注册、参数解包、事件转发、错误码映射、snake/camel 命名转换 | 业务层任意目录、`repos/*`、`shared/*` | 业务决策 |
+| 业务（按领域聚合） | `chat/`、`loop/`、`tools/`、`prompt/`、`memory/`、`mcp/`、`providers/` | `chat/` = chat 用例编排（orchestrator / attachments / provider-selector / stream-registry）；`loop/` = ReAct 引擎；其余为各自领域模块 | 业务层其他目录、`repos/*`、`store/*`（只读）、`shared/*` | `ipc/*` |
 | 仓储 | `repos/` | SQL CRUD，领域对象转换 | `db/*`、`shared/*` | 业务层以外的任何调用 |
-| 基础 | `db/`、`store/`、`services/safe-storage.ts` | sqlite 连接、electron-store、OS keychain | `shared/*` | — |
+| 基础 | `db/`、`store/`、`services/*` | sqlite 连接、electron-store、OS keychain、provider-fetcher 等原子基础能力 | `shared/*` | — |
+
+**关键区分：** `chat/` 是**用例层**（怎么把一次 chat:send 跑完整），`loop/` 是**引擎层**（给定已就绪的 model/tools，怎么完成 ReAct）；编排调用引擎，未来可复用同一个 `loop/`。`services/` **不**作为"业务层容器"使用，只放原子基础能力。
 
 ## 跨层通信约定
 
 业务层与入口层解耦靠**端口注入**：
 
 - **ToolConfirmPort**：`tools/build-tools.ts` 不直接 import `ipc/tool-confirm`；入口层创建 `(payload) => requestToolConfirm(mainWindow, payload)` 传入。
-- **ChatCallbacks**：`services/chat-service.ts` 通过 callback 上报 text/tool 事件；入口层把 callback 转成 `webContents.send`。
+- **ChatCallbacks**：`chat/orchestrator.ts` 通过 callback 上报 text/tool 事件；入口层把 callback 转成 `webContents.send`。
 - **流式中止**：业务层用 `AbortSignal`，入口层通过 `streamRegistry.abort(sessionId)` 触发。
 
 ## 审查清单
@@ -2119,7 +2122,7 @@ import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/ses
 
 - [ ] 本文件属于哪一层？顶部注释有声明吗？
 - [ ] import 是否仅来自允许依赖的层？
-- [ ] 业务逻辑是否从 `ipc/` 下沉到 `services/` 或 `loop/`？
+- [ ] 业务逻辑是否从 `ipc/` 下沉到对应领域目录（`chat/` / `loop/` / `tools/` …）？
 - [ ] 与入口层耦合的地方，是否通过 callback / 端口注入解耦？
 - [ ] 关键方法（循环控制、超时、错误兜底）是否有 JSDoc 说明 "为什么"？
 ```
@@ -2208,7 +2211,7 @@ pgrep -fl electron
   - V7 尾部 import → T9 Step 3
   - V8 PromptPipeline ConfigStore → T9 Step 4（加注释标记欠款）
 - ✅ §3 业务层内部切分 → T1–T8 各建新文件
-- ✅ §4 chat-service 编排 → T8
+- ✅ §4 chat/orchestrator 编排 → T8
 - ✅ §5 ipc/chat.ts 精简 → T8
 - ✅ §6 react-loop 切分 → T9
 - ✅ §7 端口注入 → T7
