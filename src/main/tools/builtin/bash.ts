@@ -18,7 +18,7 @@ const DANGEROUS_SUBSTRINGS = [
 const DANGEROUS_PATTERNS: RegExp[] = [
   /\bcurl\b.*\|\s*(ba?sh|sh|zsh|fish)/i,
   /\bwget\b.*\|\s*(ba?sh|sh|zsh|fish)/i,
-  /\b(env|printenv|export)\b/i,
+  /\b(env|printenv)\b/i,
   /~\/\.(ssh|aws|gnupg|config|netrc|docker|kube)\//i,
   /\/proc\/(self|[0-9]+)\/(environ|mem|maps)/i,
 ]
@@ -30,8 +30,6 @@ const SENSITIVE_PATH_PATTERNS = [
   '/.aws/',
   '/usr/bin/',
   '/usr/sbin/',
-  '/bin/',
-  '/sbin/',
 ]
 
 function isCommandDangerous(command: string): boolean {
@@ -76,7 +74,10 @@ const bashTool = {
 
       const stdout = result.stdout?.trim() || ''
       const stderr = result.stderr?.trim() || ''
-      const output = stdout || (stderr ? `[stderr]: ${stderr}` : '(no output)')
+      const parts: string[] = []
+      if (stdout) parts.push(stdout)
+      if (stderr) parts.push(`[stderr]: ${stderr}`)
+      const output = parts.join('\n') || '(no output)'
       return { output }
     } catch (err: any) {
       if (err.killed || err.signal === 'SIGTERM') {
