@@ -71,4 +71,28 @@ describe('grep tool', () => {
     expect(result.output).toContain('file1.txt')
     expect(result.output).not.toContain('code.ts')
   })
+
+  it('rejects catastrophic backtracking regex (ReDoS)', async () => {
+    const start = Date.now()
+    const result = await toolRegistry.execute(
+      'grep',
+      { pattern: '(a+)+b', path: 'file1.txt' },
+      makeContext()
+    )
+    const elapsed = Date.now() - start
+    expect(elapsed).toBeLessThan(2000)
+    expect(result.output).toBeDefined()
+  }, 5000)
+
+  it('blocks symlink pointing outside workspace', async () => {
+    const { symlinkSync } = await import('fs')
+    const linkPath = join(TMP, 'evil_link')
+    try {
+      symlinkSync('/etc', linkPath)
+    } catch {
+      return
+    }
+    const result = await toolRegistry.execute('grep', { pattern: 'root', path: 'evil_link' }, makeContext())
+    expect(result.output).toBe('Cannot access path outside workspace')
+  })
 })

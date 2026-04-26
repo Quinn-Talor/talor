@@ -67,4 +67,32 @@ describe('edit tool', () => {
     const result = await toolRegistry.execute('edit', { path: '/etc/passwd', old: 'old', new: 'new' }, makeContext())
     expect(result.output).toBe('Cannot access sensitive system path')
   })
+
+  it('blocks symlink pointing outside workspace', async () => {
+    const { symlinkSync } = await import('fs')
+    const linkPath = join(TMP, 'evil_link')
+    try {
+      symlinkSync('/tmp', linkPath)
+    } catch {
+      return
+    }
+    const result = await toolRegistry.execute('edit', { path: 'evil_link/test.txt', old: 'a', new: 'b' }, makeContext())
+    expect(result.output).toContain('Cannot access')
+  })
+
+  it('returns error for file exceeding size limit', async () => {
+    writeFileSync(join(TMP, 'big.txt'), 'x'.repeat(100))
+    const result = await toolRegistry.execute(
+      'edit',
+      { path: 'big.txt', old: 'x', new: 'y' },
+      { ...makeContext(), maxReadSizeBytes: 10 },
+    )
+    expect(result.output).toContain('too large')
+  })
+
+  it('string not found message has no trailing ... for short string', async () => {
+    writeFileSync(join(TMP, 'file.txt'), 'hello')
+    const result = await toolRegistry.execute('edit', { path: 'file.txt', old: 'hi', new: 'bye' }, makeContext())
+    expect(result.output).toBe('String not found in file: hi')
+  })
 })

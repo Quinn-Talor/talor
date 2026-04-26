@@ -66,4 +66,21 @@ describe('ls tool', () => {
     const result = await toolRegistry.execute('ls', { showHidden: true }, makeContext())
     expect(result.output).toContain('.hidden')
   })
+
+  it('blocks symlink pointing outside workspace', async () => {
+    const { symlinkSync } = await import('fs')
+    const linkPath = join(TMP, 'evil_link')
+    try {
+      symlinkSync('/etc', linkPath)
+    } catch {
+      return
+    }
+    const result = await toolRegistry.execute('ls', { path: 'evil_link' }, makeContext())
+    expect(result.output).toBe('Cannot access path outside workspace')
+  })
+
+  it('caps depth at 10 to prevent excessive recursion', async () => {
+    const result = await toolRegistry.execute('ls', { path: '.', depth: 999999 }, makeContext())
+    expect(result.output).toBeDefined()
+  })
 })

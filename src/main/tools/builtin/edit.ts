@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
-import { join, isAbsolute, normalize } from 'path'
+import { readFileSync, writeFileSync, existsSync, statSync, realpathSync } from 'fs'
+import { join, isAbsolute, normalize, dirname } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
+import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
 
 const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
 
@@ -12,10 +13,28 @@ function isPathSensitive(path: string): boolean {
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) {
-    return null
+  if (!normalized.startsWith(workspace)) return null
+
+  const realWorkspace = realpathSync(workspace)
+
+  try {
+    const real = realpathSync(normalized)
+    if (!real.startsWith(realWorkspace)) return null
+    return real
+  } catch {
+    // path doesn't exist yet — check parent to guard against symlink traversal
+    let parent = normalized
+    while (parent !== dirname(parent)) {
+      try {
+        const realParent = realpathSync(parent)
+        if (!realParent.startsWith(realWorkspace)) return null
+        break
+      } catch {
+        parent = dirname(parent)
+      }
+    }
+    return normalized
   }
-  return normalized
 }
 
 const editTool = {
@@ -34,7 +53,7 @@ const editTool = {
   },
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
-    const { workspace } = context
+    const { workspace, maxReadSizeBytes = DEFAULT_MAX_READ_SIZE_BYTES } = context
     const params = input as { path: string; old: string; new: string; replaceAll?: boolean }
 
     if (!workspace) {
@@ -64,10 +83,17 @@ const editTool = {
         return { output: `Not a file: ${params.path}` }
       }
 
+      if (stats.size > maxReadSizeBytes) {
+        return { output: `File too large: ${stats.size} bytes (max: ${maxReadSizeBytes})` }
+      }
+
       const content = readFileSync(resolvedPath, 'utf-8')
 
       if (!content.includes(params.old)) {
-        return { output: `String not found in file: ${params.old.substring(0, 50)}...` }
+        const preview = params.old.length > 50
+          ? `${params.old.substring(0, 50)}...`
+          : params.old
+        return { output: `String not found in file: ${preview}` }
       }
 
       const occurrences = content.split(params.old).length - 1

@@ -1,11 +1,23 @@
-import { readdirSync, readFileSync, existsSync, statSync } from 'fs'
-import { join, isAbsolute, normalize } from 'path'
+import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'fs'
+import { join, isAbsolute, normalize, dirname } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
 const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/']
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
 const MAX_RESULTS = 100
+
+const REDOS_PATTERNS = [
+  /\(\?[^)]*\)\+/,
+  /\([^)]*\+[^)]*\)\+/,
+  /\([^)]*\+[^)]*\)\*/,
+  /\([^)]*\*[^)]*\)\+/,
+  /\([^)]*\*[^)]*\)\*/,
+]
+
+function isSuspectedReDoS(pattern: string): boolean {
+  return REDOS_PATTERNS.some(re => re.test(pattern))
+}
 
 function isPathSensitive(path: string): boolean {
   return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
@@ -14,10 +26,28 @@ function isPathSensitive(path: string): boolean {
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) {
-    return null
+  if (!normalized.startsWith(workspace)) return null
+
+  const realWorkspace = realpathSync(workspace)
+
+  try {
+    const real = realpathSync(normalized)
+    if (!real.startsWith(realWorkspace)) return null
+    return real
+  } catch {
+    // path doesn't exist yet — check parent to guard against symlink traversal
+    let parent = normalized
+    while (parent !== dirname(parent)) {
+      try {
+        const realParent = realpathSync(parent)
+        if (!realParent.startsWith(realWorkspace)) return null
+        break
+      } catch {
+        parent = dirname(parent)
+      }
+    }
+    return normalized
   }
-  return normalized
 }
 
 const grepTool = {
@@ -61,6 +91,10 @@ const grepTool = {
     }
 
     try {
+      if (isSuspectedReDoS(params.pattern)) {
+        return { output: 'Pattern rejected: potential ReDoS risk (nested quantifiers detected)' }
+      }
+
       let regex: RegExp
       try {
         const flags = params.caseSensitive ? 'g' : 'gi'
@@ -110,7 +144,16 @@ const grepTool = {
               } else if (entry.isFile()) {
                 const ext = entry.name.includes('.') ? '.' + entry.name.split('.').pop() : ''
                 if (exts.includes(`*.${ext}`) || exts.includes('*') || exts.some(e => e === ext)) {
-                  filesToSearch.push(join(dir, entry.name))
+                  const candidatePath = join(dir, entry.name)
+                  try {
+                    const realCandidate = realpathSync(candidatePath)
+                    const realWorkspace = realpathSync(workspace)
+                    if (realCandidate.startsWith(realWorkspace)) {
+                      filesToSearch.push(candidatePath)
+                    }
+                  } catch {
+                    // skip unresolvable
+                  }
                 }
               }
             }

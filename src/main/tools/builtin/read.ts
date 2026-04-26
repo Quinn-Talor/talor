@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, statSync } from 'fs'
-import { join, isAbsolute, normalize } from 'path'
+import { readFileSync, existsSync, statSync, realpathSync } from 'fs'
+import { join, isAbsolute, normalize, dirname } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
@@ -24,10 +24,28 @@ function isBinaryFile(content: Buffer): boolean {
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) {
-    return null
+  if (!normalized.startsWith(workspace)) return null
+
+  const realWorkspace = realpathSync(workspace)
+
+  try {
+    const real = realpathSync(normalized)
+    if (!real.startsWith(realWorkspace)) return null
+    return real
+  } catch {
+    // path doesn't exist yet — check parent to guard against symlink traversal
+    let parent = normalized
+    while (parent !== dirname(parent)) {
+      try {
+        const realParent = realpathSync(parent)
+        if (!realParent.startsWith(realWorkspace)) return null
+        break
+      } catch {
+        parent = dirname(parent)
+      }
+    }
+    return normalized
   }
-  return normalized
 }
 
 const readTool = {

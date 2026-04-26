@@ -64,4 +64,16 @@ describe('write tool', () => {
     const result = await toolRegistry.execute('write', { path: '/etc/passwd', content: 'test' }, makeContext())
     expect(result.output).toBe('Cannot access sensitive system path')
   })
+
+  it('blocks symlink pointing outside workspace', async () => {
+    const { symlinkSync } = await import('fs')
+    const linkPath = join(TMP, 'evil_link')
+    try {
+      symlinkSync('/tmp', linkPath)
+    } catch {
+      return
+    }
+    const result = await toolRegistry.execute('write', { path: 'evil_link/injected.txt', content: 'pwned' }, makeContext())
+    expect(result.output).toContain('Cannot access')
+  })
 })

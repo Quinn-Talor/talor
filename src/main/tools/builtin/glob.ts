@@ -1,4 +1,4 @@
-import { readdirSync, existsSync } from 'fs'
+import { readdirSync, existsSync, realpathSync } from 'fs'
 import { join, relative } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
@@ -11,20 +11,23 @@ function isPathSensitive(path: string): boolean {
   return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
 }
 
-function matchGlob(pattern: string, filePath: string): boolean {
-  const regexPattern = pattern
-    .replace(/\./g, '\\.')
+function globToRegex(pattern: string): RegExp {
+  // Replace glob metacharacters before escaping regex specials
+  // Order matters: ** before *
+  const regexStr = pattern
     .replace(/\*\*/g, '{{GLOBSTAR}}')
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
     .replace(/\*/g, '[^/]*')
-    .replace(/{{GLOBSTAR}}/g, '.*')
     .replace(/\?/g, '[^/]')
-  return new RegExp(`^${regexPattern}$`).test(filePath)
+    .replace(/{{GLOBSTAR}}/g, '.*')
+  return new RegExp(`^${regexStr}$`)
 }
 
 function searchRecursive(
   workspace: string,
+  realWorkspace: string,
   dir: string,
-  pattern: string,
+  pattern: RegExp,
   results: string[],
   depth: number,
   maxDepth: number = 10,
@@ -37,12 +40,21 @@ function searchRecursive(
       if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue
 
       const fullPath = join(dir, entry.name)
+
+      let realFull: string
+      try {
+        realFull = realpathSync(fullPath)
+      } catch {
+        continue
+      }
+      if (!realFull.startsWith(realWorkspace)) continue
+
       const relativePath = relative(workspace, fullPath)
 
       if (entry.isDirectory()) {
-        searchRecursive(workspace, fullPath, pattern, results, depth + 1, maxDepth)
+        searchRecursive(workspace, realWorkspace, fullPath, pattern, results, depth + 1, maxDepth)
       } else if (entry.isFile()) {
-        if (matchGlob(pattern, relativePath)) {
+        if (pattern.test(relativePath)) {
           results.push(relativePath)
         }
       }
@@ -83,9 +95,17 @@ const globTool = {
       return { output: `Workspace does not exist: ${workspace}` }
     }
 
+    let realWorkspace: string
     try {
+      realWorkspace = realpathSync(workspace)
+    } catch {
+      return { output: `Cannot resolve workspace path: ${workspace}` }
+    }
+
+    try {
+      const regex = globToRegex(params.pattern)
       const results: string[] = []
-      searchRecursive(workspace, workspace, params.pattern, results, 0)
+      searchRecursive(workspace, realWorkspace, workspace, regex, results, 0)
       if (results.length === 0) return { output: [] }
       const truncated = results.length >= MAX_RESULTS
       return {

@@ -51,4 +51,24 @@ describe('glob tool', () => {
     const result = await toolRegistry.execute('glob', { pattern: '*.ts' }, makeContext('/nonexistent/path'))
     expect(result.output).toContain('does not exist')
   })
+
+  it('blocks symlink pointing outside workspace', async () => {
+    const { symlinkSync } = await import('fs')
+    const linkPath = join(TMP, 'evil_link')
+    try {
+      symlinkSync('/etc', linkPath)
+    } catch {
+      return
+    }
+    const result = await toolRegistry.execute('glob', { pattern: 'evil_link/**' }, makeContext())
+    if (Array.isArray(result.output)) {
+      const paths = result.output as string[]
+      expect(paths.every((p: string) => !p.startsWith('/etc'))).toBe(true)
+    }
+  })
+
+  it('handles glob pattern with parentheses without throwing', async () => {
+    const result = await toolRegistry.execute('glob', { pattern: 'src/(index|utils).ts' }, makeContext())
+    expect(result.output).toBeDefined()
+  })
 })

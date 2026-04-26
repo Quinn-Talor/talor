@@ -1,5 +1,5 @@
-import { writeFileSync, existsSync, mkdirSync, statSync } from 'fs'
-import { join, isAbsolute, normalize } from 'path'
+import { writeFileSync, existsSync, mkdirSync, statSync, realpathSync } from 'fs'
+import { join, isAbsolute, normalize, dirname } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { DEFAULT_MAX_WRITE_SIZE_BYTES } from '../types'
@@ -13,10 +13,28 @@ function isPathSensitive(path: string): boolean {
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) {
-    return null
+  if (!normalized.startsWith(workspace)) return null
+
+  const realWorkspace = realpathSync(workspace)
+
+  try {
+    const real = realpathSync(normalized)
+    if (!real.startsWith(realWorkspace)) return null
+    return real
+  } catch {
+    // path doesn't exist yet — check parent to guard against symlink traversal
+    let parent = normalized
+    while (parent !== dirname(parent)) {
+      try {
+        const realParent = realpathSync(parent)
+        if (!realParent.startsWith(realWorkspace)) return null
+        break
+      } catch {
+        parent = dirname(parent)
+      }
+    }
+    return normalized
   }
-  return normalized
 }
 
 const writeTool = {
@@ -61,7 +79,7 @@ const writeTool = {
       }
 
       // Create parent directories if needed
-      const parentDir = resolvedPath.substring(0, resolvedPath.lastIndexOf('/'))
+      const parentDir = dirname(resolvedPath)
       if (parentDir && !existsSync(parentDir)) {
         mkdirSync(parentDir, { recursive: true })
       }

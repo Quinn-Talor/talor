@@ -1,5 +1,5 @@
-import { readdirSync, existsSync, statSync } from 'fs'
-import { join, isAbsolute, normalize } from 'path'
+import { readdirSync, existsSync, statSync, realpathSync } from 'fs'
+import { join, isAbsolute, normalize, dirname } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 
@@ -13,10 +13,28 @@ function isPathSensitive(path: string): boolean {
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) {
-    return null
+  if (!normalized.startsWith(workspace)) return null
+
+  const realWorkspace = realpathSync(workspace)
+
+  try {
+    const real = realpathSync(normalized)
+    if (!real.startsWith(realWorkspace)) return null
+    return real
+  } catch {
+    // path doesn't exist yet — check parent to guard against symlink traversal
+    let parent = normalized
+    while (parent !== dirname(parent)) {
+      try {
+        const realParent = realpathSync(parent)
+        if (!realParent.startsWith(realWorkspace)) return null
+        break
+      } catch {
+        parent = dirname(parent)
+      }
+    }
+    return normalized
   }
-  return normalized
 }
 
 function formatSize(size: number): string {
@@ -82,7 +100,7 @@ const lsTool = {
         return { output: `Not a directory: ${targetPath}` }
       }
 
-      const depth = params.depth || 1
+      const depth = Math.min(params.depth ?? 1, 10)
       const showHidden = params.showHidden || false
       const entries: string[] = []
 

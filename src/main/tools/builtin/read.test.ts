@@ -74,4 +74,16 @@ describe('read tool', () => {
     const result = await toolRegistry.execute('read', { path: '../../etc/passwd' }, makeContext())
     expect(result.output).toContain('Cannot access')
   })
+
+  it('blocks symlink pointing outside workspace', async () => {
+    const { symlinkSync } = await import('fs')
+    const linkPath = join(TMP, 'evil_link')
+    try {
+      symlinkSync('/etc', linkPath)
+    } catch {
+      return
+    }
+    const result = await toolRegistry.execute('read', { path: 'evil_link/passwd' }, makeContext())
+    expect(result.output).toContain('Cannot access')
+  })
 })
