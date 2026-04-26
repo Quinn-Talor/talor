@@ -1,3 +1,10 @@
+// src/main/prompt/PromptPipeline.ts —— 业务层：Prompt 构建流水线
+//
+// 允许依赖：store/*（读配置）、memory/*、shared/*
+// 禁止依赖：ipc/*
+//
+// 已知欠款：resolveProviderConfig 直接引用 ConfigStore 单例。后续可改为依赖注入。
+
 import { ConfigStore } from '../store/config-store'
 import { MemoryManager } from '../memory/MemoryManager'
 import type { PipelineContext, PluginResult, ProviderContextConfig, ToolSchema } from './types'

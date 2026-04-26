@@ -110,6 +110,12 @@ class MCPClientImpl {
           parameters: tool.inputSchema,
         }))
       },
+      /**
+       * MCP 工具执行。
+       *  - 若连接断开，尝试重连 3 次（1s/2s/4s backoff）；全部失败返回错误字符串
+       *  - 成功调用加 30s 超时保护
+       *  - 任何异常都包装成 { output: "...错误字符串..." }，保证 ReAct 循环不中断
+       */
       async execute(
         toolName: string,
         input: unknown,

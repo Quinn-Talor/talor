@@ -1,3 +1,6 @@
+// src/main/ipc/window.ts —— 入口层：窗口管理 IPC handlers
+// 允许依赖：shared/*
+
 import { ipcMain, BrowserWindow } from 'electron'
 
 let _mainWindow: BrowserWindow | null = null

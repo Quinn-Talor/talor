@@ -1,3 +1,6 @@
+// src/main/ipc/mcp.ts —— 入口层：MCP IPC handlers
+// 允许依赖：mcp/*、repos/*、shared/*
+
 import { ipcMain } from 'electron'
 import { mcpServerRepo, MCPServerType, MCPAuthConfig } from '../repos/mcp-server-repo'
 import { toolRegistry } from '../tools/registry'

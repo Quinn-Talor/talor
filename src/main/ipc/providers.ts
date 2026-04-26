@@ -1,3 +1,6 @@
+// src/main/ipc/providers.ts —— 入口层：provider IPC handlers
+// 允许依赖：services/*（provider-fetcher 等基础能力）、store/*、shared/*
+
 import { ipcMain } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import { ConfigStore } from '../store/config-store'

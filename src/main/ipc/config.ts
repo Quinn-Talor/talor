@@ -1,3 +1,6 @@
+// src/main/ipc/config.ts —— 入口层：config IPC handlers
+// 允许依赖：store/*、shared/*    禁止依赖：业务层运行时代码
+
 import { ipcMain } from 'electron'
 import { ConfigStore } from '../store/config-store'
 

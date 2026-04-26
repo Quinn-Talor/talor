@@ -1,3 +1,6 @@
+// src/main/ipc/fileHandlers.ts —— 入口层：文件系统 IPC handlers
+// 允许依赖：shared/*、services/*（基础能力）
+
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import fs from 'fs/promises'
 import path from 'path'
