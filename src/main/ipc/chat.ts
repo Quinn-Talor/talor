@@ -8,18 +8,33 @@
 //
 // 禁止：业务决策（附件校验、provider 选取、ReAct 控制等）
 
-import { ipcMain } from 'electron'
+import { ipcMain, app } from 'electron'
+import { join } from 'path'
 import log from 'electron-log'
 import { getMainWindow } from './window'
 import { requestToolConfirm } from './tool-confirm'
 import { sendChat } from '../chat/orchestrator'
 import { streamRegistry } from '../chat/stream-registry'
+import { SkillRegistry } from '../skills/registry'
 
 /** 渲染端传入的 snake_case 参数结构。 */
 interface ChatSendRawParams {
   session_id: string
   content: string
   attachments?: Array<{ path: string; mime_type: string; filename: string; size_bytes: number }>
+}
+
+let platformSkillRegistry: SkillRegistry | undefined
+
+function getPlatformSkillRegistry(): SkillRegistry | undefined {
+  if (platformSkillRegistry) return platformSkillRegistry
+  const skillsDir = join(app.getAppPath(), 'skills')
+  const registry = SkillRegistry.fromDir(skillsDir)
+  if (!registry.isEmpty()) {
+    platformSkillRegistry = registry
+    log.info('[chat] Platform skills loaded:', registry.listDescriptions().map(s => s.name))
+  }
+  return registry.isEmpty() ? undefined : registry
 }
 
 export function registerChatHandlers(): void {
@@ -41,7 +56,7 @@ export function registerChatHandlers(): void {
         onToolResult: (mid, id, name, out)   => win.webContents.send('chat:tool-result', { session_id: sid, message_id: mid, tool_call_id: id, tool_name: name, result: out }),
         onDone:       (mid, err)             => win.webContents.send('chat:stream',      { session_id: sid, message_id: mid, delta: '', done: true, error_code: err?.code, error_message: err?.message }),
       },
-      { confirmTool: (payload) => requestToolConfirm(win, payload) },
+      { confirmTool: (payload) => requestToolConfirm(win, payload), skillRegistry: getPlatformSkillRegistry() },
     )
 
     // 返回值按历史协议用 snake_case

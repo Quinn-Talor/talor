@@ -74,3 +74,6 @@ tests
 vibe
 node_modules
 .playwright-mcp
+/skills
+*.png
+snapshot.yml

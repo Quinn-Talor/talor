@@ -42,6 +42,7 @@ interface StepContext {
   providerConfig: ProviderContextConfig
   workspace: string
   callbacks: ReactLoopCallbacks
+  skillRegistry?: ReactLoopOptions['skillRegistry']
 }
 
 /** runReactStep 返回值——循环控制层据此决定是否继续。 */
@@ -100,6 +101,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     provider: ctx.provider,
     providerConfig: ctx.providerConfig,
     workspacePath: ctx.workspace || undefined,
+    skillRegistry: ctx.skillRegistry,
   }
   const { messages } = await ctx.pipeline.build(pipelineCtx)
 
@@ -160,10 +162,14 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
   }
 
   // 有工具调用 → 落库 assistant + tool，继续下一步
-  const toolResults = await result.toolResults
+  let toolResults = await result.toolResults
   if (toolResults.length === 0) {
-    log.error(`[ReactLoop]   → tools called but no results returned [${durationMs}ms]`)
-    return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_tool_results' }
+    log.warn(`[ReactLoop]   → tools called but no results returned, injecting error feedback [${durationMs}ms]`)
+    toolResults = stepToolCalls.map(tc => ({
+      toolCallId: tc.toolCallId,
+      toolName: tc.toolName,
+      output: `Error: tool "${tc.toolName}" does not exist. Available tools: ${Object.keys(ctx.tools ?? {}).join(', ')}`,
+    }))
   }
 
   for (const tc of stepToolCalls) {
@@ -271,6 +277,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     providerConfig: opts.providerConfig,
     workspace: opts.workspace,
     callbacks: opts.callbacks,
+    skillRegistry: opts.skillRegistry,
   }
 
   let fullText = ''

@@ -74,15 +74,26 @@ export function buildStreamSignal(abortSignal: AbortSignal): AbortSignal {
 
 /**
  * 把 AI SDK 的 tool-result parts 转成 DB 存储用的 ToolResultBlock[]。
- * 输出文本按 MAX_TOOL_RESULT_BYTES 截断，保留 isError 标记。
- * 上游会把结果写入 messages 表（role='tool'），作为下一轮 ReAct 的上下文。
+ * 普通工具按 MAX_TOOL_RESULT_BYTES (8KB) 截断。
+ * skill 工具按 MAX_SKILL_RESULT_BYTES (1MB) 截断——Skill 内容是完整指令，不能粗暴截断。
  */
+const MAX_SKILL_RESULT_BYTES = 1024 * 1024
+
+function truncateSkillOutput(output: string): string {
+  const bytes = Buffer.byteLength(output, 'utf8')
+  if (bytes <= MAX_SKILL_RESULT_BYTES) return output
+  const buf = Buffer.from(output, 'utf8').subarray(0, MAX_SKILL_RESULT_BYTES)
+  return buf.toString('utf8') + `\n[截断：Skill 内容过大，原始 ${bytes} 字节，已截断至 1MB]`
+}
+
 export function toolResultPartsToBlocks(parts: ToolResultLike[]): ToolResultBlock[] {
   return parts.map(tr => ({
     type: 'tool_result' as const,
     toolCallId: tr.toolCallId,
     toolName: tr.toolName,
-    output: truncateOutput(extractOutputText(tr.output)),
+    output: tr.toolName === 'skill'
+      ? truncateSkillOutput(extractOutputText(tr.output))
+      : truncateOutput(extractOutputText(tr.output)),
     isError: isErrorOutput(tr.output),
   }))
 }

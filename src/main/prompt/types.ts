@@ -1,5 +1,7 @@
 import type { CoreMessage } from 'ai'
 import type { Provider } from '../store/config-store'
+import type { AgentManifest } from '@shared/types/agent'
+import type { SkillRegistry } from '../skills/registry'
 
 export interface PromptPlugin {
   name: string
@@ -20,6 +22,8 @@ export interface PipelineContext {
   provider: Provider
   providerConfig: ProviderContextConfig
   workspacePath: string | undefined
+  agent?: AgentManifest
+  skillRegistry?: SkillRegistry
 }
 
 export interface PluginResult {

@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
+import { ToolCallMessage } from '../../components/ToolCallMessage'
 import { ToolConfirmDialog } from '../../components/ToolConfirmDialog'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
@@ -482,20 +483,47 @@ export function ChatPage() {
                 </div>
               ) : (
                 <>
-                  {messages.filter(msg => {
-                    // Don't render tool messages (tool_result) — shown in ToolCallLog
-                    if (msg.role === 'tool') return false
-                    // Don't render assistant messages that contain only tool_use blocks (no visible text)
+                  {messages.reduce((rendered, msg, idx) => {
+                    // tool messages (tool_result) — pair with preceding tool_use and render as ToolCallMessage
+                    if (msg.role === 'tool') return rendered
+
+                    // assistant messages with only tool_use blocks — render as ToolCallMessage
                     if (msg.role === 'assistant') {
                       try {
-                        const blocks = JSON.parse(msg.content) as Array<{ type: string }>
-                        if (Array.isArray(blocks) && blocks.every(b => b.type === 'tool_use')) return false
-                      } catch { /* render it */ }
+                        const blocks = JSON.parse(msg.content) as Array<{ type: string; toolCallId?: string; toolName?: string; input?: unknown }>
+                        if (Array.isArray(blocks) && blocks.every(b => b.type === 'tool_use')) {
+                          const toolUses = blocks.filter(b => b.type === 'tool_use').map(b => ({
+                            type: 'tool_use' as const,
+                            toolCallId: b.toolCallId ?? '',
+                            toolName: b.toolName ?? '',
+                            input: b.input,
+                          }))
+                          // find next tool message for results
+                          const nextMsg = messages[idx + 1]
+                          let toolResults: Array<{ type: 'tool_result'; toolCallId: string; toolName: string; output: string; isError: boolean }> = []
+                          if (nextMsg?.role === 'tool') {
+                            try {
+                              const resultBlocks = JSON.parse(nextMsg.content) as Array<{ type: string; toolCallId?: string; toolName?: string; output?: string; isError?: boolean }>
+                              toolResults = resultBlocks.filter(b => b.type === 'tool_result').map(b => ({
+                                type: 'tool_result' as const,
+                                toolCallId: b.toolCallId ?? '',
+                                toolName: b.toolName ?? '',
+                                output: b.output ?? '',
+                                isError: b.isError ?? false,
+                              }))
+                            } catch { /* skip */ }
+                          }
+                          rendered.push(
+                            <ToolCallMessage key={msg.id} toolUses={toolUses} toolResults={toolResults} />
+                          )
+                          return rendered
+                        }
+                      } catch { /* render as normal */ }
                     }
-                    return true
-                  }).map(msg => (
-                    <MessageBubble key={msg.id} message={msg} />
-                  ))}
+
+                    rendered.push(<MessageBubble key={msg.id} message={msg} />)
+                    return rendered
+                  }, [] as React.ReactNode[])}
                   {streamState === 'streaming' && (
                     <ToolCallLog />
                   )}

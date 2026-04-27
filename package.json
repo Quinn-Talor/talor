@@ -32,7 +32,8 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-gfm": "^4.0.1",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",

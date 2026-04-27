@@ -60,8 +60,17 @@ export async function buildTools(opts: {
   messageId: string
   workspace: string
   confirmTool: ToolConfirmPort
+  skillRegistry?: import('../skills/registry').SkillRegistry
 }): Promise<Record<string, ReturnType<typeof dynamicTool>> | undefined> {
-  const { sessionId, messageId, workspace, confirmTool } = opts
+  const { sessionId, messageId, workspace, confirmTool, skillRegistry } = opts
+
+  if (skillRegistry && !skillRegistry.isEmpty()) {
+    const { createSkillTool } = await import('../skills/skill-tool')
+    const skillToolDef = createSkillTool(skillRegistry)
+    if (!toolRegistry.getTool('skill')) {
+      toolRegistry.register(skillToolDef)
+    }
+  }
   const hasWorkspace = workspace.trim() !== ''
 
   if (toolRegistry.listAllTools().length <= BUILTIN_TOOL_THRESHOLD) {
@@ -69,9 +78,11 @@ export async function buildTools(opts: {
     await new Promise(resolve => setTimeout(resolve, MCP_WAIT_MS))
   }
 
+  const hasSkills = skillRegistry && !skillRegistry.isEmpty()
+
   const finalSchemas = toolRegistry.listAllTools().filter(schema => {
     const isBuiltin = !schema.provider || schema.provider === 'builtin'
-    if (isBuiltin && !hasWorkspace) return false
+    if (isBuiltin && !hasWorkspace && !hasSkills) return false
     return true
   })
 

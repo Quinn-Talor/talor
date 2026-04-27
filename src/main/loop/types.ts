@@ -25,4 +25,5 @@ export interface ReactLoopOptions {
   workspace: string
   callbacks: ReactLoopCallbacks
   maxSteps?: number
+  skillRegistry?: import('../skills/registry').SkillRegistry
 }

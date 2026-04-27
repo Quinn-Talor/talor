@@ -60,6 +60,7 @@ export interface ChatCallbacks {
  */
 export interface ChatPorts {
   confirmTool: ToolConfirmPort
+  skillRegistry?: import('../skills/registry').SkillRegistry
 }
 
 /**
@@ -123,6 +124,7 @@ export async function sendChat(
     const tools = await buildTools({
       sessionId, messageId, workspace,
       confirmTool: ports.confirmTool,
+      skillRegistry: ports.skillRegistry,
     })
 
     log.info('[chat-orch] Starting ReAct loop, model:', session?.model_id ?? 'default',
@@ -148,6 +150,7 @@ export async function sendChat(
       providerConfig: resolveProviderConfig(provider),
       workspace,
       maxSteps: typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
+      skillRegistry: ports.skillRegistry,
       callbacks: {
         onTextDelta: (delta) => callbacks.onTextDelta(messageId, delta),
         onToolCall:  (id, name, input) => callbacks.onToolCall(messageId, id, name, input),
