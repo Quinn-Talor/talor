@@ -1,3 +1,10 @@
+// src/shared/types/agent.ts — 共享类型：Agent 系统核心类型定义
+//
+// AgentProfile = agent.json 的 TS 映射（Agent 的档案）
+// 所有 Agent 模块基于此统一数据结构
+
+// ── 角色 ──────────────────────────────────────────────────
+
 export interface SampleConversationMessage {
   role: 'user' | 'assistant'
   content: string
@@ -10,12 +17,14 @@ export interface SampleConversation {
 
 export interface AgentRole {
   capabilities: string[]
-  constraints: string[]
+  constraints?: string[]
   outputFormat: string
+  sampleConversations?: SampleConversation[]
   personality?: string
   language?: string
-  sampleConversations: SampleConversation[]
 }
+
+// ── 知识 ──────────────────────────────────────────────────
 
 export interface KnowledgeFileRef {
   path: string
@@ -28,38 +37,7 @@ export interface AgentKnowledge {
   files: KnowledgeFileRef[]
 }
 
-export interface ToolDependency {
-  name: string
-  required: boolean
-}
-
-export interface SkillDependencySource {
-  type: 'npm' | 'git' | 'url'
-  package?: string
-  url?: string
-}
-
-export interface SkillDependency {
-  name: string
-  version?: string
-  required: boolean
-  source?: SkillDependencySource
-  config?: Record<string, string>
-}
-
-export interface CliDependency {
-  command: string
-  version?: string
-  checkCommand?: string
-  installHint?: string
-  required: boolean
-}
-
-export interface AgentDependencies {
-  tools: ToolDependency[]
-  skills: SkillDependency[]
-  cli: CliDependency[]
-}
+// ── 流程（MVP 只支持 manual trigger）─────────────────────
 
 export interface WorkflowStep {
   id: string
@@ -83,14 +61,105 @@ export interface AgentWorkflow {
   fallback?: string
 }
 
-export interface AgentRuntime {
+// ── 依赖声明 ─────────────────────────────────────────────
+
+export interface ToolDependency {
+  name: string
+  required: boolean
+}
+
+export interface McpServerPackage {
+  type: 'npm' | 'pip'
+  package: string
+}
+
+export interface McpTransportStdio {
+  type: 'stdio'
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+export interface McpTransportHttp {
+  type: 'http'
+  url: string
+  auth?: {
+    type: 'bearer' | 'apiKey'
+    envVar: string
+  }
+}
+
+export type McpTransportConfig = McpTransportStdio | McpTransportHttp
+
+export interface McpServerDependency {
+  name: string
+  description?: string
+  serverPackage?: McpServerPackage
+  transport: McpTransportConfig
+  tools: string[]
+  required: boolean
+}
+
+export interface SkillSource {
+  type: 'npx' | 'local'
+  uri?: string
+  path?: string
+}
+
+export interface SkillItem {
+  name: string
+  required: boolean
+}
+
+export interface SkillDependencyGroup {
+  source: SkillSource
+  items: SkillItem[]
+}
+
+export interface CliInstallNpm {
+  type: 'npm'
+  package: string
+}
+
+export interface CliInstallBrew {
+  type: 'brew'
+  formula: string
+}
+
+export interface CliInstallScript {
+  type: 'script'
+  url: string
+}
+
+export type CliInstallMethod = CliInstallNpm | CliInstallBrew | CliInstallScript
+
+export interface CliDependency {
+  command: string
+  version?: string
+  checkCommand?: string
+  install: CliInstallMethod
+  required: boolean
+}
+
+export interface AgentDependencies {
+  tools: ToolDependency[]
+  mcpServers: McpServerDependency[]
+  skills: SkillDependencyGroup[]
+  cli: CliDependency[]
+}
+
+// ── 运行偏好 ─────────────────────────────────────────────
+
+export interface AgentPreferences {
   providerId?: string
   modelId?: string
   maxSteps?: number
   contextLimit?: number
 }
 
-export interface AgentManifest {
+// ── AgentProfile（agent.json 的完整映射）─────────────────
+
+export interface AgentProfile {
   id: string
   name: string
   description: string
@@ -101,30 +170,35 @@ export interface AgentManifest {
   knowledge: AgentKnowledge
   workflow?: AgentWorkflow
   dependencies: AgentDependencies
-  runtime?: AgentRuntime
+  preferences?: AgentPreferences
 }
+
+// ── 运行时辅助类型 ───────────────────────────────────────
 
 export type AgentStatus = 'disabled' | 'ready' | 'dependency_missing' | 'running'
 
 export interface AgentEntry {
-  manifest: AgentManifest
+  profile: AgentProfile
   dirPath: string
   status: AgentStatus
   lastUsedAt?: string
-  resolvedConfig?: Record<string, string>
 }
 
-export interface ValidateManifestSuccess {
+// ── 校验结果 ─────────────────────────────────────────────
+
+export interface ValidateProfileSuccess {
   valid: true
-  manifest: AgentManifest
+  profile: AgentProfile
 }
 
-export interface ValidateManifestFailure {
+export interface ValidateProfileFailure {
   valid: false
   errors: string[]
 }
 
-export type ValidateManifestResult = ValidateManifestSuccess | ValidateManifestFailure
+export type ValidateProfileResult = ValidateProfileSuccess | ValidateProfileFailure
+
+// ── 账户管理 ─────────────────────────────────────────────
 
 export interface AccountKey {
   name: string
@@ -146,10 +220,13 @@ export interface ResolveResult {
   missing: string[]
 }
 
+// ── 依赖检查 ─────────────────────────────────────────────
+
 export type DependencyStepName =
   | 'minAppVersion'
   | 'cli'
   | 'skill'
+  | 'mcpServer'
   | 'tool'
   | 'config'
   | 'knowledge'
@@ -166,6 +243,8 @@ export interface DependencyCheckResult {
   passed: boolean
   steps: DependencyStepResult[]
 }
+
+// ── Skill 安装 ───────────────────────────────────────────
 
 export interface SkillInstallProgress {
   skill: string

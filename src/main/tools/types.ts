@@ -57,15 +57,6 @@ export interface ToolMetadata {
   description: string
   parameters: Record<string, unknown>
   schema?: Record<string, unknown>
+  riskLevel?: 'HIGH' | 'LOW'
 }
 
-export interface MCPToolProvider {
-  name: string
-  version?: string
-  listTools(): ToolMetadata[]
-  execute(
-    toolName: string,
-    input: unknown,
-    context: ToolExecuteContext,
-  ): Promise<{ output: unknown }>
-}

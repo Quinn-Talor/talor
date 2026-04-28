@@ -73,6 +73,26 @@ declare global {
           properties?: Array<'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles' | 'createDirectory' | 'promptToCreate' | 'noResolveAliases' | 'treatPackageAsDirectory' | 'dontAddToRecent'>
         }) => Promise<string[] | null>
       }
+      agents: {
+        list: () => Promise<unknown[]>
+        get: (id: string) => Promise<unknown>
+        createSession: (agentId: string) => Promise<{ session_id: string }>
+        enable: (id: string) => Promise<unknown>
+        delete: (id: string) => Promise<void>
+        reload: () => Promise<unknown[]>
+        checkDeps: (id: string) => Promise<unknown>
+        export: (id: string) => Promise<unknown>
+        import: () => Promise<unknown>
+        installDeps: (id: string) => Promise<unknown>
+        update: (id: string, profile: unknown) => Promise<void>
+        crystallize: (sessionId: string) => Promise<unknown>
+      }
+      accounts: {
+        list: () => Promise<unknown[]>
+        save: (account: unknown) => Promise<void>
+        delete: (service: string) => Promise<void>
+        getValue: (key: string) => Promise<string | null>
+      }
     }
   }
 }
@@ -147,6 +167,28 @@ const stubFile = {
   openDialog: () => Promise.resolve(null as string[] | null),
 }
 
+const stubAgents = {
+  list: () => Promise.resolve([]),
+  get: () => Promise.resolve(null),
+  createSession: () => Promise.resolve({ session_id: '' }),
+  enable: () => Promise.resolve(null),
+  delete: () => Promise.resolve(),
+  reload: () => Promise.resolve([]),
+  checkDeps: () => Promise.resolve(null),
+  export: () => Promise.resolve(null),
+  import: () => Promise.resolve(null),
+  installDeps: () => Promise.resolve(null),
+  update: () => Promise.resolve(),
+  crystallize: () => Promise.resolve(null),
+}
+
+const stubAccounts = {
+  list: () => Promise.resolve([]),
+  save: () => Promise.resolve(),
+  delete: () => Promise.resolve(),
+  getValue: () => Promise.resolve(null as string | null),
+}
+
 export const talorAPI = new Proxy({} as Window['talorAPI'], {
   get(_target, prop) {
     const real = window.talorAPI ? (window.talorAPI as Record<string, unknown>)[prop as string] : undefined
@@ -186,6 +228,16 @@ export const talorAPI = new Proxy({} as Window['talorAPI'], {
       return new Proxy({}, {
         get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubFile as Record<string, unknown>)?.[p as string],
       }) as Window['talorAPI']['file']
+    }
+    if (prop === 'agents') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubAgents as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['agents']
+    }
+    if (prop === 'accounts') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubAccounts as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['accounts']
     }
     return undefined
   },

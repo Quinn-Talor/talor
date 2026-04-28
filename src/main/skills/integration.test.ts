@@ -17,13 +17,25 @@ import { SkillRegistry } from './registry'
 import { createSkillTool } from './skill-tool'
 import { extractActivatedSkills } from './extractor'
 import { AgentPromptPlugin } from '../prompt/plugins/AgentPromptPlugin'
+import { Agent } from '../agent/agent'
+import { BuiltinToolRegistry } from '../agent/builtin-registry'
 import type { PipelineContext } from '../prompt/types'
-import type { AgentManifest } from '@shared/types/agent'
+import type { AgentProfile } from '@shared/types/agent'
+import type { ToolDefinition } from '../tools/types'
 import type { ContentBlock } from '@shared/types/message'
+
+function makeTool(name: string): ToolDefinition {
+  return { name, description: `${name} tool`, parameters: {}, execute: async () => ({ output: name }) }
+}
+const builtinReg = new BuiltinToolRegistry([
+  makeTool('read'), makeTool('write'), makeTool('edit'),
+  makeTool('bash'), makeTool('glob'), makeTool('grep'),
+  makeTool('ls'), makeTool('skill'),
+])
 
 let tempDir: string
 
-const AGENT_MANIFEST: AgentManifest = {
+const AGENT_PROFILE: AgentProfile = {
   id: 'test-agent',
   name: '测试Agent',
   description: '集成测试用',
@@ -87,14 +99,21 @@ describe('Skill 双阶段加载集成测试', () => {
     const plugin = new AgentPromptPlugin()
     const skillTool = createSkillTool(registry)
 
+    const agent = new Agent({
+      profile: AGENT_PROFILE,
+      source: null,
+      builtinRegistry: builtinReg,
+      mcpSource: null,
+      skillRegistry: registry,
+    })
+
     const ctx: PipelineContext = {
       sessionId: 'test-session',
       currentMessage: { text: '帮我查表格数据' },
       provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' },
       providerConfig: { provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' }, context_limit: 8000, recent_ratio: 0.7, summary_ratio: 0.2 },
       workspacePath: '/tmp',
-      agent: AGENT_MANIFEST,
-      skillRegistry: registry,
+      agent,
     }
 
     // ════════════════════════════════════════════════════════
@@ -239,14 +258,21 @@ describe('Skill 双阶段加载集成测试', () => {
     const emptyRegistry = SkillRegistry.fromDir(null)
     const plugin = new AgentPromptPlugin()
 
+    const agent = new Agent({
+      profile: AGENT_PROFILE,
+      source: null,
+      builtinRegistry: builtinReg,
+      mcpSource: null,
+      skillRegistry: emptyRegistry,
+    })
+
     const ctx: PipelineContext = {
       sessionId: 'test',
       currentMessage: { text: 'hello' },
       provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' },
       providerConfig: { provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' }, context_limit: 8000, recent_ratio: 0.7, summary_ratio: 0.2 },
       workspacePath: '/tmp',
-      agent: AGENT_MANIFEST,
-      skillRegistry: emptyRegistry,
+      agent,
     }
 
     const result = await plugin.build(ctx)

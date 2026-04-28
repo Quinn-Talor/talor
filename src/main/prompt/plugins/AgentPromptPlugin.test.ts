@@ -6,11 +6,38 @@ import { tmpdir } from 'os'
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
 import { AgentPromptPlugin } from './AgentPromptPlugin'
+import { Agent } from '../../agent/agent'
+import { BuiltinToolRegistry } from '../../agent/builtin-registry'
 import { SkillRegistry } from '../../skills/registry'
 import type { PipelineContext } from '../types'
-import type { AgentManifest } from '@shared/types/agent'
+import type { AgentProfile } from '@shared/types/agent'
+import type { ToolDefinition } from '../../tools/types'
 
-function createContext(agent?: AgentManifest, skillRegistry?: SkillRegistry): PipelineContext {
+function makeTool(name: string): ToolDefinition {
+  return {
+    name, description: `${name} tool`,
+    parameters: { type: 'object', properties: {} },
+    execute: async () => ({ output: name }),
+  }
+}
+
+const builtinRegistry = new BuiltinToolRegistry([
+  makeTool('read'), makeTool('write'), makeTool('edit'),
+  makeTool('bash'), makeTool('glob'), makeTool('grep'),
+  makeTool('ls'), makeTool('skill'),
+])
+
+function createAgent(profile: AgentProfile, skillRegistry?: SkillRegistry): Agent {
+  return new Agent({
+    profile,
+    source: null,
+    builtinRegistry,
+    mcpSource: null,
+    skillRegistry: skillRegistry ?? SkillRegistry.fromDir(null),
+  })
+}
+
+function createContext(agent?: Agent): PipelineContext {
   return {
     sessionId: 'test-session',
     currentMessage: { text: '帮我看下本周销售数据' },
@@ -23,7 +50,6 @@ function createContext(agent?: AgentManifest, skillRegistry?: SkillRegistry): Pi
     },
     workspacePath: '/tmp/test',
     agent,
-    skillRegistry,
   }
 }
 
@@ -40,7 +66,7 @@ content
 `)
 }
 
-const SALES_MANIFEST: AgentManifest = {
+const SALES_PROFILE: AgentProfile = {
   id: 'sales-analyst-001',
   name: '销售分析师',
   description: '自动汇总周度销售数据',
@@ -71,7 +97,7 @@ const SALES_MANIFEST: AgentManifest = {
       },
     ],
   },
-  dependencies: { tools: [], skills: [], cli: [] },
+  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
 }
 
 describe('AgentPromptPlugin', () => {
@@ -84,7 +110,8 @@ describe('AgentPromptPlugin', () => {
   })
 
   it('builds agent prompt from role capabilities and outputFormat', async () => {
-    const result = await plugin.build(createContext(SALES_MANIFEST))
+    const agent = createAgent(SALES_PROFILE)
+    const result = await plugin.build(createContext(agent))
     expect(result.messages.length).toBeGreaterThan(0)
     const systemMsg = result.messages[0]
     expect(systemMsg.role).toBe('system')
@@ -94,26 +121,30 @@ describe('AgentPromptPlugin', () => {
   })
 
   it('includes constraints in agent prompt', async () => {
-    const result = await plugin.build(createContext(SALES_MANIFEST))
+    const agent = createAgent(SALES_PROFILE)
+    const result = await plugin.build(createContext(agent))
     const content = (result.messages[0] as { role: string; content: string }).content
     expect(content).toContain('只处理销售相关数据')
   })
 
   it('includes knowledge index in agent prompt', async () => {
-    const result = await plugin.build(createContext(SALES_MANIFEST))
+    const agent = createAgent(SALES_PROFILE)
+    const result = await plugin.build(createContext(agent))
     const content = (result.messages[0] as { role: string; content: string }).content
     expect(content).toContain('product-catalog.md')
     expect(content).toContain('产品目录')
   })
 
   it('includes personality when present', async () => {
-    const result = await plugin.build(createContext(SALES_MANIFEST))
+    const agent = createAgent(SALES_PROFILE)
+    const result = await plugin.build(createContext(agent))
     const content = (result.messages[0] as { role: string; content: string }).content
     expect(content).toContain('简洁专业')
   })
 
   it('includes few-shot from sampleConversations', async () => {
-    const result = await plugin.build(createContext(SALES_MANIFEST))
+    const agent = createAgent(SALES_PROFILE)
+    const result = await plugin.build(createContext(agent))
     const userMsg = result.messages.find(
       m => m.role === 'user' && (m as { content: string }).content === '帮我看下本周销售',
     )
@@ -125,25 +156,23 @@ describe('AgentPromptPlugin', () => {
   })
 
   it('handles empty knowledge files', async () => {
-    const manifest: AgentManifest = {
-      ...SALES_MANIFEST,
-      knowledge: { files: [] },
-    }
-    const result = await plugin.build(createContext(manifest))
+    const agent = createAgent({ ...SALES_PROFILE, knowledge: { files: [] } })
+    const result = await plugin.build(createContext(agent))
     expect(result.messages.length).toBeGreaterThan(0)
   })
 
   it('handles empty sampleConversations', async () => {
-    const manifest: AgentManifest = {
-      ...SALES_MANIFEST,
-      role: { ...SALES_MANIFEST.role, sampleConversations: [] },
-    }
-    const result = await plugin.build(createContext(manifest))
+    const agent = createAgent({
+      ...SALES_PROFILE,
+      role: { ...SALES_PROFILE.role, sampleConversations: [] },
+    })
+    const result = await plugin.build(createContext(agent))
     expect(result.messages).toHaveLength(1)
   })
 
   it('returns non-zero tokenEstimate', async () => {
-    const result = await plugin.build(createContext(SALES_MANIFEST))
+    const agent = createAgent(SALES_PROFILE)
+    const result = await plugin.build(createContext(agent))
     expect(result.tokenEstimate).toBeGreaterThan(0)
   })
 
@@ -158,12 +187,13 @@ describe('AgentPromptPlugin', () => {
       rmSync(skillTempDir, { recursive: true, force: true })
     })
 
-    it('AC-S1-01: injects skill descriptions when skillRegistry has skills', async () => {
+    it('AC-S1-01: injects skill descriptions when agent has skills', async () => {
       createSkillDir(skillTempDir, 'lark-sheets', '飞书电子表格：创建和操作电子表格')
       createSkillDir(skillTempDir, 'lark-shared', '飞书/Lark CLI 共享基础')
 
       const registry = SkillRegistry.fromDir(skillTempDir)
-      const result = await plugin.build(createContext(SALES_MANIFEST, registry))
+      const agent = createAgent(SALES_PROFILE, registry)
+      const result = await plugin.build(createContext(agent))
 
       const systemMsgs = result.messages.filter(m => m.role === 'system')
       const content = systemMsgs.map(m => (m as { content: string }).content).join('\n')
@@ -174,19 +204,8 @@ describe('AgentPromptPlugin', () => {
     })
 
     it('AC-S1-02: does not inject skill listing when registry is empty', async () => {
-      const registry = SkillRegistry.fromDir(null)
-      const result = await plugin.build(createContext(SALES_MANIFEST, registry))
-
-      const content = result.messages
-        .filter(m => m.role === 'system')
-        .map(m => (m as { content: string }).content)
-        .join('\n')
-
-      expect(content).not.toContain('你有以下技能可用')
-    })
-
-    it('does not inject skill listing when no skillRegistry in context', async () => {
-      const result = await plugin.build(createContext(SALES_MANIFEST))
+      const agent = createAgent(SALES_PROFILE)
+      const result = await plugin.build(createContext(agent))
 
       const content = result.messages
         .filter(m => m.role === 'system')

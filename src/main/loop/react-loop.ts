@@ -15,11 +15,13 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
+import { buildTools } from '../tools/build-tools'
 import type { ReactLoopOptions, ReactLoopCallbacks } from './types'
 import type { ContentBlock } from '@shared/types/message'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
+import type { ToolConfirmPort } from '../ipc/tool-confirm'
 
 const DEFAULT_MAX_STEPS = 1000
 
@@ -31,7 +33,6 @@ const DOUBLE_SEPARATOR = '══════════════════
 /** 单步 ReAct 所需的全部上下文（从 ReactLoopOptions 投射，去掉 maxSteps 等循环级参数）。 */
 interface StepContext {
   model: LanguageModel
-  tools: ReactLoopOptions['tools']
   sessionId: string
   messageId: string
   userContent: string
@@ -42,7 +43,9 @@ interface StepContext {
   providerConfig: ProviderContextConfig
   workspace: string
   callbacks: ReactLoopCallbacks
-  skillRegistry?: ReactLoopOptions['skillRegistry']
+  agent: import('../agent/agent').Agent
+  confirmTool: ToolConfirmPort
+  agentId: string
 }
 
 /** runReactStep 返回值——循环控制层据此决定是否继续。 */
@@ -101,9 +104,18 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     provider: ctx.provider,
     providerConfig: ctx.providerConfig,
     workspacePath: ctx.workspace || undefined,
-    skillRegistry: ctx.skillRegistry,
+    agent: ctx.agent,
   }
-  const { messages } = await ctx.pipeline.build(pipelineCtx)
+  const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
+
+  const tools = await buildTools({
+    sessionId: ctx.sessionId,
+    messageId: ctx.messageId,
+    workspace: ctx.workspace,
+    confirmTool: ctx.confirmTool,
+    agent: ctx.agent,
+    toolSchemas,
+  })
 
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
   log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)
@@ -114,7 +126,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
   const result = streamText({
     model: ctx.model,
     messages,
-    tools: ctx.tools,
+    tools,
     abortSignal: buildStreamSignal(ctx.abortSignal),
     onChunk({ chunk }) {
       if (chunk.type === 'text-delta') {
@@ -153,6 +165,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
         session_id: ctx.sessionId,
         role: 'assistant',
         content: [{ type: 'text', text: stepText }],
+        agent_id: ctx.agentId,
       })
       sessionRepo.touch(ctx.sessionId)
       return { stepText, hadToolCalls: false, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls' }
@@ -168,7 +181,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     toolResults = stepToolCalls.map(tc => ({
       toolCallId: tc.toolCallId,
       toolName: tc.toolName,
-      output: `Error: tool "${tc.toolName}" does not exist. Available tools: ${Object.keys(ctx.tools ?? {}).join(', ')}`,
+      output: `Error: tool "${tc.toolName}" does not exist. Available tools: ${ctx.agent.toolRegistry.getToolNames().join(', ')}`,
     }))
   }
 
@@ -182,10 +195,10 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
   for (const tc of stepToolCalls) {
     assistantBlocks.push({ type: 'tool_use', toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })
   }
-  messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'assistant', content: assistantBlocks })
+  messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'assistant', content: assistantBlocks, agent_id: ctx.agentId })
 
   const toolBlocks: ContentBlock[] = toolResultPartsToBlocks(toolResults)
-  messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'tool', content: toolBlocks })
+  messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'tool', content: toolBlocks, agent_id: ctx.agentId })
 
   return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames }
 }
@@ -230,6 +243,7 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
         session_id: ctx.sessionId,
         role: 'assistant',
         content: [{ type: 'text', text: summaryText }],
+        agent_id: ctx.agentId,
       })
       sessionRepo.touch(ctx.sessionId)
       log.info(`[ReactLoop]   → summary: ${summaryText.length} chars [${durationMs}ms]`)
@@ -238,6 +252,7 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
     }
   } catch (err) {
     log.error(`[ReactLoop]   → summary failed [${Date.now() - summaryStart}ms]:`, err)
+    throw err
   }
 }
 
@@ -266,7 +281,6 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
   const ctx: StepContext = {
     model: opts.model,
-    tools: opts.tools,
     sessionId: opts.sessionId,
     messageId: opts.messageId,
     userContent: opts.userContent,
@@ -277,7 +291,9 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     providerConfig: opts.providerConfig,
     workspace: opts.workspace,
     callbacks: opts.callbacks,
-    skillRegistry: opts.skillRegistry,
+    agent: opts.agent,
+    confirmTool: opts.confirmTool,
+    agentId: opts.agent.id,
   }
 
   let fullText = ''

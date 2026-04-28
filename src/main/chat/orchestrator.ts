@@ -14,7 +14,6 @@ import { SafeStorageService } from '../services/safe-storage'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { createModel } from '../providers/llm-provider'
 import '../tools/builtin'
-import { buildTools } from '../tools/build-tools'
 import { runReactLoop } from '../loop/react-loop'
 import { resolveProviderConfig, PromptPipeline } from '../prompt/PromptPipeline'
 import { MemoryManager } from '../memory/MemoryManager'
@@ -60,7 +59,7 @@ export interface ChatCallbacks {
  */
 export interface ChatPorts {
   confirmTool: ToolConfirmPort
-  skillRegistry?: import('../skills/registry').SkillRegistry
+  agentManager: import('../agent/agent-manager').AgentManager
 }
 
 /**
@@ -111,30 +110,28 @@ export async function sendChat(
     const model = createModel(provider, session?.model_id)
     const workspace = session?.workspace ?? ''
 
+    // Step 4.5: 获取 Agent（通过 session.agent_id 查找，ADR-2 统一模型）
+    if (!ports.agentManager) throw new Error('agentManager not injected')
+    const agentId = session?.agent_id ?? '__chat__'
+    const agent = ports.agentManager.getAgent(agentId) ?? ports.agentManager.getChatAgent()
+
     // Step 5: 持久化用户消息
     messageRepo.create({
       id: uuidv4(),
       session_id: sessionId,
       role: 'user',
       content: buildUserBlocks(userContent, validated),
+      agent_id: agentId,
     })
     sessionRepo.touch(sessionId)
 
-    // Step 6: 装配工具（端口注入，不感知 ipc）
-    const tools = await buildTools({
-      sessionId, messageId, workspace,
-      confirmTool: ports.confirmTool,
-      skillRegistry: ports.skillRegistry,
-    })
-
     log.info('[chat-orch] Starting ReAct loop, model:', session?.model_id ?? 'default',
-      'tools:', Object.keys(tools ?? {}).length)
+      'agent:', agentId)
 
-    // Step 7: 驱动 ReAct 循环
+    // Step 6: 驱动 ReAct 循环（工具由 pipeline 每步产出，react-loop 内部调 buildTools 包装）
     const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
     await runReactLoop({
       model,
-      tools,
       sessionId,
       messageId,
       userContent,
@@ -150,7 +147,8 @@ export async function sendChat(
       providerConfig: resolveProviderConfig(provider),
       workspace,
       maxSteps: typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
-      skillRegistry: ports.skillRegistry,
+      agent,
+      confirmTool: ports.confirmTool,
       callbacks: {
         onTextDelta: (delta) => callbacks.onTextDelta(messageId, delta),
         onToolCall:  (id, name, input) => callbacks.onToolCall(messageId, id, name, input),

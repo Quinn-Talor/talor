@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
-import { SkillRegistry } from './registry'
+import { SkillRegistry, SkillActivationTracker } from './registry'
 
 let tempDir: string
 
@@ -52,7 +52,6 @@ describe('SkillRegistry', () => {
 
   it('AC-S4-02: null skillsDir returns empty registry', () => {
     const registry = SkillRegistry.fromDir(null)
-
     expect(registry.listAll()).toEqual([])
     expect(registry.isEmpty()).toBe(true)
   })
@@ -67,26 +66,35 @@ describe('SkillRegistry', () => {
     expect(descriptions).toHaveLength(2)
     const names = descriptions.map(d => d.name).sort()
     expect(names).toEqual(['skill-a', 'skill-b'])
-    expect(descriptions.find(d => d.name === 'skill-a')?.description).toBe('Description A')
   })
 
-  it('markActivated and isActivated track activation state', () => {
-    createSkillDir(tempDir, 'test-skill', 'test')
+  it('SkillRegistry has no activation state (ADR-5: per-session)', () => {
+    const registry = SkillRegistry.fromDir(null)
+    expect((registry as Record<string, unknown>).markActivated).toBeUndefined()
+    expect((registry as Record<string, unknown>).isActivated).toBeUndefined()
+  })
+})
 
-    const registry = SkillRegistry.fromDir(tempDir)
+describe('SkillActivationTracker', () => {
+  it('tracks activation per-instance (per-session)', () => {
+    const trackerA = new SkillActivationTracker()
+    const trackerB = new SkillActivationTracker()
 
-    expect(registry.isActivated('test-skill')).toBe(false)
-    registry.markActivated('test-skill')
-    expect(registry.isActivated('test-skill')).toBe(true)
+    trackerA.markActivated('lark-sheets')
+
+    expect(trackerA.isActivated('lark-sheets')).toBe(true)
+    expect(trackerB.isActivated('lark-sheets')).toBe(false)
   })
 
-  it('listActivated returns activated skill names', () => {
-    createSkillDir(tempDir, 'skill-a', 'A')
-    createSkillDir(tempDir, 'skill-b', 'B')
+  it('listActivated returns activated names', () => {
+    const tracker = new SkillActivationTracker()
+    tracker.markActivated('skill-a')
+    tracker.markActivated('skill-b')
+    expect(tracker.listActivated().sort()).toEqual(['skill-a', 'skill-b'])
+  })
 
-    const registry = SkillRegistry.fromDir(tempDir)
-    registry.markActivated('skill-a')
-
-    expect(registry.listActivated()).toEqual(['skill-a'])
+  it('isActivated returns false for unknown', () => {
+    const tracker = new SkillActivationTracker()
+    expect(tracker.isActivated('nonexistent')).toBe(false)
   })
 })

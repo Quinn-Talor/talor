@@ -1,9 +1,13 @@
+// src/main/skills/registry.ts — 业务层：Skill 注册中心
+//
+// 持有 Skill 列表（只读）。激活状态由外部 per-session 管理，
+// 不存储在 SkillRegistry 实例上（ADR-5 线程安全）。
+
 import { loadSkillsFromDir } from './loader'
 import type { ParsedSkill } from './types'
 
 export class SkillRegistry {
   private skills = new Map<string, ParsedSkill>()
-  private activated = new Set<string>()
 
   static fromDir(skillsDir: string | null): SkillRegistry {
     const registry = new SkillRegistry()
@@ -31,6 +35,14 @@ export class SkillRegistry {
     }))
   }
 
+  isEmpty(): boolean {
+    return this.skills.size === 0
+  }
+}
+
+export class SkillActivationTracker {
+  private activated = new Set<string>()
+
   markActivated(name: string): void {
     this.activated.add(name)
   }
@@ -41,9 +53,5 @@ export class SkillRegistry {
 
   listActivated(): string[] {
     return Array.from(this.activated)
-  }
-
-  isEmpty(): boolean {
-    return this.skills.size === 0
   }
 }

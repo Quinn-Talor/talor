@@ -13,7 +13,6 @@ export interface ReactLoopCallbacks {
 
 export interface ReactLoopOptions {
   model: LanguageModel
-  tools: Record<string, ReturnType<typeof dynamicTool>> | undefined
   sessionId: string
   messageId: string
   userContent: string
@@ -25,5 +24,6 @@ export interface ReactLoopOptions {
   workspace: string
   callbacks: ReactLoopCallbacks
   maxSteps?: number
-  skillRegistry?: import('../skills/registry').SkillRegistry
+  agent: import('../agent/agent').Agent
+  confirmTool: import('../ipc/tool-confirm').ToolConfirmPort
 }

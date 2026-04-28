@@ -12,19 +12,32 @@ import { registerSessionHandlers } from './ipc/session'
 import { registerChatHandlers } from './ipc/chat'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerMCPHandlers } from './ipc/mcp'
-import { mcpClient } from './mcp/client'
+import { registerAgentHandlers } from './ipc/agents'
+import { registerAccountHandlers } from './ipc/accounts'
+import { mcpRegistry } from './mcp/client'
 import { initChatDb, closeChatDb } from './db/index'
+import { AgentManager } from './agent/agent-manager'
+import { BuiltinToolRegistry } from './agent/builtin-registry'
+import { AccountStore } from './agent/accounts'
+import { createDelegateAgentTool } from './agent/delegate-agent'
+import { toolRegistry } from './tools/registry'
+import { SkillRegistry } from './skills/registry'
+import { SafeStorageService } from './services/safe-storage'
+import { safeStorage } from 'electron'
 
 log.initialize()
 log.info('[Main] Talor Desktop starting...')
+
+const agentManager = new AgentManager()
 
 registerConfigHandlers()
 registerWindowHandlers()
 registerProviderHandlers()
 registerSessionHandlers()
-registerChatHandlers()
+registerChatHandlers(agentManager)
 registerFileHandlers()
 registerMCPHandlers()
+registerAgentHandlers(agentManager)
 
 let mainWindow: BrowserWindow | null = null
 
@@ -98,8 +111,36 @@ function createWindow(): void {
 app.whenReady().then(() => {
   configStore.ensureInitialized()
   initChatDb()
+
+  // Initialize Agent system — collect builtin tool definitions (7 + delegate_agent)
+  // skill tool 不在全局 BuiltinToolRegistry，由 Agent 构造时按需注入
+  const builtinToolDefs = [...toolRegistry.listAll(), createDelegateAgentTool(agentManager)]
+  const builtinRegistry = new BuiltinToolRegistry(builtinToolDefs)
+  const agentsDir = join(app.getPath('home'), '.talor', 'agents')
+  const skillsDir = join(app.getPath('home'), '.talor', 'skills')
+  const platformSkillRegistry = SkillRegistry.fromDir(skillsDir)
+  const safeStorageInstance = SafeStorageService.getInstance()
+  const accountStore = new AccountStore(
+    join(app.getPath('home'), '.talor', 'accounts.json'),
+    {
+      isAvailable: () => safeStorageInstance.isAvailable(),
+      encrypt: (value: string) => safeStorage.encryptString(value).toString('base64'),
+      decrypt: (encrypted: string) => safeStorage.decryptString(Buffer.from(encrypted, 'base64')),
+    },
+  )
+
+  registerAccountHandlers(accountStore)
+
+  agentManager.init({
+    builtinRegistry,
+    mcpRegistry,
+    skillRegistry: platformSkillRegistry,
+    agentsDir,
+  })
+  log.info('[Main] Agent system initialized')
+
   createWindow()
-  mcpClient.connectAllEnabled().catch((err) => {
+  mcpRegistry.connectAllEnabled().catch((err) => {
     log.warn('[Main] Failed to connect MCP servers:', err)
   })
 

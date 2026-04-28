@@ -3,8 +3,7 @@
 
 import { ipcMain } from 'electron'
 import { mcpServerRepo, MCPServerType, MCPAuthConfig } from '../repos/mcp-server-repo'
-import { toolRegistry } from '../tools/registry'
-import { mcpClient } from '../mcp/client'
+import { mcpRegistry } from '../mcp/client'
 import { StdioTransport } from '../mcp/transport/stdio'
 import { MCPServerConfig, MCPError } from '../mcp/types'
 import log from 'electron-log'
@@ -225,7 +224,7 @@ export function registerMCPHandlers(): void {
 
   ipcMain.handle('mcp:connect', async (_event, serverId: string) => {
     try {
-      await mcpClient.connectServer(serverId)
+      await mcpRegistry.connectServer(serverId)
       return { status: 'success', message: 'MCP Server connected' }
     } catch (error) {
       log.error('[MCP] Connect failed:', error)
@@ -239,7 +238,7 @@ export function registerMCPHandlers(): void {
 
   ipcMain.handle('mcp:disconnect', async (_event, serverId: string) => {
     try {
-      await mcpClient.disconnectServer(serverId)
+      await mcpRegistry.disconnectServer(serverId)
       return { status: 'success', message: 'MCP Server disconnected' }
     } catch (error) {
       log.error('[MCP] Disconnect failed:', error)
@@ -252,14 +251,14 @@ export function registerMCPHandlers(): void {
   })
 
   ipcMain.handle('mcp:tools:list', () => {
-    return toolRegistry.listAllTools()
+    return mcpRegistry.listRegisteredTools()
   })
 
   ipcMain.handle('mcp:servers:connected', () => {
-    return mcpClient.getConnectedServers()
+    return mcpRegistry.getConnectedServers()
   })
 
   ipcMain.handle('mcp:servers:status', () => {
-    return mcpClient.getAllServerStatus()
+    return mcpRegistry.getAllServerStatus()
   })
 }
