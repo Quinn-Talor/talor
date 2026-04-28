@@ -1,4 +1,3 @@
-import { useState } from 'react'
 
 export interface AgentCardData {
   id: string
@@ -17,100 +16,53 @@ interface AgentCardProps {
   onExport?: (agentId: string) => void
 }
 
-const statusStyles: Record<string, { bg: string; badge: string; badgeText: string }> = {
-  ready: { bg: 'bg-white', badge: 'bg-green-100 text-green-700', badgeText: '就绪' },
-  disabled: { bg: 'bg-gray-50 opacity-60', badge: 'bg-gray-100 text-gray-500', badgeText: '未启用' },
-  dependency_missing: { bg: 'bg-amber-50', badge: 'bg-amber-100 text-amber-700', badgeText: '缺少依赖' },
-  running: { bg: 'bg-blue-50', badge: 'bg-blue-100 text-blue-700', badgeText: '对话中' },
-}
-
-function AvatarIcon({ name }: { name: string }) {
-  const char = name.charAt(0)
-  return (
-    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-400 to-accent-400 flex items-center justify-center text-white font-bold text-lg shrink-0">
-      {char}
-    </div>
-  )
+const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  ready:              { label: '就绪',   cls: 'bg-green-50 text-green-600' },
+  disabled:           { label: '未启用', cls: 'bg-gray-100 text-gray-400' },
+  dependency_missing: { label: '缺少依赖', cls: 'bg-amber-50 text-amber-600' },
+  running:            { label: '对话中', cls: 'bg-blue-50 text-blue-500' },
 }
 
 export function AgentCard({ agent, onStartChat, onEnable, onDelete, onExport }: AgentCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const style = statusStyles[agent.status] ?? statusStyles.disabled
+  const badge = STATUS_BADGE[agent.status] ?? STATUS_BADGE.disabled
 
   return (
-    <div className={`${style.bg} rounded-xl border border-gray-200 p-4 flex flex-col gap-3 relative hover:shadow-md transition-shadow`}>
-      <div className="flex items-start gap-3">
-        <AvatarIcon name={agent.name} />
+    <div className="bg-white rounded-xl flex flex-col relative" style={{ border: '1px solid #e8eaed' }}>
+      {/* Body */}
+      <div className="p-4 flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center text-white text-[15px] font-bold"
+          style={{ background: 'linear-gradient(135deg, #6366f1bb, #4f46e5)' }}>
+          {agent.name.charAt(0).toUpperCase()}
+        </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-gray-800 truncate">{agent.name}</h3>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${style.badge}`}>{style.badgeText}</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[13px] font-semibold text-gray-800 truncate">{agent.name}</span>
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${badge.cls}`}>{badge.label}</span>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{agent.description}</p>
-          <span className="text-[10px] text-gray-400 mt-1">v{agent.version}</span>
+          <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2">{agent.description}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">v{agent.version}</p>
         </div>
 
-        <button
-          onClick={() => setMenuOpen(!menuOpen)}
-          className="p-1 rounded hover:bg-gray-100 text-gray-400"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-            <circle cx="8" cy="3" r="1.5" />
-            <circle cx="8" cy="8" r="1.5" />
-            <circle cx="8" cy="13" r="1.5" />
-          </svg>
-        </button>
-
-        {menuOpen && (
-          <div className="absolute right-4 top-12 z-10 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[120px]">
-            {onExport && (
-              <button
-                onClick={() => { setMenuOpen(false); onExport(agent.id) }}
-                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50"
-              >
-                导出
-              </button>
-            )}
-            <button
-              onClick={() => { setMenuOpen(false); onDelete(agent.id) }}
-              className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-            >
-              删除
-            </button>
-          </div>
-        )}
       </div>
 
-      <div className="flex gap-2 mt-auto">
+      {/* Footer */}
+      <div className="flex items-center border-t px-3 py-2 gap-1" style={{ borderColor: '#f1f3f4' }}>
         {agent.status === 'ready' && (
-          <button
-            onClick={() => onStartChat(agent.id)}
-            className="flex-1 text-xs py-1.5 bg-primary-500 text-white rounded-lg hover:bg-primary-600 transition-colors"
-          >
-            启动对话
-          </button>
+          <button onClick={() => onStartChat(agent.id)} className="text-[11px] px-2 py-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors">启动对话</button>
         )}
         {agent.status === 'disabled' && (
-          <button
-            onClick={() => onEnable(agent.id)}
-            className="flex-1 text-xs py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-          >
-            启用
-          </button>
+          <button onClick={() => onEnable(agent.id)} className="text-[11px] px-2 py-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors">启用</button>
         )}
         {agent.status === 'dependency_missing' && (
-          <button
-            onClick={() => onEnable(agent.id)}
-            className="flex-1 text-xs py-1.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors"
-          >
-            安装依赖
-          </button>
+          <button onClick={() => onEnable(agent.id)} className="text-[11px] px-2 py-1 rounded-md text-amber-600 hover:bg-amber-50 transition-colors">安装依赖</button>
         )}
         {agent.status === 'running' && (
-          <span className="flex-1 text-xs py-1.5 text-center text-blue-600 animate-pulse">
-            对话中...
-          </span>
+          <span className="text-[11px] px-2 py-1 text-blue-500 animate-pulse">对话中...</span>
         )}
+        {onExport && (
+          <button onClick={() => onExport(agent.id)} className="text-[11px] px-2 py-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors">导出</button>
+        )}
+        <button onClick={() => onDelete(agent.id)} className="text-[11px] px-2 py-1 rounded-md text-red-500 hover:bg-red-50 transition-colors">删除</button>
       </div>
     </div>
   )
@@ -118,15 +70,13 @@ export function AgentCard({ agent, onStartChat, onEnable, onDelete, onExport }: 
 
 export function NewAgentCard({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="rounded-xl border-2 border-dashed border-gray-300 p-4 flex flex-col items-center justify-center gap-2 hover:border-primary-400 hover:bg-primary-50/30 transition-colors min-h-[140px]"
-    >
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
+    <button onClick={onClick}
+      className="rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
+      style={{ minHeight: 110 }}>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-300">
+        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
       </svg>
-      <span className="text-xs text-gray-500">新建 Agent</span>
+      <span className="text-[11px] text-gray-400">新建 Agent</span>
     </button>
   )
 }

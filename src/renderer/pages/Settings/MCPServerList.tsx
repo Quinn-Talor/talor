@@ -2,12 +2,7 @@ import { useState } from 'react'
 import type { MCPServer } from '../../../preload/index'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 
-interface MCPServerStatus {
-  serverId: string
-  name: string
-  connected: boolean
-  toolCount: number
-}
+interface MCPServerStatus { serverId: string; name: string; connected: boolean; toolCount: number }
 
 interface MCPServerListProps {
   servers: MCPServer[]
@@ -18,144 +13,69 @@ interface MCPServerListProps {
   onTest: (id: string) => void
 }
 
-function getServerIcon(server: MCPServer) {
-  const nameLower = server.name.toLowerCase()
-  const cmdLower = server.command?.toLowerCase() || ''
-  
-  if (nameLower.includes('file') || nameLower.includes('fs') || cmdLower.includes('file')) return '📁'
-  if (nameLower.includes('db') || nameLower.includes('sql') || nameLower.includes('postgres') || cmdLower.includes('sqlite')) return '🗄️'
-  return '🔧'
+function getInitial(name: string) { return name.charAt(0).toUpperCase() }
+
+function getServerStatus(serverId: string, statusList: MCPServerStatus[]) {
+  const s = statusList.find(s => s.serverId === serverId)
+  return s ?? { connected: false, toolCount: 0 }
 }
 
-function getServerStatus(serverId: string, statusList: MCPServerStatus[]): { connected: boolean; toolCount: number } {
-  const status = statusList.find(s => s.serverId === serverId)
-  return status ? { connected: status.connected, toolCount: status.toolCount } : { connected: false, toolCount: 0 }
-}
-
-export function MCPServerList({
-  servers,
-  serverStatus,
-  onEdit,
-  onDelete,
-  onToggleStatus,
-  onTest
-}: MCPServerListProps) {
+export function MCPServerList({ servers, serverStatus, onEdit, onDelete, onToggleStatus, onTest }: MCPServerListProps) {
   const [deleteId, setDeleteId] = useState<string | null>(null)
-
   const serverToDelete = deleteId ? servers.find((s) => s.id === deleteId) : null
-
-  if (servers.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="w-16 h-16 mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-          <span className="text-3xl">📭</span>
-        </div>
-        <p className="text-gray-500 text-sm">暂无 MCP Server</p>
-        <p className="text-gray-400 text-xs mt-1">点击上方按钮添加</p>
-      </div>
-    )
-  }
+  if (servers.length === 0) return null
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {servers.map((server) => {
           const status = getServerStatus(server.id, serverStatus)
           return (
             <div
               key={server.id}
-              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-gray-300 hover:shadow-sm transition-all flex flex-col"
+              className={`bg-white rounded-xl flex flex-col ${!server.enabled ? 'opacity-50' : ''}`}
+              style={{ border: '1px solid #e8eaed' }}
             >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gray-50 text-xl shrink-0">
-                    {getServerIcon(server)}
+              <div className="p-4 flex items-start gap-3 flex-1">
+                {/* Avatar */}
+                <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center text-white text-[15px] font-bold"
+                  style={{ background: 'linear-gradient(135deg, #8b5cf6cc, #7c3aed)' }}>
+                  {getInitial(server.name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[13px] font-semibold text-gray-800 truncate">{server.name}</span>
+                    {server.enabled ? (
+                      status.connected
+                        ? <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-green-50 text-green-600">已连接</span>
+                        : <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-red-50 text-red-500">未连接</span>
+                    ) : (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-400">已禁用</span>
+                    )}
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="text-sm font-medium text-gray-900 truncate">{server.name}</h4>
-                      <div className="flex items-center shrink-0">
-                        {!server.enabled ? (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-gray-400">
-                            <span className="w-2 h-2 rounded-full bg-gray-300 border border-gray-400"></span> Disabled
-                          </span>
-                        ) : status.connected ? (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-green-600">
-                            <span className="w-2 h-2 rounded-full bg-green-500"></span> Connected
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-red-500">
-                            <span className="w-2 h-2 rounded-full bg-red-400"></span> Disconnected
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-1.5 py-0.5 text-[10px] font-medium rounded uppercase tracking-wide ${
-                        server.type === 'stdio' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
-                      }`}>
-                        {server.type}
-                      </span>
-                      {status.connected ? (
-                        <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-50 text-green-700">
-                          {status.toolCount} 工具
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-600">
-                          未连接
-                        </span>
-                      )}
-                    </div>
+                  <p className="text-[11px] text-gray-400 mt-0.5 truncate">
+                    {server.type === 'stdio' ? server.command : server.url}
+                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md uppercase tracking-wide ${
+                      server.type === 'stdio' ? 'bg-blue-50 text-blue-500' : 'bg-purple-50 text-purple-500'
+                    }`}>{server.type}</span>
+                    {status.connected && status.toolCount > 0 && (
+                      <span className="text-[11px] text-gray-400">{status.toolCount} 工具</span>
+                    )}
                   </div>
                 </div>
-                
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input 
-                    type="checkbox" 
-                    className="sr-only peer" 
-                    checked={server.enabled}
-                    onChange={(e) => onToggleStatus(server.id, e.target.checked)}
-                  />
-                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-500"></div>
+                {/* Toggle */}
+                <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                  <input type="checkbox" className="sr-only peer" checked={server.enabled} onChange={(e) => onToggleStatus(server.id, e.target.checked)} />
+                  <div className="w-8 h-4 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500"></div>
                 </label>
               </div>
 
-              <div className="flex-1">
-                {server.type === 'stdio' ? (
-                  <div className="text-xs text-gray-500 space-y-1 mb-3">
-                    <p className="truncate"><span className="font-medium text-gray-700">Cmd:</span> {server.command}</p>
-                    <p className="truncate"><span className="font-medium text-gray-700">Args:</span> {server.args?.join(' ') || '-'}</p>
-                    {server.env && Object.keys(server.env).length > 0 && (
-                      <p className="truncate"><span className="font-medium text-gray-700">Env:</span> {Object.keys(server.env).length} variables</p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-gray-500 space-y-1 mb-3">
-                    <p className="truncate"><span className="font-medium text-gray-700">URL:</span> {server.url}</p>
-                    <p className="truncate"><span className="font-medium text-gray-700">Auth:</span> {server.auth?.type || 'none'}</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2 pt-3 border-t border-gray-100 mt-auto">
-                <button
-                  onClick={() => onTest(server.id)}
-                  className="flex-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors text-center"
-                >
-                  测试
-                </button>
-                <button
-                  onClick={() => onEdit(server.id)}
-                  className="flex-1 px-2.5 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors text-center"
-                >
-                  编辑
-                </button>
-                <button
-                  onClick={() => setDeleteId(server.id)}
-                  className="flex-1 px-2.5 py-1.5 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors text-center"
-                >
-                  删除
-                </button>
+              <div className="flex items-center border-t px-3 py-2 gap-1" style={{ borderColor: '#f1f3f4' }}>
+                <ActionBtn onClick={() => onTest(server.id)}>测试</ActionBtn>
+                <ActionBtn onClick={() => onEdit(server.id)}>编辑</ActionBtn>
+                <ActionBtn onClick={() => setDeleteId(server.id)} danger>删除</ActionBtn>
               </div>
             </div>
           )
@@ -165,17 +85,27 @@ export function MCPServerList({
       {deleteId && serverToDelete && (
         <ConfirmDialog
           title="确认删除"
-          message={`确认删除 MCP Server "${serverToDelete.name}"？此操作不可撤销。`}
-          confirmLabel="删除"
-          cancelLabel="取消"
-          onConfirm={() => {
-            onDelete(deleteId)
-            setDeleteId(null)
-          }}
+          message={`确认删除 "${serverToDelete.name}"？此操作不可撤销。`}
+          confirmLabel="删除" cancelLabel="取消"
+          onConfirm={() => { onDelete(deleteId); setDeleteId(null) }}
           onCancel={() => setDeleteId(null)}
           danger
         />
       )}
     </>
+  )
+}
+
+function ActionBtn({ onClick, disabled, danger, children }: { onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`text-[11px] px-2 py-1 rounded-md transition-colors disabled:opacity-30 ${
+        danger ? 'text-red-500 hover:bg-red-50' : 'text-gray-500 hover:bg-gray-100'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

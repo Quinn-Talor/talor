@@ -29,30 +29,19 @@ interface SettingsPageProps {
 export function SettingsPage({ onBack }: SettingsPageProps) {
   const { setCurrentSession } = useChatStore()
   const {
-    providers,
-    loading,
-    formMode,
-    editingProviderId,
-    testStatus,
-    fetchProviders,
-    createProvider,
-    updateProvider,
-    deleteProvider,
-    setDefault,
-    testConnection,
-    openCreateForm,
-    openEditForm,
-    closeForm,
+    providers, loading, formMode, editingProviderId, testStatus,
+    fetchProviders, createProvider, updateProvider, deleteProvider,
+    setDefault, testConnection, openCreateForm, openEditForm, closeForm,
   } = useConfigStore()
 
   const [activeTab, setActiveTab] = useState<Tab>('provider')
-
-  // MCP State
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([])
   const [mcpLoading, setMcpLoading] = useState(false)
   const [mcpFormMode, setMcpFormMode] = useState<'closed' | 'creating' | 'editing'>('closed')
   const [mcpEditingId, setMcpEditingId] = useState<string | null>(null)
   const [mcpServerStatus, setMcpServerStatus] = useState<Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>>([])
+  const [agentImportTrigger, setAgentImportTrigger] = useState(0)
+  const [accountAddTrigger, setAccountAddTrigger] = useState(0)
 
   useEffect(() => { fetchProviders() }, [fetchProviders])
 
@@ -88,7 +77,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     ? testStatus['__new__'] ?? { status: 'idle' as const }
     : editingProviderId ? testStatus[editingProviderId] ?? { status: 'idle' as const } : { status: 'idle' as const }
 
-  // MCP Handlers
   const handleMcpSubmit = async (data: MCPServerInput) => {
     try {
       if (mcpFormMode === 'creating') await talorAPI.mcp.create(data)
@@ -109,7 +97,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
   const handleMcpToggleStatus = async (id: string, enabled: boolean) => {
     try { await talorAPI.mcp.setEnabled(id, enabled); await fetchMcpServers() }
-    catch (error) { console.error('Failed to toggle MCP server:', error); alert('Failed to toggle MCP server status') }
+    catch (error) { console.error('Failed to toggle MCP server:', error) }
   }
 
   const handleMcpTest = async (id: string) => {
@@ -121,7 +109,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       if (result.status === 'success') alert(`测试成功！可用工具数: ${result.tools_count || 0}`)
       else alert(`测试失败: ${result.message || result.error_code}`)
     } catch (error) {
-      console.error('Failed to test MCP server:', error)
       alert('测试 MCP server 连接失败')
     }
   }
@@ -130,160 +117,160 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const existingMcpNames = mcpServers.map(s => s.name)
 
   return (
-    <div className="flex flex-col h-full" style={{ background: 'linear-gradient(to bottom, #f8fafc, #f1f5f9)' }}>
-      {/* Header row: back + title */}
-      <div className="flex items-center gap-4 px-5 shrink-0" style={{ background: '#ffffff', borderBottom: '0.5px solid #e2e8f0', height: 52 }}>
-        <button
-          onClick={onBack}
-          className="flex items-center justify-center gap-1.5 rounded-[8px] text-[12px] transition-colors hover:bg-gray-50"
-          style={{ height: 32, paddingLeft: 12, paddingRight: 12, background: '#ffffff', border: '0.5px solid #e2e8f0', color: '#64748b' }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          返回
-        </button>
-        <h1 className="text-[20px] font-bold" style={{ color: '#0f172a' }}>设置</h1>
+    <div className="flex flex-col h-full" style={{ background: '#f4f6f8' }}>
+
+      {/* Header */}
+      <div className="shrink-0 bg-white" style={{ borderBottom: '1px solid #e8eaed' }}>
+        <div className="max-w-4xl mx-auto px-8" style={{ height: 52, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-[13px] text-gray-400 hover:text-gray-700 transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            返回
+          </button>
+          <span style={{ color: '#d1d5db', fontSize: 14 }}>/</span>
+          <span className="text-[14px] font-medium text-gray-700">设置</span>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-0 px-5 bg-white border-b border-gray-200 shrink-0" style={{ borderColor: '#e2e8f0' }}>
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-
-        <div className="ml-auto pb-1">
+      <div className="shrink-0 bg-white" style={{ borderBottom: '1px solid #e8eaed' }}>
+        <div className="max-w-4xl mx-auto px-8 flex items-center">
+          <div className="flex items-center gap-1 flex-1">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-3 py-3 text-[13px] font-medium border-b-2 transition-colors ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
           {activeTab === 'provider' && formMode === 'closed' && (
-            <button
-              onClick={openCreateForm}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              新增
-            </button>
+            <AddBtn onClick={openCreateForm} />
           )}
           {activeTab === 'mcp' && mcpFormMode === 'closed' && (
-            <button
-              onClick={() => { setMcpFormMode('creating'); setMcpEditingId(null) }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              新增
-            </button>
+            <AddBtn onClick={() => { setMcpFormMode('creating'); setMcpEditingId(null) }} />
+          )}
+          {activeTab === 'agent' && (
+            <AddBtn onClick={() => setAgentImportTrigger(t => t + 1)} label="导入" />
+          )}
+          {activeTab === 'account' && (
+            <AddBtn onClick={() => setAccountAddTrigger(t => t + 1)} />
           )}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Common tab */}
-        {activeTab === 'common' && (
-          <div className="max-w-2xl mx-auto p-6">
-            <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
-              <div className="flex items-center justify-between px-5 py-4">
-                <div>
-                  <div className="text-sm font-medium text-gray-800">快捷键</div>
-                  <div className="text-xs text-gray-500 mt-0.5">⌘N 新建 · ⌘, 设置 · Esc 停止生成</div>
-                </div>
-              </div>
-              <div className="flex items-center justify-between px-5 py-4">
-                <div>
-                  <div className="text-sm font-medium text-gray-800">版本</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Talor Desktop — Phase 1</div>
-                </div>
+      <div className="flex-1 overflow-y-auto py-8">
+        <div className="max-w-4xl mx-auto px-8">
+
+          {/* Common */}
+          {activeTab === 'common' && (
+            <div>
+              <div className="bg-white rounded-xl overflow-hidden" style={{ border: '1px solid #e8eaed' }}>
+                <SettingRow label="快捷键" value="⌘N 新建 · ⌘, 设置 · Esc 停止生成" />
+                <SettingRow label="版本" value="Talor Desktop — Phase 1" last />
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Provider tab */}
-        {activeTab === 'provider' && (
-          <div className="max-w-2xl mx-auto p-6">
-            {(formMode === 'creating' || formMode === 'editing') && (
-              <div className="mb-6">
-                <ProviderForm
-                  provider={editingProvider}
-                  existingNames={existingNames}
-                  onSubmit={handleSubmit}
-                  onCancel={closeForm}
-                  onTest={handleTest}
-                  testStatus={currentTest.status}
-                  testResult={currentTest.result}
-                />
-              </div>
-            )}
-            {providers.length === 0 && formMode === 'closed' ? (
-              <EmptyState message="暂无 Provider，请点击右上角按钮添加" action={{ label: '新增 Provider', onClick: openCreateForm }} />
-            ) : (
-              <div className={formMode !== 'closed' ? 'hidden' : ''}>
-                <ProviderList providers={providers} testStatus={testStatus} onEdit={openEditForm} onDelete={deleteProvider} onSetDefault={setDefault} onTest={testConnection} />
-              </div>
-            )}
-            {loading && (
-              <div className="flex items-center justify-center py-8">
-                <svg className="animate-spin w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-            )}
-          </div>
-        )}
+          {/* Provider */}
+          {activeTab === 'provider' && (
+            <div className="space-y-4">
+              {(formMode === 'creating' || formMode === 'editing') && (
+                <div className="bg-white rounded-xl p-5" style={{ border: '1px solid #e8eaed' }}>
+                  <ProviderForm
+                    provider={editingProvider}
+                    existingNames={existingNames}
+                    onSubmit={handleSubmit}
+                    onCancel={closeForm}
+                    onTest={handleTest}
+                    testStatus={currentTest.status}
+                    testResult={currentTest.result}
+                  />
+                </div>
+              )}
+              {formMode === 'closed' && (
+                providers.length === 0
+                  ? <EmptyState message="暂无 Provider" action={{ label: '新增 Provider', onClick: openCreateForm }} />
+                  : <ProviderList providers={providers} testStatus={testStatus} onEdit={openEditForm} onDelete={deleteProvider} onSetDefault={setDefault} onTest={testConnection} />
+              )}
+              {loading && <Spinner />}
+            </div>
+          )}
 
-        {/* MCP tab */}
-        {activeTab === 'mcp' && (
-          <div className="p-6">
-            {(mcpFormMode === 'creating' || mcpFormMode === 'editing') && (
-              <div className="mb-6 max-w-2xl mx-auto">
-                <MCPServerForm server={mcpEditingServer} existingNames={existingMcpNames} onSubmit={handleMcpSubmit} onCancel={() => { setMcpFormMode('closed'); setMcpEditingId(null) }} />
-              </div>
-            )}
-            {mcpServers.length === 0 && mcpFormMode === 'closed' ? (
-              <div className="max-w-2xl mx-auto">
-                <EmptyState message="暂无 MCP Server" action={{ label: '新增 MCP Server', onClick: () => { setMcpFormMode('creating'); setMcpEditingId(null) } }} />
-              </div>
-            ) : (
-              <div className={mcpFormMode !== 'closed' ? 'hidden' : ''}>
-                <MCPServerList servers={mcpServers} serverStatus={mcpServerStatus} onEdit={(id) => { setMcpFormMode('editing'); setMcpEditingId(id) }} onDelete={handleMcpDelete} onToggleStatus={handleMcpToggleStatus} onTest={handleMcpTest} />
-              </div>
-            )}
-            {mcpLoading && (
-              <div className="flex items-center justify-center py-8">
-                <svg className="animate-spin w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              </div>
-            )}
-          </div>
-        )}
+          {/* MCP */}
+          {activeTab === 'mcp' && (
+            <div className="space-y-4">
+              {(mcpFormMode === 'creating' || mcpFormMode === 'editing') && (
+                <div className="bg-white rounded-xl p-5" style={{ border: '1px solid #e8eaed' }}>
+                  <MCPServerForm server={mcpEditingServer} existingNames={existingMcpNames} onSubmit={handleMcpSubmit} onCancel={() => { setMcpFormMode('closed'); setMcpEditingId(null) }} />
+                </div>
+              )}
+              {mcpFormMode === 'closed' && (
+                mcpServers.length === 0
+                  ? <EmptyState message="暂无 MCP Server" action={{ label: '新增 MCP Server', onClick: () => { setMcpFormMode('creating'); setMcpEditingId(null) } }} />
+                  : <MCPServerList servers={mcpServers} serverStatus={mcpServerStatus} onEdit={(id) => { setMcpFormMode('editing'); setMcpEditingId(id) }} onDelete={handleMcpDelete} onToggleStatus={handleMcpToggleStatus} onTest={handleMcpTest} />
+              )}
+              {mcpLoading && <Spinner />}
+            </div>
+          )}
 
-        {/* Agent tab */}
-        {activeTab === 'agent' && (
-          <AgentsPage onNavigateChat={(sessionId) => { setCurrentSession(sessionId); onBack() }} />
-        )}
+          {/* Agent */}
+          {activeTab === 'agent' && (
+            <AgentsPage onNavigateChat={(sessionId) => { setCurrentSession(sessionId); onBack() }} importTrigger={agentImportTrigger} />
+          )}
 
-        {/* Account tab */}
-        {activeTab === 'account' && (
-          <div className="max-w-2xl mx-auto p-6">
-            <AccountsSettings />
-          </div>
-        )}
+          {/* Account */}
+          {activeTab === 'account' && (
+            <AccountsSettings addTrigger={accountAddTrigger} />
+          )}
+
+        </div>
       </div>
+    </div>
+  )
+}
+
+function AddBtn({ onClick, label = '新增' }: { onClick: () => void; label?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-[12px] font-medium text-blue-600 hover:text-blue-700 transition-colors px-2.5 py-1.5 rounded-lg hover:bg-blue-50"
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
+      {label}
+    </button>
+  )
+}
+
+function SettingRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+  return (
+    <div className={`flex items-center justify-between px-5 py-3.5 ${!last ? 'border-b border-gray-100' : ''}`}>
+      <span className="text-[13px] font-medium text-gray-700">{label}</span>
+      <span className="text-[13px] text-gray-400">{value}</span>
+    </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <div className="flex justify-center py-6">
+      <svg className="animate-spin w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="none">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
     </div>
   )
 }
