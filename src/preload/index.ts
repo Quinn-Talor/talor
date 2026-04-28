@@ -355,6 +355,8 @@ const talorAPI = {
       ipcRenderer.invoke('agents:crystallize', { session_id: sessionId }),
     switchAgent: (sessionId: string, agentId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('session:switch-agent', { session_id: sessionId, agent_id: agentId }),
+    listTools: (agentId: string): Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; provider?: string; riskLevel?: string }>> =>
+      ipcRenderer.invoke('agents:list-tools', agentId),
   },
 
   accounts: {

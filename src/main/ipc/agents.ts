@@ -195,6 +195,12 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     return { success: true }
   })
 
+  ipcMain.handle('agents:list-tools', (_event, agentId: string) => {
+    const agent = agentManager.getAgent(agentId)
+    if (!agent) throw new Error(`Agent not found: ${agentId}`)
+    return agent.toolRegistry.listTools()
+  })
+
   ipcMain.handle('session:switch-agent', (_event, raw: { session_id: string; agent_id: string }) => {
     const { session_id, agent_id } = raw
 

@@ -58,5 +58,6 @@ export interface ToolMetadata {
   parameters: Record<string, unknown>
   schema?: Record<string, unknown>
   riskLevel?: 'HIGH' | 'LOW'
+  provider?: string
 }
 

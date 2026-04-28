@@ -128,6 +128,7 @@ export class McpRegistry {
           name: tool.name,
           description: tool.description,
           parameters: tool.inputSchema,
+          provider: serverName,
         }))
       },
       async execute(

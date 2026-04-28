@@ -38,6 +38,7 @@ export interface ChatSession {
   provider_id: string
   model_id?: string
   workspace?: string
+  agent_id?: string
   created_at: string
   updated_at: string
 }
