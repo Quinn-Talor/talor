@@ -28,10 +28,11 @@ function ToolCallCard({ toolUse, toolResult }: { toolUse: ToolUseBlock; toolResu
   const hasResult = !!toolResult
 
   const inputStr = JSON.stringify(toolUse.input, null, 2)
-  const resultPreview = toolResult?.output
-    ? toolResult.output.length > 200
-      ? toolResult.output.slice(0, 200) + '...'
-      : toolResult.output
+  const outputStr = typeof toolResult?.output === 'string' ? toolResult.output : toolResult?.output != null ? JSON.stringify(toolResult.output) : null
+  const resultPreview = outputStr
+    ? outputStr.length > 200
+      ? outputStr.slice(0, 200) + '...'
+      : outputStr
     : null
 
   return (

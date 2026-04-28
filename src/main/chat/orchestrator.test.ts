@@ -51,10 +51,6 @@ vi.mock('../repos/session-repo', () => ({
   messageRepo: { create: hoisted.messageCreate },
 }))
 
-vi.mock('../tools/build-tools', () => ({
-  buildTools: hoisted.buildTools,
-}))
-
 vi.mock('../loop/react-loop', () => ({
   runReactLoop: hoisted.runReactLoop,
 }))
@@ -80,7 +76,25 @@ function makeCallbacks() {
   }
 }
 function makePorts() {
-  return { confirmTool: vi.fn(async () => true) }
+  return {
+    confirmTool: vi.fn(async () => true),
+    agentManager: {
+      getAgent: vi.fn(() => ({
+        id: '__chat__',
+        name: 'Talor',
+        profile: { id: '__chat__', name: 'Talor', dependencies: { tools: [] } },
+        toolRegistry: { listTools: () => [], getBuiltinTool: () => undefined, getToolNames: () => [] },
+        skillRegistry: { isEmpty: () => true, listDescriptions: () => [] },
+      })),
+      getChatAgent: vi.fn(() => ({
+        id: '__chat__',
+        name: 'Talor',
+        profile: { id: '__chat__', name: 'Talor', dependencies: { tools: [] } },
+        toolRegistry: { listTools: () => [], getBuiltinTool: () => undefined, getToolNames: () => [] },
+        skillRegistry: { isEmpty: () => true, listDescriptions: () => [] },
+      })),
+    } as unknown as import('../agent/agent-manager').AgentManager,
+  }
 }
 
 beforeEach(() => {
@@ -89,7 +103,6 @@ beforeEach(() => {
   hoisted.sessionGetById.mockReturnValue({ id: 's1', workspace: '/ws', model_id: 'm1' })
   hoisted.register.mockReturnValue(new AbortController())
   hoisted.createModel.mockReturnValue({})
-  hoisted.buildTools.mockResolvedValue(undefined)
   hoisted.runReactLoop.mockResolvedValue(undefined)
   hoisted.configGet.mockReturnValue(undefined)
 })
@@ -102,13 +115,12 @@ describe('sendChat', () => {
     expect(cb.onDone).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'LLM_ERROR' }))
   })
 
-  it('编排顺序：register → validate → provider → vision → persist user → buildTools → runReactLoop → onDone', async () => {
+  it('编排顺序：register → validate → provider → persist user → runReactLoop → onDone', async () => {
     const cb = makeCallbacks()
     await sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts())
     expect(hoisted.register).toHaveBeenCalled()
     expect(hoisted.getDefaultProvider).toHaveBeenCalled()
     expect(hoisted.messageCreate).toHaveBeenCalledWith(expect.objectContaining({ role: 'user' }))
-    expect(hoisted.buildTools).toHaveBeenCalled()
     expect(hoisted.runReactLoop).toHaveBeenCalled()
     expect(cb.onDone).toHaveBeenCalledWith(expect.any(String))
   })

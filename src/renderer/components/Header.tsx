@@ -5,9 +5,10 @@ interface HeaderProps {
   title: string
   onSettingsClick?: () => void
   onChatClick?: () => void
+  onAgentsClick?: () => void
 }
 
-export function Header({ title, onSettingsClick, onChatClick }: HeaderProps) {
+export function Header({ title, onSettingsClick, onChatClick, onAgentsClick }: HeaderProps) {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
@@ -38,6 +39,21 @@ export function Header({ title, onSettingsClick, onChatClick }: HeaderProps) {
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
             </svg>
             对话
+          </button>
+        )}
+        {onAgentsClick && (
+          <button
+            onClick={onAgentsClick}
+            className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="9" cy="7" r="4"></circle>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            Agent
           </button>
         )}
         {onSettingsClick && (

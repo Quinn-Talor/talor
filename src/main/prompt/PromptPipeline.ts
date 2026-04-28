@@ -7,7 +7,8 @@
 
 import { ConfigStore } from '../store/config-store'
 import { MemoryManager } from '../memory/MemoryManager'
-import type { PipelineContext, PluginResult, ProviderContextConfig, ToolSchema } from './types'
+import type { PipelineContext, PluginResult, ProviderContextConfig } from './types'
+import type { ToolMetadata } from '../tools/types'
 import type { Provider } from '../store/config-store'
 import type { CoreMessage } from 'ai'
 import log from 'electron-log'
@@ -51,10 +52,10 @@ export class PromptPipeline {
    * Runs each plugin in order and concatenates their messages.
    * Plugin failures are logged and skipped so one bad plugin never blocks the whole pipeline.
    */
-  async build(ctx: PipelineContext): Promise<{ messages: CoreMessage[]; tools: ToolSchema[] }> {
+  async build(ctx: PipelineContext): Promise<{ messages: CoreMessage[]; tools: ToolMetadata[] }> {
     const plugins = await this.getPlugins()
     const allMessages: CoreMessage[] = []
-    const allTools: ToolSchema[] = []
+    const allTools: ToolMetadata[] = []
 
     for (const plugin of plugins) {
       try {

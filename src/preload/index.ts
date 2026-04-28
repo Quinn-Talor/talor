@@ -129,6 +129,8 @@ export interface ChatSession {
   provider_id: string
   model_id?: string
   workspace?: string
+  agent_id: string
+  parent_session_id?: string
   created_at: string
   updated_at: string
 }
@@ -320,7 +322,9 @@ const talorAPI = {
       return () => ipcRenderer.removeListener('chat:tool-call', handler)
     },
     onToolResult: (callback: (event: ChatToolResultEvent) => void): (() => void) => {
-      const handler = (_: Electron.IpcRendererEvent, data: ChatToolResultEvent) => callback(data)
+      const handler = (_: Electron.IpcRendererEvent, data: ChatToolResultEvent) => {
+        try { callback(data) } catch (err) { console.error('[preload] onToolResult callback error:', err) }
+      }
       ipcRenderer.on('chat:tool-result', handler)
       return () => ipcRenderer.removeListener('chat:tool-result', handler)
     },
@@ -332,6 +336,32 @@ const talorAPI = {
     sendToolConfirmResponse: (response: ToolConfirmResponse): void => {
       ipcRenderer.send('chat:tool-confirm-response', response)
     },
+  },
+
+  agents: {
+    list: (): Promise<unknown[]> => ipcRenderer.invoke('agents:list'),
+    get: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:get', id),
+    createSession: (agentId: string): Promise<{ session_id: string }> =>
+      ipcRenderer.invoke('agents:create-session', { agent_id: agentId }),
+    enable: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:enable', id),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('agents:delete', id),
+    reload: (): Promise<unknown[]> => ipcRenderer.invoke('agents:reload'),
+    checkDeps: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:check-deps', id),
+    export: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:export', id),
+    import: (): Promise<unknown> => ipcRenderer.invoke('agents:import'),
+    installDeps: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:install-deps', id),
+    update: (id: string, profile: unknown): Promise<void> => ipcRenderer.invoke('agents:update', { id, profile }),
+    crystallize: (sessionId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:crystallize', { session_id: sessionId }),
+    switchAgent: (sessionId: string, agentId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('session:switch-agent', { session_id: sessionId, agent_id: agentId }),
+  },
+
+  accounts: {
+    list: (): Promise<unknown[]> => ipcRenderer.invoke('accounts:list'),
+    save: (account: unknown): Promise<void> => ipcRenderer.invoke('accounts:save', account),
+    delete: (service: string): Promise<void> => ipcRenderer.invoke('accounts:delete', service),
+    getValue: (key: string): Promise<string | null> => ipcRenderer.invoke('accounts:get-value', key),
   },
 
   file: {

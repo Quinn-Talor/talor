@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'fs'
 import log from 'electron-log'
 import type { ToolDefinition } from '../tools/types'
 import type { SkillRegistry } from './registry'
+import { SkillActivationTracker } from './registry'
 
 function resolveRelativePaths(content: string, skillMdPath: string): string {
   const skillDir = dirname(skillMdPath)
@@ -18,7 +19,7 @@ function resolveRelativePaths(content: string, skillMdPath: string): string {
   )
 }
 
-function loadDependentSkills(content: string, skillMdPath: string, registry: SkillRegistry): string {
+function loadDependentSkills(content: string, skillMdPath: string, registry: SkillRegistry, tracker: SkillActivationTracker): string {
   const skillDir = dirname(skillMdPath)
   const deps: string[] = []
 
@@ -35,13 +36,13 @@ function loadDependentSkills(content: string, skillMdPath: string, registry: Ski
     const depName = absPath.match(/\/([^/]+)\/SKILL\.md$/)?.[1]
     if (!depName) continue
 
-    if (registry.isActivated(depName)) continue
+    if (tracker.isActivated(depName)) continue
 
     try {
       const depContent = readFileSync(absPath, 'utf-8')
       const bodyMatch = depContent.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/)
       const body = bodyMatch ? bodyMatch[1].trimStart() : depContent
-      registry.markActivated(depName)
+      tracker.markActivated(depName)
       deps.push(`[SKILL:${depName} auto-loaded (dependency)]\n\n${resolveRelativePaths(body, absPath)}`)
       log.info(`[SkillTool] Auto-loaded dependency skill: ${depName}`)
     } catch (err) {
@@ -52,7 +53,9 @@ function loadDependentSkills(content: string, skillMdPath: string, registry: Ski
   return deps.length > 0 ? '\n\n---\n\n' + deps.join('\n\n---\n\n') : ''
 }
 
-export function createSkillTool(registry: SkillRegistry): ToolDefinition {
+export function createSkillTool(registry: SkillRegistry, tracker?: SkillActivationTracker): ToolDefinition {
+  const sessionTracker = tracker ?? new SkillActivationTracker()
+
   return {
     name: 'skill',
     description: '激活一个技能，获取其完整指令内容。可用技能列表在 system prompt 中提供。',
@@ -77,9 +80,9 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
         return { output: `技能 "${name}" 不存在。可用技能：${available || '无'}` }
       }
 
-      registry.markActivated(name)
+      sessionTracker.markActivated(name)
       const resolved = resolveRelativePaths(skill.content, skill.filePath)
-      const depContent = loadDependentSkills(skill.content, skill.filePath, registry)
+      const depContent = loadDependentSkills(skill.content, skill.filePath, registry, sessionTracker)
       return { output: `[SKILL:${name} activated]\n\n${resolved}${depContent}` }
     },
   }

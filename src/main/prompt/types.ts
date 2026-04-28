@@ -1,7 +1,7 @@
 import type { CoreMessage } from 'ai'
 import type { Provider } from '../store/config-store'
-import type { AgentManifest } from '@shared/types/agent'
-import type { SkillRegistry } from '../skills/registry'
+import type { Agent } from '../agent/agent'
+import type { ToolMetadata } from '../tools/types'
 
 export interface PromptPlugin {
   name: string
@@ -22,13 +22,12 @@ export interface PipelineContext {
   provider: Provider
   providerConfig: ProviderContextConfig
   workspacePath: string | undefined
-  agent?: AgentManifest
-  skillRegistry?: SkillRegistry
+  agent?: Agent
 }
 
 export interface PluginResult {
   messages: CoreMessage[]
-  tools: ToolSchema[]
+  tools: ToolMetadata[]
   tokenEstimate: number
 }
 
@@ -39,9 +38,5 @@ export interface ProviderContextConfig {
   summary_ratio: number
 }
 
-export interface ToolSchema {
-  name: string
-  description: string
-  parameters: Record<string, unknown>
-  schema?: Record<string, unknown>
-}
+/** @deprecated Use ToolMetadata from tools/types instead */
+export type ToolSchema = ToolMetadata

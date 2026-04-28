@@ -6,6 +6,7 @@ import { EmptyState } from '../../components/EmptyState'
 import type { ProviderInput } from '../../types/config'
 import { MCPServerList } from './MCPServerList'
 import { MCPServerForm } from './MCPServerForm'
+import { AccountsSettings } from './Accounts'
 import type { MCPServer, MCPServerInput } from '../../../preload/index'
 import { talorAPI } from '../../api/talorAPI'
 
@@ -28,7 +29,7 @@ export function SettingsPage() {
   } = useConfigStore()
 
   // Tabs State
-  const [activeTab, setActiveTab] = useState<'provider' | 'mcp'>('provider')
+  const [activeTab, setActiveTab] = useState<'provider' | 'mcp' | 'accounts'>('provider')
 
   // MCP State
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([])
@@ -197,6 +198,16 @@ export function SettingsPage() {
           >
             MCP Server
           </button>
+          <button
+            className={`pb-3 text-base font-medium border-b-2 transition-colors ${
+              activeTab === 'accounts'
+                ? 'border-primary-500 text-primary-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+            onClick={() => setActiveTab('accounts')}
+          >
+            账户管理
+          </button>
         </div>
         
         <div className="pb-3">
@@ -319,6 +330,12 @@ export function SettingsPage() {
               </svg>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'accounts' && (
+        <div className="mt-4">
+          <AccountsSettings />
         </div>
       )}
     </div>

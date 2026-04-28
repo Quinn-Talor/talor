@@ -43,7 +43,7 @@ describe('createSkillTool', () => {
     expect(result.output).toMatch(/^\[SKILL:lark-sheets activated\]/)
     expect(result.output).toContain('# sheets (v3)')
     expect(result.output).toContain('操作飞书电子表格的指令...')
-    expect(registry.isActivated('lark-sheets')).toBe(true)
+    // Activation state is now per-session (SkillActivationTracker), not on SkillRegistry
   })
 
   it('AC-S2-02: returns error for nonexistent skill', async () => {

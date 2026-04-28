@@ -106,6 +106,25 @@ export function initChatDb(): Database.Database {
     db.exec(CREATE_MESSAGES)
     db.exec(CREATE_INDEX)
 
+    // Migrate sessions: add agent_id column if missing (default: __chat__)
+    if (!sessionCols.some(c => c.name === 'agent_id')) {
+      db.exec("ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
+      log.info('[ChatDB] Migrated: added sessions.agent_id')
+    }
+
+    // Migrate sessions: add parent_session_id column if missing
+    if (!sessionCols.some(c => c.name === 'parent_session_id')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT')
+      log.info('[ChatDB] Migrated: added sessions.parent_session_id')
+    }
+
+    // Migrate messages: add agent_id column if missing
+    const currentMsgCols = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>
+    if (!currentMsgCols.some(c => c.name === 'agent_id')) {
+      db.exec("ALTER TABLE messages ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
+      log.info('[ChatDB] Migrated: added messages.agent_id')
+    }
+
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db
 }
