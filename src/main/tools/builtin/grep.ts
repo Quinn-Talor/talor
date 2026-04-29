@@ -64,7 +64,13 @@ const grepTool = {
       return { output: 'Cannot access sensitive system path' }
     }
     if (guard.status === 'needs_consent') {
-      return { output: 'Cannot access path outside workspace' }
+      const approved = await context.requestPermission?.({
+        toolName: 'grep',
+        reason: 'path_outside_workspace',
+        absPath: guard.absPath,
+        inputSummary: `${params.pattern} in ${targetPath}`,
+      })
+      if (!approved) return { output: 'Cannot access path outside workspace (user denied).' }
     }
     const resolvedPath = guard.absPath
 

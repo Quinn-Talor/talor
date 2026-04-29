@@ -61,6 +61,33 @@ export interface ToolExecuteContext extends ToolConfig {
   tmpDir?: string
   /** Per-session skill activation tracker — injected by build-tools, used by skill-tool. */
   skillTracker?: import('../skills/registry').SkillActivationTracker
+  /**
+   * Permission port — injected by build-tools. File tools call this when
+   * resolveToolPath returns `needs_consent`; bash calls it for workspace-
+   * external commands. Returns true if the user (or an existing rule)
+   * allows the call. See src/main/permissions for details.
+   *
+   * Absent means "no consent flow available" — tools must fall back to
+   * denying the call (current behavior before the dialog wiring lands).
+   */
+  requestPermission?: PermissionPort
+}
+
+export type PermissionPort = (req: PermissionRequestInput) => Promise<boolean>
+
+/**
+ * What a tool tells the PermissionPort about the attempted call. The port
+ * consumes this internally (rule matching + UI prompt) and returns a bool.
+ */
+export interface PermissionRequestInput {
+  toolName: string
+  reason: 'path_outside_workspace' | 'high_risk_tool'
+  /** For path tools: resolved absolute path. */
+  absPath?: string
+  /** For bash: the command string. */
+  bashCommand?: string
+  /** Short user-facing summary for the dialog body (~ first 500 chars). */
+  inputSummary: string
 }
 
 export const DEFAULT_MAX_READ_SIZE_BYTES = 10 * 1024 * 1024

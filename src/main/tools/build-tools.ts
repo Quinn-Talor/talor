@@ -6,7 +6,7 @@
 import { dynamicTool, jsonSchema } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import type { ToolExecuteContext, ToolMetadata } from './types'
+import type { ToolExecuteContext, ToolMetadata, PermissionPort } from './types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
 
 function buildInputSummary(toolName: string, input: unknown): string {
@@ -31,6 +31,11 @@ export async function buildTools(opts: {
   messageId: string
   workspace: string
   confirmTool: ToolConfirmPort
+  /**
+   * File 工具跨 workspace 访问时触发用户授权。入口层 (ipc/permission.ts)
+   * 用 createPermissionPort() 注入。可选——不传则工具退化回"直接拒绝"。
+   */
+  requestPermission?: PermissionPort
   agent: import('../agent/agent').Agent
   toolSchemas?: ToolMetadata[]
   skillTracker?: import('../skills/registry').SkillActivationTracker
@@ -40,7 +45,12 @@ export async function buildTools(opts: {
   const schemas = opts.toolSchemas ?? agent.toolRegistry.listTools()
   if (schemas.length === 0 && !workspace.trim()) return undefined
 
-  const ctx: ToolExecuteContext = { sessionId, workspace, skillTracker: opts.skillTracker }
+  const ctx: ToolExecuteContext = {
+    sessionId,
+    workspace,
+    skillTracker: opts.skillTracker,
+    requestPermission: opts.requestPermission,
+  }
   const tools: Record<string, ReturnType<typeof dynamicTool>> = {}
 
   for (const schema of schemas) {

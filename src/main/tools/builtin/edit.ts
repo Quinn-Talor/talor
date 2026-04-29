@@ -43,7 +43,13 @@ const editTool = {
       return { output: 'Cannot access sensitive system path' }
     }
     if (guard.status === 'needs_consent') {
-      return { output: 'Cannot access path outside workspace' }
+      const approved = await context.requestPermission?.({
+        toolName: 'edit',
+        reason: 'path_outside_workspace',
+        absPath: guard.absPath,
+        inputSummary: `edit: ${params.path}`,
+      })
+      if (!approved) return { output: 'Cannot access path outside workspace (user denied).' }
     }
     const resolvedPath = guard.absPath
 

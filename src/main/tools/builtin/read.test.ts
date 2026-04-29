@@ -40,7 +40,7 @@ describe('read tool', () => {
 
   it('returns error for path outside workspace', async () => {
     const result = await toolRegistry.execute('read', { path: '../outside.txt' }, makeContext())
-    expect(result.output).toBe('Cannot access path outside workspace')
+    expect(result.output).toContain('Cannot access path outside workspace')
   })
 
   it('returns error when workspace not set', async () => {

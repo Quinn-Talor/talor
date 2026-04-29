@@ -43,7 +43,7 @@ describe('ls tool', () => {
 
   it('returns error for path outside workspace', async () => {
     const result = await toolRegistry.execute('ls', { path: '../outside' }, makeContext())
-    expect(result.output).toBe('Cannot access path outside workspace')
+    expect(result.output).toContain('Cannot access path outside workspace')
   })
 
   it('returns error when workspace not set', async () => {
@@ -76,7 +76,7 @@ describe('ls tool', () => {
       return
     }
     const result = await toolRegistry.execute('ls', { path: 'evil_link' }, makeContext())
-    expect(result.output).toBe('Cannot access path outside workspace')
+    expect(result.output).toContain('Cannot access path outside workspace')
   })
 
   it('caps depth at 10 to prevent excessive recursion', async () => {

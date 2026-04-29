@@ -46,6 +46,7 @@ interface StepContext {
   callbacks: ReactLoopCallbacks
   agent: import('../agent/agent').Agent
   confirmTool: ToolConfirmPort
+  requestPermission?: import('../tools/types').PermissionPort
   agentId: string
   skillTracker: import('../skills/registry').SkillActivationTracker
   events: import('../chat/events').ExecutionEventBus
@@ -160,6 +161,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     messageId: ctx.messageId,
     workspace: ctx.workspace,
     confirmTool: ctx.confirmTool,
+    requestPermission: ctx.requestPermission,
     agent: ctx.agent,
     toolSchemas,
     skillTracker: ctx.skillTracker,
@@ -409,6 +411,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     callbacks: opts.callbacks,
     agent: opts.agent,
     confirmTool: opts.confirmTool,
+    requestPermission: opts.requestPermission,
     agentId: opts.agent.id,
     skillTracker: opts.skillTracker,
     events: opts.events,

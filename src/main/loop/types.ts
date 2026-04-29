@@ -28,6 +28,8 @@ export interface ReactLoopOptions {
   maxSteps?: number
   agent: import('../agent/agent').Agent
   confirmTool: import('../ipc/tool-confirm').ToolConfirmPort
+  /** Workspace-external access consent (PR #4). Optional for backward compat. */
+  requestPermission?: import('../tools/types').PermissionPort
   /** Per-session skill activation tracker shared between skill-tool and AgentPromptPlugin. */
   skillTracker: SkillActivationTracker
   /** Per-execution event bus for internal state-change notifications. */

@@ -56,10 +56,15 @@ const readTool = {
       return { output: 'Cannot access sensitive system path' }
     }
     if (guard.status === 'needs_consent') {
-      // TODO (PR #4): 接入 requestPermission 前先按拒绝处理，保持当前行为
-      return { output: 'Cannot access path outside workspace' }
+      const approved = await context.requestPermission?.({
+        toolName: 'read',
+        reason: 'path_outside_workspace',
+        absPath: guard.absPath,
+        inputSummary: params.path,
+      })
+      if (!approved) return { output: 'Cannot access path outside workspace (user denied).' }
     }
-    const resolvedPath = guard.absPath
+    const resolvedPath = guard.status === 'allowed' ? guard.absPath : guard.absPath
 
     if (!existsSync(resolvedPath)) {
       return { output: `File not found: ${params.path}` }
