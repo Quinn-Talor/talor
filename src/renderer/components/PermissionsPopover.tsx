@@ -134,10 +134,14 @@ export function PermissionsPopover({ workspacePath }: Props) {
         >
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-baseline justify-between">
-              <p className="text-sm font-semibold text-gray-900">Permissions</p>
-              <p className="text-xs text-gray-400">
-                {totalCount} rule{totalCount === 1 ? '' : 's'}
+              <p className="text-sm font-semibold text-gray-900">
+                {pendingPermission ? 'Permission required' : 'Permissions'}
               </p>
+              {!pendingPermission && (
+                <p className="text-xs text-gray-400">
+                  {totalCount} rule{totalCount === 1 ? '' : 's'}
+                </p>
+              )}
             </div>
             <p className="text-xs font-mono text-gray-500 truncate mt-0.5" title={workspacePath}>
               {workspacePath}
@@ -145,25 +149,29 @@ export function PermissionsPopover({ workspacePath }: Props) {
           </div>
 
           <div className="max-h-[480px] overflow-y-auto">
-            {pendingPermission && (
+            {pendingPermission ? (
+              // 有待审批时只展示请求卡片，隐藏现有规则列表——避免用户被
+              // 已有规则分散注意力，同时也节省纵向空间。
               <PendingRequestCard
                 request={pendingPermission}
                 onDecide={handlePermissionDecide}
               />
+            ) : (
+              <>
+                <RuleGroup
+                  title="Allowed"
+                  rules={allowedRules}
+                  effect="allow"
+                  onRemove={handleRemove}
+                />
+                <RuleGroup
+                  title="Denied"
+                  rules={deniedRules}
+                  effect="deny"
+                  onRemove={handleRemove}
+                />
+              </>
             )}
-
-            <RuleGroup
-              title="Allowed"
-              rules={allowedRules}
-              effect="allow"
-              onRemove={handleRemove}
-            />
-            <RuleGroup
-              title="Denied"
-              rules={deniedRules}
-              effect="deny"
-              onRemove={handleRemove}
-            />
           </div>
 
           {(hasSessionRules || totalCount === 0) && !hasPending && (
