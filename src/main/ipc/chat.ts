@@ -12,6 +12,7 @@ import { ipcMain } from 'electron'
 import log from 'electron-log'
 import { getMainWindow } from './window'
 import { requestToolConfirm } from './tool-confirm'
+import { requestPermissionFromRenderer } from './permission'
 import { sendChat } from '../chat/orchestrator'
 import { streamRegistry } from '../chat/stream-registry'
 import type { AgentManager } from '../agent/agent-manager'
@@ -42,7 +43,11 @@ export function registerChatHandlers(agentManager: AgentManager): void {
         onToolResult: (mid, id, name, out)   => win.webContents.send('chat:tool-result', { session_id: sid, message_id: mid, tool_call_id: id, tool_name: name, result: out }),
         onDone:       (mid, err)             => win.webContents.send('chat:stream',      { session_id: sid, message_id: mid, delta: '', done: true, error_code: err?.code, error_message: err?.message }),
       },
-      { confirmTool: (payload) => requestToolConfirm(win, payload), agentManager },
+      {
+        confirmTool: (payload) => requestToolConfirm(win, payload),
+        promptPermission: (payload) => requestPermissionFromRenderer(win, payload),
+        agentManager,
+      },
     )
 
     // 返回值按历史协议用 snake_case

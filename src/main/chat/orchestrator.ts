@@ -58,9 +58,11 @@ export interface ChatCallbacks {
 /**
  * 端口注入：业务层声明"需要什么能力"，具体实现由入口层提供。
  * confirmTool 绑定了 mainWindow 的 `requestToolConfirm` 调用。
+ * promptPermission 用于跨 workspace 路径/命令的用户授权（PR #5）。
  */
 export interface ChatPorts {
   confirmTool: ToolConfirmPort
+  promptPermission?: import('../permissions/port').PermissionUIPrompt
   agentManager: import('../agent/agent-manager').AgentManager
 }
 
@@ -143,6 +145,13 @@ export async function sendChat(
       log.info(`[chat-orch] memory compressed (covered_until=${e.coveredUntilMessageId}), skill tracker cleared`)
     })
 
+    // Step 5.5: 构造 permission port。只在 workspace 已设置且 UI 端口存在时启用；
+    // 否则 requestPermission=undefined，工具退化为"needs_consent → deny"。
+    const { createPermissionPort } = await import('../permissions/port')
+    const requestPermission = (workspace && ports.promptPermission)
+      ? createPermissionPort({ workspacePath: workspace, promptUI: ports.promptPermission })
+      : undefined
+
     // Step 6: 驱动 ReAct 循环（工具由 pipeline 每步产出，react-loop 内部调 buildTools 包装）
     const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
     await runReactLoop({
@@ -164,6 +173,7 @@ export async function sendChat(
       maxSteps: typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
       agent,
       confirmTool: ports.confirmTool,
+      requestPermission,
       skillTracker,
       events,
       callbacks: {

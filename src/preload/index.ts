@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
+import type {
+  PermissionRequest,
+  PermissionResponse,
+  PermissionRuleView,
+} from '@shared/types/permissions'
 
 console.log('[Preload] Script loading...')
 
@@ -339,6 +344,23 @@ const talorAPI = {
     sendToolConfirmResponse: (response: ToolConfirmResponse): void => {
       ipcRenderer.send('chat:tool-confirm-response', response)
     },
+    onPermissionRequest: (callback: (event: PermissionRequest) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: PermissionRequest) => callback(data)
+      ipcRenderer.on('chat:permission-request', handler)
+      return () => ipcRenderer.removeListener('chat:permission-request', handler)
+    },
+    sendPermissionResponse: (response: PermissionResponse): void => {
+      ipcRenderer.send('chat:permission-response', response)
+    },
+  },
+
+  permissions: {
+    list: (workspacePath: string): Promise<PermissionRuleView> =>
+      ipcRenderer.invoke('permissions:list', workspacePath),
+    remove: (workspacePath: string, ruleId: string): Promise<boolean> =>
+      ipcRenderer.invoke('permissions:remove', { workspacePath, ruleId }),
+    clearSession: (workspacePath: string): Promise<void> =>
+      ipcRenderer.invoke('permissions:clearSession', workspacePath),
   },
 
   agents: {

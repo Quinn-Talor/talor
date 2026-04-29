@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useChatStore } from '../store/chatStore'
 import type { ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent } from '../types/chat'
 import type { ToolConfirmRequest } from '@shared/types/message'
+import type { PermissionRequest } from '@shared/types/permissions'
 import { talorAPI } from '../api/talorAPI'
 
 export function useStreamingMessage(sessionId: string | null) {
@@ -56,11 +57,17 @@ export function useStreamingMessage(sessionId: string | null) {
       useChatStore.getState().setPendingToolConfirm(event)
     })
 
+    const unsubscribePermission = talorAPI.chat.onPermissionRequest((event: PermissionRequest) => {
+      // PermissionRequest 不带 sessionId——第一版允许当前主界面直接接所有请求。
+      useChatStore.getState().setPendingPermission(event)
+    })
+
     return () => {
       unsubscribeStream()
       unsubscribeToolCall()
       unsubscribeToolResult()
       unsubscribeToolConfirm()
+      unsubscribePermission()
     }
   }, [sessionId])
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ChatSession, ChatMessage, Attachment } from '../types/chat'
 import type { ToolConfirmRequest } from '@shared/types/message'
+import type { PermissionRequest } from '@shared/types/permissions'
 
 export interface ToolCallEntry {
   toolCallId: string
@@ -20,6 +21,7 @@ interface ChatState {
   attachments: Attachment[]
   toolCalls: ToolCallEntry[]
   pendingToolConfirm: ToolConfirmRequest | null
+  pendingPermission: PermissionRequest | null
 
   setSessions: (sessions: ChatSession[]) => void
   setCurrentSession: (id: string | null) => void
@@ -38,6 +40,7 @@ interface ChatState {
   updateToolResult: (toolCallId: string, result: unknown, status: 'done' | 'error' | 'timeout') => void
   clearToolCalls: () => void
   setPendingToolConfirm: (req: ToolConfirmRequest | null) => void
+  setPendingPermission: (req: PermissionRequest | null) => void
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -50,6 +53,7 @@ export const useChatStore = create<ChatState>((set) => ({
   attachments: [],
   toolCalls: [],
   pendingToolConfirm: null,
+  pendingPermission: null,
 
   setSessions: (sessions) => set({ sessions }),
   setCurrentSession: (id) => set({ 
@@ -83,4 +87,5 @@ export const useChatStore = create<ChatState>((set) => ({
   })),
   clearToolCalls: () => set({ toolCalls: [] }),
   setPendingToolConfirm: (req) => set({ pendingToolConfirm: req }),
+  setPendingPermission: (req) => set({ pendingPermission: req }),
 }))

@@ -10,6 +10,7 @@ import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolCallMessage } from '../../components/ToolCallMessage'
 import { ToolConfirmDialog } from '../../components/ToolConfirmDialog'
+import { PermissionDialog } from '../../components/PermissionDialog'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
 import type { AgentCardData } from '../../components/AgentCard'
@@ -37,9 +38,10 @@ interface ChatPageProps {
 export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const {
     sessions, currentSessionId, messages, streamState, streamingContent,
-    error, attachments, pendingToolConfirm,
+    error, attachments, pendingToolConfirm, pendingPermission,
     setSessions, setCurrentSession, setMessages, addMessage,
-    clearStreaming, clearToolCalls, setAttachments, removeAttachment, setPendingToolConfirm,
+    clearStreaming, clearToolCalls, setAttachments, removeAttachment,
+    setPendingToolConfirm, setPendingPermission,
   } = useChatStore()
 
   const [input, setInput] = useState('')
@@ -284,6 +286,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const handleToolConfirmReject = () => {
     if (!pendingToolConfirm) return
     talorAPI.chat.sendToolConfirmResponse({ toolCallId: pendingToolConfirm.toolCallId, decision: 'rejected' }); setPendingToolConfirm(null)
+  }
+  const handlePermissionDecide = (resp: Omit<import('@shared/types/permissions').PermissionResponse, 'requestId'>) => {
+    if (!pendingPermission) return
+    talorAPI.chat.sendPermissionResponse({ requestId: pendingPermission.requestId, ...resp })
+    setPendingPermission(null)
   }
 
   // Derived display values
@@ -840,6 +847,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       )}
       {pendingToolConfirm && (
         <ToolConfirmDialog request={pendingToolConfirm} onApprove={handleToolConfirmApprove} onReject={handleToolConfirmReject} />
+      )}
+      {pendingPermission && (
+        <PermissionDialog request={pendingPermission} onDecide={handlePermissionDecide} />
       )}
       {modelSwitchedToast && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-[13px] text-white shadow-lg z-50 pointer-events-none" style={{ background: '#1e293b' }} data-testid="model-switched-toast">已切换模型</div>

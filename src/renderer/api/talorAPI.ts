@@ -2,6 +2,7 @@ import type { ProviderType, ConnectionTestResult, Provider, ProviderInput } from
 import type { ChatSession, ChatMessage, ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent, Attachment } from '../types/chat'
 import type { ProviderModelResponse, ModelInfo } from '../types/models'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
+import type { PermissionRequest, PermissionResponse, PermissionRuleView } from '@shared/types/permissions'
 
 declare global {
   interface Window {
@@ -42,8 +43,14 @@ declare global {
         onToolResult: (callback: (event: ChatToolResultEvent) => void) => () => void
         onToolConfirm: (callback: (event: ToolConfirmRequest) => void) => () => void
         sendToolConfirmResponse: (response: ToolConfirmResponse) => void
+        onPermissionRequest: (callback: (event: PermissionRequest) => void) => () => void
+        sendPermissionResponse: (response: PermissionResponse) => void
       }
-      
+      permissions: {
+        list: (workspacePath: string) => Promise<PermissionRuleView>
+        remove: (workspacePath: string, ruleId: string) => Promise<boolean>
+        clearSession: (workspacePath: string) => Promise<void>
+      }
       mcp: {
         list: () => Promise<import('../../preload/index').MCPServer[]>
         create: (server: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPServer>
@@ -136,6 +143,14 @@ const stubChat = {
   onToolResult: () => () => {},
   onToolConfirm: () => () => {},
   sendToolConfirmResponse: () => {},
+  onPermissionRequest: () => () => {},
+  sendPermissionResponse: () => {},
+}
+
+const stubPermissions = {
+  list: () => Promise.resolve({ session: [], persisted: [] }),
+  remove: () => Promise.resolve(false),
+  clearSession: () => Promise.resolve(),
 }
 
 
@@ -213,7 +228,12 @@ export const talorAPI = new Proxy({} as Window['talorAPI'], {
         get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubChat as Record<string, unknown>)?.[p as string],
       }) as Window['talorAPI']['chat']
     }
-    
+    if (prop === 'permissions') {
+      return new Proxy({}, {
+        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubPermissions as Record<string, unknown>)?.[p as string],
+      }) as Window['talorAPI']['permissions']
+    }
+
     if (prop === 'mcp') {
       return new Proxy({}, {
         get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubMcp as Record<string, unknown>)?.[p as string],

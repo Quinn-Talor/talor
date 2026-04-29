@@ -14,6 +14,7 @@ import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerMCPHandlers } from './ipc/mcp'
 import { registerAgentHandlers } from './ipc/agents'
 import { registerAccountHandlers } from './ipc/accounts'
+import { registerPermissionHandlers } from './ipc/permission'
 import { mcpRegistry } from './mcp/client'
 import { initChatDb, closeChatDb } from './db/index'
 import { AgentManager } from './agent/agent-manager'
@@ -38,6 +39,7 @@ registerChatHandlers(agentManager)
 registerFileHandlers()
 registerMCPHandlers()
 registerAgentHandlers(agentManager)
+registerPermissionHandlers()
 
 let mainWindow: BrowserWindow | null = null
 
