@@ -12,8 +12,9 @@ import type { MCPServer, MCPServerInput } from '../../../preload/index'
 import { talorAPI } from '../../api/talorAPI'
 import { AgentsPage } from '../Agents'
 import { ContextSettings } from './ContextSettings'
+import { PermissionsSettings } from './PermissionsSettings'
 
-type Tab = 'common' | 'provider' | 'mcp' | 'agent' | 'account'
+type Tab = 'common' | 'provider' | 'mcp' | 'agent' | 'account' | 'permissions'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'common', label: 'Common' },
@@ -21,6 +22,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'mcp', label: 'MCP' },
   { id: 'agent', label: 'Agent' },
   { id: 'account', label: 'Account' },
+  { id: 'permissions', label: 'Permissions' },
 ]
 
 interface SettingsPageProps {
@@ -235,6 +237,11 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           {/* Account */}
           {activeTab === 'account' && (
             <AccountsSettings addTrigger={accountAddTrigger} />
+          )}
+
+          {/* Permissions */}
+          {activeTab === 'permissions' && (
+            <PermissionsSettings />
           )}
 
         </div>
