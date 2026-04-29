@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useChatStore } from '../../store/chatStore'
 import { talorAPI } from '../../api/talorAPI'
 import type { PermissionRule, PermissionRuleView } from '@shared/types/permissions'
@@ -6,68 +6,133 @@ import type { PermissionRule, PermissionRuleView } from '@shared/types/permissio
 /**
  * Workspace permission rule management.
  *
- * Grouped by scope (session / persisted) as per design:
- *   - Session: in-memory rules, dropped when the app restarts
- *   - Persisted: saved to ~/.talor/workspaces/<hash>/permissions.json
+ * Workspace 下拉默认选中当前 session 的 workspace。下拉项由两部分合并：
+ *   1. 当前 session 的 workspace（可能尚无持久化规则，但仍应可选）
+ *   2. 所有已有持久化规则的 workspace（从磁盘扫出来）
  *
- * Workspace is taken from the currently-selected session. If no session is
- * active, the panel renders an empty-state hint.
+ * Session rules 按 workspacePath 分 key 存内存，和 persisted 对齐；切下拉时
+ * 会显示对应 workspace 的全部规则（session + persisted）。
  */
+
+interface WorkspaceEntry {
+  workspacePath: string
+  ruleCount: number   // persisted 规则数（session 不计入）
+}
+
 export function PermissionsSettings() {
   const { currentSessionId, sessions } = useChatStore()
   const currentSession = sessions.find(s => s.id === currentSessionId)
-  const workspacePath = currentSession?.workspace ?? ''
+  const currentWorkspacePath = currentSession?.workspace ?? ''
 
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([])
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string>(currentWorkspacePath)
   const [view, setView] = useState<PermissionRuleView>({ session: [], persisted: [] })
   const [loading, setLoading] = useState(false)
 
+  // 合并下拉列表：当前 session workspace + 所有有 persisted rules 的 workspace
+  const workspaceOptions = useMemo<WorkspaceEntry[]>(() => {
+    const map = new Map<string, WorkspaceEntry>()
+    if (currentWorkspacePath) {
+      map.set(currentWorkspacePath, {
+        workspacePath: currentWorkspacePath,
+        ruleCount: 0,   // 占位，会被持久化数覆盖
+      })
+    }
+    for (const ws of workspaces) {
+      map.set(ws.workspacePath, ws)
+    }
+    return Array.from(map.values())
+  }, [workspaces, currentWorkspacePath])
+
+  // 扫盘加载 workspace 列表
+  const loadWorkspaces = useCallback(async () => {
+    const list = await talorAPI.permissions.listWorkspaces()
+    setWorkspaces(list)
+  }, [])
+
+  useEffect(() => { loadWorkspaces() }, [loadWorkspaces])
+
+  // 当前 session 切换时同步选中
+  useEffect(() => {
+    if (currentWorkspacePath && !selectedWorkspace) {
+      setSelectedWorkspace(currentWorkspacePath)
+    }
+  }, [currentWorkspacePath, selectedWorkspace])
+
+  // 选中 workspace 变化时刷新 rules
   const refresh = useCallback(async () => {
-    if (!workspacePath) {
+    if (!selectedWorkspace) {
       setView({ session: [], persisted: [] })
       return
     }
     setLoading(true)
     try {
-      const v = await talorAPI.permissions.list(workspacePath)
+      const v = await talorAPI.permissions.list(selectedWorkspace)
       setView(v)
     } finally {
       setLoading(false)
     }
-  }, [workspacePath])
+  }, [selectedWorkspace])
 
   useEffect(() => { refresh() }, [refresh])
 
   const handleRemove = async (ruleId: string) => {
-    if (!workspacePath) return
-    await talorAPI.permissions.remove(workspacePath, ruleId)
+    if (!selectedWorkspace) return
+    await talorAPI.permissions.remove(selectedWorkspace, ruleId)
     await refresh()
+    await loadWorkspaces()   // persisted 删空后 workspace 可能从列表消失
   }
 
   const handleClearSession = async () => {
-    if (!workspacePath) return
+    if (!selectedWorkspace) return
     if (!confirm('Clear all session permission rules for this workspace?')) return
-    await talorAPI.permissions.clearSession(workspacePath)
+    await talorAPI.permissions.clearSession(selectedWorkspace)
     await refresh()
   }
 
-  if (!workspacePath) {
+  if (workspaceOptions.length === 0) {
     return (
       <div className="p-6">
         <h2 className="text-lg font-semibold mb-2">Workspace Permissions</h2>
         <p className="text-sm text-gray-500">
-          Open a chat session with a workspace set to view its permission rules.
+          No workspaces with saved permission rules yet. Open a chat session with a workspace set
+          and approve a cross-workspace access to create one.
         </p>
       </div>
     )
   }
 
+  const isCurrentSessionWs = selectedWorkspace === currentWorkspacePath
+
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h2 className="text-lg font-semibold mb-1">Workspace Permissions</h2>
-        <p className="text-xs font-mono text-gray-500 truncate" title={workspacePath}>
-          {workspacePath}
-        </p>
+        <h2 className="text-lg font-semibold mb-2">Workspace Permissions</h2>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-600">Workspace:</label>
+          <select
+            value={selectedWorkspace}
+            onChange={e => setSelectedWorkspace(e.target.value)}
+            className="flex-1 text-xs font-mono px-2 py-1 border border-gray-300 rounded bg-white"
+          >
+            {workspaceOptions.map(ws => (
+              <option key={ws.workspacePath} value={ws.workspacePath}>
+                {ws.workspacePath}
+                {ws.ruleCount > 0 && ` (${ws.ruleCount} saved)`}
+                {ws.workspacePath === currentWorkspacePath && ' · current'}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {!isCurrentSessionWs && (
+          <p className="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+            Viewing rules for a workspace different from the current session. Session rules for this
+            workspace belong to another open chat and may not be visible here if no tool has been
+            invoked in it yet.
+          </p>
+        )}
       </div>
 
       <RuleGroup

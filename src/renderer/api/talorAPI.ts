@@ -50,6 +50,7 @@ declare global {
         list: (workspacePath: string) => Promise<PermissionRuleView>
         remove: (workspacePath: string, ruleId: string) => Promise<boolean>
         clearSession: (workspacePath: string) => Promise<void>
+        listWorkspaces: () => Promise<Array<{ workspacePath: string; ruleCount: number }>>
       }
       mcp: {
         list: () => Promise<import('../../preload/index').MCPServer[]>
@@ -151,6 +152,7 @@ const stubPermissions = {
   list: () => Promise.resolve({ session: [], persisted: [] }),
   remove: () => Promise.resolve(false),
   clearSession: () => Promise.resolve(),
+  listWorkspaces: () => Promise.resolve([]),
 }
 
 

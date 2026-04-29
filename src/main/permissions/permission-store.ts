@@ -10,7 +10,7 @@
 // 允许依赖：shared/*
 // 禁止依赖：ipc/*
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { createHash } from 'crypto'
 import { app } from 'electron'
@@ -180,6 +180,56 @@ export class PermissionStore {
     const session = this.sessionRules.get(workspacePath) ?? []
     const persisted = this.loadPersisted(workspacePath)
     return [...session, ...persisted]
+  }
+
+  /**
+   * 扫盘列出所有**有过持久化规则**的 workspace。
+   *
+   * 用途：Settings 页面给用户提供"切 workspace 查看规则"的下拉。
+   * 目录按 sha1 存储，所以必须从文件里的 workspacePath 字段反查。
+   *
+   * 返回的 workspace 路径对应磁盘上的原始字符串，未必仍然存在（用户可能
+   * 重命名过目录）——UI 可在不存在时标注 "(deleted)"。
+   */
+  listWorkspacesWithPersistedRules(): Array<{ workspacePath: string; ruleCount: number }> {
+    const baseDir = join(app.getPath('home'), '.talor', 'workspaces')
+    if (!existsSync(baseDir)) return []
+
+    const results: Array<{ workspacePath: string; ruleCount: number }> = []
+
+    let entries: string[]
+    try {
+      entries = readdirSync(baseDir)
+    } catch (err) {
+      log.warn('[PermissionStore] failed to read workspaces dir:', err)
+      return []
+    }
+
+    for (const entry of entries) {
+      const dir = join(baseDir, entry)
+      let isDir = false
+      try {
+        isDir = statSync(dir).isDirectory()
+      } catch {
+        continue
+      }
+      if (!isDir) continue
+
+      const file = join(dir, 'permissions.json')
+      if (!existsSync(file)) continue
+
+      try {
+        const raw = JSON.parse(readFileSync(file, 'utf-8')) as WorkspacePermissions
+        if (raw.schemaVersion !== SCHEMA_VERSION) continue
+        if (typeof raw.workspacePath !== 'string') continue
+        const count = Array.isArray(raw.rules) ? raw.rules.length : 0
+        results.push({ workspacePath: raw.workspacePath, ruleCount: count })
+      } catch (err) {
+        log.warn(`[PermissionStore] failed to parse ${file}:`, err)
+      }
+    }
+
+    return results
   }
 }
 

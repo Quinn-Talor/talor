@@ -361,6 +361,8 @@ const talorAPI = {
       ipcRenderer.invoke('permissions:remove', { workspacePath, ruleId }),
     clearSession: (workspacePath: string): Promise<void> =>
       ipcRenderer.invoke('permissions:clearSession', workspacePath),
+    listWorkspaces: (): Promise<Array<{ workspacePath: string; ruleCount: number }>> =>
+      ipcRenderer.invoke('permissions:listWorkspaces'),
   },
 
   agents: {

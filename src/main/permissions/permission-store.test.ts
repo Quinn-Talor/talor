@@ -171,6 +171,41 @@ describe('PermissionStore', () => {
     })
   })
 
+  describe('listWorkspacesWithPersistedRules', () => {
+    it('returns empty when no workspaces exist', () => {
+      expect(store.listWorkspacesWithPersistedRules()).toEqual([])
+    })
+
+    it('lists each workspace with its rule count', () => {
+      store.addPersistedRule('/ws/a', { tool: 'read', argPattern: '/x/', effect: 'allow' })
+      store.addPersistedRule('/ws/a', { tool: 'read', argPattern: '/y/', effect: 'allow' })
+      store.addPersistedRule('/ws/b', { tool: 'bash', argPattern: '^ls$', effect: 'allow' })
+
+      const list = store.listWorkspacesWithPersistedRules()
+      const byPath = new Map(list.map(x => [x.workspacePath, x.ruleCount]))
+      expect(byPath.get('/ws/a')).toBe(2)
+      expect(byPath.get('/ws/b')).toBe(1)
+    })
+
+    it('does not list workspaces that only had session rules', () => {
+      store.addSessionRule('/ws/session-only', { tool: 'read', argPattern: '/x', effect: 'allow' })
+      const list = store.listWorkspacesWithPersistedRules()
+      expect(list.find(x => x.workspacePath === '/ws/session-only')).toBeUndefined()
+    })
+
+    it('skips corrupted JSON files', () => {
+      store.addPersistedRule('/ws/good', { tool: 'read', argPattern: '/x', effect: 'allow' })
+      // Corrupt another workspace's file directly
+      const badHash = createHash('sha1').update('/ws/bad').digest('hex').slice(0, 16)
+      mkdirSync(join(fakeHome, '.talor', 'workspaces', badHash), { recursive: true })
+      writeFileSync(join(fakeHome, '.talor', 'workspaces', badHash, 'permissions.json'), 'not valid', 'utf-8')
+
+      const list = store.listWorkspacesWithPersistedRules()
+      expect(list.some(x => x.workspacePath === '/ws/good')).toBe(true)
+      expect(list.some(x => x.workspacePath === '/ws/bad')).toBe(false)
+    })
+  })
+
   describe('allRulesFor', () => {
     it('returns session rules before persisted', () => {
       const p = store.addPersistedRule(WS, { tool: 'read', argPattern: '/p', effect: 'allow' })

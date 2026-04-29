@@ -69,4 +69,11 @@ export function registerPermissionHandlers(): void {
       permissionStore.clearSession(workspacePath)
     },
   )
+
+  ipcMain.handle(
+    'permissions:listWorkspaces',
+    (): Array<{ workspacePath: string; ruleCount: number }> => {
+      return permissionStore.listWorkspacesWithPersistedRules()
+    },
+  )
 }
