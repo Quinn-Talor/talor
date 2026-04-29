@@ -86,11 +86,12 @@ export function PermissionsPopover({ workspacePath }: Props) {
     setTimeout(() => { refresh() }, 100)
   }
 
+  // Deny 规则在当前 UX 里不产生——Pending 的 Deny 按钮只拒绝本次不落库——
+  // 所以这里仅展示 allow 规则，避免出现永远为 0 的 Denied 分组。
   const allRules = [...view.session, ...view.persisted]
   const allowedRules = allRules.filter(r => r.effect === 'allow')
-  const deniedRules = allRules.filter(r => r.effect === 'deny')
-  const totalCount = allRules.length
-  const hasSessionRules = view.session.length > 0
+  const totalCount = allowedRules.length
+  const hasSessionRules = view.session.some(r => r.effect === 'allow')
   const hasPending = !!pendingPermission
 
   const buttonStyle: React.CSSProperties = {
@@ -157,20 +158,12 @@ export function PermissionsPopover({ workspacePath }: Props) {
                 onDecide={handlePermissionDecide}
               />
             ) : (
-              <>
-                <RuleGroup
-                  title="Allowed"
-                  rules={allowedRules}
-                  effect="allow"
-                  onRemove={handleRemove}
-                />
-                <RuleGroup
-                  title="Denied"
-                  rules={deniedRules}
-                  effect="deny"
-                  onRemove={handleRemove}
-                />
-              </>
+              <RuleGroup
+                title="Allowed"
+                rules={allowedRules}
+                effect="allow"
+                onRemove={handleRemove}
+              />
             )}
           </div>
 
