@@ -1,7 +1,7 @@
 import { writeFileSync, existsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
+import type { ToolExecuteContext, ValidationResult } from '../types'
 import { DEFAULT_MAX_WRITE_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
 
@@ -16,6 +16,15 @@ const writeTool = {
       content: { type: 'string', description: 'Content to write to the file' },
     },
     required: ['path', 'content'],
+  },
+
+  validate(input: unknown): ValidationResult {
+    const params = input as { path?: unknown; content?: unknown }
+    if (typeof params.path !== 'string' || !params.path.trim())
+      return { ok: false, error: 'Missing required parameter: "path" must be a non-empty string.' }
+    if (typeof params.content !== 'string')
+      return { ok: false, error: 'Missing required parameter: "content" must be a string (empty string is allowed).' }
+    return { ok: true }
   },
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {

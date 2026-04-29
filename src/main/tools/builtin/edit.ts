@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
+import type { ToolExecuteContext, ValidationResult } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
 
@@ -17,6 +17,17 @@ const editTool = {
       replaceAll: { type: 'boolean', description: 'Replace all occurrences or just the first', default: false },
     },
     required: ['path', 'old', 'new'],
+  },
+
+  validate(input: unknown): ValidationResult {
+    const params = input as { path?: unknown; old?: unknown; new?: unknown }
+    if (typeof params.path !== 'string' || !params.path.trim())
+      return { ok: false, error: 'Missing required parameter: "path" must be a non-empty string.' }
+    if (typeof params.old !== 'string' || !params.old)
+      return { ok: false, error: 'Missing required parameter: "old" must be a non-empty string.' }
+    if (typeof params.new !== 'string')
+      return { ok: false, error: 'Missing required parameter: "new" must be a string (empty string is allowed for deletion).' }
+    return { ok: true }
   },
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {

@@ -1,6 +1,6 @@
 import { readFileSync, existsSync, statSync } from 'fs'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
+import type { ToolExecuteContext, ValidationResult, VerifyResult } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
 
@@ -26,16 +26,29 @@ const readTool = {
     required: ['path'],
   },
 
+  validate(input: unknown): ValidationResult {
+    const params = input as { path?: unknown }
+    if (typeof params.path !== 'string' || !params.path.trim())
+      return { ok: false, error: 'Missing required parameter: "path" must be a non-empty string.' }
+    if (params.path.includes('\0'))
+      return { ok: false, error: 'Invalid path: contains null byte.' }
+    return { ok: true }
+  },
+
+  verify(output: unknown): VerifyResult {
+    const raw = String(output ?? '')
+    if (raw.startsWith('File not found:')) {
+      return { ok: true, output: `${raw}\n[hint: use ls or glob to find the correct path]` }
+    }
+    return { ok: true, output }
+  },
+
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace, maxReadSizeBytes = DEFAULT_MAX_READ_SIZE_BYTES } = context
     const params = input as { path: string }
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }
-    }
-
-    if (typeof params.path !== 'string' || !params.path) {
-      return { output: 'Missing required parameter: path' }
     }
 
     const resolvedPath = resolveToolPath(params.path, workspace)

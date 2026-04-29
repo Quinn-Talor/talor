@@ -31,13 +31,14 @@ export async function buildTools(opts: {
   confirmTool: ToolConfirmPort
   agent: import('../agent/agent').Agent
   toolSchemas?: ToolMetadata[]
+  skillTracker?: import('../skills/registry').SkillActivationTracker
 }): Promise<Record<string, ReturnType<typeof dynamicTool>> | undefined> {
   const { sessionId, messageId, workspace, confirmTool, agent } = opts
 
   const schemas = opts.toolSchemas ?? agent.toolRegistry.listTools()
   if (schemas.length === 0 && !workspace.trim()) return undefined
 
-  const ctx: ToolExecuteContext = { sessionId, workspace }
+  const ctx: ToolExecuteContext = { sessionId, workspace, skillTracker: opts.skillTracker }
   const tools: Record<string, ReturnType<typeof dynamicTool>> = {}
 
   for (const schema of schemas) {

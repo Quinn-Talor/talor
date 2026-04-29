@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'fs'
 import { join } from 'path'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
+import type { ToolExecuteContext, ValidationResult } from '../types'
 import { resolveToolPath, isPathSensitive } from '../path-guard'
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
@@ -34,16 +34,24 @@ const grepTool = {
     required: ['pattern'],
   },
 
+  validate(input: unknown): ValidationResult {
+    const params = input as { pattern?: unknown }
+    if (typeof params.pattern !== 'string' || !params.pattern.trim())
+      return { ok: false, error: 'Missing required parameter: "pattern" must be a non-empty string.' }
+    try {
+      new RegExp(params.pattern)
+    } catch (e) {
+      return { ok: false, error: `Invalid regex pattern: ${e instanceof Error ? e.message : String(e)}` }
+    }
+    return { ok: true }
+  },
+
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace } = context
     const params = input as { pattern: string; path?: string; include?: string; caseSensitive?: boolean }
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }
-    }
-
-    if (!params.pattern) {
-      return { output: 'Pattern cannot be empty' }
     }
 
     if (isPathSensitive(workspace)) {

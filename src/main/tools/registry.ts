@@ -5,6 +5,7 @@
 // Agent 的 ToolRegistry（agent/tool-registry.ts）组合本模块 + McpRegistry → 白名单过滤。
 
 import { v4 as uuidv4 } from 'uuid'
+import log from 'electron-log'
 import type {
   ToolDefinition,
   ToolResult,
@@ -88,17 +89,30 @@ export const toolRegistry = {
     if (!tool) throw new Error(`Tool not found: ${toolName}`)
 
     const toolCallId = uuidv4()
-    const ctxWithDefaults = applyContextDefaults(context)
+    const ctx = applyContextDefaults(context)
     const startTime = Date.now()
 
-    try {
-      const result = await tool.execute(input, ctxWithDefaults)
-      return {
-        toolCallId,
-        toolName,
-        output: result.output,
-        durationMs: Date.now() - startTime,
+    // Phase 1: required field schema check (registry-level, applies to all tools)
+    const schemaError = validateRequiredFields(tool, input)
+    if (schemaError) {
+      log.warn(`[Registry] Schema validation failed: ${toolName} — ${schemaError}`)
+      return { toolCallId, toolName, output: schemaError, durationMs: Date.now() - startTime }
+    }
+
+    // Phase 2: tool.validate (tool-level business rules, synchronous)
+    if (tool.validate) {
+      const vr = tool.validate(input, ctx)
+      if (!vr.ok) {
+        log.warn(`[Registry] Validate failed: ${toolName} — ${vr.error}`)
+        return { toolCallId, toolName, output: vr.error!, durationMs: Date.now() - startTime }
       }
+    }
+
+    // Phase 3: execute
+    let rawOutput: unknown
+    try {
+      const result = await tool.execute(input, ctx)
+      rawOutput = result.output
     } catch (err) {
       return {
         toolCallId,
@@ -107,5 +121,38 @@ export const toolRegistry = {
         durationMs: Date.now() - startTime,
       }
     }
+
+    // Phase 4: tool.verify (output post-processing, may be async)
+    if (tool.verify) {
+      try {
+        const vr = await tool.verify(rawOutput, input, ctx)
+        if (vr.warning) log.warn(`[Registry] Verify warning: ${toolName} — ${vr.warning}`)
+        return { toolCallId, toolName, output: vr.output, durationMs: Date.now() - startTime }
+      } catch (err) {
+        log.error(`[Registry] Verify threw: ${toolName}`, err)
+        // verify failure must not suppress the original output
+      }
+    }
+
+    return { toolCallId, toolName, output: rawOutput, durationMs: Date.now() - startTime }
   },
+}
+
+function validateRequiredFields(tool: ToolDefinition, input: unknown): string | null {
+  const params = tool.parameters as {
+    required?: string[]
+    properties?: Record<string, { type?: string }>
+  }
+  const obj = (input ?? {}) as Record<string, unknown>
+  for (const field of params.required ?? []) {
+    if (obj[field] === undefined || obj[field] === null) {
+      const required = (params.required ?? []).join(', ')
+      return `Missing required parameter: "${field}". ${tool.name} requires: [${required}].`
+    }
+    const expectedType = params.properties?.[field]?.type
+    if (expectedType && typeof obj[field] !== expectedType) {
+      return `Invalid type for "${field}": expected ${expectedType}, got ${typeof obj[field]}.`
+    }
+  }
+  return null
 }
