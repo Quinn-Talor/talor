@@ -70,6 +70,9 @@ export interface AppConfig {
     y: number
     is_maximized: boolean
   }
+  default_context_limit?: number
+  default_recent_ratio?: number
+  default_summary_ratio?: number
 }
 
 export interface ConnectionTestResult {

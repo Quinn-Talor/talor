@@ -4,6 +4,8 @@ import type { dynamicTool } from 'ai'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
+import type { SkillActivationTracker } from '../skills/registry'
+import type { ExecutionEventBus } from '../chat/events'
 
 export interface ReactLoopCallbacks {
   onTextDelta: (delta: string) => void
@@ -26,4 +28,8 @@ export interface ReactLoopOptions {
   maxSteps?: number
   agent: import('../agent/agent').Agent
   confirmTool: import('../ipc/tool-confirm').ToolConfirmPort
+  /** Per-session skill activation tracker shared between skill-tool and AgentPromptPlugin. */
+  skillTracker: SkillActivationTracker
+  /** Per-execution event bus for internal state-change notifications. */
+  events: ExecutionEventBus
 }

@@ -15,6 +15,8 @@ import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { createModel } from '../providers/llm-provider'
 import '../tools/builtin'
 import { runReactLoop } from '../loop/react-loop'
+import { SkillActivationTracker } from '../skills/registry'
+import { ExecutionEventBus } from './events'
 import { resolveProviderConfig, PromptPipeline } from '../prompt/PromptPipeline'
 import { MemoryManager } from '../memory/MemoryManager'
 import {
@@ -128,6 +130,19 @@ export async function sendChat(
     log.info('[chat-orch] Starting ReAct loop, model:', session?.model_id ?? 'default',
       'agent:', agentId)
 
+    // Per-execution event bus: subsystems emit/subscribe state-change notifications.
+    // Lives only for this sendChat — drops with the stack, no manual unsubscribe needed.
+    const events = new ExecutionEventBus()
+
+    // Per-session skill tracker: dedupes skill activations within this request.
+    // When memory compresses (skill tool_result contents get summarized away),
+    // clear the tracker so the model can re-activate and receive fresh instructions.
+    const skillTracker = new SkillActivationTracker()
+    events.on('memory.compressed', (e) => {
+      skillTracker.clear()
+      log.info(`[chat-orch] memory compressed (covered_until=${e.coveredUntilMessageId}), skill tracker cleared`)
+    })
+
     // Step 6: 驱动 ReAct 循环（工具由 pipeline 每步产出，react-loop 内部调 buildTools 包装）
     const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
     await runReactLoop({
@@ -149,6 +164,8 @@ export async function sendChat(
       maxSteps: typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
       agent,
       confirmTool: ports.confirmTool,
+      skillTracker,
+      events,
       callbacks: {
         onTextDelta: (delta) => callbacks.onTextDelta(messageId, delta),
         onToolCall:  (id, name, input) => callbacks.onToolCall(messageId, id, name, input),

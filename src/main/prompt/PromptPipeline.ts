@@ -17,11 +17,13 @@ import log from 'electron-log'
 export function resolveProviderConfig(provider: Provider): ProviderContextConfig {
   const configStore = ConfigStore.getInstance()
   const defaultLimit = configStore.get('default_context_limit') as number | undefined
+  const defaultRecent = configStore.get('default_recent_ratio') as number | undefined
+  const defaultSummary = configStore.get('default_summary_ratio') as number | undefined
   return {
     provider,
-    context_limit: provider.context_limit ?? defaultLimit ?? 8000,
-    recent_ratio:  provider.recent_ratio  ?? 0.05,
-    summary_ratio: provider.summary_ratio ?? 0.10,
+    context_limit: provider.context_limit ?? defaultLimit ?? 1_000_000,
+    recent_ratio:  provider.recent_ratio  ?? defaultRecent ?? 0.05,
+    summary_ratio: provider.summary_ratio ?? defaultSummary ?? 0.05,
   }
 }
 

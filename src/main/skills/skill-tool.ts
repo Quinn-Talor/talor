@@ -1,9 +1,10 @@
 import { dirname, resolve } from 'path'
-import { readFileSync, existsSync } from 'fs'
 import log from 'electron-log'
-import type { ToolDefinition } from '../tools/types'
+import type { ToolDefinition, ValidationResult, VerifyResult, ToolExecuteContext } from '../tools/types'
 import type { SkillRegistry } from './registry'
 import { SkillActivationTracker } from './registry'
+
+const MAX_SKILL_CHARS = 20_000     // ~6700 tokens per skill
 
 function resolveRelativePaths(content: string, skillMdPath: string): string {
   const skillDir = dirname(skillMdPath)
@@ -19,60 +20,32 @@ function resolveRelativePaths(content: string, skillMdPath: string): string {
   )
 }
 
-function loadDependentSkills(content: string, skillMdPath: string, registry: SkillRegistry, tracker: SkillActivationTracker): string {
-  const skillDir = dirname(skillMdPath)
-  const deps: string[] = []
-
-  const skillMdRefs = content.match(/\[([^\]]*)\]\(([^)]*SKILL\.md)\)/g) || []
-  for (const ref of skillMdRefs) {
-    const hrefMatch = ref.match(/\]\(([^)]+)\)/)
-    if (!hrefMatch) continue
-    const href = hrefMatch[1]
-    if (href.startsWith('http')) continue
-
-    const absPath = resolve(skillDir, href)
-    if (!existsSync(absPath)) continue
-
-    const depName = absPath.match(/\/([^/]+)\/SKILL\.md$/)?.[1]
-    if (!depName) continue
-
-    if (tracker.isActivated(depName)) continue
-
-    try {
-      const depContent = readFileSync(absPath, 'utf-8')
-      const bodyMatch = depContent.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/)
-      const body = bodyMatch ? bodyMatch[1].trimStart() : depContent
-      tracker.markActivated(depName)
-      deps.push(`[SKILL:${depName} auto-loaded (dependency)]\n\n${resolveRelativePaths(body, absPath)}`)
-      log.info(`[SkillTool] Auto-loaded dependency skill: ${depName}`)
-    } catch (err) {
-      log.warn(`[SkillTool] Failed to load dependency skill: ${absPath}`, err)
-    }
-  }
-
-  return deps.length > 0 ? '\n\n---\n\n' + deps.join('\n\n---\n\n') : ''
-}
-
-export function createSkillTool(registry: SkillRegistry, tracker?: SkillActivationTracker): ToolDefinition {
-  const sessionTracker = tracker ?? new SkillActivationTracker()
-
+export function createSkillTool(registry: SkillRegistry): ToolDefinition {
   return {
     name: 'skill',
-    description: '激活一个技能，获取其完整操作指令。技能名称（如 lark-doc、lark-wiki）不是工具名，不可直接调用，必须通过本工具激活后才能使用。可用技能列表在 system prompt 中提供。',
+    description: '激活一个技能，获取其完整操作指令。技能名称（如 lark-doc、lark-wiki）不是工具名，不可直接调用，必须通过本工具激活后才能使用。可用技能列表在系统提示中提供。',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: '技能名称，来自 system prompt 的技能列表' },
+        name: { type: 'string', description: '技能名称，来自系统提示中的技能列表' },
       },
       required: ['name'],
     },
     riskLevel: 'LOW',
-    execute: async (input) => {
-      const inputObj = input as Record<string, unknown>
-      const name = typeof inputObj.name === 'string' ? inputObj.name : ''
-      if (!name) {
-        return { output: 'Missing required parameter: name' }
-      }
+
+    validate(input: unknown): ValidationResult {
+      const { name } = input as { name?: unknown }
+      if (typeof name !== 'string' || !name.trim())
+        return { ok: false, error: 'Missing required parameter: "name". Provide a skill name from the system prompt.' }
+      return { ok: true }
+    },
+
+    verify(output: unknown): VerifyResult {
+      return { ok: true, output: String(output ?? '') }
+    },
+
+    execute: async (input, context: ToolExecuteContext) => {
+      const { name } = input as { name: string }
       const skill = registry.getByName(name)
 
       if (!skill) {
@@ -80,14 +53,23 @@ export function createSkillTool(registry: SkillRegistry, tracker?: SkillActivati
         return { output: `技能 "${name}" 不存在。可用技能：${available || '无'}` }
       }
 
-      if (sessionTracker.isActivated(name)) {
-        return { output: `技能 "${name}" 已激活，请直接按之前的指令执行，无需重复激活。` }
+      const tracker = context.skillTracker ?? new SkillActivationTracker()
+
+      if (tracker.isActivated(name)) {
+        return { output: `技能 "${name}" 已激活，请直接按之前 tool_result 中的指令执行，无需重复激活。` }
       }
 
-      sessionTracker.markActivated(name)
       const resolved = resolveRelativePaths(skill.content, skill.filePath)
-      const depContent = loadDependentSkills(skill.content, skill.filePath, registry, sessionTracker)
-      return { output: `[SKILL:${name} activated]\n\n${resolved}${depContent}\n\n> 技能已激活，请严格按照以上指令使用对应工具执行操作，不要调用不存在的工具名。` }
+      const truncated = resolved.length > MAX_SKILL_CHARS
+        ? resolved.slice(0, MAX_SKILL_CHARS) + `\n\n[Skill content truncated at ${MAX_SKILL_CHARS} chars. Use read tool to load specific reference files as needed.]`
+        : resolved
+
+      tracker.markActivated(name)
+      log.info(`[SkillTool] Activated skill: ${name} (${truncated.length} chars)`)
+
+      return {
+        output: `[SKILL:${name} activated]\n\n${truncated}\n\n> 技能已激活，请严格按照以上指令使用对应工具执行操作，不要调用不存在的工具名。`,
+      }
     },
   }
 }

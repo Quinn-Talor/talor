@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ShortTermMemory } from './ShortTermMemory'
+import { ExecutionEventBus } from '../chat/events'
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ChatMessage } from '../repos/session-repo'
 
@@ -151,6 +152,99 @@ describe('ShortTermMemory.getContext', () => {
     const userContent = (callArg.messages as Array<{ role: string; content: string }>)
       .find(m => m.role === 'user')!.content
     expect(userContent).toContain('旧摘要内容')
+  })
+
+  it('emits memory.compressed when a new summary is generated', async () => {
+    const msgs = Array.from({ length: 100 }, (_, i) =>
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+    )
+    vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
+    vi.mocked(getDb).mockReturnValue({
+      prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })),
+    } as unknown as ReturnType<typeof getDb>)
+
+    const bus = new ExecutionEventBus()
+    const listener = vi.fn()
+    bus.on('memory.compressed', listener)
+
+    const mem = new ShortTermMemory()
+    await mem.getContext('s1', makeConfig(8000), bus)
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    const event = listener.mock.calls[0][0]
+    expect(event.type).toBe('memory.compressed')
+    expect(event.coveredUntilMessageId).toMatch(/^msg-\d+$/)
+  })
+
+  it('does NOT emit memory.compressed when reusing cached summary', async () => {
+    const msgs = Array.from({ length: 100 }, (_, i) =>
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+    )
+    vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
+
+    // The last-old message ID depends on recent_ratio * context_limit.
+    // Pre-populate a summary covering that exact ID so covered_until matches → cache hit.
+    const bus = new ExecutionEventBus()
+    const listener = vi.fn()
+    bus.on('memory.compressed', listener)
+
+    const mem = new ShortTermMemory()
+    // Probe once to discover the lastOldMessageId — let it emit, then reset and check cache hit
+    vi.mocked(getDb).mockReturnValue({
+      prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })),
+    } as unknown as ReturnType<typeof getDb>)
+    await mem.getContext('s1', makeConfig(8000), bus)
+    const firstEvent = listener.mock.calls[0]?.[0]
+    expect(firstEvent).toBeDefined()
+    const coveredUntil = firstEvent.coveredUntilMessageId
+
+    // Now simulate cache hit: DB returns a summary with matching covered_until
+    listener.mockClear()
+    vi.mocked(generateText).mockClear()
+    vi.mocked(getDb).mockReturnValue({
+      prepare: vi.fn(() => ({
+        run: vi.fn(),
+        get: vi.fn(() => ({
+          session_id: 's1',
+          summary_text: '旧摘要',
+          covered_until: coveredUntil,
+          token_estimate: 5,
+          created_at: '2026-04-25T00:00:00.000Z',
+        })),
+      })),
+    } as unknown as ReturnType<typeof getDb>)
+
+    await mem.getContext('s1', makeConfig(8000), bus)
+
+    expect(generateText).not.toHaveBeenCalled()
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('does NOT emit memory.compressed when summary generation fails', async () => {
+    const msgs = Array.from({ length: 100 }, (_, i) =>
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+    )
+    vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
+    vi.mocked(getDb).mockReturnValue({
+      prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })),
+    } as unknown as ReturnType<typeof getDb>)
+    vi.mocked(generateText).mockRejectedValue(new Error('API timeout'))
+
+    const bus = new ExecutionEventBus()
+    const listener = vi.fn()
+    bus.on('memory.compressed', listener)
+
+    const mem = new ShortTermMemory()
+    await mem.getContext('s1', makeConfig(8000), bus)
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('does not require events param (backward compat)', async () => {
+    vi.mocked(messageRepo.listBySession).mockReturnValue([])
+    const mem = new ShortTermMemory()
+    // omitting the third arg should not throw
+    await expect(mem.getContext('s1', makeConfig(8000))).resolves.toBeDefined()
   })
 
   it('AC-001-06: 摘要生成失败时不阻断请求，回退到 recent-only', async () => {

@@ -18,6 +18,8 @@ interface AppConfig {
   providers: Record<string, Provider>
   window_bounds: WindowBounds
   default_context_limit?: number
+  default_recent_ratio?: number
+  default_summary_ratio?: number
   max_react_steps?: number
 }
 
@@ -65,7 +67,9 @@ const DEFAULT_CONFIG: AppConfig = {
     y: 0,
     is_maximized: false
   },
-  default_context_limit: 1_000_000
+  default_context_limit: 1_000_000,
+  default_recent_ratio: 0.05,
+  default_summary_ratio: 0.05,
 }
 
 export class ConfigStore {

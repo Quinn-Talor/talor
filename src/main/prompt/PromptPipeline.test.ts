@@ -36,17 +36,17 @@ describe('resolveProviderConfig', () => {
     expect(cfg.context_limit).toBe(12000)
   })
 
-  it('AC-002-03: appConfig 也无配置时使用硬编码兜底 8000', () => {
+  it('AC-002-03: appConfig 也无配置时使用硬编码兜底 1M', () => {
     mockGet.mockReturnValue(undefined)
     const cfg = resolveProviderConfig(makeProvider())
-    expect(cfg.context_limit).toBe(8000)
+    expect(cfg.context_limit).toBe(1_000_000)
   })
 
   it('recent_ratio 和 summary_ratio 使用默认值', () => {
     mockGet.mockReturnValue(undefined)
     const cfg = resolveProviderConfig(makeProvider())
     expect(cfg.recent_ratio).toBe(0.05)
-    expect(cfg.summary_ratio).toBe(0.10)
+    expect(cfg.summary_ratio).toBe(0.05)
   })
 })
 

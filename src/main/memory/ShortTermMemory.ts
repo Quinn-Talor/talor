@@ -4,6 +4,7 @@ import { messageRepo } from '../repos/session-repo'
 import { getDb } from '../db/index'
 import log from 'electron-log'
 import type { ProviderContextConfig } from '../prompt/types'
+import type { ExecutionEventBus } from '../chat/events'
 import {
   estimate,
   estimateMessage,
@@ -21,8 +22,15 @@ export class ShortTermMemory {
    * Path B (above threshold): keep the most recent `recent_ratio` of tokens verbatim;
    *   compress everything older into a summary stored in session_summaries.
    *   The summary is reused on subsequent calls as long as `covered_until` hasn't changed.
+   *
+   * If `events` is provided, emits 'memory.compressed' when a NEW summary is generated
+   * (cache hits don't emit — subscribers only care about actual state transitions).
    */
-  async getContext(sessionId: string, config: ProviderContextConfig): Promise<MemoryContext> {
+  async getContext(
+    sessionId: string,
+    config: ProviderContextConfig,
+    events?: ExecutionEventBus,
+  ): Promise<MemoryContext> {
     const allMessages: ChatMessage[] = messageRepo.listBySession(sessionId)
 
     if (allMessages.length === 0) {
@@ -82,6 +90,7 @@ export class ShortTermMemory {
           config,
         )
         this.saveSummary(sessionId, summaryText, lastOldMessageId, estimate(summaryText))
+        events?.emit({ type: 'memory.compressed', coveredUntilMessageId: lastOldMessageId })
       } catch (err) {
         log.warn('[ShortTermMemory] 摘要生成失败，降级为 recent-only', err)
         return {

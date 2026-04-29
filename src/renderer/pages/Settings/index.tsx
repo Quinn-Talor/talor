@@ -11,6 +11,7 @@ import { AccountsSettings } from './Accounts'
 import type { MCPServer, MCPServerInput } from '../../../preload/index'
 import { talorAPI } from '../../api/talorAPI'
 import { AgentsPage } from '../Agents'
+import { ContextSettings } from './ContextSettings'
 
 type Tab = 'common' | 'provider' | 'mcp' | 'agent' | 'account'
 
@@ -175,7 +176,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
           {/* Common */}
           {activeTab === 'common' && (
-            <div>
+            <div className="space-y-4">
+              <ContextSettings />
               <div className="bg-white rounded-xl overflow-hidden" style={{ border: '1px solid #e8eaed' }}>
                 <SettingRow label="快捷键" value="⌘N 新建 · ⌘, 设置 · Esc 停止生成" />
                 <SettingRow label="版本" value="Talor Desktop — Phase 1" last />

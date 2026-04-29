@@ -54,4 +54,9 @@ export class SkillActivationTracker {
   listActivated(): string[] {
     return Array.from(this.activated)
   }
+
+  /** Clear all activation records. Called when memory compression invalidates skill tool_results. */
+  clear(): void {
+    this.activated.clear()
+  }
 }

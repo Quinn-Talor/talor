@@ -46,6 +46,8 @@ interface StepContext {
   agent: import('../agent/agent').Agent
   confirmTool: ToolConfirmPort
   agentId: string
+  skillTracker: import('../skills/registry').SkillActivationTracker
+  events: import('../chat/events').ExecutionEventBus
 }
 
 /** runReactStep 返回值——循环控制层据此决定是否继续。 */
@@ -106,6 +108,8 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     providerConfig: ctx.providerConfig,
     workspacePath: ctx.workspace || undefined,
     agent: ctx.agent,
+    skillTracker: ctx.skillTracker,
+    events: ctx.events,
   }
   const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
 
@@ -116,6 +120,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     confirmTool: ctx.confirmTool,
     agent: ctx.agent,
     toolSchemas,
+    skillTracker: ctx.skillTracker,
   })
 
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
@@ -295,6 +300,8 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     agent: opts.agent,
     confirmTool: opts.confirmTool,
     agentId: opts.agent.id,
+    skillTracker: opts.skillTracker,
+    events: opts.events,
   }
 
   let fullText = ''

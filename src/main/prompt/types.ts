@@ -2,6 +2,8 @@ import type { CoreMessage } from 'ai'
 import type { Provider } from '../store/config-store'
 import type { Agent } from '../agent/agent'
 import type { ToolMetadata } from '../tools/types'
+import type { SkillActivationTracker } from '../skills/registry'
+import type { ExecutionEventBus } from '../chat/events'
 
 export interface PromptPlugin {
   name: string
@@ -23,6 +25,10 @@ export interface PipelineContext {
   providerConfig: ProviderContextConfig
   workspacePath: string | undefined
   agent?: Agent
+  /** Per-session skill activation tracker — present when a skill-capable agent is active. */
+  skillTracker?: SkillActivationTracker
+  /** Per-execution event bus for state-change notifications (e.g., memory.compressed). */
+  events?: ExecutionEventBus
 }
 
 export interface PluginResult {

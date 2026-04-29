@@ -32,7 +32,7 @@ function createAgent(profile: AgentProfile, skillRegistry?: SkillRegistry): Agen
     profile,
     source: null,
     builtinRegistry,
-    mcpSource: null,
+    mcpRegistry: null,
     skillRegistry: skillRegistry ?? SkillRegistry.fromDir(null),
   })
 }
@@ -198,7 +198,7 @@ describe('AgentPromptPlugin', () => {
       const systemMsgs = result.messages.filter(m => m.role === 'system')
       const content = systemMsgs.map(m => (m as { content: string }).content).join('\n')
 
-      expect(content).toContain('你有以下技能可用')
+      expect(content).toContain('## 可用技能')
       expect(content).toContain('lark-sheets: 飞书电子表格')
       expect(content).toContain('lark-shared:')
     })
@@ -212,7 +212,7 @@ describe('AgentPromptPlugin', () => {
         .map(m => (m as { content: string }).content)
         .join('\n')
 
-      expect(content).not.toContain('你有以下技能可用')
+      expect(content).not.toContain('## 可用技能')
     })
   })
 })

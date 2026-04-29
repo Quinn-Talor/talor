@@ -103,7 +103,7 @@ describe('Skill 双阶段加载集成测试', () => {
       profile: AGENT_PROFILE,
       source: null,
       builtinRegistry: builtinReg,
-      mcpSource: null,
+      mcpRegistry: null,
       skillRegistry: registry,
     })
 
@@ -125,7 +125,7 @@ describe('Skill 双阶段加载集成测试', () => {
       .map(m => (m as { content: string }).content)
       .join('\n')
 
-    expect(systemContent).toContain('你有以下技能可用（需要时调用 skill 工具激活）')
+    expect(systemContent).toContain('## 可用技能')
     expect(systemContent).toContain('lark-sheets: 飞书电子表格操作')
     expect(systemContent).toContain('lark-im: 飞书即时通讯')
     // 此时 LLM 只知道名称和简短描述，不知道具体命令
@@ -262,7 +262,7 @@ describe('Skill 双阶段加载集成测试', () => {
       profile: AGENT_PROFILE,
       source: null,
       builtinRegistry: builtinReg,
-      mcpSource: null,
+      mcpRegistry: null,
       skillRegistry: emptyRegistry,
     })
 
@@ -278,7 +278,7 @@ describe('Skill 双阶段加载集成测试', () => {
     const result = await plugin.build(ctx)
     const content = result.messages.map(m => (m as { content: string }).content).join('\n')
 
-    expect(content).not.toContain('你有以下技能可用')
+    expect(content).not.toContain('## 可用技能')
     expect(emptyRegistry.isEmpty()).toBe(true)
 
     console.log('\n=== 无 Skill Agent: prompt 中不含技能列表 ===')

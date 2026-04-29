@@ -20,5 +20,14 @@ export function registerConfigHandlers(): void {
     if (config.window_bounds !== undefined) {
       store.set('window_bounds', config.window_bounds)
     }
+    if (config.default_context_limit !== undefined) {
+      store.set('default_context_limit', config.default_context_limit)
+    }
+    if (config.default_recent_ratio !== undefined) {
+      store.set('default_recent_ratio', config.default_recent_ratio)
+    }
+    if (config.default_summary_ratio !== undefined) {
+      store.set('default_summary_ratio', config.default_summary_ratio)
+    }
   })
 }

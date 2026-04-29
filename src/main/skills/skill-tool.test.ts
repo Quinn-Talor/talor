@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
 import { createSkillTool } from './skill-tool'
-import { SkillRegistry } from './registry'
+import { SkillRegistry, SkillActivationTracker } from './registry'
 
 let tempDir: string
 
@@ -76,6 +76,57 @@ describe('createSkillTool', () => {
     expect(tool.name).toBe('skill')
     expect(tool.riskLevel).toBe('LOW')
     expect(tool.parameters).toBeDefined()
+  })
+
+  it('with injected tracker: second activation returns dedup notice instead of full content', async () => {
+    createSkillDir(tempDir, 'lark-sheets', '飞书表格', '# sheets\nfull content body')
+
+    const registry = SkillRegistry.fromDir(tempDir)
+    const tool = createSkillTool(registry)
+    const tracker = new SkillActivationTracker()
+
+    const first = await tool.execute(
+      { name: 'lark-sheets' },
+      { sessionId: 'test', workspace: '', skillTracker: tracker },
+    )
+    expect(first.output).toContain('full content body')
+
+    const second = await tool.execute(
+      { name: 'lark-sheets' },
+      { sessionId: 'test', workspace: '', skillTracker: tracker },
+    )
+    expect(second.output).toContain('已激活')
+    expect(second.output).not.toContain('full content body')
+    expect(tracker.isActivated('lark-sheets')).toBe(true)
+  })
+
+  it('after tracker.clear(): re-activation returns full content again (compression recovery path)', async () => {
+    createSkillDir(tempDir, 'lark-sheets', '飞书表格', '# sheets\nfull content body')
+
+    const registry = SkillRegistry.fromDir(tempDir)
+    const tool = createSkillTool(registry)
+    const tracker = new SkillActivationTracker()
+
+    // First activation: full content
+    await tool.execute(
+      { name: 'lark-sheets' },
+      { sessionId: 'test', workspace: '', skillTracker: tracker },
+    )
+    expect(tracker.isActivated('lark-sheets')).toBe(true)
+
+    // Simulate compression event: tracker cleared
+    tracker.clear()
+    expect(tracker.isActivated('lark-sheets')).toBe(false)
+
+    // Next activation must return full content again (not dedup notice),
+    // because the tool_result that previously carried the instructions has been summarized away.
+    const after = await tool.execute(
+      { name: 'lark-sheets' },
+      { sessionId: 'test', workspace: '', skillTracker: tracker },
+    )
+    expect(after.output).toContain('full content body')
+    expect(after.output).not.toMatch(/^技能.*已激活$/)
+    expect(tracker.isActivated('lark-sheets')).toBe(true)
   })
 
   it('error message includes available skills list', async () => {

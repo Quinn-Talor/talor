@@ -13,7 +13,7 @@ export class MemoryPlugin implements PromptPlugin {
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
     try {
-      const result = await this.memoryManager.getContext(ctx.sessionId, ctx.providerConfig)
+      const result = await this.memoryManager.getContext(ctx.sessionId, ctx.providerConfig, ctx.events)
       const messages = []
       if (result.summaryMessage !== null) messages.push(result.summaryMessage)
       messages.push(...result.recentMessages)
