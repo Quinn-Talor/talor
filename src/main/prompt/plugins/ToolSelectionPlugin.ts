@@ -25,10 +25,10 @@ export class ToolSelectionPlugin implements PromptPlugin {
 
     const toolList = allTools.map(t => `- ${t.name}: ${t.description}`).join('\n')
     const selectionPrompt =
-      `用户消息：${ctx.currentMessage.text}\n\n` +
-      `可用工具列表：\n${toolList}\n\n` +
-      `请从上述工具中选出完成用户任务所需的工具，` +
-      `返回 JSON 数组，格式：["tool_name_1", "tool_name_2"]。只选必要的工具。`
+      `User message: ${ctx.currentMessage.text}\n\n` +
+      `Available tools:\n${toolList}\n\n` +
+      `From the list above, pick only the tools that are actually needed for this user task. ` +
+      `Respond with a JSON array of tool names, e.g. ["tool_name_1", "tool_name_2"]. Do not include extras.`
 
     try {
       const model = createModel(ctx.provider, undefined)
@@ -45,7 +45,7 @@ export class ToolSelectionPlugin implements PromptPlugin {
       }
       return { messages: [], tools: selected, tokenEstimate: this.estimateTools(selected) }
     } catch (err) {
-      log.warn('[ToolSelectionPlugin] LLM 动态选择失败，降级到前 19 个工具', err)
+      log.warn('[ToolSelectionPlugin] LLM-based tool selection failed, falling back to first 49 tools', err)
       const fallback = allTools.slice(0, 49)
       return { messages: [], tools: fallback, tokenEstimate: this.estimateTools(fallback) }
     }

@@ -198,7 +198,7 @@ describe('AgentPromptPlugin', () => {
       const systemMsgs = result.messages.filter(m => m.role === 'system')
       const content = systemMsgs.map(m => (m as { content: string }).content).join('\n')
 
-      expect(content).toContain('## 可用技能')
+      expect(content).toContain('## Available Skills')
       expect(content).toContain('lark-sheets: 飞书电子表格')
       expect(content).toContain('lark-shared:')
     })
@@ -212,7 +212,7 @@ describe('AgentPromptPlugin', () => {
         .map(m => (m as { content: string }).content)
         .join('\n')
 
-      expect(content).not.toContain('## 可用技能')
+      expect(content).not.toContain('## Available Skills')
     })
   })
 })

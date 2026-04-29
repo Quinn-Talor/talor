@@ -23,11 +23,11 @@ function resolveRelativePaths(content: string, skillMdPath: string): string {
 export function createSkillTool(registry: SkillRegistry): ToolDefinition {
   return {
     name: 'skill',
-    description: '激活一个技能，获取其完整操作指令。技能名称（如 lark-doc、lark-wiki）不是工具名，不可直接调用，必须通过本工具激活后才能使用。可用技能列表在系统提示中提供。',
+    description: 'Activate a skill to retrieve its full instructions. Skill names (e.g. lark-doc, lark-wiki) are not tool names and cannot be called directly — they must be activated via this tool first. The list of available skill names is provided in the system prompt.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: '技能名称，来自系统提示中的技能列表' },
+        name: { type: 'string', description: 'Skill name, taken from the skill list in the system prompt.' },
       },
       required: ['name'],
     },
@@ -50,13 +50,24 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
 
       if (!skill) {
         const available = registry.listAll().map(s => s.metadata.name).join(', ')
-        return { output: `技能 "${name}" 不存在。可用技能：${available || '无'}` }
+        return { output: `Skill "${name}" not found. Available skills: ${available || '(none)'}` }
       }
 
       const tracker = context.skillTracker ?? new SkillActivationTracker()
 
       if (tracker.isActivated(name)) {
-        return { output: `技能 "${name}" 已激活，请直接按之前 tool_result 中的指令执行，无需重复激活。` }
+        return {
+          output:
+            `Skill "${name}" is already activated earlier in this conversation — DO NOT call the \`skill\` tool again for "${name}".\n\n` +
+            `HOW TO FIND THE INSTRUCTIONS (they are guaranteed to be present in this conversation):\n` +
+            `  1. Scroll upward through the message history until you find an earlier \`tool\` role message whose content contains the exact anchor string:\n` +
+            `     [SKILL:${name} activated]\n` +
+            `  2. That message is wrapped in <tool_output tool="skill" trust="skill-content"> ... </tool_output>.\n` +
+            `  3. The skill's full instructions are the text between the \`[SKILL:${name} activated]\` line and the closing \`> Skill activated...\` note (or the closing </tool_output> tag).\n` +
+            `  4. Follow those instructions exactly, using the tools they reference.\n\n` +
+            `Do NOT use the read/grep/glob tools to search the filesystem — the instructions live in the in-memory conversation history, not on disk. ` +
+            `If you genuinely cannot locate the earlier \`[SKILL:${name} activated]\` block in the messages above, state that explicitly to the user rather than re-invoking the \`skill\` tool.`,
+        }
       }
 
       const resolved = resolveRelativePaths(skill.content, skill.filePath)
@@ -68,7 +79,7 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
       log.info(`[SkillTool] Activated skill: ${name} (${truncated.length} chars)`)
 
       return {
-        output: `[SKILL:${name} activated]\n\n${truncated}\n\n> 技能已激活，请严格按照以上指令使用对应工具执行操作，不要调用不存在的工具名。`,
+        output: `[SKILL:${name} activated]\n\n${truncated}\n\n> Skill activated. Follow the instructions above strictly, using the tools they reference. Do not invent tool names that are not listed.`,
       }
     },
   }

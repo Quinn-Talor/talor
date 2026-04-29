@@ -16,6 +16,11 @@ export interface MCPServerConfig {
   url?: string
   auth?: MCPAuthConfig
   enabled: boolean
+  /**
+   * 显式标为低风险的工具名列表（不弹确认框）。
+   * 未在此列表且名称不像只读操作（见 READ_ONLY_PATTERNS）的工具，都按 HIGH 处理。
+   */
+  lowRiskTools?: string[]
 }
 
 export interface MCPTool {

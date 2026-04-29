@@ -10,7 +10,8 @@
 
 import fs from 'fs/promises'
 import mime from 'mime-types'
-import type { ContentBlock } from '@shared/types/message'
+import type { ContentBlock } from '../../shared/types/message'
+import { MAX_INLINE_ATTACHMENT_BYTES } from '../../shared/types/message'
 import type { Provider } from '../store/config-store'
 
 /** 单附件最大 50MB。超过这个阈值 base64 编码后会显著撑大 IPC payload 和 DB row size。 */
@@ -19,10 +20,13 @@ const MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024
 /** 视觉模型可接收的图片 mime。凡命中此列表的附件，validateAttachment 会就地读取并 base64 编码。 */
 const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
-/** 非图片文档类型。这些类型不做 base64，仅以 path 引用传给下游（由模型自行读取）。 */
-const SUPPORTED_DOCUMENT_TYPES = [
-  'application/pdf', 'text/plain', 'text/markdown', 'application/json', 'text/csv',
-]
+/** 文本类文档：就地读 UTF-8 注入 prompt（截断到 MAX_INLINE_ATTACHMENT_BYTES）。 */
+const TEXT_DOCUMENT_TYPES = ['text/plain', 'text/markdown', 'application/json', 'text/csv']
+
+/** 二进制文档：读 base64，由 file-capable provider 消费（如 Anthropic PDF input）。 */
+const BINARY_DOCUMENT_TYPES = ['application/pdf']
+
+const SUPPORTED_DOCUMENT_TYPES = [...TEXT_DOCUMENT_TYPES, ...BINARY_DOCUMENT_TYPES]
 
 const SUPPORTED_ATTACHMENT_TYPES = [...SUPPORTED_IMAGE_TYPES, ...SUPPORTED_DOCUMENT_TYPES]
 
@@ -31,8 +35,12 @@ export interface ValidatedAttachment {
   mime_type: string
   filename: string
   size_bytes: number
-  /** 图片附件独有：`data:<mime>;base64,<...>`。非图片类型为 undefined。 */
+  /** 图片附件独有：`data:<mime>;base64,<...>`。 */
   base64_data?: string
+  /** 文本类文档：预读的 UTF-8 内容（可能被截断）。 */
+  text_content?: string
+  /** 二进制文档：纯 base64（不含 data URL 前缀）。 */
+  doc_base64?: string
 }
 
 /**
@@ -59,13 +67,34 @@ export async function validateAttachment(att: {
   if (stats.size > MAX_ATTACHMENT_SIZE_BYTES) throw new Error('FILE_TOO_LARGE')
   if (!SUPPORTED_ATTACHMENT_TYPES.includes(actualMime)) throw new Error('UNSUPPORTED_FILE_TYPE')
 
-  // 图片才读文件做 base64：文档类走"路径引用"通道，避免大文件占用进程内存。
-  let base64_data: string | undefined
-  if (SUPPORTED_IMAGE_TYPES.includes(actualMime)) {
-    const buf = await fs.readFile(att.path)
-    base64_data = `data:${actualMime};base64,${buf.toString('base64')}`
+  const result: ValidatedAttachment = {
+    ...att,
+    mime_type: actualMime,
+    size_bytes: stats.size,
   }
-  return { ...att, mime_type: actualMime, size_bytes: stats.size, base64_data }
+
+  if (SUPPORTED_IMAGE_TYPES.includes(actualMime)) {
+    // 图片：base64 data URL，供 vision provider 直接消费
+    const buf = await fs.readFile(att.path)
+    result.base64_data = `data:${actualMime};base64,${buf.toString('base64')}`
+  } else if (TEXT_DOCUMENT_TYPES.includes(actualMime)) {
+    // 文本文档：就地读取并可能截断，避免 prompt 里出现"路径+字面量 File: xxx"的假引用
+    const buf = await fs.readFile(att.path)
+    const byteLen = buf.byteLength
+    const readBuf = byteLen > MAX_INLINE_ATTACHMENT_BYTES
+      ? buf.subarray(0, MAX_INLINE_ATTACHMENT_BYTES)
+      : buf
+    const text = readBuf.toString('utf-8')
+    result.text_content = byteLen > MAX_INLINE_ATTACHMENT_BYTES
+      ? `${text}\n…[truncated: original ${byteLen} bytes, loaded first ${MAX_INLINE_ATTACHMENT_BYTES} bytes. To load the rest, use the read tool on: ${att.path}]`
+      : text
+  } else if (BINARY_DOCUMENT_TYPES.includes(actualMime)) {
+    // PDF：base64（不含前缀），走 AI SDK file part
+    const buf = await fs.readFile(att.path)
+    result.doc_base64 = buf.toString('base64')
+  }
+
+  return result
 }
 
 /**
@@ -93,7 +122,7 @@ export function checkVisionSupport(
  */
 export function buildUserBlocks(
   content: string,
-  attachments: Array<{ path: string; mime_type: string; filename: string; size_bytes: number; base64_data?: string }>,
+  attachments: ValidatedAttachment[],
 ): ContentBlock[] {
   const blocks: ContentBlock[] = []
   if (content.trim()) blocks.push({ type: 'text', text: content })
@@ -101,7 +130,15 @@ export function buildUserBlocks(
     if (att.mime_type.startsWith('image/') && att.base64_data) {
       blocks.push({ type: 'image', image: att.base64_data, mimeType: att.mime_type })
     } else {
-      blocks.push({ type: 'file', filename: att.filename, mimeType: att.mime_type, path: att.path })
+      blocks.push({
+        type: 'file',
+        filename: att.filename,
+        mimeType: att.mime_type,
+        path: att.path,
+        textContent: att.text_content,
+        base64Data: att.doc_base64,
+        sizeBytes: att.size_bytes,
+      })
     }
   }
   return blocks

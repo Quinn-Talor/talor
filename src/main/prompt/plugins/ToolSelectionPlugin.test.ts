@@ -53,7 +53,7 @@ describe('ToolSelectionPlugin', () => {
     const result = await new ToolSelectionPlugin().build(makeCtx('test', 55))
     expect(result.tools).toHaveLength(49)
     expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('LLM 动态选择失败'),
+      expect.stringContaining('LLM-based tool selection failed'),
       expect.any(Error)
     )
   })

@@ -398,7 +398,7 @@ describe('Block E: 沉淀流程', () => {
       const cryst = manager.getAgent('__crystallizer__')
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
-      expect(cryst!.profile.role.capabilities).toContain('分析对话历史中使用的工具和流程')
+      expect(cryst!.profile.role.capabilities).toContain('Analyze the tools and workflow used in the conversation history.')
     })
   })
 

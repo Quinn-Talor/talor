@@ -20,7 +20,7 @@ export class UserMessagePlugin implements PromptPlugin {
       } else if (att.mediaType) {
         content.push({ type: 'file', data: att.base64 ?? att.content ?? '', mediaType: att.mediaType })
       } else {
-        content.push({ type: 'text', text: `[文件: ${att.name}]\n${att.content ?? ''}` })
+        content.push({ type: 'text', text: `[Attachment: ${att.name}]\n${att.content ?? ''}` })
       }
     }
 

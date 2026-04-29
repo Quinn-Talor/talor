@@ -10,8 +10,9 @@
 // 允许依赖：loop/*、repos/*、shared/*
 // 禁止依赖：ipc/*
 
-import { streamText, type LanguageModel } from 'ai'
+import { streamText, type LanguageModel, type ModelMessage } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
+import { createHash } from 'crypto'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
@@ -66,6 +67,13 @@ interface StepOutcome {
   toolNames: string[]
   /** 循环终止原因（仅当 shouldContinue=false 时有值） */
   exitReason?: LoopExitReason
+  /**
+   * 本步的复合签名（sorted `toolName#inputHash:outputHash`），供顶层 dead-loop
+   * 判断使用。包含 input 和 output hash：同工具 + 同参数 + 同结果连出现两次，
+   * 基本可确定是死循环（模型不会在"同问题同答案"前提下有意义地推进）。
+   * 没有工具调用的步返回空串。
+   */
+  signature: string
 }
 
 /** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
@@ -78,6 +86,40 @@ type LoopExitReason =
   | 'fallback_summary'    // 兜底摘要触发
   | 'stream_error'        // consumeStream 异常
   | 'repeated_error'      // 连续相同工具错误（死循环保护）
+
+function sha8(s: string): string {
+  return createHash('sha1').update(s).digest('hex').slice(0, 8)
+}
+
+/**
+ * 为一步的 tool 调用 + 返回计算复合签名，用于死循环侦测。
+ *
+ * 签名 = sorted `toolName#inputHash:outputHash`。
+ * - inputHash: 参数 JSON 的 sha1 前 8 位
+ * - outputHash: 输出文本前 500 字节的 sha1 前 8 位（大文件看不到整体，
+ *   但头部 500 字节足够区分"同文件"和"不同文件"）
+ *
+ * 为什么比单看 toolName 靠谱：
+ * - 仅 toolName：模型换不同文件路径做 read 也被判定同签名（假阳）
+ * - 加 inputHash：参数变化即视为不同操作（消除假阳）
+ * - 加 outputHash：若是错误反复（同 input 同 error 输出）必然同签名
+ * - sorted：并行/乱序的多工具调用不因顺序扰动签名
+ */
+function stepSignature(
+  toolCalls: Array<{ toolName: string; input: unknown }>,
+  toolResults: Array<{ toolCallId: string; toolName: string; output: unknown }>,
+): string {
+  if (toolCalls.length === 0) return ''
+  return toolCalls
+    .map((tc, i) => {
+      const inputHash = sha8(JSON.stringify(tc.input ?? null))
+      const outText = String(toolResults[i]?.output ?? '').slice(0, 500)
+      const outputHash = outText ? sha8(outText) : 'none'
+      return `${tc.toolName}#${inputHash}:${outputHash}`
+    })
+    .sort()
+    .join('|')
+}
 
 // ── runReactStep ────────────────────────────────────────────────────────
 
@@ -128,6 +170,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
 
   const stepToolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
   let stepText = ''
+  let persisted = false
 
   const result = streamText({
     model: ctx.model,
@@ -152,61 +195,105 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
 
   try {
     await result.consumeStream()
+
+    const durationMs = Date.now() - stepStart
+    const toolNames = stepToolCalls.map(tc => tc.toolName)
+
+    // 无工具调用 → 本次推理结束（正常终态）
+    if (stepToolCalls.length === 0) {
+      if (stepText) {
+        log.info(`[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms]`)
+        log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
+        messageRepo.create({
+          id: ctx.messageId,
+          session_id: ctx.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: stepText }],
+          agent_id: ctx.agentId,
+        })
+        sessionRepo.touch(ctx.sessionId)
+        persisted = true
+        return { stepText, hadToolCalls: false, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls', signature: '' }
+      }
+      log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
+      persisted = true   // 无东西可持久化，finally 不需兜底
+      return { stepText: '', hadToolCalls: false, wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_text', signature: '' }
+    }
+
+    // 有工具调用 → 落库 assistant + tool，继续下一步
+    let toolResults = await result.toolResults
+    if (toolResults.length === 0) {
+      log.warn(`[ReactLoop]   → tools called but no results returned, injecting error feedback [${durationMs}ms]`)
+      toolResults = stepToolCalls.map(tc => ({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        output: `Tool not found: "${tc.toolName}". Available tools: ${ctx.agent.toolRegistry.getToolNames().join(', ')}`,
+      }))
+    }
+
+    for (const tc of stepToolCalls) {
+      log.info(`[ReactLoop]   → tool: ${tc.toolName} [${durationMs}ms]`)
+    }
+    log.info(`[ReactLoop]   → persist: assistant(${stepText ? 'text+' : ''}tool_use×${stepToolCalls.length}) + tool(result×${toolResults.length}) [tx]`)
+
+    const assistantBlocks: ContentBlock[] = []
+    if (stepText) assistantBlocks.push({ type: 'text', text: stepText })
+    for (const tc of stepToolCalls) {
+      assistantBlocks.push({ type: 'tool_use', toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })
+    }
+
+    const toolBlocks: ContentBlock[] = toolResultPartsToBlocks(toolResults)
+
+    // 事务化：assistant(tool_use) 与 tool(result) 必须成对出现，否则下次
+    // rebuild prompt 时 SDK 会抛 "Every tool_use must have a tool_result"，
+    // 整个 session 被永久破坏。createBatch 保证原子落盘。
+    messageRepo.createBatch([
+      { id: uuidv4(), session_id: ctx.sessionId, role: 'assistant', content: assistantBlocks, agent_id: ctx.agentId },
+      { id: uuidv4(), session_id: ctx.sessionId, role: 'tool',      content: toolBlocks,      agent_id: ctx.agentId },
+    ])
+    persisted = true
+
+    const signature = stepSignature(stepToolCalls, toolResults)
+    return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames, signature }
   } catch (streamErr) {
     const durationMs = Date.now() - stepStart
     log.error(`[ReactLoop]   consumeStream failed (${durationMs}ms):`, streamErr)
     throw streamErr
-  }
-
-  const durationMs = Date.now() - stepStart
-  const toolNames = stepToolCalls.map(tc => tc.toolName)
-
-  // 无工具调用 → 本次推理结束（正常终态）
-  if (stepToolCalls.length === 0) {
-    if (stepText) {
-      log.info(`[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms]`)
-      log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
-      messageRepo.create({
-        id: ctx.messageId,
-        session_id: ctx.sessionId,
-        role: 'assistant',
-        content: [{ type: 'text', text: stepText }],
-        agent_id: ctx.agentId,
-      })
-      sessionRepo.touch(ctx.sessionId)
-      return { stepText, hadToolCalls: false, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls' }
+  } finally {
+    // 异常路径：abort / stream error / provider crash 时，把已累积的
+    // stepText + stepToolCalls 尽力持久化为 aborted，前端刷新后能看到部分进展；
+    // 若有 write/edit 已落盘，DB 也不会出现"无任何记录"的审计断层。
+    if (!persisted && (stepText || stepToolCalls.length > 0)) {
+      try {
+        const abortedBlocks: ContentBlock[] = []
+        const abortTag = stepToolCalls.length > 0
+          ? `\n\n[step interrupted: tool results not returned]`
+          : `\n\n[step interrupted]`
+        if (stepText) {
+          abortedBlocks.push({ type: 'text', text: `${stepText}${abortTag}` })
+        } else {
+          abortedBlocks.push({ type: 'text', text: abortTag.trimStart() })
+        }
+        // tool_use 不落库：没有对应 tool_result，保留会破坏 SDK 配对约束。
+        // 仅用文字说明"调用过哪些工具"作为审计线索。
+        if (stepToolCalls.length > 0) {
+          const toolNamesStr = stepToolCalls.map(tc => tc.toolName).join(', ')
+          abortedBlocks.push({ type: 'text', text: `[tools invoked this step: ${toolNamesStr} — no results returned]` })
+        }
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: ctx.sessionId,
+          role: 'assistant',
+          content: abortedBlocks,
+          agent_id: ctx.agentId,
+        })
+        sessionRepo.touch(ctx.sessionId)
+        log.info(`[ReactLoop]   partial aborted step persisted (${abortedBlocks.length} blocks)`)
+      } catch (persistErr) {
+        log.error('[ReactLoop]   failed to persist partial aborted step:', persistErr)
+      }
     }
-    log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
-    return { stepText: '', hadToolCalls: false, wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_text' }
   }
-
-  // 有工具调用 → 落库 assistant + tool，继续下一步
-  let toolResults = await result.toolResults
-  if (toolResults.length === 0) {
-    log.warn(`[ReactLoop]   → tools called but no results returned, injecting error feedback [${durationMs}ms]`)
-    toolResults = stepToolCalls.map(tc => ({
-      toolCallId: tc.toolCallId,
-      toolName: tc.toolName,
-      output: `Error: tool "${tc.toolName}" does not exist. Available tools: ${ctx.agent.toolRegistry.getToolNames().join(', ')}`,
-    }))
-  }
-
-  for (const tc of stepToolCalls) {
-    log.info(`[ReactLoop]   → tool: ${tc.toolName} [${durationMs}ms]`)
-  }
-  log.info(`[ReactLoop]   → persist: assistant(${stepText ? 'text+' : ''}tool_use×${stepToolCalls.length}) + tool(result×${toolResults.length})`)
-
-  const assistantBlocks: ContentBlock[] = []
-  if (stepText) assistantBlocks.push({ type: 'text', text: stepText })
-  for (const tc of stepToolCalls) {
-    assistantBlocks.push({ type: 'tool_use', toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })
-  }
-  messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'assistant', content: assistantBlocks, agent_id: ctx.agentId })
-
-  const toolBlocks: ContentBlock[] = toolResultPartsToBlocks(toolResults)
-  messageRepo.create({ id: uuidv4(), session_id: ctx.sessionId, role: 'tool', content: toolBlocks, agent_id: ctx.agentId })
-
-  return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames }
 }
 
 // ── runFallbackSummary ──────────────────────────────────────────────────
@@ -220,6 +307,23 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
  * 行为：不带 tools 做一次 streamText，把文本流式回调并落库。
  * 异常策略：catch 后仅记录，**不抛出**——避免破坏外层 orchestrator 的 onDone 语义。
  */
+/**
+ * 兜底时模型只能看到"之前的工具结果"，没有任何约束 prompt。
+ * 此时最容易凭空编造结论，所以补一条强护栏，并把产出落库时打 ⚠️ 前缀，
+ * 下一轮模型读到自己上轮是兜底，会更谨慎地复核。
+ */
+const FALLBACK_GUARDRAIL: ModelMessage = {
+  role: 'system',
+  content:
+    '[Fallback summary mode]\n' +
+    'You just made tool calls but produced no text output. Now briefly report to the user what you did and what was observed, ' +
+    '**using only the content inside the <tool_output> tags above**. Strict rules:\n' +
+    '1. Do not call any tools.\n' +
+    '2. Do not invent facts, paths, file names, or numbers that did not appear in tool_output.\n' +
+    '3. If any tool returned an error (File not found / [exit: non-zero] / ERROR / etc.), state the failure verbatim. Do not pretend it succeeded.\n' +
+    '4. If the tool results are insufficient for a meaningful answer, say explicitly: "Task not completed because ...".',
+}
+
 async function runFallbackSummary(ctx: StepContext): Promise<void> {
   log.info(`[ReactLoop] ${SEPARATOR} fallback summary ${SEPARATOR}`)
   const summaryStart = Date.now()
@@ -230,11 +334,14 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
       provider: ctx.provider,
       providerConfig: ctx.providerConfig,
       workspacePath: ctx.workspace || undefined,
+      agent: ctx.agent,
+      skillTracker: ctx.skillTracker,
+      events: ctx.events,
     }
     const { messages } = await ctx.pipeline.build(summaryCtx)
     const summaryResult = streamText({
       model: ctx.model,
-      messages,
+      messages: [...messages, FALLBACK_GUARDRAIL],
       abortSignal: buildStreamSignal(ctx.abortSignal),
     })
     let summaryText = ''
@@ -244,11 +351,14 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
     }
     const durationMs = Date.now() - summaryStart
     if (summaryText.trim()) {
+      // 前缀 [auto-summary] 让下一轮模型读自己的历史时能识别"这不是一次正常推理，
+      // 可能不完整或带错误"——配合 Fix 2 memory 的锚点策略一起抑制误差继承。
+      const markedText = `[auto-summary]\n${summaryText}`
       messageRepo.create({
         id: uuidv4(),
         session_id: ctx.sessionId,
         role: 'assistant',
-        content: [{ type: 'text', text: summaryText }],
+        content: [{ type: 'text', text: markedText }],
         agent_id: ctx.agentId,
       })
       sessionRepo.touch(ctx.sessionId)
@@ -311,9 +421,12 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   let exitReason: LoopExitReason = 'no_tool_calls'
   const allToolNames: string[] = []
 
-  // Dead loop detection: track last N tool-result signatures
-  const REPEATED_ERROR_THRESHOLD = 3
-  let lastToolSignature = ''
+  // Dead-loop detection. 签名含 input + output hash，见 stepSignature 注释。
+  // 阈值 2：同签名连续出现 3 次（初次 + 2 次重复）即判定死循环。实测 3 次足以
+  // 穿透"模型偶尔重试一次"的合理行为。注意：stepText 非零**不再** reset 计数——
+  // 模型可能一边喷无意义 token 一边反复调同参同果工具，不能因此放行。
+  const REPEATED_ERROR_THRESHOLD = 2
+  let lastStepSignature = ''
   let consecutiveRepeatCount = 0
 
   for (let step = 0; step < maxSteps; step++) {
@@ -328,22 +441,21 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     allToolNames.push(...outcome.toolNames)
     if (outcome.wroteAssistantFinal) wroteAssistantFinal = true
 
-    // Dead loop guard: if tool calls repeat with same names and no text progress, abort
-    if (outcome.hadToolCalls && outcome.toolNames.length > 0) {
-      const sig = outcome.toolNames.sort().join(',')
-      if (sig === lastToolSignature && outcome.stepText.length === 0) {
+    if (outcome.signature) {
+      if (outcome.signature === lastStepSignature) {
         consecutiveRepeatCount++
         if (consecutiveRepeatCount >= REPEATED_ERROR_THRESHOLD) {
-          log.warn(`[ReactLoop] Dead loop detected: "${sig}" repeated ${consecutiveRepeatCount + 1} times with no text output. Breaking.`)
+          log.warn(`[ReactLoop] Dead loop: signature "${outcome.signature}" repeated ${consecutiveRepeatCount + 1}x (same tools + inputs + outputs). Breaking.`)
           exitReason = 'repeated_error'
           break
         }
       } else {
-        lastToolSignature = sig
+        lastStepSignature = outcome.signature
         consecutiveRepeatCount = 0
       }
     } else {
-      consecutiveRepeatCount = 0
+      // 无工具调用的步（纯文本 / empty）不参与重复判定，也不 reset——
+      // 避免模型在死循环中穿插一步纯思考就逃脱侦测。
     }
 
     if (!outcome.shouldContinue) {

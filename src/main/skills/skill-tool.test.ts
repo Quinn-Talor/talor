@@ -52,7 +52,7 @@ describe('createSkillTool', () => {
 
     const result = await tool.execute({ name: 'nonexist' }, { sessionId: 'test', workspace: '' })
 
-    expect(result.output).toContain('技能 "nonexist" 不存在')
+    expect(result.output).toContain('Skill "nonexist" not found')
   })
 
   it('AC-S2-03: repeated activation returns full content', async () => {
@@ -95,7 +95,7 @@ describe('createSkillTool', () => {
       { name: 'lark-sheets' },
       { sessionId: 'test', workspace: '', skillTracker: tracker },
     )
-    expect(second.output).toContain('已激活')
+    expect(second.output).toContain('already activated')
     expect(second.output).not.toContain('full content body')
     expect(tracker.isActivated('lark-sheets')).toBe(true)
   })
@@ -125,7 +125,7 @@ describe('createSkillTool', () => {
       { sessionId: 'test', workspace: '', skillTracker: tracker },
     )
     expect(after.output).toContain('full content body')
-    expect(after.output).not.toMatch(/^技能.*已激活$/)
+    expect(after.output).not.toMatch(/^Skill.*already activated/)
     expect(tracker.isActivated('lark-sheets')).toBe(true)
   })
 

@@ -71,13 +71,35 @@ describe('validateAttachment', () => {
     expect(out.base64_data).toMatch(/^data:image\/png;base64,/)
   })
 
-  it('非图片类型不读文件', async () => {
+  it('PDF 读 base64 到 doc_base64，不写 data URL 前缀', async () => {
     mockAccess.mockResolvedValue(undefined)
     mockStat.mockResolvedValue({ size: 1000 })
     mockLookup.mockReturnValue('application/pdf')
+    mockReadFile.mockResolvedValue(Buffer.from('PDFDATA'))
     const out = await validateAttachment(baseAtt({ mime_type: 'application/pdf', filename: 'a.pdf' }))
     expect(out.base64_data).toBeUndefined()
-    expect(mockReadFile).not.toHaveBeenCalled()
+    expect(out.doc_base64).toBe(Buffer.from('PDFDATA').toString('base64'))
+  })
+
+  it('文本文档就地读 UTF-8 到 text_content', async () => {
+    mockAccess.mockResolvedValue(undefined)
+    mockStat.mockResolvedValue({ size: 10 })
+    mockLookup.mockReturnValue('text/markdown')
+    mockReadFile.mockResolvedValue(Buffer.from('# 标题\n内容', 'utf-8'))
+    const out = await validateAttachment(baseAtt({ mime_type: 'text/markdown', filename: 'a.md' }))
+    expect(out.text_content).toBe('# 标题\n内容')
+    expect(out.doc_base64).toBeUndefined()
+  })
+
+  it('文本文档超限时截断并附说明', async () => {
+    const bigContent = 'a'.repeat(200 * 1024)
+    mockAccess.mockResolvedValue(undefined)
+    mockStat.mockResolvedValue({ size: bigContent.length })
+    mockLookup.mockReturnValue('text/plain')
+    mockReadFile.mockResolvedValue(Buffer.from(bigContent, 'utf-8'))
+    const out = await validateAttachment(baseAtt({ mime_type: 'text/plain', filename: 'big.txt' }))
+    expect(out.text_content).toContain('…[truncated: original')
+    expect(out.text_content!.length).toBeLessThan(bigContent.length)
   })
 })
 
@@ -117,10 +139,23 @@ describe('buildUserBlocks', () => {
     expect(blocks[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
   })
 
-  it('文档附件转 file block', () => {
+  it('文档附件转 file block 并携带 text_content/doc_base64', () => {
+    const blocks = buildUserBlocks('', [{
+      path: '/p/a.md', mime_type: 'text/markdown', filename: 'a.md', size_bytes: 10,
+      text_content: '# hello',
+    }])
+    expect(blocks[0]).toMatchObject({
+      type: 'file', filename: 'a.md', mimeType: 'text/markdown', textContent: '# hello',
+    })
+  })
+
+  it('PDF 附件的 base64 走 base64Data 字段', () => {
     const blocks = buildUserBlocks('', [{
       path: '/p/a.pdf', mime_type: 'application/pdf', filename: 'a.pdf', size_bytes: 1,
+      doc_base64: 'UERGU0lH',
     }])
-    expect(blocks[0]).toMatchObject({ type: 'file', filename: 'a.pdf', mimeType: 'application/pdf' })
+    expect(blocks[0]).toMatchObject({
+      type: 'file', filename: 'a.pdf', mimeType: 'application/pdf', base64Data: 'UERGU0lH',
+    })
   })
 })

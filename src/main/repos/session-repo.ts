@@ -167,6 +167,14 @@ export const sessionRepo = {
   },
 }
 
+export interface MessageCreateParams {
+  id: string
+  session_id: string
+  role: MessageRole
+  content: ContentBlock[]
+  agent_id?: string
+}
+
 export const messageRepo = {
   listBySession(sessionId: string): ChatMessage[] {
     const db = getDb()
@@ -174,7 +182,7 @@ export const messageRepo = {
     return rows.map(rowToMessage)
   },
 
-  create(params: { id: string; session_id: string; role: MessageRole; content: ContentBlock[]; agent_id?: string }): ChatMessage {
+  create(params: MessageCreateParams): ChatMessage {
     const db = getDb()
     const now = new Date().toISOString()
     const contentJson = JSON.stringify(params.content)
@@ -184,6 +192,42 @@ export const messageRepo = {
       VALUES (?, ?, ?, ?, 'blocks', ?, ?)
     `).run(params.id, params.session_id, params.role, contentJson, agentId, now)
     return { id: params.id, session_id: params.session_id, role: params.role, content: contentJson, agent_id: agentId, created_at: now }
+  },
+
+  /**
+   * 批量写入，所有行在同一事务里落盘。
+   *
+   * ReAct 循环每步会同时写 assistant(tool_use) + tool(result) 两行——两者必须
+   * 成对出现，否则 SDK 下次 rebuild prompt 时会抛 "Every tool_use must have a
+   * tool_result"，整个 session 废掉。单次 create 的话，两次 write 之间若进程
+   * 崩溃就会出现孤儿 tool_use；用事务把两行绑定为原子操作。
+   */
+  createBatch(items: MessageCreateParams[]): ChatMessage[] {
+    if (items.length === 0) return []
+    const db = getDb()
+    const stmt = db.prepare(`
+      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at)
+      VALUES (?, ?, ?, ?, 'blocks', ?, ?)
+    `)
+    const rows: ChatMessage[] = []
+    const tx = db.transaction((batch: MessageCreateParams[]) => {
+      const now = new Date().toISOString()
+      for (const params of batch) {
+        const contentJson = JSON.stringify(params.content)
+        const agentId = params.agent_id ?? '__chat__'
+        stmt.run(params.id, params.session_id, params.role, contentJson, agentId, now)
+        rows.push({
+          id: params.id,
+          session_id: params.session_id,
+          role: params.role,
+          content: contentJson,
+          agent_id: agentId,
+          created_at: now,
+        })
+      }
+    })
+    tx(items)
+    return rows
   },
 
   deleteBySession(sessionId: string): void {

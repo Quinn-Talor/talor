@@ -13,7 +13,7 @@ describe('toolResultPartsToBlocks', () => {
     ]
     const blocks = toolResultPartsToBlocks(parts)
     expect(blocks[0].isError).toBe(false)
-    expect(blocks[0].output).toBe('file content')
+    expect(blocks[0].output).toBe('<tool_output tool="read">\nfile content\n</tool_output>')
   })
 
   it('sets isError=true for error-text tool result', () => {
@@ -27,7 +27,21 @@ describe('toolResultPartsToBlocks', () => {
     ]
     const blocks = toolResultPartsToBlocks(parts)
     expect(blocks[0].isError).toBe(true)
-    expect(blocks[0].output).toBe('Command not found')
+    expect(blocks[0].output).toContain('Command not found')
+    expect(blocks[0].output).toMatch(/^<tool_output tool="bash">/)
+  })
+
+  it('marks skill output with trust attribute', () => {
+    const parts = [
+      {
+        type: 'tool-result' as const,
+        toolCallId: 'c',
+        toolName: 'skill',
+        output: '[SKILL:lark-doc activated]\n...',
+      },
+    ]
+    const blocks = toolResultPartsToBlocks(parts)
+    expect(blocks[0].output).toMatch(/<tool_output tool="skill" trust="skill-content">/)
   })
 
   it('sets isError=true for error-json tool result', () => {
@@ -57,7 +71,7 @@ describe('toolResultPartsToBlocks', () => {
     expect(blocks[0].toolName).toBe('glob')
   })
 
-  it('truncates large output', () => {
+  it('truncates large output before wrapping', () => {
     const largeValue = 'x'.repeat(200 * 1024)
     const parts = [
       {
@@ -68,8 +82,34 @@ describe('toolResultPartsToBlocks', () => {
       },
     ]
     const blocks = toolResultPartsToBlocks(parts)
-    expect(blocks[0].output.length).toBeLessThan(largeValue.length)
-    expect(blocks[0].output).toContain('截断')
+    // Wrapped length should be less than original + small tag overhead
+    expect(blocks[0].output.length).toBeLessThan(largeValue.length + 100)
+    expect(blocks[0].output).toContain('truncated')
+    expect(blocks[0].output).toMatch(/^<tool_output tool="read">/)
+  })
+
+  it.each([
+    ['File not found: foo.ts', 'read'],
+    ['Path not found: src/x', 'ls'],
+    ['[exit: non-zero]\ncommand failed', 'bash'],
+    ['Missing required parameter: "path".', 'edit'],
+    ['User rejected the tool call', 'write'],
+    ['Cannot access path outside workspace', 'read'],
+    ['String not found in file: foo', 'edit'],
+    ['MCP server "lark" is disconnected. Reconnecting...', 'lark.send_message'],
+    ['Tool execution error: timeout', 'lark.send_message'],
+  ])('marks builtin/MCP error text "%s" as isError=true', (text, toolName) => {
+    const blocks = toolResultPartsToBlocks([
+      { toolCallId: 'c', toolName, output: text },
+    ])
+    expect(blocks[0].isError).toBe(true)
+  })
+
+  it('does not mark normal text output as error', () => {
+    const blocks = toolResultPartsToBlocks([
+      { toolCallId: 'c', toolName: 'read', output: 'hello world' },
+    ])
+    expect(blocks[0].isError).toBe(false)
   })
 })
 

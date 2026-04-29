@@ -97,7 +97,7 @@ describe('ShortTermMemory.getContext', () => {
     const result = await mem.getContext('s1', makeConfig(8000))
 
     expect(result.summaryMessage).not.toBeNull()
-    expect(result.summaryMessage!.content).toMatch(/^\[对话历史摘要\]/)
+    expect(result.summaryMessage!.content).toMatch(/^\[Conversation summary — may be incomplete/)
     expect(result.tokenEstimate).toBeLessThanOrEqual(8000 * 0.15)
     expect(generateText).toHaveBeenCalledTimes(1)
     expect(dbRunMock).toHaveBeenCalled()

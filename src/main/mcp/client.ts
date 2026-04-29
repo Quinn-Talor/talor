@@ -9,6 +9,7 @@
 
 import log from 'electron-log'
 import { mcpServerRepo, MCPServerType } from '../repos/mcp-server-repo'
+import { ConfigStore } from '../store/config-store'
 import type { ToolExecuteContext, ToolMetadata } from '../tools/types'
 import { MCPServerConfig, MCPError } from './types'
 import { StdioTransport } from './transport/stdio'
@@ -17,6 +18,33 @@ import { HttpTransport } from './transport/http'
 const TOOL_TIMEOUT_MS = 30000
 const MAX_RECONNECT_ATTEMPTS = 3
 const RECONNECT_DELAY_MS = [1000, 2000, 4000]
+
+/**
+ * 命中这些 pattern 的 MCP 工具按 LOW 风险处理（无需确认）。
+ * 未命中且未在 server.lowRiskTools 白名单里的，统一按 HIGH —— 保守默认。
+ *
+ * 为什么保守：MCP 里 `send_*` / `delete_*` / `create_*` 是常见高破坏力操作，
+ * 历史实现 riskLevel=undefined → 全部跳过确认，这是高危口子。反转默认值
+ * 让"只读意图"必须被显式标注才能无感调用。
+ */
+const READ_ONLY_PATTERNS: RegExp[] = [
+  /^(get|list|search|query|find|read|fetch|show|describe|lookup|count|view|check|test|ping|head)([-_A-Z]|$)/i,
+]
+
+function isLegacyAutoApprove(): boolean {
+  try {
+    return ConfigStore.getInstance().get('mcp_legacy_auto_approve') === true
+  } catch {
+    return false
+  }
+}
+
+function inferMcpRiskLevel(toolName: string, lowRiskOverrides: string[] | undefined): 'HIGH' | 'LOW' {
+  if (isLegacyAutoApprove()) return 'LOW'
+  if (lowRiskOverrides?.includes(toolName)) return 'LOW'
+  if (READ_ONLY_PATTERNS.some(re => re.test(toolName))) return 'LOW'
+  return 'HIGH'
+}
 
 export class McpRegistry {
   private servers = new Map<string, StdioTransport | HttpTransport>()
@@ -121,6 +149,7 @@ export class McpRegistry {
     const serverName = serverConfig.name
 
     const self = this
+    const lowRiskOverrides = serverConfig.lowRiskTools
     const provider = {
       name: serverName,
       listTools(): ToolMetadata[] {
@@ -129,6 +158,7 @@ export class McpRegistry {
           description: tool.description,
           parameters: tool.inputSchema,
           provider: serverName,
+          riskLevel: inferMcpRiskLevel(tool.name, lowRiskOverrides),
         }))
       },
       async execute(
@@ -143,7 +173,7 @@ export class McpRegistry {
           log.warn('[McpRegistry] Server disconnected, triggering background reconnect:', serverId)
           self.reconnect(serverId).catch(err =>
             log.error('[McpRegistry] Background reconnect failed:', serverId, err))
-          return { output: `错误：MCP 服务器 "${serverName}" 已断开，正在后台重连，请稍后重试。` }
+          return { output: `MCP server "${serverName}" is disconnected. Reconnecting in the background — please retry shortly.` }
         }
 
         try {
@@ -157,18 +187,18 @@ export class McpRegistry {
           if ('isError' in result && result.isError) {
             const errorMsg = result.content[0]?.text || 'Tool execution failed'
             log.error('[McpRegistry] Tool returned error:', errorMsg)
-            return { output: `工具执行出错：${errorMsg}` }
+            return { output: `Tool execution error: ${errorMsg}` }
           }
 
           const outputText = result.content[0]?.text || ''
           if (!outputText) {
-            return { output: '工具返回空结果，可能浏览器会话已过期。' }
+            return { output: 'Tool returned an empty result. The underlying session may have expired.' }
           }
           return { output: outputText }
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err)
           log.error('[McpRegistry] execute error:', errorMsg)
-          return { output: `工具执行异常：${errorMsg}` }
+          return { output: `Tool execution exception: ${errorMsg}` }
         }
       },
     }

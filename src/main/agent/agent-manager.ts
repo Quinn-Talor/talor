@@ -40,12 +40,15 @@ const CRYSTALLIZER_PROFILE: AgentProfile = {
   version: '0.1.0',
   role: {
     capabilities: [
-      '分析对话历史中使用的工具和流程',
-      '引导用户定义 Agent 的角色和能力',
-      '生成 agent.json 草稿',
+      'Analyze the tools and workflow used in the conversation history.',
+      'Guide the user through defining an agent\'s role and capabilities.',
+      'Draft an agent.json specification.',
     ],
-    constraints: ['确认前不写任何文件', '不修改原始 session 数据'],
-    outputFormat: '对话式引导 + 最终输出 agent.json',
+    constraints: [
+      'Do not write any files until the user confirms.',
+      'Do not modify the original session data.',
+    ],
+    outputFormat: 'Conversational guidance, ending with a final agent.json document.',
   },
   knowledge: { files: [] },
   dependencies: {

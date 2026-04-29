@@ -71,7 +71,7 @@ describe('McpRegistry reconnect', () => {
     const result = await mcpRegistry.execute('test_tool', {}, { sessionId: 's1', workspace: '/tmp' })
 
     // Fast-fail: immediate error, no blocking reconnect
-    expect(result.output).toContain('已断开')
-    expect(result.output).toContain('重连')
+    expect(result.output).toContain('disconnected')
+    expect(result.output).toContain('Reconnecting')
   })
 })

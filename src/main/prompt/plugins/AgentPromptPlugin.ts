@@ -45,19 +45,19 @@ function buildAgentPrompt(role: AgentRole): string {
   const parts: string[] = []
 
   if (role.capabilities.length > 0) {
-    parts.push(`你的核心能力：\n${role.capabilities.map(c => `- ${c}`).join('\n')}`)
+    parts.push(`Your core capabilities:\n${role.capabilities.map(c => `- ${c}`).join('\n')}`)
   }
 
   if (role.constraints && role.constraints.length > 0) {
-    parts.push(`你的行为约束：\n${role.constraints.map(c => `- ${c}`).join('\n')}`)
+    parts.push(`Your behavioral constraints:\n${role.constraints.map(c => `- ${c}`).join('\n')}`)
   }
 
   if (role.outputFormat) {
-    parts.push(`你的输出格式：${role.outputFormat}`)
+    parts.push(`Your output format: ${role.outputFormat}`)
   }
 
   if (role.personality) {
-    parts.push(`你的风格：${role.personality}`)
+    parts.push(`Your style: ${role.personality}`)
   }
 
   return parts.join('\n\n')
@@ -67,9 +67,9 @@ function buildKnowledgeIndex(knowledge: AgentKnowledge): string {
   if (!knowledge.files || knowledge.files.length === 0) return ''
 
   const lines = knowledge.files.map(
-    (f: KnowledgeFileRef) => `- ${f.path}：${f.description}`,
+    (f: KnowledgeFileRef) => `- ${f.path}: ${f.description}`,
   )
-  return `可用知识文件（需要时通过 read 工具加载）：\n${lines.join('\n')}`
+  return `Available knowledge files (load with the read tool when needed):\n${lines.join('\n')}`
 }
 
 const MAX_SKILL_DESCRIPTION_CHARS = 1536
@@ -87,12 +87,12 @@ function buildSkillListing(skillRegistry: SkillRegistry): string {
     return `- ${s.name}: ${desc}`
   }).join('\n')
 
-  return `## 可用技能（Skills）
+  return `## Available Skills
 
-以下是技能名称，**不是工具名，不能直接调用**。需要使用某个技能时，必须先用 \`skill\` 工具激活，例如：
+The names below are **skill names, not tool names — do not call them directly**. To use a skill, activate it first via the \`skill\` tool, e.g.:
   skill({"name": "lark-doc"})
 
-激活后按返回的指令执行操作。已激活过的技能无需重复激活。
+Once activated, follow the instructions returned by the tool. Do not re-activate a skill that has already been activated in this session.
 
 ${listing}`
 }

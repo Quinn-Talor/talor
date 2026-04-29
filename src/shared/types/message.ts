@@ -21,7 +21,16 @@ export interface FileBlock {
   filename: string
   mimeType: string
   path: string
+  /** 文本类文档（text/*、json、csv、md）预读的 UTF-8 内容，供 prompt 直接消费。 */
+  textContent?: string
+  /** PDF 等二进制文档的 base64（不含 data URL 前缀），供 file-capable provider 消费。 */
+  base64Data?: string
+  /** 原始文件字节数，用于告知模型内容是否被截断。 */
+  sizeBytes?: number
 }
+
+/** 文本附件就地注入 prompt 的字节上限（超过会截断并标注）。 */
+export const MAX_INLINE_ATTACHMENT_BYTES = 128 * 1024
 
 export interface ToolUseBlock {
   type: 'tool_use'
