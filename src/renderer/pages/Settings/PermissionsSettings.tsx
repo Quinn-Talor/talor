@@ -6,17 +6,16 @@ import type { PermissionRule, PermissionRuleView } from '@shared/types/permissio
 /**
  * Workspace permission rule management.
  *
- * Workspace 下拉默认选中当前 session 的 workspace。下拉项由两部分合并：
- *   1. 当前 session 的 workspace（可能尚无持久化规则，但仍应可选）
- *   2. 所有已有持久化规则的 workspace（从磁盘扫出来）
+ * 每个有规则的 workspace 独立一个可折叠 section。当前 session 的 workspace
+ * 默认展开；其他 workspace 默认折叠，点击展开时按需拉取规则。
  *
- * Session rules 按 workspacePath 分 key 存内存，和 persisted 对齐；切下拉时
- * 会显示对应 workspace 的全部规则（session + persisted）。
+ * 下拉方案被弃——用户一次只能看一个 workspace，规则分布一眼看不清。
+ * 平铺 + 折叠对比"我有几个 workspace / 各自规则多少"更直观。
  */
 
 interface WorkspaceEntry {
   workspacePath: string
-  ruleCount: number   // persisted 规则数（session 不计入）
+  ruleCount: number   // persisted 规则数
 }
 
 export function PermissionsSettings() {
@@ -25,26 +24,27 @@ export function PermissionsSettings() {
   const currentWorkspacePath = currentSession?.workspace ?? ''
 
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([])
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>(currentWorkspacePath)
-  const [view, setView] = useState<PermissionRuleView>({ session: [], persisted: [] })
-  const [loading, setLoading] = useState(false)
 
   // 合并下拉列表：当前 session workspace + 所有有 persisted rules 的 workspace
-  const workspaceOptions = useMemo<WorkspaceEntry[]>(() => {
+  const workspaceList = useMemo<WorkspaceEntry[]>(() => {
     const map = new Map<string, WorkspaceEntry>()
     if (currentWorkspacePath) {
       map.set(currentWorkspacePath, {
         workspacePath: currentWorkspacePath,
-        ruleCount: 0,   // 占位，会被持久化数覆盖
+        ruleCount: 0,   // 占位，会被后续合并覆盖
       })
     }
     for (const ws of workspaces) {
       map.set(ws.workspacePath, ws)
     }
-    return Array.from(map.values())
+    return Array.from(map.values()).sort((a, b) => {
+      // 当前 session workspace 排第一，其余按路径字典序
+      if (a.workspacePath === currentWorkspacePath) return -1
+      if (b.workspacePath === currentWorkspacePath) return 1
+      return a.workspacePath.localeCompare(b.workspacePath)
+    })
   }, [workspaces, currentWorkspacePath])
 
-  // 扫盘加载 workspace 列表
   const loadWorkspaces = useCallback(async () => {
     const list = await talorAPI.permissions.listWorkspaces()
     setWorkspaces(list)
@@ -52,45 +52,7 @@ export function PermissionsSettings() {
 
   useEffect(() => { loadWorkspaces() }, [loadWorkspaces])
 
-  // 当前 session 切换时同步选中
-  useEffect(() => {
-    if (currentWorkspacePath && !selectedWorkspace) {
-      setSelectedWorkspace(currentWorkspacePath)
-    }
-  }, [currentWorkspacePath, selectedWorkspace])
-
-  // 选中 workspace 变化时刷新 rules
-  const refresh = useCallback(async () => {
-    if (!selectedWorkspace) {
-      setView({ session: [], persisted: [] })
-      return
-    }
-    setLoading(true)
-    try {
-      const v = await talorAPI.permissions.list(selectedWorkspace)
-      setView(v)
-    } finally {
-      setLoading(false)
-    }
-  }, [selectedWorkspace])
-
-  useEffect(() => { refresh() }, [refresh])
-
-  const handleRemove = async (ruleId: string) => {
-    if (!selectedWorkspace) return
-    await talorAPI.permissions.remove(selectedWorkspace, ruleId)
-    await refresh()
-    await loadWorkspaces()   // persisted 删空后 workspace 可能从列表消失
-  }
-
-  const handleClearSession = async () => {
-    if (!selectedWorkspace) return
-    if (!confirm('Clear all session permission rules for this workspace?')) return
-    await talorAPI.permissions.clearSession(selectedWorkspace)
-    await refresh()
-  }
-
-  if (workspaceOptions.length === 0) {
+  if (workspaceList.length === 0) {
     return (
       <div className="p-6">
         <h2 className="text-lg font-semibold mb-2">Workspace Permissions</h2>
@@ -102,62 +64,126 @@ export function PermissionsSettings() {
     )
   }
 
-  const isCurrentSessionWs = selectedWorkspace === currentWorkspacePath
-
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-4">
       <div>
-        <h2 className="text-lg font-semibold mb-2">Workspace Permissions</h2>
-
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-600">Workspace:</label>
-          <select
-            value={selectedWorkspace}
-            onChange={e => setSelectedWorkspace(e.target.value)}
-            className="flex-1 text-xs font-mono px-2 py-1 border border-gray-300 rounded bg-white"
-          >
-            {workspaceOptions.map(ws => (
-              <option key={ws.workspacePath} value={ws.workspacePath}>
-                {ws.workspacePath}
-                {ws.ruleCount > 0 && ` (${ws.ruleCount} saved)`}
-                {ws.workspacePath === currentWorkspacePath && ' · current'}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {!isCurrentSessionWs && (
-          <p className="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-            Viewing rules for a workspace different from the current session. Session rules for this
-            workspace belong to another open chat and may not be visible here if no tool has been
-            invoked in it yet.
-          </p>
-        )}
+        <h2 className="text-lg font-semibold mb-1">Workspace Permissions</h2>
+        <p className="text-xs text-gray-500">
+          Rules are stored per workspace at <code className="bg-gray-100 px-1 rounded">~/.talor/workspaces/</code>.
+        </p>
       </div>
 
-      <RuleGroup
-        title="Persisted rules"
-        subtitle="Saved to this workspace, survive restarts"
-        emptyText='No persisted rules. Approving a pattern with "Remember across sessions" adds one here.'
-        rules={view.persisted}
-        onRemove={handleRemove}
-      />
-
-      <RuleGroup
-        title="Session rules"
-        subtitle="In-memory only, cleared when Talor restarts"
-        emptyText="No active session rules."
-        rules={view.session}
-        onRemove={handleRemove}
-        extraAction={
-          view.session.length > 0
-            ? { label: 'Clear all session rules', onClick: handleClearSession }
-            : undefined
-        }
-      />
-
-      {loading && <p className="text-xs text-gray-400">Refreshing...</p>}
+      {workspaceList.map(ws => (
+        <WorkspaceSection
+          key={ws.workspacePath}
+          workspacePath={ws.workspacePath}
+          isCurrent={ws.workspacePath === currentWorkspacePath}
+          defaultExpanded={ws.workspacePath === currentWorkspacePath}
+          onAfterMutate={loadWorkspaces}
+        />
+      ))}
     </div>
+  )
+}
+
+interface WorkspaceSectionProps {
+  workspacePath: string
+  isCurrent: boolean
+  defaultExpanded: boolean
+  /** 通知外层：某 workspace 的规则变动，可能导致 workspace 列表本身变化（如 ruleCount 归零） */
+  onAfterMutate: () => Promise<void>
+}
+
+function WorkspaceSection({ workspacePath, isCurrent, defaultExpanded, onAfterMutate }: WorkspaceSectionProps) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [view, setView] = useState<PermissionRuleView>({ session: [], persisted: [] })
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const v = await talorAPI.permissions.list(workspacePath)
+      setView(v)
+      setLoaded(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [workspacePath])
+
+  // 首次展开时 lazy-load；默认展开的当前 session workspace 会立刻拉一次
+  useEffect(() => {
+    if (expanded && !loaded) refresh()
+  }, [expanded, loaded, refresh])
+
+  const handleRemove = async (ruleId: string) => {
+    await talorAPI.permissions.remove(workspacePath, ruleId)
+    await refresh()
+    await onAfterMutate()
+  }
+
+  const handleClearSession = async () => {
+    if (!confirm(`Clear all session permission rules for ${workspacePath}?`)) return
+    await talorAPI.permissions.clearSession(workspacePath)
+    await refresh()
+  }
+
+  const total = view.session.length + view.persisted.length
+  const countHint = loaded
+    ? `${view.persisted.length} persisted · ${view.session.length} session`
+    : ''
+
+  return (
+    <section className="border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left"
+      >
+        <span className="text-gray-400 text-xs w-4">{expanded ? '▼' : '▶'}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="text-sm font-mono font-medium text-gray-900 truncate">
+              {workspacePath}
+            </span>
+            {isCurrent && (
+              <span className="text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                current
+              </span>
+            )}
+          </div>
+          {loaded && (
+            <p className="text-xs text-gray-500">{countHint || `${total} rules`}</p>
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="px-4 py-4 space-y-4 border-t border-gray-200">
+          <RuleGroup
+            title="Persisted rules"
+            subtitle="Saved to this workspace, survive restarts"
+            emptyText='No persisted rules. Approve a pattern with "Remember across sessions" to add one.'
+            rules={view.persisted}
+            onRemove={handleRemove}
+          />
+
+          <RuleGroup
+            title="Session rules"
+            subtitle="In-memory only, cleared when Talor restarts"
+            emptyText="No active session rules."
+            rules={view.session}
+            onRemove={handleRemove}
+            extraAction={
+              view.session.length > 0
+                ? { label: 'Clear all session rules', onClick: handleClearSession }
+                : undefined
+            }
+          />
+
+          {loading && <p className="text-xs text-gray-400">Refreshing...</p>}
+        </div>
+      )}
+    </section>
   )
 }
 
