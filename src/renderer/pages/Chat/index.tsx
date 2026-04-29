@@ -48,6 +48,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
 
   const [input, setInput] = useState('')
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [showAgentPicker, setShowAgentPicker] = useState(false)
@@ -222,6 +223,20 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     } catch (e) { console.error('Failed to switch agent', e) }
   }
 
+  const handleRenameSession = async (id: string, nextTitle: string) => {
+    const trimmed = nextTitle.trim()
+    const current = sessions.find(s => s.id === id)
+    if (!trimmed || trimmed === (current?.title ?? '')) {
+      setRenamingSessionId(null)
+      return
+    }
+    try {
+      await talorAPI.session.rename({ session_id: id, title: trimmed })
+      await loadSessions()
+    } catch (e) { console.error('Failed to rename session', e) }
+    finally { setRenamingSessionId(null) }
+  }
+
   const handleDeleteSession = async () => {
     if (!sessionToDelete) return
     try {
@@ -321,28 +336,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       ═══════════════════════════════════════════ */}
       <div className="flex flex-col shrink-0 select-none" style={{ width: 260, background: 'linear-gradient(to bottom, #111827, #0f172a)' }}>
 
-        {/* Window chrome row (36px) */}
-        <div className="flex items-center px-4" style={{ height: 36, WebkitAppRegion: 'drag' } as React.CSSProperties}>
-          <div className="flex items-center gap-[8px]" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-            <button onClick={() => talorAPI.window.close()} className="w-3 h-3 rounded-full transition-opacity hover:opacity-80" style={{ background: '#ef4444' }} />
-            <button onClick={() => talorAPI.window.minimize()} className="w-3 h-3 rounded-full transition-opacity hover:opacity-80" style={{ background: '#eab308' }} />
-            <button onClick={() => talorAPI.window.maximize()} className="w-3 h-3 rounded-full transition-opacity hover:opacity-80" style={{ background: '#22c55e' }} />
-          </div>
-        </div>
-
-        {/* Search bar */}
-        <div className="px-[16px] pb-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <div className="flex items-center gap-2 px-3 rounded-[8px] cursor-text" style={{ height: 36, background: 'rgba(255,255,255,0.06)' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <span className="flex-1 text-[12px]" style={{ color: 'rgba(255,255,255,0.3)' }}>搜索会话...</span>
-            <div className="flex items-center justify-center rounded-[5px] text-[9px] font-medium px-1.5" style={{ height: 24, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.3)' }}>⌘K</div>
-          </div>
-        </div>
+        {/* Drag region for native traffic lights (macOS) */}
+        <div style={{ height: 36, WebkitAppRegion: 'drag', flexShrink: 0 } as React.CSSProperties} />
 
         {/* New session button */}
-        <div className="px-[16px] pt-[8px] pb-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div className="px-[16px] pt-0 pb-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <button
             onClick={handleCreateSession}
             className="w-full flex items-center justify-center text-[13px] font-semibold rounded-[10px] transition-colors hover:opacity-90"
@@ -365,6 +363,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     <SessionItem key={s.id} session={s} isActive={s.id === currentSessionId}
                       agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
                       agentColor={agentColor(s.agent_id)}
+                      isRenaming={s.id === renamingSessionId}
+                      onStartRename={() => setRenamingSessionId(s.id)}
+                      onCommitRename={t => handleRenameSession(s.id, t)}
+                      onCancelRename={() => setRenamingSessionId(null)}
                       onClick={() => setCurrentSession(s.id)} onDelete={() => setSessionToDelete(s.id)} />
                   ))}
                 </>
@@ -376,6 +378,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     <SessionItem key={s.id} session={s} isActive={s.id === currentSessionId}
                       agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
                       agentColor={agentColor(s.agent_id)}
+                      isRenaming={s.id === renamingSessionId}
+                      onStartRename={() => setRenamingSessionId(s.id)}
+                      onCommitRename={t => handleRenameSession(s.id, t)}
+                      onCancelRename={() => setRenamingSessionId(null)}
                       onClick={() => setCurrentSession(s.id)} onDelete={() => setSessionToDelete(s.id)} />
                   ))}
                 </>
@@ -387,6 +393,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     <SessionItem key={s.id} session={s} isActive={s.id === currentSessionId}
                       agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
                       agentColor={agentColor(s.agent_id)}
+                      isRenaming={s.id === renamingSessionId}
+                      onStartRename={() => setRenamingSessionId(s.id)}
+                      onCommitRename={t => handleRenameSession(s.id, t)}
+                      onCancelRename={() => setRenamingSessionId(null)}
                       onClick={() => setCurrentSession(s.id)} onDelete={() => setSessionToDelete(s.id)} />
                   ))}
                 </>

@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 import type { ChatSession } from '../types/chat'
 
 function relativeTime(dateStr: string): string {
@@ -18,13 +19,28 @@ interface SessionItemProps {
   isActive: boolean
   agentName?: string
   agentColor?: string
+  isRenaming?: boolean
+  onStartRename?: () => void
+  onCommitRename?: (title: string) => void
+  onCancelRename?: () => void
   onClick: () => void
   onDelete: () => void
 }
 
-export function SessionItem({ session, isActive, agentName, agentColor = '#60a5fa', onClick, onDelete }: SessionItemProps) {
+export function SessionItem({ session, isActive, agentName, agentColor = '#60a5fa', isRenaming = false, onStartRename, onCommitRename, onCancelRename, onClick, onDelete }: SessionItemProps) {
   const title = session.title || '新会话'
   const initial = title.charAt(0)
+  const [draft, setDraft] = useState(title)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const committedRef = useRef(false)
+
+  useEffect(() => {
+    if (isRenaming) {
+      setDraft(title)
+      committedRef.current = false
+      requestAnimationFrame(() => inputRef.current?.select())
+    }
+  }, [isRenaming, title])
 
   const avatarBg = isActive
     ? `rgba(${hexToRgb(agentColor)},0.30)`
@@ -51,12 +67,46 @@ export function SessionItem({ session, isActive, agentName, agentColor = '#60a5f
 
         {/* Text */}
         <div className="flex-1 min-w-0 ml-[8px]">
-          <div
-            className="text-[12px] font-medium truncate leading-tight"
-            style={{ color: isActive ? '#ffffff' : 'rgba(255,255,255,0.7)' }}
-          >
-            {title}
-          </div>
+          {isRenaming ? (
+            <input
+              ref={inputRef}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              onDoubleClick={e => e.stopPropagation()}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  committedRef.current = true
+                  onCommitRename?.(draft)
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  committedRef.current = true
+                  onCancelRename?.()
+                }
+              }}
+              onBlur={() => {
+                if (committedRef.current) return
+                committedRef.current = true
+                onCommitRename?.(draft)
+              }}
+              className="w-full text-[12px] font-medium leading-tight outline-none rounded-[4px] px-1 -mx-1"
+              style={{
+                color: '#ffffff',
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(96,165,250,0.4)',
+              }}
+            />
+          ) : (
+            <div
+              className="text-[12px] font-medium truncate leading-tight"
+              style={{ color: isActive ? '#ffffff' : 'rgba(255,255,255,0.7)' }}
+              onDoubleClick={e => { e.stopPropagation(); onStartRename?.() }}
+            >
+              {title}
+            </div>
+          )}
           <div
             className="text-[10px] truncate mt-0.5"
             style={{ color: isActive ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.25)' }}
@@ -66,14 +116,16 @@ export function SessionItem({ session, isActive, agentName, agentColor = '#60a5f
         </div>
 
         {/* Delete button */}
-        <button
-          className="relative opacity-0 group-hover:opacity-100 p-1 rounded text-white/25 hover:text-red-400 transition-all shrink-0"
-          onClick={e => { e.stopPropagation(); onDelete() }}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-          </svg>
-        </button>
+        {!isRenaming && (
+          <button
+            className="relative opacity-0 group-hover:opacity-100 p-1 rounded text-white/25 hover:text-red-400 transition-all shrink-0"
+            onClick={e => { e.stopPropagation(); onDelete() }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   )
