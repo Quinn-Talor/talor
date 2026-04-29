@@ -62,6 +62,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const toolsPopoverRef = useRef<HTMLDivElement>(null)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const userScrolledUpRef = useRef(false)
   const modelPickerRef = useRef<HTMLDivElement>(null)
   const agentPickerRef = useRef<HTMLDivElement>(null)
 
@@ -153,8 +155,15 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     if (streamState === 'done' && currentSessionId) loadMessages(currentSessionId)
   }, [streamState, currentSessionId]) // eslint-disable-line
 
+  // Reset userScrolledUp when streaming starts or session changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (streamState === 'streaming') userScrolledUpRef.current = false
+  }, [streamState, currentSessionId])
+
+  useEffect(() => {
+    if (!userScrolledUpRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages, streamingContent, streamState])
 
   useEffect(() => {
@@ -240,7 +249,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   }
 
   const handleStop = async () => {
-    if (currentSessionId) try { await talorAPI.chat.abort(currentSessionId); clearToolCalls() } catch { /* noop */ }
+    if (!currentSessionId) return
+    clearStreaming()
+    clearToolCalls()
+    try { await talorAPI.chat.abort(currentSessionId) } catch { /* noop */ }
   }
 
   const handleAttachmentClick = async () => {
@@ -517,7 +529,16 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto px-6 py-6"
+              onScroll={() => {
+                const el = messagesContainerRef.current
+                if (!el) return
+                const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+                userScrolledUpRef.current = !atBottom
+              }}
+            >
               {messages.length === 0 && streamState !== 'streaming' ? (
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center">

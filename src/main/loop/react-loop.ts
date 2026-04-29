@@ -75,6 +75,7 @@ type LoopExitReason =
   | 'max_steps'           // 达到步数上限
   | 'fallback_summary'    // 兜底摘要触发
   | 'stream_error'        // consumeStream 异常
+  | 'repeated_error'      // 连续相同工具错误（死循环保护）
 
 // ── runReactStep ────────────────────────────────────────────────────────
 
@@ -303,6 +304,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   let exitReason: LoopExitReason = 'no_tool_calls'
   const allToolNames: string[] = []
 
+  // Dead loop detection: track last N tool-result signatures
+  const REPEATED_ERROR_THRESHOLD = 3
+  let lastToolSignature = ''
+  let consecutiveRepeatCount = 0
+
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
       exitReason = 'abort'
@@ -314,6 +320,25 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     totalToolCalls += outcome.toolNames.length
     allToolNames.push(...outcome.toolNames)
     if (outcome.wroteAssistantFinal) wroteAssistantFinal = true
+
+    // Dead loop guard: if tool calls repeat with same names and no text progress, abort
+    if (outcome.hadToolCalls && outcome.toolNames.length > 0) {
+      const sig = outcome.toolNames.sort().join(',')
+      if (sig === lastToolSignature && outcome.stepText.length === 0) {
+        consecutiveRepeatCount++
+        if (consecutiveRepeatCount >= REPEATED_ERROR_THRESHOLD) {
+          log.warn(`[ReactLoop] Dead loop detected: "${sig}" repeated ${consecutiveRepeatCount + 1} times with no text output. Breaking.`)
+          exitReason = 'repeated_error'
+          break
+        }
+      } else {
+        lastToolSignature = sig
+        consecutiveRepeatCount = 0
+      }
+    } else {
+      consecutiveRepeatCount = 0
+    }
+
     if (!outcome.shouldContinue) {
       exitReason = outcome.exitReason ?? 'no_tool_calls'
       break
@@ -324,7 +349,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   }
 
   // 兜底摘要：整轮一字没吐且非 abort → 强制一次无工具 streamText
-  if (!wroteAssistantFinal && fullText.length === 0 && !opts.abortSignal.aborted) {
+  if (!wroteAssistantFinal && fullText.length === 0 && exitReason !== 'abort') {
     exitReason = 'fallback_summary'
     await runFallbackSummary(ctx)
   }

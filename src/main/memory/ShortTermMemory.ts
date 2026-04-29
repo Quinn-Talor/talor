@@ -103,7 +103,9 @@ export class ShortTermMemory {
 
   private loadSummary(sessionId: string): SessionSummary | null {
     const db = getDb()
-    return db.prepare('SELECT * FROM session_summaries WHERE session_id = ?').get(sessionId) as SessionSummary | null
+    const row = db.prepare('SELECT * FROM session_summaries WHERE session_id = ?').get(sessionId) as SessionSummary | null
+    if (!row || !row.covered_until) return null
+    return row
   }
 
   private saveSummary(sessionId: string, text: string, coveredUntil: string, tokenEst: number): void {

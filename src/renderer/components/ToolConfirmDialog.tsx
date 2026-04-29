@@ -14,9 +14,9 @@ export function ToolConfirmDialog({ request, onApprove, onReject }: ToolConfirmD
           <p className="text-sm text-gray-500">执行工具</p>
           <p className="text-lg font-semibold font-mono text-gray-900">{request.toolName}</p>
         </div>
-        <div className="px-5 py-4 bg-gray-950 max-h-64 overflow-y-auto">
-          <pre className="text-sm font-mono text-green-400 whitespace-pre-wrap break-words">
-            {request.inputSummary}
+        <div className="px-5 py-3 max-h-64 overflow-y-auto" style={{ backgroundColor: '#0d1117', minHeight: 64 }}>
+          <pre className="text-sm font-mono whitespace-pre-wrap break-words" style={{ color: '#4ade80' }}>
+            {request.inputSummary || <span style={{ color: '#6b7280', fontStyle: 'italic' }}>（无参数）</span>}
           </pre>
         </div>
         <div className="px-5 py-4 flex justify-end gap-3 border-t border-gray-200">

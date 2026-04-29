@@ -58,11 +58,11 @@ export function createSkillTool(registry: SkillRegistry, tracker?: SkillActivati
 
   return {
     name: 'skill',
-    description: '激活一个技能，获取其完整指令内容。可用技能列表在 system prompt 中提供。',
+    description: '激活一个技能，获取其完整操作指令。技能名称（如 lark-doc、lark-wiki）不是工具名，不可直接调用，必须通过本工具激活后才能使用。可用技能列表在 system prompt 中提供。',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: '技能名称' },
+        name: { type: 'string', description: '技能名称，来自 system prompt 的技能列表' },
       },
       required: ['name'],
     },
@@ -80,10 +80,14 @@ export function createSkillTool(registry: SkillRegistry, tracker?: SkillActivati
         return { output: `技能 "${name}" 不存在。可用技能：${available || '无'}` }
       }
 
+      if (sessionTracker.isActivated(name)) {
+        return { output: `技能 "${name}" 已激活，请直接按之前的指令执行，无需重复激活。` }
+      }
+
       sessionTracker.markActivated(name)
       const resolved = resolveRelativePaths(skill.content, skill.filePath)
       const depContent = loadDependentSkills(skill.content, skill.filePath, registry, sessionTracker)
-      return { output: `[SKILL:${name} activated]\n\n${resolved}${depContent}` }
+      return { output: `[SKILL:${name} activated]\n\n${resolved}${depContent}\n\n> 技能已激活，请严格按照以上指令使用对应工具执行操作，不要调用不存在的工具名。` }
     },
   }
 }

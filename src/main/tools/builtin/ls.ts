@@ -1,43 +1,10 @@
 import { readdirSync, existsSync, statSync, realpathSync } from 'fs'
-import { join, isAbsolute, normalize, dirname, basename } from 'path'
+import { join } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
+import { resolveToolPath, isPathSensitive } from '../path-guard'
 
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
-
-function isPathSensitive(path: string): boolean {
-  return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
-}
-
-function resolveInWorkspace(workspace: string, filePath: string): string | null {
-  const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
-  const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) return null
-
-  const realWorkspace = realpathSync(workspace)
-
-  try {
-    const real = realpathSync(normalized)
-    if (!real.startsWith(realWorkspace)) return null
-    return real
-  } catch {
-    // new file — walk up to first existing parent and verify it's within workspace
-    let parent = dirname(normalized)
-    let suffix = basename(normalized)
-    while (parent !== dirname(parent)) {
-      try {
-        const realParent = realpathSync(parent)
-        if (!realParent.startsWith(realWorkspace)) return null
-        return join(realParent, suffix)
-      } catch {
-        suffix = join(basename(parent), suffix)
-        parent = dirname(parent)
-      }
-    }
-    return null
-  }
-}
 
 function formatSize(size: number): string {
   if (size < 1024) return `${size}B`
@@ -83,7 +50,7 @@ const lsTool = {
     }
 
     const targetPath = params.path || '.'
-    const resolvedPath = resolveInWorkspace(workspace, targetPath)
+    const resolvedPath = resolveToolPath(targetPath, workspace)
     if (!resolvedPath) {
       return { output: 'Cannot access path outside workspace' }
     }

@@ -1,43 +1,8 @@
-import { readFileSync, writeFileSync, existsSync, statSync, realpathSync } from 'fs'
-import { join, isAbsolute, normalize, dirname, basename } from 'path'
+import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
-
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
-
-function isPathSensitive(path: string): boolean {
-  return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
-}
-
-function resolveInWorkspace(workspace: string, filePath: string): string | null {
-  const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
-  const normalized = normalize(resolved)
-  if (!normalized.startsWith(workspace)) return null
-
-  const realWorkspace = realpathSync(workspace)
-
-  try {
-    const real = realpathSync(normalized)
-    if (!real.startsWith(realWorkspace)) return null
-    return real
-  } catch {
-    // new file — walk up to first existing parent and verify it's within workspace
-    let parent = dirname(normalized)
-    let suffix = basename(normalized)
-    while (parent !== dirname(parent)) {
-      try {
-        const realParent = realpathSync(parent)
-        if (!realParent.startsWith(realWorkspace)) return null
-        return join(realParent, suffix)
-      } catch {
-        suffix = join(basename(parent), suffix)
-        parent = dirname(parent)
-      }
-    }
-    return null
-  }
-}
+import { resolveToolPath } from '../path-guard'
 
 const editTool = {
   name: 'edit',
@@ -62,17 +27,9 @@ const editTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    if (isPathSensitive(params.path)) {
-      return { output: 'Cannot access sensitive system path' }
-    }
-
-    const resolvedPath = resolveInWorkspace(workspace, params.path)
+    const resolvedPath = resolveToolPath(params.path, workspace)
     if (!resolvedPath) {
       return { output: 'Cannot access path outside workspace' }
-    }
-
-    if (isPathSensitive(resolvedPath)) {
-      return { output: 'Cannot access sensitive system path' }
     }
 
     if (!existsSync(resolvedPath)) {

@@ -65,7 +65,7 @@ const DEFAULT_CONFIG: AppConfig = {
     y: 0,
     is_maximized: false
   },
-  default_context_limit: 8000
+  default_context_limit: 1_000_000
 }
 
 export class ConfigStore {
@@ -122,7 +122,9 @@ export class ConfigStore {
   get(key: string): unknown
   get(key: string): unknown {
     const config = this.store.get('config') ?? DEFAULT_CONFIG
-    return (config as unknown as Record<string, unknown>)[key]
+    const value = (config as unknown as Record<string, unknown>)[key]
+    if (value === undefined) return (DEFAULT_CONFIG as unknown as Record<string, unknown>)[key]
+    return value
   }
 
   set<K extends keyof AppConfig>(key: K, value: AppConfig[K]): void {

@@ -86,7 +86,15 @@ function buildSkillListing(skillRegistry: SkillRegistry): string {
       : s.description
     return `- ${s.name}: ${desc}`
   }).join('\n')
-  return `你有以下技能可用（需要时调用 skill 工具激活）：\n${listing}`
+
+  return `## 可用技能（Skills）
+
+以下是技能名称，**不是工具名，不能直接调用**。需要使用某个技能时，必须先用 \`skill\` 工具激活，例如：
+  skill({"name": "lark-doc"})
+
+激活后按返回的指令执行操作。已激活过的技能无需重复激活。
+
+${listing}`
 }
 
 function buildFewShot(role: AgentRole): CoreMessage[] {

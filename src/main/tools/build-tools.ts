@@ -12,7 +12,7 @@ import type { ToolConfirmPort } from '../ipc/tool-confirm'
 function buildInputSummary(toolName: string, input: unknown): string {
   const MAX = 500
   const obj = input as Record<string, unknown>
-  if (toolName === 'bash') return String(obj.command ?? '').slice(0, MAX)
+  if (toolName === 'bash') return String(obj.command ?? '').trim().slice(0, MAX)
   if (toolName === 'write') {
     const lines = String(obj.content ?? '').split('\n').slice(0, 20).map(l => l.slice(0, 80))
     return `文件: ${obj.path}\n\n${lines.join('\n')}`.slice(0, MAX)
@@ -48,11 +48,13 @@ export async function buildTools(opts: {
       inputSchema: jsonSchema(schema.parameters),
       execute: async (input: unknown, options: { toolCallId?: string }) => {
         if (isHighRisk) {
+          const summary = buildInputSummary(schema.name, input)
+          if (!summary.trim()) return 'Invalid input: required parameters are missing.'
           const toolCallId = options?.toolCallId ?? uuidv4()
           const confirmed = await confirmTool({
             sessionId, messageId, toolCallId,
             toolName: schema.name,
-            inputSummary: buildInputSummary(schema.name, input),
+            inputSummary: summary,
             inputFull: input,
           })
           if (!confirmed) return '用户拒绝执行'
