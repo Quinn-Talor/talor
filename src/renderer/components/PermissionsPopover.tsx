@@ -100,7 +100,7 @@ export function PermissionsPopover({ workspacePath }: Props) {
 
       {open && (
         <div
-          className="absolute top-full right-0 mt-1 w-[380px] rounded-lg shadow-xl z-40"
+          className="absolute bottom-full right-0 mb-1 w-[380px] rounded-lg shadow-xl z-40"
           style={{ background: '#ffffff', border: '1px solid #e2e8f0' }}
         >
           <div className="px-4 py-3 border-b border-gray-100">
