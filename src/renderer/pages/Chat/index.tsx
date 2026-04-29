@@ -11,6 +11,7 @@ import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolCallMessage } from '../../components/ToolCallMessage'
 import { ToolConfirmDialog } from '../../components/ToolConfirmDialog'
 import { PermissionDialog } from '../../components/PermissionDialog'
+import { PermissionsPopover } from '../../components/PermissionsPopover'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
 import type { AgentCardData } from '../../components/AgentCard'
@@ -618,6 +619,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     onWorkspaceChange={ws => { setCurrentWorkspace(ws); loadSessions() }}
                     disabled={streamState === 'streaming'}
                   />
+                  {currentWorkspace && (
+                    <div className="ml-auto">
+                      <PermissionsPopover workspacePath={currentWorkspace} />
+                    </div>
+                  )}
                 </div>
 
                 {/* Textarea */}
