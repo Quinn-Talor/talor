@@ -22,6 +22,12 @@ interface ChatState {
   toolCalls: ToolCallEntry[]
   pendingToolConfirm: ToolConfirmRequest | null
   pendingPermission: PermissionRequest | null
+  /**
+   * 每当有新 permission request 到达时递增。PermissionsPopover 监听这个数字，
+   * 自动展开弹窗让用户处理待授权请求。用计数器而非 boolean 是为了"同一个
+   * request 来两次"也能再次触发（虽然当前 IPC 协议不会出现，但防守性设计）。
+   */
+  permissionAutoOpenTick: number
 
   setSessions: (sessions: ChatSession[]) => void
   setCurrentSession: (id: string | null) => void
@@ -54,6 +60,7 @@ export const useChatStore = create<ChatState>((set) => ({
   toolCalls: [],
   pendingToolConfirm: null,
   pendingPermission: null,
+  permissionAutoOpenTick: 0,
 
   setSessions: (sessions) => set({ sessions }),
   setCurrentSession: (id) => set({ 
@@ -87,5 +94,9 @@ export const useChatStore = create<ChatState>((set) => ({
   })),
   clearToolCalls: () => set({ toolCalls: [] }),
   setPendingToolConfirm: (req) => set({ pendingToolConfirm: req }),
-  setPendingPermission: (req) => set({ pendingPermission: req }),
+  setPendingPermission: (req) => set(state => ({
+    pendingPermission: req,
+    // 只有从 null → 非 null 时才 bump tick（auto-open 触发）；清空不触发。
+    permissionAutoOpenTick: req !== null ? state.permissionAutoOpenTick + 1 : state.permissionAutoOpenTick,
+  })),
 }))

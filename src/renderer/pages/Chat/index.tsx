@@ -10,7 +10,8 @@ import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolCallMessage } from '../../components/ToolCallMessage'
 import { ToolConfirmDialog } from '../../components/ToolConfirmDialog'
-import { PermissionDialog } from '../../components/PermissionDialog'
+// PermissionDialog 已下线到 PermissionsPopover 内嵌渲染（PR #11）。
+// 组件源码保留在 components/PermissionDialog.tsx，未来如需全屏 agent 模式再启用。
 import { PermissionsPopover } from '../../components/PermissionsPopover'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
@@ -39,10 +40,10 @@ interface ChatPageProps {
 export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const {
     sessions, currentSessionId, messages, streamState, streamingContent,
-    error, attachments, pendingToolConfirm, pendingPermission,
+    error, attachments, pendingToolConfirm,
     setSessions, setCurrentSession, setMessages, addMessage,
     clearStreaming, clearToolCalls, setAttachments, removeAttachment,
-    setPendingToolConfirm, setPendingPermission,
+    setPendingToolConfirm,
   } = useChatStore()
 
   const [input, setInput] = useState('')
@@ -287,11 +288,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const handleToolConfirmReject = () => {
     if (!pendingToolConfirm) return
     talorAPI.chat.sendToolConfirmResponse({ toolCallId: pendingToolConfirm.toolCallId, decision: 'rejected' }); setPendingToolConfirm(null)
-  }
-  const handlePermissionDecide = (resp: Omit<import('@shared/types/permissions').PermissionResponse, 'requestId'>) => {
-    if (!pendingPermission) return
-    talorAPI.chat.sendPermissionResponse({ requestId: pendingPermission.requestId, ...resp })
-    setPendingPermission(null)
   }
 
   // Derived display values
@@ -854,9 +850,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       {pendingToolConfirm && (
         <ToolConfirmDialog request={pendingToolConfirm} onApprove={handleToolConfirmApprove} onReject={handleToolConfirmReject} />
       )}
-      {pendingPermission && (
-        <PermissionDialog request={pendingPermission} onDecide={handlePermissionDecide} />
-      )}
+      {/* PermissionDialog 已迁移到 PermissionsPopover 内嵌展示（PR #11）；
+          组件文件保留以备未来场景复用。pendingPermission 仍从 chatStore
+          读取但消费点挪到 Popover 里了。 */}
       {modelSwitchedToast && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-[13px] text-white shadow-lg z-50 pointer-events-none" style={{ background: '#1e293b' }} data-testid="model-switched-toast">已切换模型</div>
       )}
