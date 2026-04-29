@@ -86,4 +86,72 @@ describe('read tool', () => {
     const result = await toolRegistry.execute('read', { path: 'evil_link/passwd' }, makeContext())
     expect(result.output).toContain('Cannot access')
   })
+
+  describe('requestPermission integration (needs_consent path)', () => {
+    it('calls requestPermission for workspace-external paths; approved → file is read', async () => {
+      // Write a fixture file OUTSIDE the workspace, then verify the port is
+      // invoked and, on approval, read succeeds.
+      const { mkdtempSync, writeFileSync: wfs, rmSync } = await import('fs')
+      const { tmpdir } = await import('os')
+      const outsideDir = mkdtempSync(join(tmpdir(), 'talor-read-outside-'))
+      wfs(join(outsideDir, 'external.md'), 'external content')
+
+      const requestPermission = async () => true
+      const result = await toolRegistry.execute(
+        'read',
+        { path: join(outsideDir, 'external.md') },
+        { ...makeContext(), requestPermission },
+      )
+
+      rmSync(outsideDir, { recursive: true, force: true })
+      expect(result.output).toBe('external content')
+    })
+
+    it('calls requestPermission; denied → returns denial message; does not read', async () => {
+      const { mkdtempSync, writeFileSync: wfs, rmSync } = await import('fs')
+      const { tmpdir } = await import('os')
+      const outsideDir = mkdtempSync(join(tmpdir(), 'talor-read-outside-'))
+      wfs(join(outsideDir, 'secret.md'), 'SECRET')
+
+      const requestPermission = async () => false
+      const result = await toolRegistry.execute(
+        'read',
+        { path: join(outsideDir, 'secret.md') },
+        { ...makeContext(), requestPermission },
+      )
+
+      rmSync(outsideDir, { recursive: true, force: true })
+      expect(result.output).toContain('user denied')
+      expect(result.output).not.toContain('SECRET')
+    })
+
+    it('absent requestPermission port → falls back to hard deny', async () => {
+      // No port injected — the tool should refuse without trying anything else.
+      const result = await toolRegistry.execute(
+        'read',
+        { path: '/tmp/anywhere.md' },
+        makeContext(),   // no requestPermission
+      )
+      expect(result.output).toContain('Cannot access path outside workspace')
+    })
+
+    it('requestPermission is invoked with absPath + summary', async () => {
+      interface Captured { toolName: string; absPath?: string; inputSummary: string; reason: string }
+      let captured: Captured | null = null
+      const requestPermission = async (input: Captured): Promise<boolean> => {
+        captured = input
+        return false
+      }
+      await toolRegistry.execute(
+        'read',
+        { path: '/tmp/peek.md' },
+        { ...makeContext(), requestPermission } as any,   // cast: ctx extends ToolConfig; extra requestPermission allowed
+      )
+      expect(captured).not.toBeNull()
+      expect(captured!.toolName).toBe('read')
+      expect(captured!.reason).toBe('path_outside_workspace')
+      expect(captured!.absPath).toBe('/tmp/peek.md')
+      expect(captured!.inputSummary).toBe('/tmp/peek.md')
+    })
+  })
 })

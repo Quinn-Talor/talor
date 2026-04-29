@@ -152,6 +152,16 @@ export class PermissionStore {
   }
 
   /**
+   * 测试 hook：清空 session + 持久化缓存，强制下次 loadPersisted 重新读盘。
+   * 生产代码**不要**调用——workspacePath → sha1(hash) 已隔离不同 workspace，
+   * 缓存在正常使用里不会出现陈旧。仅在单测切换 fakeHome 时需要。
+   */
+  _resetForTests(): void {
+    this.sessionRules.clear()
+    this.persistedCache.clear()
+  }
+
+  /**
    * 列出当前 workspace 的所有规则，分为 session 和 persisted 两组。
    * 给 Settings UI 展示用。
    */

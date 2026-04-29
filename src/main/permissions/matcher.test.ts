@@ -26,7 +26,7 @@ const WS = '/Users/alice/projects/foo'
 describe('matchRules', () => {
   beforeEach(() => {
     fakeHome = mkdtempSync(join(tmpdir(), 'talor-match-test-'))
-    permissionStore.clearAllSessions()
+    permissionStore._resetForTests()
   })
 
   afterEach(() => {
