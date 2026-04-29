@@ -21,12 +21,6 @@ interface AppConfig {
   default_recent_ratio?: number
   default_summary_ratio?: number
   max_react_steps?: number
-  /**
-   * 旧行为兼容开关：true 时 MCP 工具全部按 LOW 风险处理（不弹确认）。
-   * 默认 false（保守）——MCP 工具除非名字像只读操作或显式列入 lowRiskTools，
-   * 否则都会弹确认。已有用户若抱怨"确认框太多"，可临时开启。
-   */
-  mcp_legacy_auto_approve?: boolean
 }
 
 export interface Provider {
