@@ -38,10 +38,14 @@ const editTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    const resolvedPath = resolveToolPath(params.path, workspace)
-    if (!resolvedPath) {
+    const guard = resolveToolPath(params.path, workspace)
+    if (guard.status === 'sensitive') {
+      return { output: 'Cannot access sensitive system path' }
+    }
+    if (guard.status === 'needs_consent') {
       return { output: 'Cannot access path outside workspace' }
     }
+    const resolvedPath = guard.absPath
 
     if (!existsSync(resolvedPath)) {
       return { output: `File not found: ${params.path}` }

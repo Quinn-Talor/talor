@@ -51,10 +51,15 @@ const readTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    const resolvedPath = resolveToolPath(params.path, workspace)
-    if (!resolvedPath) {
+    const guard = resolveToolPath(params.path, workspace)
+    if (guard.status === 'sensitive') {
+      return { output: 'Cannot access sensitive system path' }
+    }
+    if (guard.status === 'needs_consent') {
+      // TODO (PR #4): 接入 requestPermission 前先按拒绝处理，保持当前行为
       return { output: 'Cannot access path outside workspace' }
     }
+    const resolvedPath = guard.absPath
 
     if (!existsSync(resolvedPath)) {
       return { output: `File not found: ${params.path}` }

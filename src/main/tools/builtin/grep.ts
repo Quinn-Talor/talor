@@ -59,10 +59,14 @@ const grepTool = {
     }
 
     const targetPath = params.path || '.'
-    const resolvedPath = resolveToolPath(targetPath, workspace)
-    if (!resolvedPath) {
+    const guard = resolveToolPath(targetPath, workspace)
+    if (guard.status === 'sensitive') {
+      return { output: 'Cannot access sensitive system path' }
+    }
+    if (guard.status === 'needs_consent') {
       return { output: 'Cannot access path outside workspace' }
     }
+    const resolvedPath = guard.absPath
 
     if (!existsSync(resolvedPath)) {
       return { output: `Path not found: ${targetPath}` }

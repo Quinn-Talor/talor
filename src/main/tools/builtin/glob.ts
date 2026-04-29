@@ -2,14 +2,10 @@ import { readdirSync, existsSync, realpathSync } from 'fs'
 import { join, relative } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
+import { isPathSensitive } from '../path-guard'
 
-const SENSITIVE_PATHS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/.npm/', '/usr/bin/', '/usr/sbin/']
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache', 'dist', 'build', '.venv', 'venv'])
 const MAX_RESULTS = 200
-
-function isPathSensitive(path: string): boolean {
-  return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
-}
 
 function globToRegex(pattern: string): RegExp {
   // Replace glob metacharacters before escaping regex specials

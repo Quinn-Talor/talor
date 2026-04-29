@@ -35,10 +35,14 @@ const writeTool = {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    const resolvedPath = resolveToolPath(params.path, workspace)
-    if (!resolvedPath) {
+    const guard = resolveToolPath(params.path, workspace)
+    if (guard.status === 'sensitive') {
+      return { output: 'Cannot access sensitive system path' }
+    }
+    if (guard.status === 'needs_consent') {
       return { output: 'Cannot access path outside workspace' }
     }
+    const resolvedPath = guard.absPath
 
     try {
       const contentBytes = Buffer.byteLength(params.content, 'utf-8')

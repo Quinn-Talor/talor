@@ -2,7 +2,7 @@ import { readdirSync, existsSync, statSync, realpathSync } from 'fs'
 import { join } from 'path'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
-import { resolveToolPath, isPathSensitive } from '../path-guard'
+import { resolveToolPath } from '../path-guard'
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
 
@@ -50,14 +50,14 @@ const lsTool = {
     }
 
     const targetPath = params.path || '.'
-    const resolvedPath = resolveToolPath(targetPath, workspace)
-    if (!resolvedPath) {
-      return { output: 'Cannot access path outside workspace' }
-    }
-
-    if (isPathSensitive(resolvedPath)) {
+    const guard = resolveToolPath(targetPath, workspace)
+    if (guard.status === 'sensitive') {
       return { output: 'Cannot access sensitive system path' }
     }
+    if (guard.status === 'needs_consent') {
+      return { output: 'Cannot access path outside workspace' }
+    }
+    const resolvedPath = guard.absPath
 
     if (!existsSync(resolvedPath)) {
       return { output: `Path not found: ${targetPath}` }

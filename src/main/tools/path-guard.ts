@@ -26,39 +26,60 @@ const SKILL_ROOTS = [
   join(homedir(), '.talor', 'agents'),
 ]
 
+/**
+ * path-guard 的三态结果：
+ *   - 'allowed':        路径在 workspace / skill 根内，工具可直接使用 absPath
+ *   - 'sensitive':      路径命中敏感列表，硬拒（即使用户想授权也不开放）
+ *   - 'needs_consent':  非敏感、非 workspace、非 skill 根；absPath 已解析到绝对路径，
+ *                       由工具层上调至 PermissionPort 询问用户
+ */
+export type PathGuardResult =
+  | { status: 'allowed';        absPath: string }
+  | { status: 'sensitive' }
+  | { status: 'needs_consent';  absPath: string }
+
 export function isPathSensitive(path: string): boolean {
   return SENSITIVE_PATHS.some(sp => path.startsWith(sp))
 }
 
 /**
- * Resolves filePath to an absolute path and verifies it is accessible.
+ * 规范化路径，返回三态结果。
  *
- * Allowed:
- *   - Paths within workspace (symlink-safe two-stage check)
- *   - Paths within ~/.talor/skills or ~/.talor/agents (skill system exemption)
- *
- * Returns null if the path is sensitive or escapes all allowed roots.
+ * 规范化规则：
+ *   - 命中 SENSITIVE_PATHS → 'sensitive'（无论用户输入什么形式）
+ *   - 命中 SKILL_ROOTS     → 'allowed'（skill 系统内部路径，免授权）
+ *   - workspace 内（含 symlink 两阶段校验） → 'allowed'
+ *   - 其余                 → 'needs_consent'（解析到绝对路径供上层询问用户）
  */
-export function resolveToolPath(filePath: string, workspace: string): string | null {
-  if (isPathSensitive(filePath)) return null
+export function resolveToolPath(filePath: string, workspace: string): PathGuardResult {
+  if (isPathSensitive(filePath)) return { status: 'sensitive' }
 
   const normalized = normalize(isAbsolute(filePath) ? filePath : join(workspace, filePath))
-
-  if (isPathSensitive(normalized)) return null
+  if (isPathSensitive(normalized)) return { status: 'sensitive' }
 
   if (SKILL_ROOTS.some(root => normalized.startsWith(root + '/') || normalized === root)) {
-    return normalized
+    return { status: 'allowed', absPath: normalized }
   }
 
-  return resolveInWorkspace(workspace, filePath)
+  const inWorkspace = resolveInWorkspace(workspace, filePath)
+  if (inWorkspace) return { status: 'allowed', absPath: inWorkspace }
+
+  // 非敏感 + 非 workspace + 非 skill 根 → 需要用户授权
+  return { status: 'needs_consent', absPath: normalized }
 }
 
 function resolveInWorkspace(workspace: string, filePath: string): string | null {
+  if (!workspace) return null
   const resolved = isAbsolute(filePath) ? filePath : join(workspace, filePath)
   const normalized = normalize(resolved)
   if (!normalized.startsWith(workspace)) return null
 
-  const realWorkspace = realpathSync(workspace)
+  let realWorkspace: string
+  try {
+    realWorkspace = realpathSync(workspace)
+  } catch {
+    return null
+  }
 
   try {
     const real = realpathSync(normalized)
