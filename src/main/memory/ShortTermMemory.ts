@@ -23,7 +23,12 @@ import type { ChatMessage } from '../repos/session-repo'
  */
 const TOOL_ANCHOR_COUNT = 4
 
+const COMPRESSION_RETRY_LIMIT = 3
+const COMPRESSION_COOLDOWN_MS = 60_000
+
 export class ShortTermMemory {
+  private compressionFailures = new Map<string, { count: number; lastAttempt: number }>()
+
   /**
    * Returns the message context to include in the next LLM call.
    *
@@ -60,7 +65,7 @@ export class ShortTermMemory {
     }
 
     const totalTokens = history.reduce((sum, m) => sum + estimateMessage(m), 0)
-    const threshold    = 0.90 * config.context_limit
+    const threshold = 0.9 * config.context_limit
     const recentBudget = config.recent_ratio * config.context_limit
 
     // Path A: below threshold
@@ -117,6 +122,30 @@ export class ShortTermMemory {
     let summaryText: string
 
     if (existing === null || existing.covered_until !== lastCompressedId) {
+      const failState = this.compressionFailures.get(sessionId)
+      const shouldSkipRetry =
+        failState &&
+        failState.count >= COMPRESSION_RETRY_LIMIT &&
+        Date.now() - failState.lastAttempt < COMPRESSION_COOLDOWN_MS
+
+      if (shouldSkipRetry) {
+        log.warn(
+          `[ShortTermMemory] skipping summary retry: ${failState!.count} failures, cooldown active`,
+        )
+        return {
+          summaryMessage: {
+            role: 'system',
+            content:
+              `[CONTEXT GAP WARNING] Summary generation failed ${failState!.count} times and is on cooldown. ` +
+              `${compressible.length} earlier messages from this conversation are NOT visible in this turn. ` +
+              `Do NOT make claims that rely on that hidden history. ` +
+              `If the user references earlier work, tell them history compression failed and ask for a recap.`,
+          },
+          recentMessages: messagesToCoreMessages([...anchors, ...recentMessages]),
+          tokenEstimate: recentTokens,
+        }
+      }
+
       try {
         summaryText = await generateSummary(
           existing?.summary_text ?? null,
@@ -125,11 +154,18 @@ export class ShortTermMemory {
           config,
         )
         this.saveSummary(sessionId, summaryText, lastCompressedId, estimate(summaryText))
+        this.compressionFailures.delete(sessionId)
         events?.emit({ type: 'memory.compressed', coveredUntilMessageId: lastCompressedId })
       } catch (err) {
-        // 摘要生成失败时不能静默丢掉 compressible——模型看不到就会凭空编造。
-        // 保留 anchors + recent + 显式告警,让模型知道"有历史但我看不到"。
-        log.warn('[ShortTermMemory] summary generation failed, returning gap warning', err)
+        const prev = this.compressionFailures.get(sessionId)
+        this.compressionFailures.set(sessionId, {
+          count: (prev?.count ?? 0) + 1,
+          lastAttempt: Date.now(),
+        })
+        log.warn(
+          `[ShortTermMemory] summary generation failed (attempt ${(prev?.count ?? 0) + 1}), returning gap warning`,
+          err,
+        )
         return {
           summaryMessage: {
             role: 'system',
@@ -163,18 +199,27 @@ export class ShortTermMemory {
 
   private loadSummary(sessionId: string): SessionSummary | null {
     const db = getDb()
-    const row = db.prepare('SELECT * FROM session_summaries WHERE session_id = ?').get(sessionId) as SessionSummary | null
+    const row = db
+      .prepare('SELECT * FROM session_summaries WHERE session_id = ?')
+      .get(sessionId) as SessionSummary | null
     if (!row || !row.covered_until) return null
     return row
   }
 
-  private saveSummary(sessionId: string, text: string, coveredUntil: string, tokenEst: number): void {
+  private saveSummary(
+    sessionId: string,
+    text: string,
+    coveredUntil: string,
+    tokenEst: number,
+  ): void {
     const db = getDb()
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR REPLACE INTO session_summaries
         (session_id, summary_text, covered_until, token_estimate, created_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(sessionId, text, coveredUntil, tokenEst, new Date().toISOString())
+    `,
+    ).run(sessionId, text, coveredUntil, tokenEst, new Date().toISOString())
   }
 }
 
@@ -247,17 +292,18 @@ async function generateSummary(
           const errTag = b.isError ? ' ERROR' : ''
           const toolTag = b.toolName ? ` tool=${b.toolName}` : ''
           texts.push(`[tool_result${errTag}${toolTag}: ${b.output}]`)
-        }
-        else if (b.type === 'tool_use' && b.input) texts.push(`[tool_use: ${JSON.stringify(b.input)}]`)
+        } else if (b.type === 'tool_use' && b.input)
+          texts.push(`[tool_use: ${JSON.stringify(b.input)}]`)
       }
       textContent = texts.join('\n')
     } catch {
       textContent = msg.content
     }
     const byteLen = Buffer.byteLength(textContent, 'utf8')
-    const raw = byteLen > MAX_CONTENT_BYTES
-      ? textContent.slice(0, Math.floor(MAX_CONTENT_BYTES * 0.8)) + '…[truncated]'
-      : textContent
+    const raw =
+      byteLen > MAX_CONTENT_BYTES
+        ? textContent.slice(0, Math.floor(MAX_CONTENT_BYTES * 0.8)) + '…[truncated]'
+        : textContent
     if (raw.trim()) parts.push(`${msg.role}: ${raw}`)
   }
 
@@ -277,7 +323,7 @@ async function generateSummary(
     model,
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user',   content: userContent  },
+      { role: 'user', content: userContent },
     ],
     maxTokens: Math.ceil(summaryBudget),
     abortSignal: AbortSignal.timeout(60_000),
