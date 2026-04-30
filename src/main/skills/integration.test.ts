@@ -126,8 +126,9 @@ describe('Skill 双阶段加载集成测试', () => {
       .join('\n')
 
     expect(systemContent).toContain('## Available Skills')
-    expect(systemContent).toContain('lark-sheets: 飞书电子表格操作')
-    expect(systemContent).toContain('lark-im: 飞书即时通讯')
+    // 新格式: `- <name>\n  <description>` 多行
+    expect(systemContent).toMatch(/- lark-sheets\n\s+飞书电子表格操作/)
+    expect(systemContent).toMatch(/- lark-im\n\s+飞书即时通讯/)
     // 此时 LLM 只知道名称和简短描述，不知道具体命令
 
     console.log('╔══════════════════════════════════════════════╗')

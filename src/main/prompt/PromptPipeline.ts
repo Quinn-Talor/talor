@@ -13,6 +13,16 @@ import type { Provider } from '../store/config-store'
 import type { CoreMessage } from 'ai'
 import log from 'electron-log'
 
+/**
+ * 关键插件失败必须抛出——它们提供的信息（用户身份、系统规则、历史记忆、当前 turn）
+ * 一旦缺失，模型就会以"空上下文"凭空编造。非关键插件（工具筛选等）失败
+ * 只降级 + 注入 [DEGRADED] 告警，让模型感知信息缺口。
+ *
+ * MessagePlugin 属于关键插件:Memory 已 pop 掉末尾那条,若 MessagePlugin 失败
+ * 则 prompt 末尾缺少"当前要推进的那条消息",模型无所依据。
+ */
+const CRITICAL_PLUGIN_NAMES = new Set(['SystemPlugin', 'AgentPromptPlugin', 'MemoryPlugin', 'MessagePlugin'])
+
 /** Merges provider-level overrides with global defaults from ConfigStore. */
 export function resolveProviderConfig(provider: Provider): ProviderContextConfig {
   const configStore = ConfigStore.getInstance()
@@ -40,11 +50,17 @@ export class PromptPipeline {
     const { SystemPlugin } = await import('./plugins/SystemPlugin')
     const { AgentPromptPlugin } = await import('./plugins/AgentPromptPlugin')
     const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
+    const { MessagePlugin } = await import('./plugins/MessagePlugin')
     const { ToolSelectionPlugin } = await import('./plugins/ToolSelectionPlugin')
+    // 顺序映射到最终 prompt 结构:
+    //   System (Layer 1+2) → Agent (Layer 3+4) → Memory (Layer 6)
+    //   → Message (Layer 7,当前 turn) → ToolSelection (仅 ≥50 工具时的 notice)
+    // MessagePlugin 必须紧跟 MemoryPlugin:Memory pop 了末尾,Message 把它放回来。
     this.plugins = [
       new SystemPlugin(),
       new AgentPromptPlugin(),
       new MemoryPlugin(this.memoryManager),
+      new MessagePlugin(),
       new ToolSelectionPlugin(),
     ]
     return this.plugins
@@ -52,12 +68,19 @@ export class PromptPipeline {
 
   /**
    * Runs each plugin in order and concatenates their messages.
-   * Plugin failures are logged and skipped so one bad plugin never blocks the whole pipeline.
+   *
+   * Critical plugins (see CRITICAL_PLUGIN_NAMES): failure throws — the caller
+   * must surface the error instead of silently serving a prompt without the
+   * system/agent/memory context.
+   *
+   * Non-critical plugins: failure is logged and a [DEGRADED] system message is
+   * prepended so the model knows some context is missing.
    */
   async build(ctx: PipelineContext): Promise<{ messages: CoreMessage[]; tools: ToolMetadata[] }> {
     const plugins = await this.getPlugins()
     const allMessages: CoreMessage[] = []
     const allTools: ToolMetadata[] = []
+    const degraded: string[] = []
 
     for (const plugin of plugins) {
       try {
@@ -65,8 +88,25 @@ export class PromptPipeline {
         allMessages.push(...result.messages)
         allTools.push(...result.tools)
       } catch (err) {
-        log.warn(`[PromptPipeline] Plugin ${plugin.name} failed, skipping:`, err)
+        if (CRITICAL_PLUGIN_NAMES.has(plugin.name)) {
+          log.error(`[PromptPipeline] Critical plugin ${plugin.name} failed:`, err)
+          throw new Error(
+            `Critical prompt plugin "${plugin.name}" failed: ${err instanceof Error ? err.message : String(err)}`,
+          )
+        }
+        log.warn(`[PromptPipeline] Non-critical plugin ${plugin.name} failed, marking as degraded:`, err)
+        degraded.push(plugin.name)
       }
+    }
+
+    if (degraded.length > 0) {
+      allMessages.unshift({
+        role: 'system',
+        content:
+          `[DEGRADED] The following prompt plugins failed and were skipped: ${degraded.join(', ')}. ` +
+          `Some context may be missing. If the current task depends on them ` +
+          `(e.g. tool selection, external knowledge), tell the user and ask whether to retry.`,
+      })
     }
 
     return { messages: allMessages, tools: allTools }

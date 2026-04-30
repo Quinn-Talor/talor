@@ -48,6 +48,14 @@ describe('ToolSelectionPlugin', () => {
     expect(result.tools.map(t => t.name)).toEqual(['tool_2', 'tool_5', 'tool_10'])
   })
 
+  it('AC-004-02b: 筛选成功时注入 system notice 告知已筛选', async () => {
+    vi.mocked(generateText).mockResolvedValue({ text: '["tool_1","tool_2"]' } as ReturnType<typeof generateText> extends Promise<infer T> ? T : never)
+    const result = await new ToolSelectionPlugin().build(makeCtx('test', 60))
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0].role).toBe('system')
+    expect(result.messages[0].content).toMatch(/Tool list was pre-filtered to 2\/60/)
+  })
+
   it('AC-004-03: LLM 失败时降级到前 49 个工具', async () => {
     vi.mocked(generateText).mockRejectedValue(new Error('timeout'))
     const result = await new ToolSelectionPlugin().build(makeCtx('test', 55))
@@ -56,6 +64,17 @@ describe('ToolSelectionPlugin', () => {
       expect.stringContaining('LLM-based tool selection failed'),
       expect.any(Error)
     )
+  })
+
+  it('AC-004-03b: 降级时注入 [DEGRADED] notice + 完整工具名列表', async () => {
+    vi.mocked(generateText).mockRejectedValue(new Error('timeout'))
+    const result = await new ToolSelectionPlugin().build(makeCtx('test', 55))
+    expect(result.messages).toHaveLength(1)
+    const content = result.messages[0].content as string
+    expect(content).toMatch(/^\[DEGRADED\]/)
+    expect(content).toMatch(/first 49 of 55 tools/)
+    expect(content).toContain('tool_1')
+    expect(content).toContain('tool_55')
   })
 
   it('generateText 调用携带 abortSignal 超时', async () => {

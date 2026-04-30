@@ -23,7 +23,12 @@ function resolveRelativePaths(content: string, skillMdPath: string): string {
 export function createSkillTool(registry: SkillRegistry): ToolDefinition {
   return {
     name: 'skill',
-    description: 'Activate a skill to retrieve its full instructions. Skill names (e.g. lark-doc, lark-wiki) are not tool names and cannot be called directly — they must be activated via this tool first. The list of available skill names is provided in the system prompt.',
+    description:
+      'Use this FIRST whenever the user\'s request matches any entry in "Available Skills" ' +
+      '(match by When-to-use / trigger phrase, or by semantic intent). Loads the skill\'s ' +
+      'full playbook into this conversation so subsequent tool calls use the correct ' +
+      'CLI/API shapes. Always precedes bash/read/glob when the task domain is covered ' +
+      'by a skill. Skill names are memory-resident — do NOT try to locate them on disk.',
     parameters: {
       type: 'object',
       properties: {

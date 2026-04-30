@@ -1,6 +1,5 @@
 // src/main/loop/types.ts
 import type { LanguageModel } from 'ai'
-import type { dynamicTool } from 'ai'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'

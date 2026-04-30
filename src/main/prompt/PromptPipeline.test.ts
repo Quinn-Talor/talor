@@ -53,6 +53,7 @@ describe('resolveProviderConfig', () => {
 vi.mock('./plugins/SystemPlugin', () => ({ SystemPlugin: vi.fn() }))
 vi.mock('./plugins/AgentPromptPlugin', () => ({ AgentPromptPlugin: vi.fn() }))
 vi.mock('./plugins/MemoryPlugin', () => ({ MemoryPlugin: vi.fn() }))
+vi.mock('./plugins/MessagePlugin', () => ({ MessagePlugin: vi.fn() }))
 vi.mock('./plugins/ToolSelectionPlugin', () => ({ ToolSelectionPlugin: vi.fn() }))
 vi.mock('../memory/MemoryManager', () => ({ MemoryManager: vi.fn() }))
 
@@ -66,38 +67,81 @@ function makeCtx(): PipelineContext {
   }
 }
 
-describe('PromptPipeline.build — plugin isolation', () => {
-  it('一个插件抛错时，其余插件结果仍然返回', async () => {
-    const { SystemPlugin } = await import('./plugins/SystemPlugin')
-    const { AgentPromptPlugin } = await import('./plugins/AgentPromptPlugin')
-    const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
-    const { ToolSelectionPlugin } = await import('./plugins/ToolSelectionPlugin')
-    const { MemoryManager } = await import('../memory/MemoryManager')
+async function mockAllPlugins(
+  overrides: {
+    SystemPlugin?: PluginResult | Error
+    AgentPromptPlugin?: PluginResult | Error
+    MemoryPlugin?: PluginResult | Error
+    MessagePlugin?: PluginResult | Error
+    ToolSelectionPlugin?: PluginResult | Error
+  } = {},
+) {
+  const { SystemPlugin } = await import('./plugins/SystemPlugin')
+  const { AgentPromptPlugin } = await import('./plugins/AgentPromptPlugin')
+  const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
+  const { MessagePlugin } = await import('./plugins/MessagePlugin')
+  const { ToolSelectionPlugin } = await import('./plugins/ToolSelectionPlugin')
+  const { MemoryManager } = await import('../memory/MemoryManager')
 
-    const goodResult: PluginResult = { messages: [{ role: 'system', content: 'ok' }], tools: [], tokenEstimate: 0 }
-    vi.mocked(SystemPlugin).mockImplementation(() => ({
-      name: 'SystemPlugin',
-      build: vi.fn().mockResolvedValue(goodResult),
-    }) as unknown as InstanceType<typeof SystemPlugin>)
-    vi.mocked(AgentPromptPlugin).mockImplementation(() => ({
-      name: 'AgentPromptPlugin',
-      build: vi.fn().mockRejectedValue(new Error('agent load failed')),
-    }) as unknown as InstanceType<typeof AgentPromptPlugin>)
-    vi.mocked(MemoryPlugin).mockImplementation(() => ({
-      name: 'MemoryPlugin',
-      build: vi.fn().mockResolvedValue({ messages: [], tools: [], tokenEstimate: 0 }),
-    }) as unknown as InstanceType<typeof MemoryPlugin>)
-    vi.mocked(ToolSelectionPlugin).mockImplementation(() => ({
-      name: 'ToolSelectionPlugin',
-      build: vi.fn().mockResolvedValue({ messages: [], tools: [{ name: 't1', description: '', parameters: {} }], tokenEstimate: 0 }),
-    }) as unknown as InstanceType<typeof ToolSelectionPlugin>)
-    vi.mocked(MemoryManager).mockImplementation(() => ({}) as unknown as InstanceType<typeof MemoryManager>)
+  const empty: PluginResult = { messages: [], tools: [], tokenEstimate: 0 }
 
-    const pipeline = new PromptPipeline(new MemoryManager())
+  const configure = <T>(name: string, ctor: T, spec: PluginResult | Error | undefined, fallback: PluginResult) => {
+    const build = spec instanceof Error
+      ? vi.fn().mockRejectedValue(spec)
+      : vi.fn().mockResolvedValue(spec ?? fallback)
+    vi.mocked(ctor as unknown as () => unknown).mockImplementation(
+      () => ({ name, build }) as unknown as Record<string, unknown>,
+    )
+  }
+
+  configure('SystemPlugin', SystemPlugin, overrides.SystemPlugin, empty)
+  configure('AgentPromptPlugin', AgentPromptPlugin, overrides.AgentPromptPlugin, empty)
+  configure('MemoryPlugin', MemoryPlugin, overrides.MemoryPlugin, empty)
+  configure('MessagePlugin', MessagePlugin, overrides.MessagePlugin, empty)
+  configure('ToolSelectionPlugin', ToolSelectionPlugin, overrides.ToolSelectionPlugin, empty)
+  vi.mocked(MemoryManager).mockImplementation(() => ({}) as unknown as InstanceType<typeof MemoryManager>)
+
+  return new PromptPipeline(new MemoryManager())
+}
+
+describe('PromptPipeline.build', () => {
+  it('non-critical plugin failure: other plugins still run, [DEGRADED] notice prepended', async () => {
+    const pipeline = await mockAllPlugins({
+      SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },
+      ToolSelectionPlugin: new Error('tool selection failed'),
+    })
     const result = await pipeline.build(makeCtx())
 
-    // Should not throw; should have messages from SystemPlugin and tool from ToolSelectionPlugin
-    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0]).toEqual({
+      role: 'system',
+      content: expect.stringContaining('[DEGRADED]'),
+    })
+    expect((result.messages[0].content as string)).toContain('ToolSelectionPlugin')
+    expect(result.messages).toContainEqual({ role: 'system', content: 'sys' })
+  })
+
+  it('critical plugin failure (MemoryPlugin): throws with plugin name', async () => {
+    const pipeline = await mockAllPlugins({
+      MemoryPlugin: new Error('db locked'),
+    })
+    await expect(pipeline.build(makeCtx())).rejects.toThrow(/Critical prompt plugin "MemoryPlugin"/)
+  })
+
+  it('critical plugin failure (MessagePlugin): throws with plugin name', async () => {
+    const pipeline = await mockAllPlugins({
+      MessagePlugin: new Error('db read failed'),
+    })
+    await expect(pipeline.build(makeCtx())).rejects.toThrow(/Critical prompt plugin "MessagePlugin"/)
+  })
+
+  it('all plugins succeed: no [DEGRADED] notice', async () => {
+    const pipeline = await mockAllPlugins({
+      SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },
+      ToolSelectionPlugin: { messages: [], tools: [{ name: 't1', description: '', parameters: {} }], tokenEstimate: 0 },
+    })
+    const result = await pipeline.build(makeCtx())
+
+    expect(result.messages.some(m => typeof m.content === 'string' && m.content.startsWith('[DEGRADED]'))).toBe(false)
     expect(result.tools).toHaveLength(1)
   })
 })

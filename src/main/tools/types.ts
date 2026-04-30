@@ -71,6 +71,13 @@ export interface ToolExecuteContext extends ToolConfig {
    * denying the call (current behavior before the dialog wiring lands).
    */
   requestPermission?: PermissionPort
+  /**
+   * Abort signal propagated from the ReAct loop / orchestrator. When the user
+   * hits "stop" or a new chat request supersedes this one, tools receive the
+   * signal here. Currently honored by bash (kills the child process) — other
+   * tools may opt in as needed.
+   */
+  abortSignal?: AbortSignal
 }
 
 export type PermissionPort = (req: PermissionRequestInput) => Promise<boolean>

@@ -1,5 +1,36 @@
 import type { CoreMessage } from 'ai'
 import type { ChatMessage } from '../repos/session-repo'
+import { buildToolResultGuide } from '../tools/tool-result-template'
+
+/**
+ * 给 LLM 看的 tool_result 值:结构化指引 + raw wrap 内容。
+ * DB 只存 rawWrapped,UI 直接读 rawWrapped。只在把 tool_result 转成 LLM 的
+ * CoreMessage 时,动态拼接指引。
+ *
+ * rawWrapped 形如 `<tool_output tool="...">\n<raw>\n</tool_output>`。
+ * 拼接结果:
+ *   <tool_output tool="bash">
+ *   [How to interpret ...]
+ *   [bash specifics]
+ *   ...
+ *   ---
+ *   [Raw output]
+ *   <raw>
+ *   </tool_output>
+ */
+function wrapToolResultForLLM(toolName: string, rawWrapped: string): string {
+  const guide = buildToolResultGuide(toolName)
+  // rawWrapped 是 `<tool_output tool="X">\n<raw>\n</tool_output>` 形式。
+  // 我们在 <tool_output> 开标签后插入指引,让 LLM 先看到指引再看 raw。
+  const openTagMatch = rawWrapped.match(/^(<tool_output[^>]*>\n)/)
+  if (!openTagMatch) {
+    // 不符合预期格式,保守直接前置指引。
+    return `${guide}\n\n---\n\n[Raw output]\n${rawWrapped}`
+  }
+  const openTag = openTagMatch[1]
+  const rest = rawWrapped.slice(openTag.length)
+  return `${openTag}${guide}\n\n---\n\n[Raw output]\n${rest}`
+}
 
 // ── Token 估算 ──────────────────────────────────────────
 const CJK_RE = /[㐀-鿿豈-﫿\u{20000}-\u{2A6DF}]/u
@@ -120,11 +151,16 @@ export function messagesToCoreMessages(messages: ChatMessage[]): CoreMessage[] {
       const parts: Array<{ type: 'tool-result'; toolCallId: string; toolName: string; output: { type: 'text'; value: string } }> = []
       for (const b of blocks) {
         if (b.type === 'tool_result') {
+          // DB 里 output 是 wrap 后的 raw。LLM 看到时拼上结构化指引(guide + raw),
+          // 让模型懂得如何判断这次结果(成功/失败/怎么推进)。
+          // 注意:只在 LLM 输入时拼接,DB 与 UI 看到的都还是 raw。
+          const rawWrapped = b.output as string
+          const guidedValue = wrapToolResultForLLM(b.toolName as string, rawWrapped)
           parts.push({
             type: 'tool-result',
             toolCallId: b.toolCallId as string,
             toolName: b.toolName as string,
-            output: { type: 'text', value: b.output as string },
+            output: { type: 'text', value: guidedValue },
           })
         }
       }

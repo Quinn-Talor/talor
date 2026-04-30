@@ -17,7 +17,9 @@ function isBinaryFile(content: Buffer): boolean {
 
 const readTool = {
   name: 'read',
-  description: 'Read content of a file. Returns file content as string, or error message.',
+  description:
+    'Read content of a file. Returns file content as string, or error message. ' +
+    'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
   parameters: {
     type: 'object',
     properties: {

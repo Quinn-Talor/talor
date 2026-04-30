@@ -78,6 +78,8 @@ const ERROR_OUTPUT_PATTERNS: RegExp[] = [
   /^Command too long /,
   /^Command timed out /,
   /^Missing required parameter:/,
+  /^Invalid input for tool /,
+  /^Invalid input:/,
   /^Invalid type for /,
   /^String not found in file:/,
   /^Tool execution failed:/,
@@ -154,12 +156,23 @@ function escapeTagAttr(v: string): string {
   })
 }
 
+/**
+ * 把 AI SDK 的 tool-result parts 转成 DB 存储用的 ToolResultBlock[]。
+ *
+ * DB 只存 raw(经过 wrap + truncate)。这里**不拼指引**——指引是给 LLM 看的运行时
+ * 元信息,在 Memory/Message plugin 把 DB 的 tool_result 转成 LLM 的 CoreMessage 时
+ * 动态拼接。原因:
+ *   - DB 是事实存储,UI 渲染直接读 raw,不该被指引污染
+ *   - 指引格式演进时不会污染历史消息
+ *   - Memory 压缩计算基于 raw,不会浪费 token 预算
+ */
 export function toolResultPartsToBlocks(parts: ToolResultLike[]): ToolResultBlock[] {
   return parts.map(tr => {
     const text = extractOutputText(tr.output)
     const truncated = tr.toolName === 'skill'
       ? truncateSkillOutput(text)
       : truncateOutput(text)
+
     return {
       type: 'tool_result' as const,
       toolCallId: tr.toolCallId,

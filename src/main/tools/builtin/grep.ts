@@ -22,7 +22,9 @@ function isSuspectedReDoS(pattern: string): boolean {
 
 const grepTool = {
   name: 'grep',
-  description: 'Search for a pattern in files using regex. Returns matching lines with context.',
+  description:
+    'Search for a pattern in files using regex. Returns matching lines with context. ' +
+    'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
   parameters: {
     type: 'object',
     properties: {

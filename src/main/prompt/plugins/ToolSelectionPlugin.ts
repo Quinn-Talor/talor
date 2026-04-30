@@ -1,9 +1,12 @@
-import { generateText } from 'ai'
+import { generateText, type CoreMessage } from 'ai'
 import { createModel } from '../../providers/llm-provider'
 import log from 'electron-log'
 import type { PromptPlugin, PipelineContext, PluginResult } from '../types'
 import type { ToolMetadata } from '../../tools/types'
 import { estimate, extractJsonArray } from '../../memory/types'
+
+const SELECTION_THRESHOLD = 50
+const FALLBACK_TOOL_COUNT = 49
 
 export class ToolSelectionPlugin implements PromptPlugin {
   name = 'ToolSelectionPlugin'
@@ -19,7 +22,7 @@ export class ToolSelectionPlugin implements PromptPlugin {
         }))
       : []
 
-    if (allTools.length < 50) {
+    if (allTools.length < SELECTION_THRESHOLD) {
       return { messages: [], tools: allTools, tokenEstimate: this.estimateTools(allTools) }
     }
 
@@ -43,11 +46,41 @@ export class ToolSelectionPlugin implements PromptPlugin {
       if (selected.length === 0) {
         throw new Error('LLM returned empty tool selection')
       }
-      return { messages: [], tools: selected, tokenEstimate: this.estimateTools(selected) }
+      const notice = this.buildSelectionNotice(selected.length, allTools.length)
+      return {
+        messages: [notice],
+        tools: selected,
+        tokenEstimate: this.estimateTools(selected) + estimate(notice.content as string),
+      }
     } catch (err) {
       log.warn('[ToolSelectionPlugin] LLM-based tool selection failed, falling back to first 49 tools', err)
-      const fallback = allTools.slice(0, 49)
-      return { messages: [], tools: fallback, tokenEstimate: this.estimateTools(fallback) }
+      const fallback = allTools.slice(0, FALLBACK_TOOL_COUNT)
+      const notice = this.buildDegradedNotice(fallback.length, allTools)
+      return {
+        messages: [notice],
+        tools: fallback,
+        tokenEstimate: this.estimateTools(fallback) + estimate(notice.content as string),
+      }
+    }
+  }
+
+  private buildSelectionNotice(selected: number, total: number): CoreMessage {
+    return {
+      role: 'system',
+      content:
+        `[Tool list was pre-filtered to ${selected}/${total} tools relevant to this request. ` +
+        `If you believe a needed tool is missing, tell the user and ask them to retry; ` +
+        `the list is re-selected each turn.]`,
+    }
+  }
+
+  private buildDegradedNotice(fallbackCount: number, allTools: ToolMetadata[]): CoreMessage {
+    return {
+      role: 'system',
+      content:
+        `[DEGRADED] Tool selection failed; exposing first ${fallbackCount} of ${allTools.length} tools. ` +
+        `Some tools may be missing from this turn. Full tool names: ${allTools.map(t => t.name).join(', ')}. ` +
+        `If the task needs a tool not in the exposed list, tell the user and ask whether to retry.`,
     }
   }
 

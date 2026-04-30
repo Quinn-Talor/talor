@@ -74,25 +74,28 @@ function buildKnowledgeIndex(knowledge: AgentKnowledge): string {
 
 const MAX_SKILL_DESCRIPTION_CHARS = 1536
 
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '...' : s
+}
+
 function buildSkillListing(skillRegistry: SkillRegistry): string {
   if (skillRegistry.isEmpty()) return ''
 
-  const descriptions = skillRegistry.listDescriptions()
-  if (descriptions.length === 0) return ''
+  const skills = skillRegistry.listAll()
+  if (skills.length === 0) return ''
 
-  const listing = descriptions.map(s => {
-    const desc = s.description.length > MAX_SKILL_DESCRIPTION_CHARS
-      ? s.description.slice(0, MAX_SKILL_DESCRIPTION_CHARS) + '...'
-      : s.description
-    return `- ${s.name}: ${desc}`
-  }).join('\n')
+  const listing = skills.map(s => {
+    const desc = truncate(s.metadata.description, MAX_SKILL_DESCRIPTION_CHARS)
+    const whenToUse = s.metadata.when_to_use
+    const whenLine = whenToUse
+      ? `\n  When to use: ${truncate(whenToUse, MAX_SKILL_DESCRIPTION_CHARS)}`
+      : ''
+    return `- ${s.metadata.name}\n  ${desc}${whenLine}`
+  }).join('\n\n')
 
   return `## Available Skills
 
-The names below are **skill names, not tool names — do not call them directly**. To use a skill, activate it first via the \`skill\` tool, e.g.:
-  skill({"name": "lark-doc"})
-
-Once activated, follow the instructions returned by the tool. Do not re-activate a skill that has already been activated in this session.
+Each entry is an encapsulated capability. Use via \`skill\` tool (see Task Routing). The "When to use" line lists trigger phrases and example requests — match the user's input against these to pick a skill.
 
 ${listing}`
 }

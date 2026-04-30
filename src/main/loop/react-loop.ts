@@ -17,12 +17,24 @@ import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
 import { buildTools } from '../tools/build-tools'
+import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks } from './types'
 import type { ContentBlock } from '@shared/types/message'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
+
+/**
+ * 单步 prompt 估算到达该比例时,提醒模型收敛。
+ * ShortTermMemory 90% 触发压缩后,已压缩过的 prompt 再次超此阈值意味着
+ * 纯粹的工具输出/recent 段已经吃满窗口,继续跑可能被 provider 静默截断。
+ *
+ * 阈值设在 98%(而非 95%):estimate() 是偏保守的 token 估算,90%~95% 实际
+ * 还有充足余量;只有估算超 98% 才算真的"临门一脚"。告警文本也避免命令模型
+ * "不许再开工具链"——长 prompt 本身不等于任务该被放弃,只提醒"尽量收敛"。
+ */
+const CONTEXT_USAGE_WARNING_RATIO = 0.98
 
 const DEFAULT_MAX_STEPS = 1000
 
@@ -56,8 +68,6 @@ interface StepContext {
 interface StepOutcome {
   /** 本步产生的纯文本（供兜底判断 fullText 是否为空） */
   stepText: string
-  /** 本步是否有工具调用 */
-  hadToolCalls: boolean
   /** 是否已写入最终 assistant 消息（有 text 且无工具调用 → true） */
   wroteAssistantFinal: boolean
   /** 是否应继续下一步（工具调用且有 toolResults 时为 true） */
@@ -75,36 +85,72 @@ interface StepOutcome {
    * 没有工具调用的步返回空串。
    */
   signature: string
+  /**
+   * 本步是否"所有工具调用都失败"。
+   * - null: 本步无工具调用，不参与错误率统计
+   * - true: 本步有工具调用且每一条 tool_result.isError 都为 true
+   * - false: 至少一条工具调用成功
+   * 顶层用滑窗统计连续错误率,阻止"模型换参数重试→依然失败"的隐式死循环。
+   */
+  allToolsFailed: boolean | null
 }
 
 /** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
 type LoopExitReason =
   | 'no_tool_calls'       // 模型不再调用工具（正常终态）
   | 'empty_text'          // 模型既无工具调用也无文本（触发兜底）
-  | 'empty_tool_results'  // SDK 返回了 tool-call 但 toolResults 为空（异常保护）
   | 'abort'               // 调用方主动中止
   | 'max_steps'           // 达到步数上限
   | 'fallback_summary'    // 兜底摘要触发
-  | 'stream_error'        // consumeStream 异常
-  | 'repeated_error'      // 连续相同工具错误（死循环保护）
+  | 'repeated_error'      // 死循环保护（签名重复 或 错误率超阈值）
 
 function sha8(s: string): string {
   return createHash('sha1').update(s).digest('hex').slice(0, 8)
 }
 
 /**
- * 为一步的 tool 调用 + 返回计算复合签名，用于死循环侦测。
+ * 对任意 JSON 值做规范化序列化:递归对对象键排序,确保键顺序差异不影响 hash。
+ * 目的:同命令的两次调用即使字段顺序不同(模型生成的 JSON 可能顺序不稳定),
+ * 也产出相同的 inputHash。不丢任何字段(不做黑名单过滤,避免丢失语义信息)。
+ */
+function canonicalizeJson(v: unknown): string {
+  if (v === null || v === undefined) return 'null'
+  if (typeof v !== 'object') return JSON.stringify(v)
+  if (Array.isArray(v)) return '[' + v.map(canonicalizeJson).join(',') + ']'
+  const entries = Object.entries(v as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+  return '{' + entries.map(([k, val]) => JSON.stringify(k) + ':' + canonicalizeJson(val)).join(',') + '}'
+}
+
+/**
+ * 从 tool_result output 中抽出 raw 段做 hash。
+ *
+ * tool_result body 结构:[通用指引] + "---" + "[Raw output]\n" + <raw>。
+ * 所有工具共用同一段 ~2KB 的指引前缀,如果对整条 output 做 hash 会导致
+ * 不同 raw 内容的 output 前 500 字节都相同 → outputHash 失效。
+ *
+ * 抽取 `[Raw output]\n` 标签之后的前 500 字节作为 hash 输入。标签缺失时
+ * fallback 到整条 output(兼容旧格式 / 单测用的简单 output)。
+ */
+function extractRawForHash(output: string): string {
+  const marker = '[Raw output]\n'
+  const idx = output.indexOf(marker)
+  const raw = idx === -1 ? output : output.slice(idx + marker.length)
+  return raw.slice(0, 500)
+}
+
+/**
+ * 为一步的 tool 调用 + 返回计算复合签名,用于死循环侦测。
  *
  * 签名 = sorted `toolName#inputHash:outputHash`。
- * - inputHash: 参数 JSON 的 sha1 前 8 位
- * - outputHash: 输出文本前 500 字节的 sha1 前 8 位（大文件看不到整体，
- *   但头部 500 字节足够区分"同文件"和"不同文件"）
+ * - inputHash: canonical 化后的参数 JSON 的 sha1 前 8 位(忽略键顺序差异)
+ * - outputHash: raw 段前 500 字节的 sha1 前 8 位(跳过通用指引前缀)
  *
- * 为什么比单看 toolName 靠谱：
- * - 仅 toolName：模型换不同文件路径做 read 也被判定同签名（假阳）
- * - 加 inputHash：参数变化即视为不同操作（消除假阳）
- * - 加 outputHash：若是错误反复（同 input 同 error 输出）必然同签名
- * - sorted：并行/乱序的多工具调用不因顺序扰动签名
+ * 设计要点:
+ * - 仅 toolName 无法区分"不同文件的 read"——加 input hash
+ * - input hash 对键顺序无感,避免同命令因形式差异被判定为不同
+ * - output hash 跳过指引前缀,保证不同 raw 产出不同 hash
+ * - sorted:并行/乱序的多工具调用不因顺序扰动签名
  */
 function stepSignature(
   toolCalls: Array<{ toolName: string; input: unknown }>,
@@ -113,8 +159,8 @@ function stepSignature(
   if (toolCalls.length === 0) return ''
   return toolCalls
     .map((tc, i) => {
-      const inputHash = sha8(JSON.stringify(tc.input ?? null))
-      const outText = String(toolResults[i]?.output ?? '').slice(0, 500)
+      const inputHash = sha8(canonicalizeJson(tc.input))
+      const outText = extractRawForHash(String(toolResults[i]?.output ?? ''))
       const outputHash = outText ? sha8(outText) : 'none'
       return `${tc.toolName}#${inputHash}:${outputHash}`
     })
@@ -156,6 +202,28 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
   }
   const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
 
+  // Token 预算预检:估算本步 prompt,超 95% context_limit 时追加告警,
+  // 让模型自觉收尾而不是等 provider 静默截断。
+  const limit = ctx.providerConfig.context_limit
+  if (limit > 0) {
+    let estimatedTokens = 0
+    for (const m of messages) {
+      const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+      estimatedTokens += estimate(text)
+    }
+    const usageRatio = estimatedTokens / limit
+    if (usageRatio > CONTEXT_USAGE_WARNING_RATIO) {
+      log.warn(`[ReactLoop]   context near overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%)`)
+      messages.push({
+        role: 'system',
+        content:
+          `[CONTEXT NEARLY FULL] Prompt is using ~${(usageRatio * 100).toFixed(0)}% of the available window. ` +
+          `Prefer concise responses and avoid large tool outputs. Finish any in-progress task first, ` +
+          `then summarize.`,
+      })
+    }
+  }
+
   const tools = await buildTools({
     sessionId: ctx.sessionId,
     messageId: ctx.messageId,
@@ -165,6 +233,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     agent: ctx.agent,
     toolSchemas,
     skillTracker: ctx.skillTracker,
+    abortSignal: ctx.abortSignal,
   })
 
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
@@ -215,22 +284,35 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
         })
         sessionRepo.touch(ctx.sessionId)
         persisted = true
-        return { stepText, hadToolCalls: false, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls', signature: '' }
+        return { stepText, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls', signature: '', allToolsFailed: null }
       }
       log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
       persisted = true   // 无东西可持久化，finally 不需兜底
-      return { stepText: '', hadToolCalls: false, wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_text', signature: '' }
+      return { stepText: '', wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_text', signature: '', allToolsFailed: null }
     }
 
-    // 有工具调用 → 落库 assistant + tool，继续下一步
-    let toolResults = await result.toolResults
+    // 有工具调用 → 落库 assistant + tool,继续下一步
+    let toolResults: Awaited<typeof result.toolResults> = await result.toolResults
     if (toolResults.length === 0) {
-      log.warn(`[ReactLoop]   → tools called but no results returned, injecting error feedback [${durationMs}ms]`)
+      // toolResults 空有两类原因:
+      //   a) 工具名根本不在 registry(模型编造了工具名)
+      //   b) 工具存在但执行路径失败(MCP 崩溃/SDK 解析失败/超时)
+      // 两者回传给模型的指示截然不同:前者可以改名重试,后者必须停手。
+      const registeredNames = ctx.agent.toolRegistry.getToolNames()
       toolResults = stepToolCalls.map(tc => ({
+        type: 'tool-result' as const,
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
-        output: `Tool not found: "${tc.toolName}". Available tools: ${ctx.agent.toolRegistry.getToolNames().join(', ')}`,
-      }))
+        input: tc.input,
+        output: registeredNames.includes(tc.toolName)
+          ? `Tool execution failed: "${tc.toolName}" was invoked but returned no result ` +
+            `(likely transport error, timeout, or MCP server crash). ` +
+            `Retrying with the same parameters is unlikely to help — try a different approach, ` +
+            `adjust the parameters, or fall back to another tool.`
+          : `Tool not found: "${tc.toolName}". Available tools: ${registeredNames.join(', ')}`,
+        dynamic: true as const,
+      })) as typeof toolResults
+      log.warn(`[ReactLoop]   → toolResults empty, injected differentiated feedback [${durationMs}ms]`)
     }
 
     for (const tc of stepToolCalls) {
@@ -256,7 +338,10 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     persisted = true
 
     const signature = stepSignature(stepToolCalls, toolResults)
-    return { stepText, hadToolCalls: true, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames, signature }
+    const allToolsFailed = toolBlocks.length > 0 && toolBlocks.every(
+      b => b.type === 'tool_result' && b.isError === true,
+    )
+    return { stepText, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames, signature, allToolsFailed }
   } catch (streamErr) {
     const durationMs = Date.now() - stepStart
     log.error(`[ReactLoop]   consumeStream failed (${durationMs}ms):`, streamErr)
@@ -317,13 +402,19 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
 const FALLBACK_GUARDRAIL: ModelMessage = {
   role: 'system',
   content:
-    '[Fallback summary mode]\n' +
-    'You just made tool calls but produced no text output. Now briefly report to the user what you did and what was observed, ' +
+    '[Fallback summary mode — SILENCE IS NOT ALLOWED]\n' +
+    'You just made tool calls but produced no text output. The user is waiting and sees nothing. ' +
+    'You MUST output text in this turn. Empty response is forbidden. ' +
+    'Report to the user what you did and what was observed, ' +
     '**using only the content inside the <tool_output> tags above**. Strict rules:\n' +
     '1. Do not call any tools.\n' +
     '2. Do not invent facts, paths, file names, or numbers that did not appear in tool_output.\n' +
-    '3. If any tool returned an error (File not found / [exit: non-zero] / ERROR / etc.), state the failure verbatim. Do not pretend it succeeded.\n' +
-    '4. If the tool results are insufficient for a meaningful answer, say explicitly: "Task not completed because ...".',
+    '3. If any tool returned an error (File not found / [exit: non-zero] / ERROR / missing_scope / etc.), ' +
+    'state the failure verbatim AND quote the exact error message. Do not pretend it succeeded.\n' +
+    '4. If the tool results are insufficient for a meaningful answer, say explicitly: "Task not completed because ...".\n' +
+    '5. If you genuinely have nothing to say, you MUST still output the single sentence: ' +
+    '"I have no useful output to provide here. The last tool result was: <one-line summary>. Please advise." ' +
+    'Silence is a bug. Always speak.',
 }
 
 async function runFallbackSummary(ctx: StepContext): Promise<void> {
@@ -424,13 +515,26 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   let exitReason: LoopExitReason = 'no_tool_calls'
   const allToolNames: string[] = []
 
-  // Dead-loop detection. 签名含 input + output hash，见 stepSignature 注释。
-  // 阈值 2：同签名连续出现 3 次（初次 + 2 次重复）即判定死循环。实测 3 次足以
-  // 穿透"模型偶尔重试一次"的合理行为。注意：stepText 非零**不再** reset 计数——
-  // 模型可能一边喷无意义 token 一边反复调同参同果工具，不能因此放行。
-  const REPEATED_ERROR_THRESHOLD = 2
+  // Dead-loop detection.
+  //
+  // 两路侦测,都按"保守触发"设计——宁可漏报一次也不打断合法的自我修正:
+  //   1) 签名重复 (stepSignature: toolName + inputHash + outputHash)
+  //      - 带 error 输出:阈值 1(连续第 2 次同错 = 真死循环,模型显然没在读错误)
+  //      - 不带 error:  阈值 2(连续第 3 次同调用才 break,允许合理的幂等读)
+  //   2) 连续失败连击
+  //      "N 步连续 allToolsFailed=true" 才 break。任意一步有工具调用成功 → 清零。
+  //      这是 signature 侦测之外的兜底。设计分工:
+  //        - signature with error (阈值 1):锁"原地重试同一调用"
+  //        - Failure streak   (阈值 3):兜底"每次换参数但全失败"
+  //      阈值 3 给模型充分的"修错误→遇到新错误→告知用户"链条。阈值 2 会误伤
+  //      正在真实修正 flag 的模型(step 2 改 flag → step 3 撞 missing_scope → break
+  //      就不让模型走到 step 4 输出"请用户授权"的文本)。
+  const REPEATED_SIGNATURE_THRESHOLD_WITH_ERROR = 1
+  const REPEATED_SIGNATURE_THRESHOLD_NO_ERROR = 2
+  const CONSECUTIVE_FAILURE_LIMIT = 3
   let lastStepSignature = ''
   let consecutiveRepeatCount = 0
+  let consecutiveFailureCount = 0
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
@@ -445,10 +549,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     if (outcome.wroteAssistantFinal) wroteAssistantFinal = true
 
     if (outcome.signature) {
+      const isErrorSig = outcome.allToolsFailed === true
+      const threshold = isErrorSig
+        ? REPEATED_SIGNATURE_THRESHOLD_WITH_ERROR
+        : REPEATED_SIGNATURE_THRESHOLD_NO_ERROR
       if (outcome.signature === lastStepSignature) {
         consecutiveRepeatCount++
-        if (consecutiveRepeatCount >= REPEATED_ERROR_THRESHOLD) {
-          log.warn(`[ReactLoop] Dead loop: signature "${outcome.signature}" repeated ${consecutiveRepeatCount + 1}x (same tools + inputs + outputs). Breaking.`)
+        if (consecutiveRepeatCount >= threshold) {
+          log.warn(`[ReactLoop] Dead loop: signature "${outcome.signature}" repeated ${consecutiveRepeatCount + 1}x (isError=${isErrorSig}). Breaking.`)
           exitReason = 'repeated_error'
           break
         }
@@ -456,9 +564,33 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
         lastStepSignature = outcome.signature
         consecutiveRepeatCount = 0
       }
-    } else {
-      // 无工具调用的步（纯文本 / empty）不参与重复判定，也不 reset——
-      // 避免模型在死循环中穿插一步纯思考就逃脱侦测。
+    }
+    // 无工具调用的步(纯文本 / empty)不参与签名判定,也不 reset——
+    // 避免模型在死循环中穿插一步纯思考就逃脱侦测。
+
+    if (outcome.allToolsFailed === true) {
+      consecutiveFailureCount++
+      if (consecutiveFailureCount >= CONSECUTIVE_FAILURE_LIMIT) {
+        log.warn(`[ReactLoop] Failure streak: ${consecutiveFailureCount} consecutive steps all failed. Breaking.`)
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: ctx.sessionId,
+          role: 'assistant',
+          content: [{
+            type: 'text',
+            text: `[auto-halt] Task blocked by ${consecutiveFailureCount} consecutive tool failures. Please review the errors above and provide guidance.`,
+          }],
+          agent_id: ctx.agentId,
+        })
+        sessionRepo.touch(ctx.sessionId)
+        wroteAssistantFinal = true
+        exitReason = 'repeated_error'
+        break
+      }
+    } else if (outcome.allToolsFailed === false) {
+      // 至少一个工具成功 → 清零连续失败计数。
+      // null(无工具调用)不 reset,保守。
+      consecutiveFailureCount = 0
     }
 
     if (!outcome.shouldContinue) {

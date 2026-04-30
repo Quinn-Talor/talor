@@ -53,12 +53,13 @@ function createContext(agent?: Agent): PipelineContext {
   }
 }
 
-function createSkillDir(baseDir: string, name: string, description: string): void {
+function createSkillDir(baseDir: string, name: string, description: string, whenToUse?: string): void {
   const dir = join(baseDir, name)
   mkdirSync(dir, { recursive: true })
+  const whenLine = whenToUse ? `\nwhen_to_use: "${whenToUse}"` : ''
   writeFileSync(join(dir, 'SKILL.md'), `---
 name: ${name}
-description: "${description}"
+description: "${description}"${whenLine}
 ---
 
 # ${name}
@@ -199,8 +200,9 @@ describe('AgentPromptPlugin', () => {
       const content = systemMsgs.map(m => (m as { content: string }).content).join('\n')
 
       expect(content).toContain('## Available Skills')
-      expect(content).toContain('lark-sheets: 飞书电子表格')
-      expect(content).toContain('lark-shared:')
+      // 新格式: `- <name>\n  <description>`(多行),不再是 `- <name>: <description>`
+      expect(content).toMatch(/- lark-sheets\n\s+飞书电子表格/)
+      expect(content).toMatch(/- lark-shared\n\s+飞书\/Lark CLI/)
     })
 
     it('AC-S1-02: does not inject skill listing when registry is empty', async () => {
@@ -213,6 +215,58 @@ describe('AgentPromptPlugin', () => {
         .join('\n')
 
       expect(content).not.toContain('## Available Skills')
+    })
+
+    it('当 skill 有 when_to_use 时渲染 "When to use:" 行', async () => {
+      createSkillDir(
+        skillTempDir,
+        'lark-doc',
+        '飞书云文档',
+        '用户要求写飞书文档时触发。触发短语：飞书文档,lark doc',
+      )
+      const registry = SkillRegistry.fromDir(skillTempDir)
+      const agent = createAgent(SALES_PROFILE, registry)
+      const result = await plugin.build(createContext(agent))
+
+      const content = result.messages
+        .filter(m => m.role === 'system')
+        .map(m => (m as { content: string }).content)
+        .join('\n')
+
+      expect(content).toMatch(/- lark-doc\n\s+飞书云文档/)
+      expect(content).toMatch(/When to use: 用户要求写飞书文档时触发/)
+      expect(content).toContain('触发短语：飞书文档,lark doc')
+    })
+
+    it('当 skill 无 when_to_use 时省略 "When to use:" 行', async () => {
+      createSkillDir(skillTempDir, 'plain-skill', '普通 skill')
+      const registry = SkillRegistry.fromDir(skillTempDir)
+      const agent = createAgent(SALES_PROFILE, registry)
+      const result = await plugin.build(createContext(agent))
+
+      const content = result.messages
+        .filter(m => m.role === 'system')
+        .map(m => (m as { content: string }).content)
+        .join('\n')
+
+      expect(content).toMatch(/- plain-skill\n\s+普通 skill/)
+      expect(content).not.toMatch(/When to use:/)
+    })
+
+    it('skill listing 顶部说明包含 "When to use" 提示', async () => {
+      createSkillDir(skillTempDir, 'lark-doc', '飞书云文档')
+      const registry = SkillRegistry.fromDir(skillTempDir)
+      const agent = createAgent(SALES_PROFILE, registry)
+      const result = await plugin.build(createContext(agent))
+
+      const content = result.messages
+        .filter(m => m.role === 'system')
+        .map(m => (m as { content: string }).content)
+        .join('\n')
+
+      expect(content).toMatch(/Each entry is an encapsulated capability/)
+      expect(content).toContain('Use via `skill` tool')
+      expect(content).toContain('When to use')
     })
   })
 })

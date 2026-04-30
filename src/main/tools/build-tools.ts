@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import type { ToolExecuteContext, ToolMetadata, PermissionPort } from './types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
+import { diagnoseInputMismatch } from './input-diagnostics'
 
 function buildInputSummary(toolName: string, input: unknown): string {
   const MAX = 500
@@ -39,6 +40,8 @@ export async function buildTools(opts: {
   agent: import('../agent/agent').Agent
   toolSchemas?: ToolMetadata[]
   skillTracker?: import('../skills/registry').SkillActivationTracker
+  /** ReAct loop 的 abortSignal,透传到工具(当前用于 bash 子进程终止)。 */
+  abortSignal?: AbortSignal
 }): Promise<Record<string, ReturnType<typeof dynamicTool>> | undefined> {
   const { sessionId, messageId, workspace, confirmTool, agent } = opts
 
@@ -50,6 +53,7 @@ export async function buildTools(opts: {
     workspace,
     skillTracker: opts.skillTracker,
     requestPermission: opts.requestPermission,
+    abortSignal: opts.abortSignal,
   }
   const tools: Record<string, ReturnType<typeof dynamicTool>> = {}
 
@@ -62,7 +66,22 @@ export async function buildTools(opts: {
       execute: async (input: unknown, options: { toolCallId?: string }) => {
         if (isHighRisk) {
           const summary = buildInputSummary(schema.name, input)
-          if (!summary.trim()) return 'Invalid input: required parameters are missing.'
+          if (!summary.trim()) {
+            // 空摘要 = 模型传错了字段名(e.g. cmd 而非 command)。走诊断路径,
+            // 让模型下一轮能正确修正,而不是盲试字段名。
+            const params = schema.parameters as {
+              required?: string[]
+              properties?: Record<string, { type?: string; description?: string }>
+            }
+            const inputObj = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+            const missing = (params.required ?? []).filter(
+              f => inputObj[f] === undefined || inputObj[f] === null,
+            )
+            if (missing.length > 0) {
+              return diagnoseInputMismatch(schema.name, params, input, missing)
+            }
+            return `Invalid input for tool "${schema.name}": could not build a summary from the provided input. Provided fields: [${Object.keys(inputObj).join(', ') || 'none'}].`
+          }
           const toolCallId = options?.toolCallId ?? uuidv4()
           const confirmed = await confirmTool({
             sessionId, messageId, toolCallId,

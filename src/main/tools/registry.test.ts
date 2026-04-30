@@ -130,12 +130,13 @@ describe('toolRegistry.execute', () => {
     toolRegistry.register({
       ...mockTool,
       execute: vi.fn(async () => {
-        await new Promise((r) => setTimeout(r, 10))
+        await new Promise((r) => setTimeout(r, 20))
         return { output: 'done' }
       }),
     })
-    const result = await toolRegistry.execute('read', {}, mockContext)
-    expect(result.durationMs).toBeGreaterThanOrEqual(10)
+    const result = await toolRegistry.execute('read', { path: '/x' }, mockContext)
+    // setTimeout 在 CI 上精度偏差大,留 5ms 安全裕度。
+    expect(result.durationMs).toBeGreaterThanOrEqual(15)
   })
 
   it('should catch and wrap execution errors', async () => {
@@ -146,16 +147,21 @@ describe('toolRegistry.execute', () => {
         throw new Error('Intentional test error')
       }),
     })
-    const result = await toolRegistry.execute('failing', {}, mockContext)
+    const result = await toolRegistry.execute('failing', { path: '/x' }, mockContext)
     expect(result.error).toBe('Intentional test error')
     expect(result.output).toBeUndefined()
   })
 
   it('should pass context with defaults', async () => {
-    const execSpy = vi.fn()
-    toolRegistry.register({ ...mockTool, name: 'ctx_test', execute: execSpy })
+    const execSpy = vi.fn(async () => ({ output: 'ok' }))
+    toolRegistry.register({
+      ...mockTool,
+      name: 'ctx_test',
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: execSpy,
+    })
     await toolRegistry.execute('ctx_test', {}, mockContext)
-    const callArgs = execSpy.mock.calls[0]
+    const callArgs = execSpy.mock.calls[0] as unknown as [unknown, ToolExecuteContext]
     expect(callArgs[1].workspace).toBe('/Users/test')
     expect(callArgs[1].sessionId).toBe('session-1')
     expect(callArgs[1].maxReadSizeBytes).toBe(10 * 1024 * 1024)

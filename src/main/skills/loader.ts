@@ -36,10 +36,18 @@ export function parseSkillMd(filePath: string): ParsedSkill | null {
 
     const meta = parsed.metadata as Record<string, unknown> | undefined
 
+    // when_to_use 是 Anthropic 官方 skill spec 的顶层字段,不放在 metadata 下。
+    // 与 name/description 平级,便于与 Claude Code skill 目录互通。
+    const rawWhenToUse = parsed.when_to_use
+    const when_to_use = typeof rawWhenToUse === 'string' && rawWhenToUse.trim().length > 0
+      ? rawWhenToUse.trim()
+      : undefined
+
     const metadata: SkillMetadata = {
       name,
       description,
       version: parsed.version as string | undefined,
+      when_to_use,
       requires: meta?.requires as { bins?: string[] } | undefined,
       cliHelp: meta?.cliHelp as string | undefined,
     }

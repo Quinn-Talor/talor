@@ -102,6 +102,64 @@ name: test-skill
     expect(result).toBeNull()
     expect(log.warn).toHaveBeenCalled()
   })
+
+  it('parses when_to_use when present (official Anthropic skill spec field)', () => {
+    const filePath = join(tempDir, 'SKILL.md')
+    writeFileSync(filePath, `---
+name: lark-doc
+description: "飞书云文档"
+when_to_use: "用户要求写飞书文档时触发。触发短语：飞书文档,lark doc"
+---
+
+# doc
+`)
+    const result = parseSkillMd(filePath)
+    expect(result).not.toBeNull()
+    expect(result!.metadata.when_to_use).toBe('用户要求写飞书文档时触发。触发短语：飞书文档,lark doc')
+  })
+
+  it('when_to_use is undefined when absent', () => {
+    const filePath = join(tempDir, 'SKILL.md')
+    writeFileSync(filePath, `---
+name: simple
+description: "no when_to_use"
+---
+
+content
+`)
+    const result = parseSkillMd(filePath)
+    expect(result!.metadata.when_to_use).toBeUndefined()
+  })
+
+  it('when_to_use empty string is treated as undefined', () => {
+    const filePath = join(tempDir, 'SKILL.md')
+    writeFileSync(filePath, `---
+name: empty-when
+description: "empty when_to_use"
+when_to_use: "   "
+---
+
+content
+`)
+    const result = parseSkillMd(filePath)
+    expect(result!.metadata.when_to_use).toBeUndefined()
+  })
+
+  it('when_to_use non-string is treated as undefined', () => {
+    const filePath = join(tempDir, 'SKILL.md')
+    writeFileSync(filePath, `---
+name: wrong-type
+description: "when_to_use is array"
+when_to_use:
+  - "a"
+  - "b"
+---
+
+content
+`)
+    const result = parseSkillMd(filePath)
+    expect(result!.metadata.when_to_use).toBeUndefined()
+  })
 })
 
 describe('loadSkillsFromDir', () => {

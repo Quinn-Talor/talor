@@ -12,6 +12,7 @@ import type {
   ToolExecuteContext,
   ToolMetadata,
 } from './types'
+import { diagnoseInputMismatch } from './input-diagnostics'
 export type {
   ToolDefinition,
   ToolResult,
@@ -141,17 +142,24 @@ export const toolRegistry = {
 function validateRequiredFields(tool: ToolDefinition, input: unknown): string | null {
   const params = tool.parameters as {
     required?: string[]
-    properties?: Record<string, { type?: string }>
+    properties?: Record<string, { type?: string; description?: string }>
   }
   const obj = (input ?? {}) as Record<string, unknown>
+
+  // 先收集所有缺失的 required 字段,一次性给诊断消息,避免模型修一个错一个。
+  const missing: string[] = []
   for (const field of params.required ?? []) {
-    if (obj[field] === undefined || obj[field] === null) {
-      const required = (params.required ?? []).join(', ')
-      return `Missing required parameter: "${field}". ${tool.name} requires: [${required}].`
-    }
+    if (obj[field] === undefined || obj[field] === null) missing.push(field)
+  }
+  if (missing.length > 0) {
+    return diagnoseInputMismatch(tool.name, params, input, missing)
+  }
+
+  // 类型检查(在所有 required 都提供之后)
+  for (const field of params.required ?? []) {
     const expectedType = params.properties?.[field]?.type
     if (expectedType && typeof obj[field] !== expectedType) {
-      return `Invalid type for "${field}": expected ${expectedType}, got ${typeof obj[field]}.`
+      return `Invalid type for "${field}" on tool "${tool.name}": expected ${expectedType}, got ${typeof obj[field]}. Value: ${JSON.stringify(obj[field]).slice(0, 100)}`
     }
   }
   return null

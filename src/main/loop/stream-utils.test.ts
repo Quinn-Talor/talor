@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
 
 describe('toolResultPartsToBlocks', () => {
-  it('sets isError=false for successful tool result', () => {
+  it('sets isError=false for successful tool result and stores raw (no guide in DB)', () => {
     const parts = [
       {
         type: 'tool-result' as const,
@@ -13,7 +13,11 @@ describe('toolResultPartsToBlocks', () => {
     ]
     const blocks = toolResultPartsToBlocks(parts)
     expect(blocks[0].isError).toBe(false)
+    // DB 只存 raw:`<tool_output tool="read">\n<raw>\n</tool_output>`,不带指引
     expect(blocks[0].output).toBe('<tool_output tool="read">\nfile content\n</tool_output>')
+    // 确保不含指引关键词(指引在 LLM 注入时才动态拼接)
+    expect(blocks[0].output).not.toContain('[How to interpret this result]')
+    expect(blocks[0].output).not.toContain('[Raw output]')
   })
 
   it('sets isError=true for error-text tool result', () => {

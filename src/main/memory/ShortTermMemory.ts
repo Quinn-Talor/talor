@@ -46,7 +46,20 @@ export class ShortTermMemory {
       return { summaryMessage: null, recentMessages: [], tokenEstimate: 0 }
     }
 
-    const totalTokens = allMessages.reduce((sum, m) => sum + estimateMessage(m), 0)
+    // Pop 最末那条——它由 MessagePlugin 独立注入到 prompt 末尾(Layer 7)。
+    // Memory 只处理"真·历史",压缩判定/recent 切分/锚点抽取全部基于 history。
+    // 原因:
+    //   1. 末尾消息在 MessagePlugin 注入,Memory 再带一遍会重复
+    //   2. 当前 turn 的 user 消息不应触发历史压缩
+    //   3. SDK 看到的 [Memory 输出] + [MessagePlugin 输出] 顺序即标准 ReAct:
+    //      history 末尾若是 assistant(tool_use) → MessagePlugin 注入 tool(result) → 配对完整
+    const history: ChatMessage[] = allMessages.slice(0, -1)
+
+    if (history.length === 0) {
+      return { summaryMessage: null, recentMessages: [], tokenEstimate: 0 }
+    }
+
+    const totalTokens = history.reduce((sum, m) => sum + estimateMessage(m), 0)
     const threshold    = 0.90 * config.context_limit
     const recentBudget = config.recent_ratio * config.context_limit
 
@@ -54,7 +67,7 @@ export class ShortTermMemory {
     if (totalTokens <= threshold) {
       return {
         summaryMessage: null,
-        recentMessages: messagesToCoreMessages(allMessages),
+        recentMessages: messagesToCoreMessages(history),
         tokenEstimate: totalTokens,
       }
     }
@@ -63,7 +76,7 @@ export class ShortTermMemory {
     const recentMessages: ChatMessage[] = []
     let recentTokens = 0
 
-    for (const msg of [...allMessages].reverse()) {
+    for (const msg of [...history].reverse()) {
       const est = estimateMessage(msg)
       if (recentTokens + est <= recentBudget) {
         recentMessages.unshift(msg)
@@ -73,13 +86,13 @@ export class ShortTermMemory {
       }
     }
 
-    const oldMessages = allMessages.slice(0, allMessages.length - recentMessages.length)
+    const oldMessages = history.slice(0, history.length - recentMessages.length)
 
     // Edge case: all messages fit in recent window
     if (oldMessages.length === 0) {
       return {
         summaryMessage: null,
-        recentMessages: messagesToCoreMessages(allMessages),
+        recentMessages: messagesToCoreMessages(history),
         tokenEstimate: totalTokens,
       }
     }
@@ -114,9 +127,18 @@ export class ShortTermMemory {
         this.saveSummary(sessionId, summaryText, lastCompressedId, estimate(summaryText))
         events?.emit({ type: 'memory.compressed', coveredUntilMessageId: lastCompressedId })
       } catch (err) {
-        log.warn('[ShortTermMemory] summary generation failed, falling back to anchors+recent', err)
+        // 摘要生成失败时不能静默丢掉 compressible——模型看不到就会凭空编造。
+        // 保留 anchors + recent + 显式告警,让模型知道"有历史但我看不到"。
+        log.warn('[ShortTermMemory] summary generation failed, returning gap warning', err)
         return {
-          summaryMessage: null,
+          summaryMessage: {
+            role: 'system',
+            content:
+              `[CONTEXT GAP WARNING] Summary generation failed. ` +
+              `${compressible.length} earlier messages from this conversation are NOT visible in this turn. ` +
+              `Do NOT make claims that rely on that hidden history. ` +
+              `If the user references earlier work, tell them history compression failed and ask for a recap.`,
+          },
           recentMessages: messagesToCoreMessages([...anchors, ...recentMessages]),
           tokenEstimate: recentTokens,
         }

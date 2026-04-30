@@ -62,7 +62,9 @@ function searchRecursive(
 
 const globTool = {
   name: 'glob',
-  description: 'Search for files matching a glob pattern within workspace. Returns list of matching file paths.',
+  description:
+    'Search for files matching a glob pattern within workspace. Returns list of matching file paths. ' +
+    'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
   parameters: {
     type: 'object',
     properties: {

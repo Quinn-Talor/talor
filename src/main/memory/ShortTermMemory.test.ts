@@ -66,7 +66,7 @@ describe('ShortTermMemory.getContext', () => {
     expect(generateText).not.toHaveBeenCalled()
   })
 
-  it('AC-001-01: 未超阈值时返回全量消息，无摘要', async () => {
+  it('AC-001-01: 未超阈值时返回全量历史消息(pop 末尾),无摘要', async () => {
     const msgs = Array.from({ length: 50 }, (_, i) => makeMsg(`msg-${i}`, '十个字符xx'))
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -77,8 +77,42 @@ describe('ShortTermMemory.getContext', () => {
     const result = await mem.getContext('s1', makeConfig(8000))
 
     expect(result.summaryMessage).toBeNull()
-    expect(result.recentMessages).toHaveLength(50)
+    // 末尾一条由 MessagePlugin 独立注入,Memory 只给 0..-2 共 49 条
+    expect(result.recentMessages).toHaveLength(49)
     expect(generateText).not.toHaveBeenCalled()
+  })
+
+  it('只有 1 条消息时,Memory 返回空(末尾由 MessagePlugin 负责)', async () => {
+    vi.mocked(messageRepo.listBySession).mockReturnValue([makeMsg('only', '单条消息')])
+    const dbMock = { prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })) }
+    vi.mocked(getDb).mockReturnValue(dbMock as unknown as ReturnType<typeof getDb>)
+
+    const mem = new ShortTermMemory()
+    const result = await mem.getContext('s1', makeConfig(8000))
+
+    expect(result.summaryMessage).toBeNull()
+    expect(result.recentMessages).toHaveLength(0)
+    expect(result.tokenEstimate).toBe(0)
+  })
+
+  it('末尾消息极长不影响压缩阈值判定', async () => {
+    // 历史 50 条短消息(< 阈值), 最末一条是超巨型消息。
+    // pop 最末后,Memory 判定依然走 Path A 不触发摘要。
+    const msgs = [
+      ...Array.from({ length: 50 }, (_, i) => makeMsg(`msg-${i}`, '短消息')),
+      makeMsg('msg-last-huge', 'X'.repeat(100_000)),
+    ]
+    vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
+    vi.mocked(getDb).mockReturnValue({
+      prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })),
+    } as unknown as ReturnType<typeof getDb>)
+
+    const mem = new ShortTermMemory()
+    const result = await mem.getContext('s1', makeConfig(8000))
+
+    expect(generateText).not.toHaveBeenCalled()   // 不触发摘要
+    expect(result.summaryMessage).toBeNull()
+    expect(result.recentMessages).toHaveLength(50) // 不含末尾巨型消息
   })
 
   it('AC-001-02: 超阈值时触发摘要，recent 区 token ≤ recentBudget', async () => {
@@ -109,10 +143,12 @@ describe('ShortTermMemory.getContext', () => {
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
+    // pop msg-099,history=msg-000..msg-098(99 条)。
+    // recentBudget=400, 每条 ≈75 tokens → 约 5 条进 recent → old = msg-000..msg-093
     const existingSummary = {
       session_id: 's1',
       summary_text: '旧摘要',
-      covered_until: 'msg-094',
+      covered_until: 'msg-093',
       token_estimate: 5,
       created_at: '2026-04-25T00:00:00.000Z',
     }
@@ -247,7 +283,7 @@ describe('ShortTermMemory.getContext', () => {
     await expect(mem.getContext('s1', makeConfig(8000))).resolves.toBeDefined()
   })
 
-  it('AC-001-06: 摘要生成失败时不阻断请求，回退到 recent-only', async () => {
+  it('AC-001-06: 摘要生成失败时不阻断请求，但注入 CONTEXT GAP 告警让模型感知缺口', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
       makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
     )
@@ -259,8 +295,10 @@ describe('ShortTermMemory.getContext', () => {
 
     const mem = new ShortTermMemory()
     const result = await mem.getContext('s1', makeConfig(8000))
-    // Should not throw; falls back to recent messages without a summary
-    expect(result.summaryMessage).toBeNull()
+    // Should not throw; recent messages still returned; summaryMessage carries the gap warning
+    expect(result.summaryMessage).not.toBeNull()
+    expect(result.summaryMessage!.content).toMatch(/^\[CONTEXT GAP WARNING\]/)
+    expect(result.summaryMessage!.content).toMatch(/\d+ earlier messages .+ NOT visible/)
     expect(result.recentMessages.length).toBeGreaterThan(0)
   })
 })
