@@ -5,14 +5,21 @@ import type { PipelineContext, PluginResult } from './types'
 
 function makeProvider(overrides: Partial<Provider> = {}): Provider {
   return {
-    id: 'p1', type: 'ollama', name: 'test', base_url: '', models: [],
-    enabled: true, is_default: true, supports_vision: false,
-    created_at: '', updated_at: '',
+    id: 'p1',
+    type: 'ollama',
+    name: 'test',
+    base_url: '',
+    models: [],
+    enabled: true,
+    is_default: true,
+    supports_vision: false,
+    created_at: '',
+    updated_at: '',
     ...overrides,
   }
 }
 
-const mockGet = vi.fn((key: string) => key === 'default_context_limit' ? undefined : undefined)
+const mockGet = vi.fn((key: string) => (key === 'default_context_limit' ? undefined : undefined))
 const mockInstance = { get: mockGet }
 
 vi.mock('../store/config-store', () => ({
@@ -62,7 +69,12 @@ function makeCtx(): PipelineContext {
     sessionId: 's1',
     currentMessage: { text: 'hi' },
     provider: { id: 'p1' } as Provider,
-    providerConfig: { provider: { id: 'p1' } as Provider, context_limit: 8000, recent_ratio: 0.05, summary_ratio: 0.10 },
+    providerConfig: {
+      provider: { id: 'p1' } as Provider,
+      context_limit: 8000,
+      recent_ratio: 0.05,
+      summary_ratio: 0.1,
+    },
     workspacePath: undefined,
   }
 }
@@ -85,13 +97,24 @@ async function mockAllPlugins(
 
   const empty: PluginResult = { messages: [], tools: [], tokenEstimate: 0 }
 
-  const configure = <T>(name: string, ctor: T, spec: PluginResult | Error | undefined, fallback: PluginResult) => {
-    const build = spec instanceof Error
-      ? vi.fn().mockRejectedValue(spec)
-      : vi.fn().mockResolvedValue(spec ?? fallback)
-    vi.mocked(ctor as unknown as () => unknown).mockImplementation(
-      () => ({ name, build }) as unknown as Record<string, unknown>,
-    )
+  const configure = <T>(
+    name: string,
+    ctor: T,
+    spec: PluginResult | Error | undefined,
+    fallback: PluginResult,
+  ) => {
+    const build =
+      spec instanceof Error
+        ? vi.fn().mockRejectedValue(spec)
+        : vi.fn().mockResolvedValue(spec ?? fallback)
+    // Vitest 4: 被 `new` 调用的 mock 必须用 function expression(arrow 会报
+    // "X is not a constructor")。`this` 在 function body 里赋值于实例。
+    vi.mocked(ctor as unknown as new () => unknown).mockImplementation(function (
+      this: Record<string, unknown>,
+    ) {
+      this.name = name
+      this.build = build
+    } as unknown as new () => unknown)
   }
 
   configure('SystemPlugin', SystemPlugin, overrides.SystemPlugin, empty)
@@ -99,7 +122,11 @@ async function mockAllPlugins(
   configure('MemoryPlugin', MemoryPlugin, overrides.MemoryPlugin, empty)
   configure('MessagePlugin', MessagePlugin, overrides.MessagePlugin, empty)
   configure('ToolSelectionPlugin', ToolSelectionPlugin, overrides.ToolSelectionPlugin, empty)
-  vi.mocked(MemoryManager).mockImplementation(() => ({}) as unknown as InstanceType<typeof MemoryManager>)
+  // Vitest 4 起 mockImplementation 的 fn 必须可作 constructor(被 `new` 调用),
+  // arrow function 不满足 — 用 function expression 包一层。
+  vi.mocked(MemoryManager).mockImplementation(function (this: unknown) {
+    return {} as unknown as InstanceType<typeof MemoryManager>
+  } as unknown as typeof MemoryManager)
 
   return new PromptPipeline(new MemoryManager())
 }
@@ -116,7 +143,7 @@ describe('PromptPipeline.build', () => {
       role: 'system',
       content: expect.stringContaining('[DEGRADED]'),
     })
-    expect((result.messages[0].content as string)).toContain('ToolSelectionPlugin')
+    expect(result.messages[0].content as string).toContain('ToolSelectionPlugin')
     expect(result.messages).toContainEqual({ role: 'system', content: 'sys' })
   })
 
@@ -131,17 +158,27 @@ describe('PromptPipeline.build', () => {
     const pipeline = await mockAllPlugins({
       MessagePlugin: new Error('db read failed'),
     })
-    await expect(pipeline.build(makeCtx())).rejects.toThrow(/Critical prompt plugin "MessagePlugin"/)
+    await expect(pipeline.build(makeCtx())).rejects.toThrow(
+      /Critical prompt plugin "MessagePlugin"/,
+    )
   })
 
   it('all plugins succeed: no [DEGRADED] notice', async () => {
     const pipeline = await mockAllPlugins({
       SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },
-      ToolSelectionPlugin: { messages: [], tools: [{ name: 't1', description: '', parameters: {} }], tokenEstimate: 0 },
+      ToolSelectionPlugin: {
+        messages: [],
+        tools: [{ name: 't1', description: '', parameters: {} }],
+        tokenEstimate: 0,
+      },
     })
     const result = await pipeline.build(makeCtx())
 
-    expect(result.messages.some(m => typeof m.content === 'string' && m.content.startsWith('[DEGRADED]'))).toBe(false)
+    expect(
+      result.messages.some(
+        (m) => typeof m.content === 'string' && m.content.startsWith('[DEGRADED]'),
+      ),
+    ).toBe(false)
     expect(result.tools).toHaveLength(1)
   })
 })

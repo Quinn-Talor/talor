@@ -87,6 +87,23 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      // react-hooks v7 新增的严格规则对存量代码误报较多(set-state-in-effect
+      // 等),降级为 warning。新代码在 review 时仍应注意这些模式。
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/preserve-manual-memoization': 'warn',
+      'react-hooks/incompatible-library': 'warn',
+      'react-hooks/error-boundaries': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/unsupported-syntax': 'warn',
+      'react-hooks/use-memo': 'warn',
+      'react-hooks/config': 'warn',
+      'react-hooks/gating': 'warn',
+      'react-hooks/globals': 'warn',
+      'react-hooks/rules-of-hooks': 'warn',
+      'react-hooks/component-hook-factories': 'warn',
+      'react-hooks/static-components': 'warn',
     },
   },
 

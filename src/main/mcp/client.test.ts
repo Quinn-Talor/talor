@@ -57,21 +57,36 @@ describe('McpRegistry reconnect', () => {
       connect: vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn(),
       isConnected: vi.fn().mockReturnValue(false), // always disconnected after initial connect
-      listTools: vi.fn().mockResolvedValue([{ name: 'test_tool', description: 'Test', inputSchema: {} }]),
+      listTools: vi
+        .fn()
+        .mockResolvedValue([{ name: 'test_tool', description: 'Test', inputSchema: {} }]),
       callTool: vi.fn().mockResolvedValue({ content: [{ text: 'result' }] }),
       serverConfig: { name: 'test-server' },
     }
 
-    vi.mocked(StdioTransport).mockImplementation(() => mockTransport as unknown as InstanceType<typeof StdioTransport>)
+    // Vitest 4: mock constructor 用 function expression(非 arrow),
+    // 把 mockTransport 的属性拷到 `this` 上,使 `new StdioTransport(...)` 行为正确。
+    vi.mocked(StdioTransport).mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, mockTransport)
+    } as unknown as typeof StdioTransport)
     vi.mocked(mcpServerRepo.getById).mockReturnValue(SERVER_FIXTURE)
 
     const { mcpRegistry } = await import('./client')
     await mcpRegistry.connectServer('server-1')
 
-    const result = await mcpRegistry.execute('test_tool', {}, { sessionId: 's1', workspace: '/tmp' })
+    const result = await mcpRegistry.execute(
+      'test_tool',
+      {},
+      { sessionId: 's1', workspace: '/tmp' },
+    )
 
     // Fast-fail: 返回 MCP_DISCONNECTED 错误信封,后台异步重连
-    const env = result.output as { __talor_error?: boolean; code?: string; message?: string; hint?: string }
+    const env = result.output as {
+      __talor_error?: boolean
+      code?: string
+      message?: string
+      hint?: string
+    }
     expect(env.__talor_error).toBe(true)
     expect(env.code).toBe('MCP_DISCONNECTED')
     expect(env.message).toContain('disconnected')

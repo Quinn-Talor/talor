@@ -1,6 +1,11 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 
+// ESM main bundle 下没有 CJS 的 __dirname 全局。TS 编译时使用
+// import.meta.dirname(Node 20.11+ / TS 5.8+)获取当前模块目录。
+// electron-vite 5 在 ESM 输出里还会自动注入同名 shim,两者都指向 out/main/。
+const MAIN_DIR = import.meta.dirname
+
 // remote-debugging-port / enable-logging 仅限 dev(未打包)。
 // 打包后开启 remote-debugging-port 意味着任意本机进程都能通过 DevTools Protocol
 // 注入脚本,进而读取聊天内容 / API key,属严重信息泄漏。
@@ -68,7 +73,7 @@ function createWindow(): void {
     webPreferences: {
       // preload 打成 CJS (.cjs) 以兼容 sandbox:true —— sandboxed preload 不支持
       // ESM。参见 electron.vite.config.ts preload.rollupOptions.output。
-      preload: join(__dirname, '../preload/index.cjs'),
+      preload: join(MAIN_DIR, '../preload/index.cjs'),
       // Electron 安全三件套:
       //   - contextIsolation: true  → preload 与页面 JS 世界隔离
       //   - nodeIntegration: false  → 页面禁访问 Node API
@@ -116,7 +121,7 @@ function createWindow(): void {
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(MAIN_DIR, '../renderer/index.html'))
   }
 
   log.info('[Main] Window created and loading content')
