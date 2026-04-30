@@ -1,8 +1,21 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Content-Security-Policy — Electron 安全基线。
+      所有外部 LLM/MCP/provider 请求都在主进程完成,渲染端不直接发网络请求,
+      因此 connect-src 只需覆盖:
+        - 'self' 与 file://(生产 loadFile)
+        - http://localhost:* 与 ws://localhost:*(dev Vite HMR)
+      style-src 保留 'unsafe-inline' 是因为 Tailwind + React 会内联样式。
+      script-src 不开 'unsafe-inline' / 'unsafe-eval'(contextIsolation + CSP 双重边界)。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+    />
     <title>Talor</title>
   </head>
   <body>

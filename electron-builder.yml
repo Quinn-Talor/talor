@@ -5,10 +5,15 @@ directories:
   output: dist
 files:
   - '!**/.vscode/*'
+  - '!**/.github/*'
   - '!src/*'
+  - '!docs/*'
+  - '!tests/*'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.editorconfig,.eslintrc.*,.prettierrc.*,.prettierignore,eslint.config.*,CHANGELOG.md,README.md,CLAUDE.md}'
+  - '!{tsconfig.json,tsconfig.base.json,tsconfig.main.json,tsconfig.preload.json}'
+  - '!**/*.test.ts'
+  - '!**/*.test.tsx'
 asarUnpack:
   - resources/**
 mac:
@@ -31,6 +36,9 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
+# publish: 暂未配置自动更新服务,使用手动分发。
+#   配置方式参考 https://www.electron.build/configuration/publish
+#   - provider: github        使用 GitHub Releases
+#   - provider: generic       自托管 HTTP 服务器
+#   - provider: s3            AWS S3
+# 在 CI 环境变量里提供 GH_TOKEN / CSC_LINK 等实际凭据后再打开。

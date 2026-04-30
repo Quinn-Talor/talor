@@ -1,44 +1,38 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
+# Dependencies
+node_modules/
+
+# Build output
+out/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-.idea
-.vscode
-.coverage
-.kiro
+build/
+*.tsbuildinfo
 
-# Virtual environments
-venv/
-env/
-ENV/
-.venv
+# Electron
+.playwright-mcp/
+.talor/
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.hypothesis/
+# Local DB / logs
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+logs/
 
-# IDEs
+# Environments / secrets
+.env
+.env.local
+.env.*.local
+config.yaml
+*.pem
+*.p12
+*.cer
+*.crt
+
+# Editor / IDE
 .vscode/
 .idea/
+.kiro/
 *.swp
 *.swo
 *~
@@ -47,33 +41,16 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
+# Test coverage
+coverage/
+.nyc_output/
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Config (may contain secrets)
-config.yaml
-.talor/
-
-# Type checking
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Ruff
-.ruff_cacheqq
-.claude
-build/
-out
-tests
-vibe
-node_modules
-.playwright-mcp
-/skills
-*.png
+# Temporary / scratch
+tests/
+vibe/
+skills/
 snapshot.yml
+*.png
+
+# Claude Code / superpowers
+.claude/

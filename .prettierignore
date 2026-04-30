@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+package-lock.json
+CHANGELOG.md

@@ -6,5 +6,5 @@
     "lib": ["ES2022"],
     "types": ["node"]
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/renderer/types/**/*", "src/shared/**/*", "electron.vite.config.ts"]
+  "include": ["src/main/**/*", "src/shared/**/*", "electron.vite.config.ts"]
 }

@@ -1,8 +1,13 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 
-app.commandLine.appendSwitch('remote-debugging-port', '9222')
-app.commandLine.appendSwitch('enable-logging')
+// remote-debugging-port / enable-logging 仅限 dev(未打包)。
+// 打包后开启 remote-debugging-port 意味着任意本机进程都能通过 DevTools Protocol
+// 注入脚本,进而读取聊天内容 / API key,属严重信息泄漏。
+if (!app.isPackaged) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+  app.commandLine.appendSwitch('enable-logging')
+}
 import log from 'electron-log'
 import { ConfigStore } from './store/config-store'
 import { registerConfigHandlers } from './ipc/config'
@@ -49,7 +54,7 @@ function createWindow(): void {
   const bounds = configStore.get('window_bounds') ?? {
     width: 1200,
     height: 800,
-    is_maximized: false
+    is_maximized: false,
   }
 
   mainWindow = new BrowserWindow({
@@ -62,10 +67,15 @@ function createWindow(): void {
     title: 'Talor',
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false,
+      // Electron 安全三件套:
+      //   - contextIsolation: true  → preload 与页面 JS 世界隔离
+      //   - nodeIntegration: false  → 页面禁访问 Node API
+      //   - sandbox: true           → OS 级沙箱,renderer 进程最小权限
+      // Talor 的 preload 只使用 contextBridge + ipcRenderer,完全兼容 sandbox。
+      sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
-    }
+      nodeIntegration: false,
+    },
   })
 
   setMainWindow(mainWindow)
@@ -87,7 +97,7 @@ function createWindow(): void {
         height,
         x,
         y,
-        is_maximized: mainWindow.isMaximized()
+        is_maximized: mainWindow.isMaximized(),
       })
     }
   })
@@ -110,7 +120,38 @@ function createWindow(): void {
   log.info('[Main] Window created and loading content')
 }
 
+/**
+ * 全局 web-contents-created 监听 — Electron 导航安全基线。
+ *
+ *   will-navigate       阻止 renderer 通过 location = '...' 导航到非白名单来源
+ *                       (防止 XSS 后跳转到外站,整个 renderer 被恶意站点接管)
+ *   will-attach-webview 禁止动态注入 <webview> 标签
+ *                       (防 untrusted code 通过 webview 逃逸)
+ *   setWindowOpenHandler 已在 createWindow 内逐窗口设置
+ *
+ * 允许的 URL:
+ *   dev:  process.env.ELECTRON_RENDERER_URL(Vite server,如 http://localhost:5173)
+ *   prod: file:// 下的 renderer bundle
+ * 其他一律 event.preventDefault()。
+ */
+function registerNavigationGuards(): void {
+  const devOrigin = process.env.ELECTRON_RENDERER_URL
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-navigate', (event, url) => {
+      if (devOrigin && url.startsWith(devOrigin)) return
+      if (url.startsWith('file://')) return
+      log.warn('[Main] Blocked navigation to:', url)
+      event.preventDefault()
+    })
+    contents.on('will-attach-webview', (event) => {
+      log.warn('[Main] Blocked <webview> attach')
+      event.preventDefault()
+    })
+  })
+}
+
 app.whenReady().then(() => {
+  registerNavigationGuards()
   configStore.ensureInitialized()
   initChatDb()
 
@@ -122,14 +163,11 @@ app.whenReady().then(() => {
   const skillsDir = join(app.getPath('home'), '.talor', 'skills')
   const platformSkillRegistry = SkillRegistry.fromDir(skillsDir)
   const safeStorageInstance = SafeStorageService.getInstance()
-  const accountStore = new AccountStore(
-    join(app.getPath('home'), '.talor', 'accounts.json'),
-    {
-      isAvailable: () => safeStorageInstance.isAvailable(),
-      encrypt: (value: string) => safeStorage.encryptString(value).toString('base64'),
-      decrypt: (encrypted: string) => safeStorage.decryptString(Buffer.from(encrypted, 'base64')),
-    },
-  )
+  const accountStore = new AccountStore(join(app.getPath('home'), '.talor', 'accounts.json'), {
+    isAvailable: () => safeStorageInstance.isAvailable(),
+    encrypt: (value: string) => safeStorage.encryptString(value).toString('base64'),
+    decrypt: (encrypted: string) => safeStorage.decryptString(Buffer.from(encrypted, 'base64')),
+  })
 
   registerAccountHandlers(accountStore)
 
