@@ -13,13 +13,22 @@ import { diagnoseInputMismatch } from './input-diagnostics'
 function buildInputSummary(toolName: string, input: unknown): string {
   const MAX = 500
   const obj = (input ?? {}) as Record<string, unknown>
-  if (toolName === 'bash') return String(obj.command ?? '').trim().slice(0, MAX)
+  if (toolName === 'bash')
+    return String(obj.command ?? '')
+      .trim()
+      .slice(0, MAX)
   if (toolName === 'write') {
-    const lines = String(obj.content ?? '').split('\n').slice(0, 20).map(l => l.slice(0, 80))
+    const lines = String(obj.content ?? '')
+      .split('\n')
+      .slice(0, 20)
+      .map((l) => l.slice(0, 80))
     return `File: ${obj.path}\n\n${lines.join('\n')}`.slice(0, MAX)
   }
   if (toolName === 'edit') {
-    const lines = String(obj.old_str ?? '').split('\n').slice(0, 10).map(l => l.slice(0, 80))
+    const lines = String(obj.old_str ?? '')
+      .split('\n')
+      .slice(0, 10)
+      .map((l) => l.slice(0, 80))
     return `File: ${obj.path}\nOld content:\n${lines.join('\n')}`.slice(0, MAX)
   }
   // MCP / 其它工具：JSON 摘要。空对象也返回可读提示，避免被外层 "!summary.trim()" 误判为无效输入。
@@ -67,15 +76,14 @@ export async function buildTools(opts: {
         if (isHighRisk) {
           const summary = buildInputSummary(schema.name, input)
           if (!summary.trim()) {
-            // 空摘要 = 模型传错了字段名(e.g. cmd 而非 command)。走诊断路径,
-            // 让模型下一轮能正确修正,而不是盲试字段名。
             const params = schema.parameters as {
               required?: string[]
               properties?: Record<string, { type?: string; description?: string }>
             }
-            const inputObj = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+            const inputObj =
+              input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
             const missing = (params.required ?? []).filter(
-              f => inputObj[f] === undefined || inputObj[f] === null,
+              (f) => inputObj[f] === undefined || inputObj[f] === null,
             )
             if (missing.length > 0) {
               return diagnoseInputMismatch(schema.name, params, input, missing)
@@ -83,12 +91,39 @@ export async function buildTools(opts: {
             return `Invalid input for tool "${schema.name}": could not build a summary from the provided input. Provided fields: [${Object.keys(inputObj).join(', ') || 'none'}].`
           }
           const toolCallId = options?.toolCallId ?? uuidv4()
-          const confirmed = await confirmTool({
-            sessionId, messageId, toolCallId,
-            toolName: schema.name,
-            inputSummary: summary,
-            inputFull: input,
-          })
+          let confirmed: boolean
+          try {
+            const confirmPromise = confirmTool({
+              sessionId,
+              messageId,
+              toolCallId,
+              toolName: schema.name,
+              inputSummary: summary,
+              inputFull: input,
+            })
+            if (opts.abortSignal) {
+              const abortPromise = new Promise<false>((_, reject) => {
+                if (opts.abortSignal!.aborted) {
+                  reject(new DOMException('Aborted', 'AbortError'))
+                  return
+                }
+                opts.abortSignal!.addEventListener(
+                  'abort',
+                  () => reject(new DOMException('Aborted', 'AbortError')),
+                  { once: true },
+                )
+              })
+              confirmed = await Promise.race([confirmPromise, abortPromise])
+            } else {
+              confirmed = await confirmPromise
+            }
+          } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+              return 'Tool call aborted by user.'
+            }
+            log.warn('[buildTools] confirmTool failed, treating as rejected:', schema.name, err)
+            return 'Tool confirmation failed. The tool call was not executed.'
+          }
           if (!confirmed) return 'User rejected the tool call.'
         }
         try {
@@ -102,7 +137,13 @@ export async function buildTools(opts: {
     })
   }
 
-  log.info('[buildTools] tools:', Object.keys(tools).length,
-    'agent:', agent.id, 'names:', Object.keys(tools).join(', '))
+  log.info(
+    '[buildTools] tools:',
+    Object.keys(tools).length,
+    'agent:',
+    agent.id,
+    'names:',
+    Object.keys(tools).join(', '),
+  )
   return Object.keys(tools).length > 0 ? tools : undefined
 }
