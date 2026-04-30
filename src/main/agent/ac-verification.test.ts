@@ -8,8 +8,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import Database from 'better-sqlite3'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
+
+// AccountStore 已迁 DB(见 accounts.ts),这里用 in-memory SQLite 替代。
+let accountsTestDb: Database.Database
+vi.mock('../db/index', () => ({
+  getDb: () => accountsTestDb,
+}))
 
 import { validateProfile } from './validator'
 import { AgentLoader } from './loader'
@@ -34,17 +41,24 @@ import type { ContentBlock } from '@shared/types/message'
 
 function makeTool(name: string): ToolDefinition {
   return {
-    name, description: `${name} tool`,
+    name,
+    description: `${name} tool`,
     parameters: { type: 'object', properties: {} },
-    riskLevel: name === 'bash' || name === 'write' || name === 'edit' ? 'HIGH' as const : 'LOW' as const,
+    riskLevel:
+      name === 'bash' || name === 'write' || name === 'edit' ? ('HIGH' as const) : ('LOW' as const),
     execute: async () => ({ output: `${name}-result` }),
   }
 }
 
 const BUILTIN_TOOLS = [
-  makeTool('read'), makeTool('write'), makeTool('edit'),
-  makeTool('bash'), makeTool('glob'), makeTool('grep'),
-  makeTool('ls'), makeTool('skill'),
+  makeTool('read'),
+  makeTool('write'),
+  makeTool('edit'),
+  makeTool('bash'),
+  makeTool('glob'),
+  makeTool('grep'),
+  makeTool('ls'),
+  makeTool('skill'),
 ]
 const builtinRegistry = new BuiltinToolRegistry(BUILTIN_TOOLS)
 
@@ -69,8 +83,25 @@ const VALID_PROFILE: AgentProfile = {
 }
 
 let tempDir: string
-beforeEach(() => { tempDir = mkdtempSync(join(tmpdir(), 'ac-test-')) })
-afterEach(() => { rmSync(tempDir, { recursive: true, force: true }) })
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'ac-test-'))
+  accountsTestDb = new Database(':memory:')
+  accountsTestDb.exec(`
+    CREATE TABLE account_keys (
+      service      TEXT NOT NULL,
+      key_name     TEXT NOT NULL,
+      value        TEXT NOT NULL,
+      is_secret    INTEGER NOT NULL DEFAULT 0,
+      is_encrypted INTEGER NOT NULL DEFAULT 0,
+      updated_at   TEXT NOT NULL,
+      PRIMARY KEY (service, key_name)
+    );
+  `)
+})
+afterEach(() => {
+  rmSync(tempDir, { recursive: true, force: true })
+  accountsTestDb.close()
+})
 
 function writeAgentDir(name: string, profile: AgentProfile): string {
   const dir = join(tempDir, name)
@@ -84,7 +115,6 @@ function writeAgentDir(name: string, profile: AgentProfile): string {
 // ══════════════════════════════════════════════════════
 
 describe('Block A: Agent 基础框架', () => {
-
   describe('AC-A1-01: profile 校验通过', () => {
     it('合法 JSON → { valid: true, profile }', () => {
       const result = validateProfile(VALID_PROFILE)
@@ -148,8 +178,16 @@ describe('Block A: Agent 基础框架', () => {
   describe('AC-A3-01: agent 声明 bash → 仅 bash + 基础工具', () => {
     it('工具集 = { read, ls, glob, grep, skill, bash }', () => {
       const agent = new Agent({
-        profile: { ...VALID_PROFILE, dependencies: { ...VALID_PROFILE.dependencies, tools: [{ name: 'bash', required: true }] } },
-        source: null, builtinRegistry, mcpSource: null,
+        profile: {
+          ...VALID_PROFILE,
+          dependencies: {
+            ...VALID_PROFILE.dependencies,
+            tools: [{ name: 'bash', required: true }],
+          },
+        },
+        source: null,
+        builtinRegistry,
+        mcpSource: null,
         skillRegistry: SkillRegistry.fromDir(null),
       })
       const names = agent.toolRegistry.getToolNames()
@@ -161,7 +199,9 @@ describe('Block A: Agent 基础框架', () => {
     it('工具集 = ALWAYS_AVAILABLE (read, ls, glob, grep, skill)', () => {
       const agent = new Agent({
         profile: { ...VALID_PROFILE, dependencies: { ...VALID_PROFILE.dependencies, tools: [] } },
-        source: null, builtinRegistry, mcpSource: null,
+        source: null,
+        builtinRegistry,
+        mcpSource: null,
         skillRegistry: SkillRegistry.fromDir(null),
       })
       const names = agent.toolRegistry.getToolNames()
@@ -189,14 +229,16 @@ describe('Block A: Agent 基础框架', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Block B: Agent 存储与导入导出', () => {
-
   describe('AC-B1-01: 导出 zip 包含完整目录', () => {
     it('export → import → 文件完整', () => {
       const dir = writeAgentDir('sales', VALID_PROFILE)
       mkdirSync(join(dir, 'knowledge'), { recursive: true })
       writeFileSync(join(dir, 'knowledge', 'manual.md'), '# Manual')
       mkdirSync(join(dir, 'skills', 'lark-sheets'), { recursive: true })
-      writeFileSync(join(dir, 'skills', 'lark-sheets', 'SKILL.md'), '---\nname: lark-sheets\n---\n# content')
+      writeFileSync(
+        join(dir, 'skills', 'lark-sheets', 'SKILL.md'),
+        '---\nname: lark-sheets\n---\n# content',
+      )
 
       const zip = exportAgent(dir)
       expect(zip).toBeInstanceOf(Buffer)
@@ -224,7 +266,9 @@ describe('Block B: Agent 存储与导入导出', () => {
       try {
         const result = importAgent(zip, importDir)
         expect(existsSync(result.dirPath)).toBe(true)
-        const reValidate = validateProfile(JSON.parse(require('fs').readFileSync(join(result.dirPath, 'agent.json'), 'utf-8')))
+        const reValidate = validateProfile(
+          JSON.parse(require('fs').readFileSync(join(result.dirPath, 'agent.json'), 'utf-8')),
+        )
         expect(reValidate.valid).toBe(true)
       } finally {
         rmSync(importDir, { recursive: true, force: true })
@@ -237,7 +281,7 @@ describe('Block B: Agent 存储与导入导出', () => {
       const profile = { ...VALID_PROFILE, minAppVersion: '99.0.0' }
       const result = checkDependencies(profile, tempDir, { appVersion: '0.2.0' })
       expect(result.passed).toBe(false)
-      const step = result.steps.find(s => s.step === 'minAppVersion')!
+      const step = result.steps.find((s) => s.step === 'minAppVersion')!
       expect(step.status).toBe('fail')
       expect(step.message).toContain('99.0.0')
       expect(step.message).toContain('0.2.0')
@@ -250,15 +294,25 @@ describe('Block B: Agent 存储与导入导出', () => {
         ...VALID_PROFILE,
         dependencies: {
           ...VALID_PROFILE.dependencies,
-          mcpServers: [{
-            name: 'company-api',
-            transport: { type: 'http', url: 'https://mcp.company.com', auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' } },
-            tools: ['search_orders'], required: true,
-          }],
+          mcpServers: [
+            {
+              name: 'company-api',
+              transport: {
+                type: 'http',
+                url: 'https://mcp.company.com',
+                auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
+              },
+              tools: ['search_orders'],
+              required: true,
+            },
+          ],
         },
       }
-      const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0', accountValues: new Map() })
-      const step = result.steps.find(s => s.step === 'mcpServer')!
+      const result = checkDependencies(profile, tempDir, {
+        appVersion: '1.0.0',
+        accountValues: new Map(),
+      })
+      const step = result.steps.find((s) => s.step === 'mcpServer')!
       expect(step.status).toBe('missing')
       expect(step.message).toContain('COMPANY_API_TOKEN')
     })
@@ -283,10 +337,9 @@ describe('Block B: Agent 存储与导入导出', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Block C: 依赖管理与账户管理', () => {
-
   describe('AC-C2-01: secret 脱敏返回', () => {
     it('list() 返回 secret value = "••••••"', () => {
-      const store = new AccountStore(join(tempDir, 'accounts.json'))
+      const store = new AccountStore()
       store.save({
         service: '飞书',
         keys: [
@@ -296,15 +349,15 @@ describe('Block C: 依赖管理与账户管理', () => {
       })
 
       const list = store.list()
-      const feishu = list.find(a => a.service === '飞书')!
-      expect(feishu.keys.find(k => k.name === 'feishu_appid')!.value).toBe('cli_xxx')
-      expect(feishu.keys.find(k => k.name === 'feishu_secret')!.value).toBe('••••••')
+      const feishu = list.find((a) => a.service === '飞书')!
+      expect(feishu.keys.find((k) => k.name === 'feishu_appid')!.value).toBe('cli_xxx')
+      expect(feishu.keys.find((k) => k.name === 'feishu_secret')!.value).toBe('••••••')
     })
   })
 
   describe('AC-C2-02: secret 实际值可查', () => {
     it('getValue() 返回实际值', () => {
-      const store = new AccountStore(join(tempDir, 'accounts.json'))
+      const store = new AccountStore()
       store.save({
         service: '飞书',
         keys: [{ name: 'feishu_secret', value: 's3cr3t', secret: true }],
@@ -326,10 +379,7 @@ describe('Block C: 依赖管理与账户管理', () => {
 
   describe('AC-C3-02: 变量缺失报错', () => {
     it('{{feishu_appid}} 未配置 → missing', () => {
-      const result = resolveVariables(
-        { APP_ID: '{{feishu_appid}}' },
-        new Map(),
-      )
+      const result = resolveVariables({ APP_ID: '{{feishu_appid}}' }, new Map())
       expect(result.missing).toContain('feishu_appid')
     })
   })
@@ -340,7 +390,6 @@ describe('Block C: 依赖管理与账户管理', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Block D: Agent 运行时', () => {
-
   describe('AC-D3-01: session 切换 agent（逻辑层）', () => {
     it('AgentManager 可获取不同 agent', () => {
       const manager = new AgentManager()
@@ -352,7 +401,8 @@ describe('Block D: Agent 运行时', () => {
 
       manager.registerBusinessAgent('sales-analyst-001', {
         profile: VALID_PROFILE,
-        source: null, mcpSource: null,
+        source: null,
+        mcpSource: null,
         skillRegistry: SkillRegistry.fromDir(null),
       })
 
@@ -390,7 +440,6 @@ describe('Block D: Agent 运行时', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Block E: 沉淀流程', () => {
-
   describe('AC-E1-01: 沉淀切换到 crystallizer（逻辑层）', () => {
     it('AgentManager 有 __crystallizer__ agent', () => {
       const manager = new AgentManager()
@@ -398,23 +447,44 @@ describe('Block E: 沉淀流程', () => {
       const cryst = manager.getAgent('__crystallizer__')
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
-      expect(cryst!.profile.role.capabilities).toContain('Analyze the tools and workflow used in the conversation history.')
+      expect(cryst!.profile.role.capabilities).toContain(
+        'Analyze the tools and workflow used in the conversation history.',
+      )
     })
   })
 
   describe('AC-E3-01: 沉淀时依赖提取准确', () => {
     it('tools=[bash], skills=[lark-sheets], read 被过滤', () => {
       const messages: Array<{ role: string; content: ContentBlock[] }> = [
-        { role: 'assistant', content: [
-          { type: 'tool_use', toolCallId: 'tc-1', toolName: 'bash', input: { command: 'echo hi' } },
-        ]},
-        { role: 'assistant', content: [
-          { type: 'tool_use', toolCallId: 'tc-2', toolName: 'read', input: { path: '/tmp' } },
-        ]},
-        { role: 'assistant', content: [
-          { type: 'tool_result', toolCallId: 'tc-3', toolName: 'skill',
-            output: '[SKILL:lark-sheets activated]\n\n# lark-sheets', isError: false },
-        ]},
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              toolCallId: 'tc-1',
+              toolName: 'bash',
+              input: { command: 'echo hi' },
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', toolCallId: 'tc-2', toolName: 'read', input: { path: '/tmp' } },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_result',
+              toolCallId: 'tc-3',
+              toolName: 'skill',
+              output: '[SKILL:lark-sheets activated]\n\n# lark-sheets',
+              isError: false,
+            },
+          ],
+        },
       ]
 
       const result = extractDependenciesFromMessages(messages)
@@ -430,25 +500,30 @@ describe('Block E: 沉淀流程', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Skill 集成', () => {
-
   it('Agent 级 Skill 隔离：只加载 agentDir/skills/', () => {
     const agentDir = writeAgentDir('test', VALID_PROFILE)
     const skillDir = join(agentDir, 'skills', 'my-skill')
     mkdirSync(skillDir, { recursive: true })
-    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: my-skill\ndescription: "测试技能"\n---\n# my-skill content')
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      '---\nname: my-skill\ndescription: "测试技能"\n---\n# my-skill content',
+    )
 
     const registry = SkillRegistry.fromDir(join(agentDir, 'skills'))
     expect(registry.isEmpty()).toBe(false)
-    expect(registry.listDescriptions().map(s => s.name)).toContain('my-skill')
+    expect(registry.listDescriptions().map((s) => s.name)).toContain('my-skill')
 
     // 全局 skill 不可见
     const globalDir = mkdtempSync(join(tmpdir(), 'global-skills-'))
     const globalSkillDir = join(globalDir, 'global-skill')
     mkdirSync(globalSkillDir, { recursive: true })
-    writeFileSync(join(globalSkillDir, 'SKILL.md'), '---\nname: global-skill\ndescription: "全局"\n---\n# global')
+    writeFileSync(
+      join(globalSkillDir, 'SKILL.md'),
+      '---\nname: global-skill\ndescription: "全局"\n---\n# global',
+    )
 
     // Agent 的 registry 不含全局 skill
-    expect(registry.listDescriptions().map(s => s.name)).not.toContain('global-skill')
+    expect(registry.listDescriptions().map((s) => s.name)).not.toContain('global-skill')
     rmSync(globalDir, { recursive: true, force: true })
   })
 
@@ -456,14 +531,17 @@ describe('Skill 集成', () => {
     const agentDir = writeAgentDir('test', VALID_PROFILE)
     const skillDir = join(agentDir, 'skills', 'lark-sheets')
     mkdirSync(skillDir, { recursive: true })
-    writeFileSync(join(skillDir, 'SKILL.md'), `---
+    writeFileSync(
+      join(skillDir, 'SKILL.md'),
+      `---
 name: lark-sheets
 description: "飞书表格"
 metadata:
   requires:
     bins: ["lark-cli"]
 ---
-# content`)
+# content`,
+    )
 
     const bins = extractSkillCliBins(join(agentDir, 'skills'))
     expect(bins).toContain('lark-cli')

@@ -4,7 +4,6 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import log from 'electron-log'
 
-
 const CREATE_SESSIONS = `
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -60,6 +59,26 @@ CREATE TABLE IF NOT EXISTS session_summaries (
 );
 `
 
+/**
+ * account_keys — 用户声明的第三方服务凭据(飞书 / GitHub / 自定义 skill 等)。
+ * 替代旧的 ~/.talor/accounts.json。
+ *
+ * 一个 service 有多个 key;每个 key 可选 secret 标志。非 secret 字段明文存 value,
+ * secret 字段走 safeStorage 加密后 base64 存 value,并把 is_encrypted 置 1。
+ * 密文和明文共用 value 列,由 is_encrypted 区分读取路径(保持简单,避免双列)。
+ */
+const CREATE_ACCOUNT_KEYS = `
+CREATE TABLE IF NOT EXISTS account_keys (
+  service      TEXT NOT NULL,
+  key_name     TEXT NOT NULL,
+  value        TEXT NOT NULL,
+  is_secret    INTEGER NOT NULL DEFAULT 0,
+  is_encrypted INTEGER NOT NULL DEFAULT 0,
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (service, key_name)
+);
+`
+
 let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
@@ -83,47 +102,48 @@ export function initChatDb(): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-    db.exec(CREATE_SESSIONS)
-    db.exec(CREATE_MCP_SERVERS)
-    db.exec(CREATE_SESSION_SUMMARIES)
+  db.exec(CREATE_SESSIONS)
+  db.exec(CREATE_MCP_SERVERS)
+  db.exec(CREATE_SESSION_SUMMARIES)
+  db.exec(CREATE_ACCOUNT_KEYS)
 
-    // Migrate sessions: add workspace column if missing
-    const sessionCols = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
-    if (!sessionCols.some(c => c.name === 'workspace')) {
-      db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
-      log.info('[ChatDB] Migrated: added workspace column')
-    }
+  // Migrate sessions: add workspace column if missing
+  const sessionCols = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
+  if (!sessionCols.some((c) => c.name === 'workspace')) {
+    db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
+    log.info('[ChatDB] Migrated: added workspace column')
+  }
 
-    // Clear-and-recreate messages table when schema is outdated
-    const msgCols = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>
-    const hasContentType = msgCols.some(c => c.name === 'content_type')
-    const hasToolRole = msgCols.length > 0 // table exists
-    if (!hasContentType && hasToolRole) {
-      // Old schema without content_type — drop and recreate (clear-and-recreate migration)
-      log.info('[ChatDB] Migrating messages table: dropping old schema')
-      db.exec('DROP TABLE IF EXISTS messages;')
-    }
-    db.exec(CREATE_MESSAGES)
-    db.exec(CREATE_INDEX)
+  // Clear-and-recreate messages table when schema is outdated
+  const msgCols = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
+  const hasContentType = msgCols.some((c) => c.name === 'content_type')
+  const hasToolRole = msgCols.length > 0 // table exists
+  if (!hasContentType && hasToolRole) {
+    // Old schema without content_type — drop and recreate (clear-and-recreate migration)
+    log.info('[ChatDB] Migrating messages table: dropping old schema')
+    db.exec('DROP TABLE IF EXISTS messages;')
+  }
+  db.exec(CREATE_MESSAGES)
+  db.exec(CREATE_INDEX)
 
-    // Migrate sessions: add agent_id column if missing (default: __chat__)
-    if (!sessionCols.some(c => c.name === 'agent_id')) {
-      db.exec("ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
-      log.info('[ChatDB] Migrated: added sessions.agent_id')
-    }
+  // Migrate sessions: add agent_id column if missing (default: __chat__)
+  if (!sessionCols.some((c) => c.name === 'agent_id')) {
+    db.exec("ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
+    log.info('[ChatDB] Migrated: added sessions.agent_id')
+  }
 
-    // Migrate sessions: add parent_session_id column if missing
-    if (!sessionCols.some(c => c.name === 'parent_session_id')) {
-      db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT')
-      log.info('[ChatDB] Migrated: added sessions.parent_session_id')
-    }
+  // Migrate sessions: add parent_session_id column if missing
+  if (!sessionCols.some((c) => c.name === 'parent_session_id')) {
+    db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT')
+    log.info('[ChatDB] Migrated: added sessions.parent_session_id')
+  }
 
-    // Migrate messages: add agent_id column if missing
-    const currentMsgCols = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>
-    if (!currentMsgCols.some(c => c.name === 'agent_id')) {
-      db.exec("ALTER TABLE messages ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
-      log.info('[ChatDB] Migrated: added messages.agent_id')
-    }
+  // Migrate messages: add agent_id column if missing
+  const currentMsgCols = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
+  if (!currentMsgCols.some((c) => c.name === 'agent_id')) {
+    db.exec("ALTER TABLE messages ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
+    log.info('[ChatDB] Migrated: added messages.agent_id')
+  }
 
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db

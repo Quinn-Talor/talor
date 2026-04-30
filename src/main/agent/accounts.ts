@@ -1,30 +1,18 @@
-// src/main/agent/accounts.ts — 业务层：账户凭证管理
+// src/main/agent/accounts.ts — 业务层:账户凭据管理
 //
-// secret 字段使用 SafeStorageService 加密存储（ADR, G1）。
-// 非 secret 字段明文存储。
+// 凭据存 DB(account_keys 表,见 src/main/repos/account-repo.ts)。
+// secret 字段使用 SafeStorageService 加密后以 base64 存入 value 列,
+// 由 is_encrypted=1 标记;非 secret 明文存 value 列。
 //
-// 允许依赖：services/safe-storage、shared/*
-// 禁止依赖：ipc/*
+// 允许依赖: services/safe-storage、repos/account-repo、shared/*
+// 禁止依赖: ipc/*
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
-import { dirname } from 'path'
 import log from 'electron-log'
-import type { Account, AccountsData } from '@shared/types/agent'
+import type { Account } from '@shared/types/agent'
+import { accountRepo, type AccountKeyRecord } from '../repos/account-repo'
 
 const SECRET_MASK = '••••••'
 const KEY_NAME_REGEX = /^[a-zA-Z0-9_]+$/
-
-interface StoredAccountKey {
-  name: string
-  value: string
-  encrypted?: string
-  secret: boolean
-}
-
-interface StoredAccount {
-  service: string
-  keys: StoredAccountKey[]
-}
 
 export interface SafeStorageProvider {
   isAvailable(): boolean
@@ -33,43 +21,14 @@ export interface SafeStorageProvider {
 }
 
 export class AccountStore {
-  private accounts: StoredAccount[] = []
+  constructor(private readonly safeStorage?: SafeStorageProvider) {}
 
-  constructor(
-    private readonly filePath: string,
-    private readonly safeStorage?: SafeStorageProvider,
-  ) {
-    this.load()
-  }
-
-  private load(): void {
-    try {
-      if (existsSync(this.filePath)) {
-        const raw = readFileSync(this.filePath, 'utf-8')
-        const data = JSON.parse(raw) as { accounts: StoredAccount[] }
-        this.accounts = data.accounts ?? []
-      }
-    } catch (err) {
-      log.warn('[AccountStore] Failed to load accounts:', err)
-      this.accounts = []
-    }
-  }
-
-  private persist(): void {
-    try {
-      const dir = dirname(this.filePath)
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-      const data = { accounts: this.accounts }
-      writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf-8')
-    } catch (err) {
-      log.error('[AccountStore] Failed to persist accounts:', err)
-    }
-  }
-
+  /** 按 service 聚合展示列表。secret 字段以 SECRET_MASK 替代,永不返回明文。 */
   list(): Account[] {
-    return this.accounts.map(acc => ({
-      service: acc.service,
-      keys: acc.keys.map(k => ({
+    const services = accountRepo.listServices()
+    return services.map((service) => ({
+      service,
+      keys: accountRepo.getKeysByService(service).map((k) => ({
         name: k.name,
         value: k.secret ? SECRET_MASK : k.value,
         secret: k.secret,
@@ -84,60 +43,70 @@ export class AccountStore {
       }
     }
 
-    const storedKeys: StoredAccountKey[] = account.keys.map(k => {
+    // secret 走 safeStorage 加密(不可用时降级明文存 + 打警告);
+    // 非 secret 直接明文存。一列 value 分工,is_encrypted 区分读取路径,
+    // 避免宽表 + 空字段。
+    const records: Array<Omit<AccountKeyRecord, 'service'>> = account.keys.map((k) => {
       if (k.secret && this.safeStorage?.isAvailable()) {
         return {
           name: k.name,
-          value: '',
-          encrypted: this.safeStorage.encrypt(k.value),
+          value: this.safeStorage.encrypt(k.value),
           secret: true,
+          encrypted: true,
         }
       }
-      return { name: k.name, value: k.value, secret: k.secret }
+      if (k.secret) {
+        log.warn('[AccountStore] safeStorage unavailable, storing secret in plaintext:', k.name)
+      }
+      return { name: k.name, value: k.value, secret: k.secret, encrypted: false }
     })
 
-    const storedAccount: StoredAccount = { service: account.service, keys: storedKeys }
-
-    const idx = this.accounts.findIndex(a => a.service === account.service)
-    if (idx >= 0) {
-      this.accounts[idx] = storedAccount
-    } else {
-      this.accounts.push(storedAccount)
-    }
-    this.persist()
+    accountRepo.upsertService(account.service, records)
     log.info('[AccountStore] Saved account:', account.service)
   }
 
   delete(service: string): void {
-    this.accounts = this.accounts.filter(a => a.service !== service)
-    this.persist()
-    log.info('[AccountStore] Deleted account:', service)
+    accountRepo.deleteService(service)
   }
 
+  /**
+   * 按 key name 查找真实 value(自动解密 secret)。
+   *
+   * 注意:多个 service 含同名 key 时取首个匹配(与旧 JSON 实现一致)。
+   * 建议业务约定 key name 全局唯一(例如 service 前缀)。
+   */
   getValue(keyName: string): string | undefined {
-    for (const acc of this.accounts) {
-      const key = acc.keys.find(k => k.name === keyName)
-      if (!key) continue
+    const rec = accountRepo.findByKeyName(keyName)
+    if (!rec) return undefined
 
-      if (key.secret && key.encrypted && this.safeStorage?.isAvailable()) {
-        try {
-          return this.safeStorage.decrypt(key.encrypted)
-        } catch (err) {
-          log.error('[AccountStore] Failed to decrypt key:', keyName, err)
-          return undefined
-        }
+    if (rec.encrypted) {
+      if (!this.safeStorage?.isAvailable()) {
+        log.error('[AccountStore] Key is encrypted but safeStorage unavailable:', keyName)
+        return undefined
       }
-      return key.value
+      try {
+        return this.safeStorage.decrypt(rec.value)
+      } catch (err) {
+        log.error('[AccountStore] Failed to decrypt key:', keyName, err)
+        return undefined
+      }
     }
-    return undefined
+    return rec.value
   }
 
+  /** 把所有 keys 铺平成 name→value Map,供工具注入(secret 自动解密)。 */
   getAllValues(): Map<string, string> {
     const map = new Map<string, string>()
-    for (const acc of this.accounts) {
-      for (const key of acc.keys) {
-        const value = this.getValue(key.name)
-        if (value !== undefined) map.set(key.name, value)
+    for (const rec of accountRepo.listAll()) {
+      if (rec.encrypted) {
+        if (!this.safeStorage?.isAvailable()) continue
+        try {
+          map.set(rec.name, this.safeStorage.decrypt(rec.value))
+        } catch (err) {
+          log.error('[AccountStore] Failed to decrypt in getAllValues:', rec.name, err)
+        }
+      } else {
+        map.set(rec.name, rec.value)
       }
     }
     return map

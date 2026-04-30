@@ -170,7 +170,9 @@ app.whenReady().then(() => {
   const skillsDir = join(app.getPath('home'), '.talor', 'skills')
   const platformSkillRegistry = SkillRegistry.fromDir(skillsDir)
   const safeStorageInstance = SafeStorageService.getInstance()
-  const accountStore = new AccountStore(join(app.getPath('home'), '.talor', 'accounts.json'), {
+  // Account 凭据已迁至 DB(account_keys 表),不再需要 filePath 参数。
+  // safeStorage 仍用于加密 secret 字段,与旧实现保持同样的 OS 级保护。
+  const accountStore = new AccountStore({
     isAvailable: () => safeStorageInstance.isAvailable(),
     encrypt: (value: string) => safeStorage.encryptString(value).toString('base64'),
     decrypt: (encrypted: string) => safeStorage.decryptString(Buffer.from(encrypted, 'base64')),
