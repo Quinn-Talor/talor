@@ -1,8 +1,16 @@
 import { readdirSync, existsSync, realpathSync } from 'fs'
 import { join, relative } from 'path'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { isPathSensitive } from '../path-guard'
+
+const GlobInput = z.object({
+  pattern: z.string()
+    .describe('Glob pattern (e.g., "*.ts", "src/**/*.tsx")')
+    .refine(p => p.trim().length > 0, 'Pattern cannot be empty'),
+})
+type GlobInputT = z.infer<typeof GlobInput>
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache', 'dist', 'build', '.venv', 'venv'])
 const MAX_RESULTS = 200
@@ -65,25 +73,18 @@ const globTool = {
   description:
     'Search for files matching a glob pattern within workspace. Returns list of matching file paths. ' +
     'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
-  parameters: {
-    type: 'object',
-    properties: {
-      pattern: { type: 'string', description: 'Glob pattern (e.g., "*.ts", "src/**/*.tsx")' },
-    },
-    required: ['pattern'],
-  },
+  zodSchema: GlobInput,
+  parameters: z.toJSONSchema(GlobInput) as Record<string, unknown>,
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace } = context
-    const params = input as { pattern: string }
+    const params = input as GlobInputT
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    if (!params.pattern || params.pattern.trim() === '') {
-      return { output: 'Pattern cannot be empty' }
-    }
+    // pattern 非空已由 Zod refine 保证
 
     if (isPathSensitive(workspace)) {
       return { output: 'Cannot search sensitive system directory' }

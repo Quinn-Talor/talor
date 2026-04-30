@@ -1,9 +1,16 @@
 import { spawn } from 'child_process'
 import * as os from 'os'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, ValidationResult, VerifyResult } from '../types'
+import type { ToolExecuteContext, ToolErrorEnvelope, ValidationResult, VerifyResult } from '../types'
 import { DEFAULT_TOOL_TIMEOUT_MS } from '../types'
 import { writeTmpOutput } from '../tool-tmp'
+
+// exit=0 但 stderr 含失败关键字时视为 partial failure。很多工具(git/kubectl/rsync 等)
+// 成功时也会往 stderr 写 warning,仅凭"stderr 非空"误判会太嘈杂;用关键字筛选
+// 出**语义上明确指示失败**的输出。反之 exit=0 + 普通 stderr 加标注即可,模型看到
+// "[stderr — informational only, exit=0]" 就不会当成失败。
+const STDERR_FAILURE_HINTS = /\b(error|fatal|denied|refused|forbidden|unauthorized|not authorized|permission denied)\b/i
 
 const DANGEROUS_SUBSTRINGS = [
   'rm -rf /',
@@ -81,6 +88,22 @@ const STDOUT_THRESHOLD_BYTES = 10 * 1024
 const STDOUT_PREVIEW_BYTES = 2048
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024
 
+// 静态校验(不依赖 context):长度 + 危险命令黑名单。
+// 需要 workspace 的规则(checkWritePaths 必须引用 context.workspace)
+// 仍放在 tool.validate 里——Zod refine 拿不到 context。
+//
+// transform(s.trim()) 虽然更优雅但会让 toJSONSchema 崩溃(transform 不可序列化),
+// 所以把 trim 逻辑放到 refine 里(校验 trim 后的内容),输出不做变换。
+const BashInput = z.object({
+  command: z.string()
+    .describe('Shell command to execute')
+    .refine(s => s.trim().length > 0, 'Missing required parameter: "command" must be a non-empty string.')
+    .refine(s => s.trim().length <= 2000, 'Command too long (max 2000 chars).')
+    .refine(s => !isCommandDangerous(s), 'Dangerous command not allowed.'),
+  description: z.string().describe('Description of the command (optional)').optional(),
+})
+type BashInputT = z.infer<typeof BashInput>
+
 const bashTool = {
   name: 'bash',
   description:
@@ -88,25 +111,14 @@ const bashTool = {
     'by listed skills (e.g. lark-cli, gh, jira) — activate the matching skill first ' +
     'via the `skill` tool to learn the correct subcommand and flag shapes.',
   riskLevel: 'HIGH' as const,
-  parameters: {
-    type: 'object',
-    properties: {
-      command: { type: 'string', description: 'Shell command to execute' },
-      description: { type: 'string', description: 'Description of the command (optional)' },
-    },
-    required: ['command'],
-  },
+  zodSchema: BashInput,
+  parameters: z.toJSONSchema(BashInput) as Record<string, unknown>,
 
+  // Zod 已完成静态校验。这里只剩下需要 context 的业务规则。
   validate(input: unknown, context: ToolExecuteContext): ValidationResult {
-    const params = input as { command?: unknown }
-    if (typeof params.command !== 'string' || !params.command.trim())
-      return { ok: false, error: 'Missing required parameter: "command" must be a non-empty string.' }
-    if (params.command.trim().length > 2000)
-      return { ok: false, error: 'Command too long (max 2000 chars).' }
+    const params = input as BashInputT
     if (!context.workspace)
       return { ok: false, error: 'Workspace not set. Please set workspace first.' }
-    if (isCommandDangerous(params.command))
-      return { ok: false, error: 'Dangerous command not allowed.' }
     const writeViolation = checkWritePaths(params.command, context.workspace)
     if (writeViolation)
       return { ok: false, error: writeViolation }
@@ -114,6 +126,11 @@ const bashTool = {
   },
 
   async verify(output: unknown, input: unknown, context: ToolExecuteContext): Promise<VerifyResult> {
+    // ToolErrorEnvelope 由 execute 直接产出(如 BASH_STDERR_FAILURE),verify 不应
+    // 把它降级成字符串——原样透传,让 registry / stream-utils 按结构识别。
+    if (output && typeof output === 'object' && (output as { __talor_error?: boolean }).__talor_error) {
+      return { ok: true, output }
+    }
     const raw = String(output ?? '')
     const { command } = input as { command: string }
 
@@ -140,7 +157,7 @@ const bashTool = {
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace, toolTimeoutMs = DEFAULT_TOOL_TIMEOUT_MS, abortSignal } = context
-    const params = input as { command: string; description?: string }
+    const params = input as BashInputT
 
     return new Promise((resolve) => {
       const child = spawn('/bin/bash', ['-c', params.command], {
@@ -202,11 +219,25 @@ const bashTool = {
           const errBody = stderr.trim() || `exit code ${code}`
           return finish({ output: `[exit: non-zero]\n${errBody}` })
         }
-        const parts: string[] = []
         const out = stdout.trim()
         const err = stderr.trim()
+
+        // exit=0 但 stderr 包含失败关键字 → 语义上是失败,改用错误信封。
+        // 模型原本可能把 stderr 里的 "error: ..." 当成失败、或把它当噪音忽略;
+        // 让代码做明确分类,模型就不用猜。
+        if (err && STDERR_FAILURE_HINTS.test(err)) {
+          const envelope: ToolErrorEnvelope = {
+            __talor_error: true,
+            code: 'BASH_STDERR_FAILURE',
+            message: 'Command exited 0 but stderr reported failure-like output.',
+            hint: out ? `stdout:\n${out}\n\nstderr:\n${err}` : `stderr:\n${err}`,
+          }
+          return finish({ output: envelope })
+        }
+
+        const parts: string[] = []
         if (out) parts.push(out)
-        if (err) parts.push(`[stderr]\n${err}`)
+        if (err) parts.push(`[stderr — informational only, exit=0]\n${err}`)
         finish({ output: parts.join('\n') || '(no output)' })
       })
     })

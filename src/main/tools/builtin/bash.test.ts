@@ -146,4 +146,38 @@ describe('bash tool', () => {
     expect(String(result.output)).toContain('[aborted]')
     expect(elapsed).toBeLessThan(5000)
   }, 10000)
+
+  // ── stderr 语义化 ──────────────────────────────────────────────────
+  it('exit=0 with informational stderr is labelled, not flagged as error', async () => {
+    // 用 echo 把一段"无失败关键字"的文本写到 stderr
+    const result = await run('echo informational >&2')
+    const out = result.output
+    // 既不是错误信封,也是正常字符串,含提示标签
+    expect(typeof out).toBe('string')
+    expect(String(out)).toContain('[stderr — informational only, exit=0]')
+    expect(String(out)).toContain('informational')
+  })
+
+  it('exit=0 but stderr contains "error" keyword → BASH_STDERR_FAILURE envelope', async () => {
+    const result = await run('echo "error: oauth token expired" >&2')
+    const env = result.output as {
+      __talor_error?: boolean; code?: string; message?: string; hint?: string
+    }
+    expect(env.__talor_error).toBe(true)
+    expect(env.code).toBe('BASH_STDERR_FAILURE')
+    expect(env.hint).toContain('oauth token expired')
+  })
+
+  it('exit=0 + stderr "permission denied" → BASH_STDERR_FAILURE', async () => {
+    const result = await run('echo "permission denied" >&2')
+    const env = result.output as { __talor_error?: boolean; code?: string }
+    expect(env.__talor_error).toBe(true)
+    expect(env.code).toBe('BASH_STDERR_FAILURE')
+  })
+
+  it('exit=0 with only stdout has no stderr tag', async () => {
+    const result = await run('echo hello')
+    expect(String(result.output)).not.toContain('[stderr')
+    expect(String(result.output)).toContain('hello')
+  })
 })

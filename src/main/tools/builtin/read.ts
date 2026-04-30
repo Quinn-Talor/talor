@@ -1,8 +1,17 @@
 import { readFileSync, existsSync, statSync } from 'fs'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, ValidationResult, VerifyResult } from '../types'
+import type { ToolExecuteContext, VerifyResult } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
+
+const ReadInput = z.object({
+  path: z.string()
+    .describe('File path relative to workspace or absolute path')
+    .refine(p => p.trim().length > 0, 'Missing required parameter: "path" must be a non-empty string.')
+    .refine(p => !p.includes('\0'), 'Invalid path: contains null byte.'),
+})
+type ReadInputT = z.infer<typeof ReadInput>
 
 function isBinaryFile(content: Buffer): boolean {
   const signatures = [
@@ -20,22 +29,8 @@ const readTool = {
   description:
     'Read content of a file. Returns file content as string, or error message. ' +
     'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
-  parameters: {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'File path relative to workspace or absolute path' },
-    },
-    required: ['path'],
-  },
-
-  validate(input: unknown): ValidationResult {
-    const params = input as { path?: unknown }
-    if (typeof params.path !== 'string' || !params.path.trim())
-      return { ok: false, error: 'Missing required parameter: "path" must be a non-empty string.' }
-    if (params.path.includes('\0'))
-      return { ok: false, error: 'Invalid path: contains null byte.' }
-    return { ok: true }
-  },
+  zodSchema: ReadInput,
+  parameters: z.toJSONSchema(ReadInput) as Record<string, unknown>,
 
   verify(output: unknown): VerifyResult {
     const raw = String(output ?? '')
@@ -47,7 +42,7 @@ const readTool = {
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace, maxReadSizeBytes = DEFAULT_MAX_READ_SIZE_BYTES } = context
-    const params = input as { path: string }
+    const params = input as ReadInputT
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }

@@ -115,6 +115,35 @@ describe('toolResultPartsToBlocks', () => {
     ])
     expect(blocks[0].isError).toBe(false)
   })
+
+  it('marks ToolErrorEnvelope as isError=true and renders [CODE] message', () => {
+    const envelope = {
+      __talor_error: true as const,
+      code: 'MCP_TIMEOUT',
+      message: 'Tool execution timed out',
+      hint: 'Check network latency.',
+    }
+    const blocks = toolResultPartsToBlocks([
+      { toolCallId: 'c', toolName: 'lark.send', output: envelope },
+    ])
+    expect(blocks[0].isError).toBe(true)
+    expect(blocks[0].output).toContain('[MCP_TIMEOUT]')
+    expect(blocks[0].output).toContain('Tool execution timed out')
+    expect(blocks[0].output).toContain('hint: Check network latency.')
+  })
+
+  it('renders envelope without hint when hint absent', () => {
+    const envelope = {
+      __talor_error: true as const,
+      code: 'MCP_EXCEPTION',
+      message: 'connection refused',
+    }
+    const blocks = toolResultPartsToBlocks([
+      { toolCallId: 'c', toolName: 'mcp', output: envelope },
+    ])
+    expect(blocks[0].output).toContain('[MCP_EXCEPTION] connection refused')
+    expect(blocks[0].output).not.toContain('hint:')
+  })
 })
 
 describe('buildStreamSignal', () => {

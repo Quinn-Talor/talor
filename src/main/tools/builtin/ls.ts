@@ -1,8 +1,22 @@
 import { readdirSync, existsSync, statSync, realpathSync } from 'fs'
 import { join } from 'path'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext } from '../types'
 import { resolveToolPath } from '../path-guard'
+
+const LsInput = z.object({
+  path: z.string()
+    .describe('Directory path to list (relative to workspace or absolute, default: workspace root)')
+    .default('.'),
+  depth: z.number().int().min(1).max(10)
+    .describe('Depth of recursive listing (1 = current dir only)')
+    .default(1),
+  showHidden: z.boolean()
+    .describe('Whether to show hidden files (starting with .)')
+    .default(false),
+})
+type LsInputT = z.infer<typeof LsInput>
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
 
@@ -31,25 +45,18 @@ function formatMode(mode: number): string {
 const lsTool = {
   name: 'ls',
   description: 'List directory contents. Shows files and subdirectories with permissions, size, and modification time.',
-  parameters: {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'Directory path to list (relative to workspace or absolute, default: workspace root)', default: '.' },
-      depth: { type: 'number', description: 'Depth of recursive listing (1 = current dir only)', default: 1 },
-      showHidden: { type: 'boolean', description: 'Whether to show hidden files (starting with .)', default: false },
-    },
-    required: [],
-  },
+  zodSchema: LsInput,
+  parameters: z.toJSONSchema(LsInput) as Record<string, unknown>,
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace } = context
-    const params = input as { path?: string; depth?: number; showHidden?: boolean }
+    const params = input as LsInputT
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }
     }
 
-    const targetPath = params.path || '.'
+    const targetPath = params.path
     const guard = resolveToolPath(targetPath, workspace)
     if (guard.status === 'sensitive') {
       return { output: 'Cannot access sensitive system path' }
@@ -75,8 +82,9 @@ const lsTool = {
         return { output: `Not a directory: ${targetPath}` }
       }
 
-      const depth = Math.min(params.depth ?? 1, 10)
-      const showHidden = params.showHidden || false
+      // depth/showHidden 已由 Zod 校验+赋默认值,execute 只消费不二次处理
+      const depth = params.depth
+      const showHidden = params.showHidden
       const entries: string[] = []
 
       let realWorkspace: string

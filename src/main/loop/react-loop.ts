@@ -16,6 +16,7 @@ import { createHash } from 'crypto'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
+import { verifyQuotedFacts } from './quote-verifier'
 import { buildTools } from '../tools/build-tools'
 import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks } from './types'
@@ -103,6 +104,7 @@ type LoopExitReason =
   | 'max_steps'           // 达到步数上限
   | 'fallback_summary'    // 兜底摘要触发
   | 'repeated_error'      // 死循环保护（签名重复 或 错误率超阈值）
+  | 'context_overflow'    // prompt 估算已 >= context_limit,提交前短路
 
 function sha8(s: string): string {
   return createHash('sha1').update(s).digest('hex').slice(0, 8)
@@ -202,8 +204,11 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
   }
   const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
 
-  // Token 预算预检:估算本步 prompt,超 95% context_limit 时追加告警,
-  // 让模型自觉收尾而不是等 provider 静默截断。
+  // Token 预算预检。
+  // >=100%: 硬阻断。provider 收到超限 prompt 通常会静默截掉 system 段,模型
+  //        看不到规则后开始凭空推断,这是真实的生产事故模式。与其提交请求后
+  //        祈祷 provider 手下留情,不如本地短路,给用户一条明确的 halt 消息。
+  // >98%:  软告警,追加 [CONTEXT NEARLY FULL] 让模型自觉收敛。
   const limit = ctx.providerConfig.context_limit
   if (limit > 0) {
     let estimatedTokens = 0
@@ -212,6 +217,33 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
       estimatedTokens += estimate(text)
     }
     const usageRatio = estimatedTokens / limit
+
+    if (usageRatio >= 1.0) {
+      log.error(`[ReactLoop]   context overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%). Halting before submission.`)
+      const haltText =
+        `[auto-halt] Context window exceeded (${estimatedTokens}/${limit} tokens, ${(usageRatio * 100).toFixed(0)}%). ` +
+        `Task stopped to avoid silent provider-side truncation. Please start a new session or trim the conversation history.`
+      messageRepo.create({
+        id: uuidv4(),
+        session_id: ctx.sessionId,
+        role: 'assistant',
+        content: [{ type: 'text', text: haltText }],
+        agent_id: ctx.agentId,
+      })
+      sessionRepo.touch(ctx.sessionId)
+      ctx.callbacks.onTextDelta(haltText)
+      return {
+        stepText: haltText,
+        wroteAssistantFinal: true,
+        shouldContinue: false,
+        durationMs: Date.now() - stepStart,
+        toolNames: [],
+        exitReason: 'context_overflow',
+        signature: '',
+        allToolsFailed: null,
+      }
+    }
+
     if (usageRatio > CONTEXT_USAGE_WARNING_RATIO) {
       log.warn(`[ReactLoop]   context near overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%)`)
       messages.push({
@@ -383,6 +415,32 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
   }
 }
 
+/**
+ * 收集最近 k 条 tool 角色消息的 raw output 文本,供 verifyQuotedFacts 比对。
+ *
+ * 为什么从后往前扫:兜底摘要最相关的证据是"刚刚跑过的工具",越早的越次要;
+ * 取 k 条后就停,避免对已存档的历史 session 做全量读取。
+ */
+function collectRecentToolOutputs(sessionId: string, k: number): string[] {
+  const all = messageRepo.listBySession(sessionId)
+  const outputs: string[] = []
+  for (let i = all.length - 1; i >= 0 && outputs.length < k; i--) {
+    if (all[i].role !== 'tool') continue
+    try {
+      const blocks = JSON.parse(all[i].content) as Array<{ type: string; output?: string }>
+      for (const b of blocks) {
+        if (b.type === 'tool_result' && typeof b.output === 'string' && b.output.length > 0) {
+          outputs.push(b.output)
+          if (outputs.length >= k) break
+        }
+      }
+    } catch {
+      // 非 blocks 格式的旧消息,跳过
+    }
+  }
+  return outputs
+}
+
 // ── runFallbackSummary ──────────────────────────────────────────────────
 
 /**
@@ -444,9 +502,19 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
     }
     const durationMs = Date.now() - summaryStart
     if (summaryText.trim()) {
-      // 前缀 [auto-summary] 让下一轮模型读自己的历史时能识别"这不是一次正常推理，
-      // 可能不完整或带错误"——配合 Fix 2 memory 的锚点策略一起抑制误差继承。
-      const markedText = `[auto-summary]\n${summaryText}`
+      // 代码前置约束:摘要靠 prompt 指示"逐字引用",但无法保证模型不编造。
+      // 这里把最近 10 条 tool_output 当证据集,扫描摘要里所有 >= 20 字节的
+      // "..." / `...` 引用,未命中的替换为 ⟨unverifiable⟩——让用户一眼看到
+      // 被 AI 编造的片段,而不是按引号相信却查不到出处。
+      const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)
+      const { cleaned, unverifiedCount } = verifyQuotedFacts(summaryText, toolOutputs)
+      if (unverifiedCount > 0) {
+        log.warn(`[ReactLoop]   fallback: masked ${unverifiedCount} unverifiable quote(s)`)
+      }
+      const label = unverifiedCount > 0
+        ? `[auto-summary • ${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked]`
+        : '[auto-summary]'
+      const markedText = `${label}\n${cleaned}`
       messageRepo.create({
         id: uuidv4(),
         session_id: ctx.sessionId,

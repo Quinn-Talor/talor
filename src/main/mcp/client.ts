@@ -9,7 +9,7 @@
 
 import log from 'electron-log'
 import { mcpServerRepo, MCPServerType } from '../repos/mcp-server-repo'
-import type { ToolExecuteContext, ToolMetadata } from '../tools/types'
+import type { ToolExecuteContext, ToolMetadata, ToolErrorEnvelope } from '../tools/types'
 import { MCPServerConfig, MCPError } from './types'
 import { StdioTransport } from './transport/stdio'
 import { HttpTransport } from './transport/http'
@@ -147,7 +147,13 @@ export class McpRegistry {
           log.warn('[McpRegistry] Server disconnected, triggering background reconnect:', serverId)
           self.reconnect(serverId).catch(err =>
             log.error('[McpRegistry] Background reconnect failed:', serverId, err))
-          return { output: `MCP server "${serverName}" is disconnected. Reconnecting in the background — please retry shortly.` }
+          const envelope: ToolErrorEnvelope = {
+            __talor_error: true,
+            code: 'MCP_DISCONNECTED',
+            message: `MCP server "${serverName}" is disconnected.`,
+            hint: 'Reconnecting in the background — please retry shortly.',
+          }
+          return { output: envelope }
         }
 
         try {
@@ -161,18 +167,36 @@ export class McpRegistry {
           if ('isError' in result && result.isError) {
             const errorMsg = result.content[0]?.text || 'Tool execution failed'
             log.error('[McpRegistry] Tool returned error:', errorMsg)
-            return { output: `Tool execution error: ${errorMsg}` }
+            const envelope: ToolErrorEnvelope = {
+              __talor_error: true,
+              code: 'MCP_ERROR',
+              message: errorMsg,
+              hint: 'Check the MCP server log, or retry with different parameters.',
+            }
+            return { output: envelope }
           }
 
           const outputText = result.content[0]?.text || ''
           if (!outputText) {
-            return { output: 'Tool returned an empty result. The underlying session may have expired.' }
+            const envelope: ToolErrorEnvelope = {
+              __talor_error: true,
+              code: 'MCP_EMPTY_RESULT',
+              message: 'Tool returned an empty result.',
+              hint: 'The underlying session may have expired — try reconnecting the server.',
+            }
+            return { output: envelope }
           }
           return { output: outputText }
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err)
           log.error('[McpRegistry] execute error:', errorMsg)
-          return { output: `Tool execution exception: ${errorMsg}` }
+          const isTimeout = err instanceof MCPError && err.message === 'Tool execution timed out'
+          const envelope: ToolErrorEnvelope = {
+            __talor_error: true,
+            code: isTimeout ? 'MCP_TIMEOUT' : 'MCP_EXCEPTION',
+            message: errorMsg,
+          }
+          return { output: envelope }
         }
       },
     }

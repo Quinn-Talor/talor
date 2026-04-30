@@ -10,6 +10,7 @@
 
 import type { ToolResultBlock } from '../../shared/types/message'
 import { MAX_TOOL_RESULT_BYTES } from '../../shared/types/message'
+import { isToolErrorEnvelope, type ToolErrorEnvelope } from '../tools/types'
 
 /**
  * streamText 返回的 toolResults 单项形状（与 AI SDK 结构一致的最小子集）。
@@ -45,6 +46,11 @@ export function truncateOutput(output: string): string {
 function extractOutputText(output: unknown): string {
   if (output === null || output === undefined) return ''
   if (typeof output === 'string') return output
+  // ToolErrorEnvelope → 展开为人类可读形式供 LLM 阅读
+  if (isToolErrorEnvelope(output)) {
+    const e = output as ToolErrorEnvelope
+    return e.hint ? `[${e.code}] ${e.message}\n(hint: ${e.hint})` : `[${e.code}] ${e.message}`
+  }
   if (typeof output === 'object' && 'value' in output) {
     const v = (output as { value: unknown }).value
     return typeof v === 'string' ? v : JSON.stringify(v)
@@ -81,6 +87,8 @@ const ERROR_OUTPUT_PATTERNS: RegExp[] = [
   /^Invalid input for tool /,
   /^Invalid input:/,
   /^Invalid type for /,
+  /^Invalid value for /,
+  /^"[^"]+" on "[^"]+" /,        // schema-check 的 min/max/length/pattern 违规消息
   /^String not found in file:/,
   /^Tool execution failed:/,
   /^Tool not found:/,
@@ -97,14 +105,20 @@ function isBuiltinErrorText(text: string): boolean {
 }
 
 /**
- * AI SDK 用 type='error-text' / 'error-json' 标记失败；builtin/MCP 用约定前缀。
- * 两类都要识别出来，否则 DB 的 isError 字段永远为 false。
+ * AI SDK 用 type='error-text' / 'error-json' 标记失败；
+ * 新代码(MCP / verify block / schema check)用 ToolErrorEnvelope 结构化标识；
+ * 旧 builtin 工具仍用约定错误前缀(ERROR_OUTPUT_PATTERNS)。
+ * 三类都要识别,否则 DB 的 isError 字段漏报,死循环检测失效。
  */
 function isErrorOutput(output: unknown): boolean {
+  // 优先级 1: 结构化错误信封(首选,新工具都用这个)
+  if (isToolErrorEnvelope(output)) return true
+  // 优先级 2: AI SDK 的 error-text / error-json
   if (typeof output === 'object' && output !== null && 'type' in output) {
     const t = (output as { type: unknown }).type
     if (t === 'error-text' || t === 'error-json') return true
   }
+  // 优先级 3: 兼容旧工具的错误前缀正则
   const text = extractOutputText(output)
   if (text && isBuiltinErrorText(text)) return true
   return false

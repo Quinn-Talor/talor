@@ -70,8 +70,11 @@ describe('McpRegistry reconnect', () => {
 
     const result = await mcpRegistry.execute('test_tool', {}, { sessionId: 's1', workspace: '/tmp' })
 
-    // Fast-fail: immediate error, no blocking reconnect
-    expect(result.output).toContain('disconnected')
-    expect(result.output).toContain('Reconnecting')
+    // Fast-fail: 返回 MCP_DISCONNECTED 错误信封,后台异步重连
+    const env = result.output as { __talor_error?: boolean; code?: string; message?: string; hint?: string }
+    expect(env.__talor_error).toBe(true)
+    expect(env.code).toBe('MCP_DISCONNECTED')
+    expect(env.message).toContain('disconnected')
+    expect(env.hint).toContain('Reconnecting')
   })
 })

@@ -1,38 +1,32 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, ValidationResult } from '../types'
+import type { ToolExecuteContext, ToolErrorEnvelope } from '../types'
 import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
+
+const EditInput = z.object({
+  path: z.string()
+    .describe('File path to edit (relative to workspace or absolute)')
+    .refine(p => p.trim().length > 0, 'Missing required parameter: "path" must be a non-empty string.'),
+  old: z.string()
+    .describe('The exact string to find and replace')
+    .min(1, 'Missing required parameter: "old" must be a non-empty string.'),
+  new: z.string().describe('The string to replace old with'),
+  replaceAll: z.boolean().describe('Replace all occurrences or just the first').default(false),
+})
+type EditInputT = z.infer<typeof EditInput>
 
 const editTool = {
   name: 'edit',
   description: 'Edit a file by replacing a specific string. Use to make targeted changes to a file.',
   riskLevel: 'HIGH' as const,
-  parameters: {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'File path to edit (relative to workspace or absolute)' },
-      old: { type: 'string', description: 'The exact string to find and replace' },
-      new: { type: 'string', description: 'The string to replace old with' },
-      replaceAll: { type: 'boolean', description: 'Replace all occurrences or just the first', default: false },
-    },
-    required: ['path', 'old', 'new'],
-  },
-
-  validate(input: unknown): ValidationResult {
-    const params = input as { path?: unknown; old?: unknown; new?: unknown }
-    if (typeof params.path !== 'string' || !params.path.trim())
-      return { ok: false, error: 'Missing required parameter: "path" must be a non-empty string.' }
-    if (typeof params.old !== 'string' || !params.old)
-      return { ok: false, error: 'Missing required parameter: "old" must be a non-empty string.' }
-    if (typeof params.new !== 'string')
-      return { ok: false, error: 'Missing required parameter: "new" must be a string (empty string is allowed for deletion).' }
-    return { ok: true }
-  },
+  zodSchema: EditInput,
+  parameters: z.toJSONSchema(EditInput) as Record<string, unknown>,
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace, maxReadSizeBytes = DEFAULT_MAX_READ_SIZE_BYTES } = context
-    const params = input as { path: string; old: string; new: string; replaceAll?: boolean }
+    const params = input as EditInputT
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }
@@ -77,6 +71,19 @@ const editTool = {
       }
 
       const occurrences = content.split(params.old).length - 1
+
+      // 多处匹配但未指定 replaceAll → 拒绝。默认静默替换第一处会在代码库里留下
+      // "随便改了哪一处没法解释"的炸弹;要求模型扩展 old_str 的上下文,或显式 replaceAll。
+      if (occurrences > 1 && params.replaceAll !== true) {
+        const envelope: ToolErrorEnvelope = {
+          __talor_error: true,
+          code: 'EDIT_AMBIGUOUS_MATCH',
+          message: `String appears ${occurrences} times in ${params.path}. Edit refuses to silently pick one.`,
+          hint: 'Either expand "old" to include more unique surrounding context, or pass replaceAll: true to replace all occurrences.',
+        }
+        return { output: envelope }
+      }
+
       let newContent: string
       let replacedCount: number
 

@@ -35,11 +35,29 @@ describe('edit tool', () => {
     expect(readFileSync(join(TMP, 'file.txt'), 'utf-8')).toBe('qux bar qux baz')
   })
 
-  it('replaces only first occurrence by default', async () => {
+  it('refuses multi-match edit without replaceAll (EDIT_AMBIGUOUS_MATCH)', async () => {
     writeFileSync(join(TMP, 'file.txt'), 'foo bar foo baz')
     const result = await toolRegistry.execute('edit', { path: 'file.txt', old: 'foo', new: 'qux' }, makeContext())
+    const env = result.output as { __talor_error?: boolean; code?: string; message?: string }
+    expect(env.__talor_error).toBe(true)
+    expect(env.code).toBe('EDIT_AMBIGUOUS_MATCH')
+    expect(env.message).toContain('2 times')
+    // 文件不应被修改
+    expect(readFileSync(join(TMP, 'file.txt'), 'utf-8')).toBe('foo bar foo baz')
+  })
+
+  it('single-match edit still works without replaceAll', async () => {
+    writeFileSync(join(TMP, 'file.txt'), 'foo bar baz')
+    const result = await toolRegistry.execute('edit', { path: 'file.txt', old: 'foo', new: 'qux' }, makeContext())
     expect(result.output).toContain('1 replacement')
-    expect(readFileSync(join(TMP, 'file.txt'), 'utf-8')).toBe('qux bar foo baz')
+    expect(readFileSync(join(TMP, 'file.txt'), 'utf-8')).toBe('qux bar baz')
+  })
+
+  it('multi-match edit succeeds when replaceAll explicitly true', async () => {
+    writeFileSync(join(TMP, 'file.txt'), 'foo bar foo baz')
+    const result = await toolRegistry.execute('edit', { path: 'file.txt', old: 'foo', new: 'qux', replaceAll: true }, makeContext())
+    expect(result.output).toContain('2 replacement')
+    expect(readFileSync(join(TMP, 'file.txt'), 'utf-8')).toBe('qux bar qux baz')
   })
 
   it('returns error for string not found', async () => {

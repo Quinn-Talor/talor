@@ -10,16 +10,21 @@ vi.mock('./stream-utils', () => ({
   toolResultPartsToBlocks: vi.fn(() => []),
 }))
 
-const { mockMessageCreate, mockMessageCreateBatch, mockSessionTouch, mockStreamText, mockBuildTools } = vi.hoisted(() => ({
+const { mockMessageCreate, mockMessageCreateBatch, mockMessageListBySession, mockSessionTouch, mockStreamText, mockBuildTools } = vi.hoisted(() => ({
   mockMessageCreate: vi.fn(),
   mockMessageCreateBatch: vi.fn(),
+  mockMessageListBySession: vi.fn(() => [] as unknown[]),
   mockSessionTouch: vi.fn(),
   mockStreamText: vi.fn(),
   mockBuildTools: vi.fn(),
 }))
 
 vi.mock('../repos/session-repo', () => ({
-  messageRepo: { create: mockMessageCreate, createBatch: mockMessageCreateBatch },
+  messageRepo: {
+    create: mockMessageCreate,
+    createBatch: mockMessageCreateBatch,
+    listBySession: mockMessageListBySession,
+  },
   sessionRepo: { touch: mockSessionTouch },
 }))
 
@@ -113,8 +118,10 @@ describe('runReactLoop — context budget guard', () => {
     mockBuildTools.mockResolvedValue(undefined)
   })
 
-  it('prompt 超 98% context_limit 时在 messages 末尾注入 [CONTEXT NEARLY FULL]', async () => {
-    const bigText = 'x'.repeat(500)
+  it('prompt 超 98% 但未到 100% 时在 messages 末尾注入 [CONTEXT NEARLY FULL]', async () => {
+    // estimate('x'*197) = ceil(197*0.25) = 50 tokens。设 limit=51 → 50/51≈98.04%,
+    // > 0.98 触发软告警; < 1.0 不触发硬阻断。
+    const bigText = 'x'.repeat(197)
     const capturedMessages: unknown[][] = []
     mockStreamText.mockImplementation((params: { messages: unknown[]; onChunk?: (arg: { chunk: unknown }) => void }) => {
       capturedMessages.push(params.messages)
@@ -122,10 +129,9 @@ describe('runReactLoop — context budget guard', () => {
       return { consumeStream: vi.fn().mockResolvedValue(undefined), toolResults: Promise.resolve([]) }
     })
 
-    // estimate('x'*500) ≈ 125 tokens > 0.98 * 50 = 49 → 触发
     const opts = makeOpts({
       maxSteps: 1,
-      providerConfig: { context_limit: 50, recent_ratio: 0.05, summary_ratio: 0.05 } as ReactLoopOptions['providerConfig'],
+      providerConfig: { context_limit: 51, recent_ratio: 0.05, summary_ratio: 0.05 } as ReactLoopOptions['providerConfig'],
       pipeline: {
         build: vi.fn().mockResolvedValue({
           messages: [{ role: 'user', content: bigText }],
@@ -141,6 +147,32 @@ describe('runReactLoop — context budget guard', () => {
     expect(tail.content).toMatch(/^\[CONTEXT NEARLY FULL\]/)
     // 文案不应含"不许开工具链"等过激命令
     expect(tail.content).not.toMatch(/Do not start new tool chains/)
+  })
+
+  it('prompt 估算 >= 100% context_limit 时硬阻断:不调 streamText, 写 [auto-halt]', async () => {
+    // estimate('x'*1000) ≈ 250 tokens >= 50 → 超限
+    const bigText = 'x'.repeat(1000)
+    const opts = makeOpts({
+      maxSteps: 3,
+      providerConfig: { context_limit: 50, recent_ratio: 0.05, summary_ratio: 0.05 } as ReactLoopOptions['providerConfig'],
+      pipeline: {
+        build: vi.fn().mockResolvedValue({
+          messages: [{ role: 'user', content: bigText }],
+          tools: [],
+        }),
+      } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    // 关键:streamText 不应被调用,prompt 在提交前被拦住。
+    expect(mockStreamText).not.toHaveBeenCalled()
+    // halt 消息写入 DB + 回调给 UI
+    expect(mockMessageCreate).toHaveBeenCalled()
+    const createCall = mockMessageCreate.mock.calls[0][0]
+    expect(createCall.role).toBe('assistant')
+    expect(createCall.content[0].text).toMatch(/^\[auto-halt\]/)
+    expect(createCall.content[0].text).toMatch(/Context window exceeded/)
+    expect(opts.callbacks.onTextDelta).toHaveBeenCalledWith(expect.stringMatching(/^\[auto-halt\]/))
   })
 
   it('prompt 低于 98% 时不注入预警', async () => {
@@ -421,6 +453,106 @@ describe('runReactLoop — dead-loop detection', () => {
       (c) => Array.isArray(c[0].content) && c[0].content[0]?.text?.includes('[auto-halt]'),
     )
     expect(haltCall).toBeUndefined()
+  })
+})
+
+describe('runReactLoop — fallback summary quote verification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBuildTools.mockResolvedValue(undefined)
+    mockMessageListBySession.mockReturnValue([])
+  })
+
+  /**
+   * 构造触发 fallback 的场景:第 1 步有 tool-call,toolResults 为空 → SDK 把它替换为
+   * 错误消息继续循环;第 2 步无工具、无文本 → 本轮 fullText=0 → 触发 runFallbackSummary。
+   * fallback 又做一次 streamText(不带 tools)产出摘要文本。
+   */
+  function setupFallbackScenarioWithSummary(summaryText: string) {
+    let call = 0
+    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void; messages?: unknown[] }) => {
+      call++
+      if (call === 1) {
+        // 第 1 步:触发 tool-call 但 toolResults 返回空 → 走 disambiguation 分支
+        params.onChunk?.({ chunk: { type: 'tool-call', toolCallId: 'tc1', toolName: 'read', input: { path: '/a' } } })
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          toolResults: Promise.resolve([]),
+        }
+      }
+      if (call === 2) {
+        // 第 2 步:无工具、无文本 → 触发兜底
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          toolResults: Promise.resolve([]),
+        }
+      }
+      // 第 3 次 streamText = runFallbackSummary 内部调用:产出摘要
+      // 兜底分支用 `for await (const chunk of result.textStream)` 消费
+      return {
+        textStream: (async function* () { yield summaryText })(),
+      }
+    })
+  }
+
+  it('fallback 摘要里未命中 tool_output 的长引用被替换为 ⟨unverifiable⟩', async () => {
+    const realToolText = 'File written: /tmp/report.txt (120 bytes)'
+    // DB 里最近一条 tool 消息的 content 是 JSON blocks
+    mockMessageListBySession.mockReturnValue([
+      {
+        id: 'm1', session_id: 's1', role: 'tool', agent_id: '__chat__', created_at: 'x',
+        content: JSON.stringify([{ type: 'tool_result', output: realToolText, toolCallId: 'tc1', toolName: 'read' }]),
+      },
+    ])
+
+    const fabricatedSummary =
+      'Summary: "all 42 records inserted successfully into the database without error"'
+    setupFallbackScenarioWithSummary(fabricatedSummary)
+
+    const opts = makeOpts({ maxSteps: 2, agent: {
+      id: '__chat__',
+      toolRegistry: { listTools: () => [], getToolNames: () => ['read'] },
+    } as unknown as ReactLoopOptions['agent'] })
+    await runReactLoop(opts)
+
+    // 找到落库的兜底摘要消息
+    const summaryCall = mockMessageCreate.mock.calls.find(
+      (c) => Array.isArray(c[0].content) && typeof c[0].content[0]?.text === 'string' && c[0].content[0].text.startsWith('[auto-summary')
+    )
+    expect(summaryCall).toBeDefined()
+    const text = summaryCall![0].content[0].text as string
+    expect(text).toMatch(/^\[auto-summary • 1 unverifiable quote masked\]/)
+    expect(text).toContain('⟨unverifiable⟩')
+    expect(text).not.toContain('42 records inserted')
+  })
+
+  it('fallback 摘要里命中真实 tool_output 的长引用不被替换', async () => {
+    const realToolText = 'The server responded with "authentication token expired, please login again"'
+    mockMessageListBySession.mockReturnValue([
+      {
+        id: 'm1', session_id: 's1', role: 'tool', agent_id: '__chat__', created_at: 'x',
+        content: JSON.stringify([{ type: 'tool_result', output: realToolText, toolCallId: 'tc1', toolName: 'bash' }]),
+      },
+    ])
+
+    const summary = 'Result: "authentication token expired, please login again"'
+    setupFallbackScenarioWithSummary(summary)
+
+    const opts = makeOpts({ maxSteps: 2, agent: {
+      id: '__chat__',
+      toolRegistry: { listTools: () => [], getToolNames: () => ['bash'] },
+    } as unknown as ReactLoopOptions['agent'] })
+    await runReactLoop(opts)
+
+    const summaryCall = mockMessageCreate.mock.calls.find(
+      (c) => Array.isArray(c[0].content) && typeof c[0].content[0]?.text === 'string' && c[0].content[0].text.startsWith('[auto-summary')
+    )
+    expect(summaryCall).toBeDefined()
+    const text = summaryCall![0].content[0].text as string
+    // 未命中 → 标签无 "unverifiable" 计数
+    expect(text).toMatch(/^\[auto-summary\]/)
+    expect(text).not.toContain('⟨unverifiable⟩')
+    expect(text).toContain('authentication token expired')
   })
 })
 

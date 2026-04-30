@@ -1,35 +1,29 @@
 import { writeFileSync, existsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, ValidationResult } from '../types'
+import type { ToolExecuteContext } from '../types'
 import { DEFAULT_MAX_WRITE_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
+
+const WriteInput = z.object({
+  path: z.string()
+    .describe('File path relative to workspace or absolute path')
+    .refine(p => p.trim().length > 0, 'Missing required parameter: "path" must be a non-empty string.'),
+  content: z.string().describe('Content to write to the file'),
+})
+type WriteInputT = z.infer<typeof WriteInput>
 
 const writeTool = {
   name: 'write',
   description: 'Write content to a file. Creates a new file or overwrites existing file.',
   riskLevel: 'HIGH' as const,
-  parameters: {
-    type: 'object',
-    properties: {
-      path: { type: 'string', description: 'File path relative to workspace or absolute path' },
-      content: { type: 'string', description: 'Content to write to the file' },
-    },
-    required: ['path', 'content'],
-  },
-
-  validate(input: unknown): ValidationResult {
-    const params = input as { path?: unknown; content?: unknown }
-    if (typeof params.path !== 'string' || !params.path.trim())
-      return { ok: false, error: 'Missing required parameter: "path" must be a non-empty string.' }
-    if (typeof params.content !== 'string')
-      return { ok: false, error: 'Missing required parameter: "content" must be a string (empty string is allowed).' }
-    return { ok: true }
-  },
+  zodSchema: WriteInput,
+  parameters: z.toJSONSchema(WriteInput) as Record<string, unknown>,
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace, maxWriteSizeBytes = DEFAULT_MAX_WRITE_SIZE_BYTES } = context
-    const params = input as { path: string; content: string }
+    const params = input as WriteInputT
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }

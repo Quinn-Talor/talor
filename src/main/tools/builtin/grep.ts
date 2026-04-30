@@ -1,8 +1,34 @@
 import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'fs'
 import { join } from 'path'
+import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, ValidationResult } from '../types'
+import type { ToolExecuteContext } from '../types'
 import { resolveToolPath, isPathSensitive } from '../path-guard'
+
+const GrepInput = z.object({
+  pattern: z.string()
+    .describe('Regex pattern to search for')
+    .refine(p => p.trim().length > 0, 'Missing required parameter: "pattern" must be a non-empty string.')
+    .refine(p => {
+      try { new RegExp(p); return true } catch { return false }
+    }, { error: issue => {
+      // v4 error map: 尽量给出原始 regex 错误消息
+      try { new RegExp(String(issue.input)) } catch (e) {
+        return `Invalid regex pattern: ${e instanceof Error ? e.message : String(e)}`
+      }
+      return 'Invalid regex pattern'
+    } }),
+  path: z.string()
+    .describe('File or directory path to search in (default: workspace root)')
+    .default('.'),
+  include: z.string()
+    .describe('Glob pattern for files to include (e.g., "*.ts")')
+    .optional(),
+  caseSensitive: z.boolean()
+    .describe('Whether search is case-sensitive')
+    .default(false),
+})
+type GrepInputT = z.infer<typeof GrepInput>
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache'])
 const MAX_RESULTS = 100
@@ -25,32 +51,12 @@ const grepTool = {
   description:
     'Search for a pattern in files using regex. Returns matching lines with context. ' +
     'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
-  parameters: {
-    type: 'object',
-    properties: {
-      pattern: { type: 'string', description: 'Regex pattern to search for' },
-      path: { type: 'string', description: 'File or directory path to search in (default: workspace root)', default: '.' },
-      include: { type: 'string', description: 'Glob pattern for files to include (e.g., "*.ts")' },
-      caseSensitive: { type: 'boolean', description: 'Whether search is case-sensitive', default: false },
-    },
-    required: ['pattern'],
-  },
-
-  validate(input: unknown): ValidationResult {
-    const params = input as { pattern?: unknown }
-    if (typeof params.pattern !== 'string' || !params.pattern.trim())
-      return { ok: false, error: 'Missing required parameter: "pattern" must be a non-empty string.' }
-    try {
-      new RegExp(params.pattern)
-    } catch (e) {
-      return { ok: false, error: `Invalid regex pattern: ${e instanceof Error ? e.message : String(e)}` }
-    }
-    return { ok: true }
-  },
+  zodSchema: GrepInput,
+  parameters: z.toJSONSchema(GrepInput) as Record<string, unknown>,
 
   async execute(input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
     const { workspace } = context
-    const params = input as { pattern: string; path?: string; include?: string; caseSensitive?: boolean }
+    const params = input as GrepInputT
 
     if (!workspace) {
       return { output: 'Workspace not set. Please set workspace first.' }
@@ -60,7 +66,7 @@ const grepTool = {
       return { output: 'Cannot search sensitive system directory' }
     }
 
-    const targetPath = params.path || '.'
+    const targetPath = params.path
     const guard = resolveToolPath(targetPath, workspace)
     if (guard.status === 'sensitive') {
       return { output: 'Cannot access sensitive system path' }
