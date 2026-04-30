@@ -50,17 +50,17 @@ export function estimateMessage(msg: ChatMessage): number {
   try {
     const blocks = JSON.parse(msg.content) as Array<{ type: string; text?: string }>
     const text = blocks
-      .filter(b => b.type === 'text')
-      .map(b => b.text ?? '')
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text ?? '')
       .join('')
-    const imageCount = blocks.filter(b => b.type === 'image').length
+    const imageCount = blocks.filter((b) => b.type === 'image').length
     const toolResultText = blocks
-      .filter(b => b.type === 'tool_result')
-      .map(b => (b as unknown as { output: string }).output ?? '')
+      .filter((b) => b.type === 'tool_result')
+      .map((b) => (b as unknown as { output: string }).output ?? '')
       .join('')
     const toolUseText = blocks
-      .filter(b => b.type === 'tool_use')
-      .map(b => JSON.stringify((b as unknown as { input: unknown }).input ?? ''))
+      .filter((b) => b.type === 'tool_use')
+      .map((b) => JSON.stringify((b as unknown as { input: unknown }).input ?? ''))
       .join('')
     return estimate(text + toolResultText + toolUseText) + imageCount * 85
   } catch {
@@ -99,7 +99,10 @@ export function messagesToCoreMessages(messages: ChatMessage[]): CoreMessage[] {
     }
 
     if (msg.role === 'system') {
-      const text = blocks.filter(b => b.type === 'text').map(b => b.text as string).join('\n')
+      const text = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text as string)
+        .join('\n')
       result.push({ role: 'system', content: text })
     } else if (msg.role === 'user') {
       const parts: Array<
@@ -141,14 +144,31 @@ export function messagesToCoreMessages(messages: ChatMessage[]): CoreMessage[] {
       }
       result.push({ role: 'user', content: parts.length > 0 ? parts : '' } as CoreMessage)
     } else if (msg.role === 'assistant') {
-      const parts: Array<{ type: 'text'; text: string } | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown }> = []
+      // AI SDK v6 ToolCallPart 使用 `input` 字段(v5 之前是 `args`,6.0.170 之后
+      // 改名并开始校验). 用错字段会让 AssistantContent 的 discriminated union
+      // 整条 messages 校验失败 → streamText 抛 AI_InvalidPromptError。
+      const parts: Array<
+        | { type: 'text'; text: string }
+        | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+      > = []
       for (const b of blocks) {
         if (b.type === 'text') parts.push({ type: 'text', text: b.text as string })
-        else if (b.type === 'tool_use') parts.push({ type: 'tool-call', toolCallId: b.toolCallId as string, toolName: b.toolName as string, args: b.input })
+        else if (b.type === 'tool_use')
+          parts.push({
+            type: 'tool-call',
+            toolCallId: b.toolCallId as string,
+            toolName: b.toolName as string,
+            input: b.input,
+          })
       }
       result.push({ role: 'assistant', content: parts } as CoreMessage)
     } else if (msg.role === 'tool') {
-      const parts: Array<{ type: 'tool-result'; toolCallId: string; toolName: string; output: { type: 'text'; value: string } }> = []
+      const parts: Array<{
+        type: 'tool-result'
+        toolCallId: string
+        toolName: string
+        output: { type: 'text'; value: string }
+      }> = []
       for (const b of blocks) {
         if (b.type === 'tool_result') {
           // DB 里 output 是 wrap 后的 raw。LLM 看到时拼上结构化指引(guide + raw),
@@ -180,11 +200,14 @@ export interface MemoryContext {
 export interface SessionSummary {
   session_id: string
   summary_text: string
-  covered_until: string   // messages.id（TEXT UUID）
+  covered_until: string // messages.id（TEXT UUID）
   token_estimate: number
-  created_at: string      // ISO 8601
+  created_at: string // ISO 8601
 }
 
 export interface MemoryModule {
-  getContext(sessionId: string, config: import('../prompt/types').ProviderContextConfig): Promise<MemoryContext>
+  getContext(
+    sessionId: string,
+    config: import('../prompt/types').ProviderContextConfig,
+  ): Promise<MemoryContext>
 }
