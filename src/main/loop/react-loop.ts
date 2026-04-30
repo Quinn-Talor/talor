@@ -98,13 +98,14 @@ interface StepOutcome {
 
 /** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
 type LoopExitReason =
-  | 'no_tool_calls'       // 模型不再调用工具（正常终态）
-  | 'empty_text'          // 模型既无工具调用也无文本（触发兜底）
-  | 'abort'               // 调用方主动中止
-  | 'max_steps'           // 达到步数上限
-  | 'fallback_summary'    // 兜底摘要触发
-  | 'repeated_error'      // 死循环保护（签名重复 或 错误率超阈值）
-  | 'context_overflow'    // prompt 估算已 >= context_limit,提交前短路
+  | 'no_tool_calls' // 模型不再调用工具（正常终态）
+  | 'empty_text' // 模型既无工具调用也无文本（触发兜底）
+  | 'abort' // 调用方主动中止
+  | 'max_steps' // 达到步数上限
+  | 'fallback_summary' // 兜底摘要触发
+  | 'repeated_error' // 死循环保护（签名重复 或 错误率超阈值）
+  | 'tool_only_loop' // 连续 N 步有工具调用但零文本输出
+  | 'context_overflow' // prompt 估算已 >= context_limit,提交前短路
 
 function sha8(s: string): string {
   return createHash('sha1').update(s).digest('hex').slice(0, 8)
@@ -119,9 +120,12 @@ function canonicalizeJson(v: unknown): string {
   if (v === null || v === undefined) return 'null'
   if (typeof v !== 'object') return JSON.stringify(v)
   if (Array.isArray(v)) return '[' + v.map(canonicalizeJson).join(',') + ']'
-  const entries = Object.entries(v as Record<string, unknown>)
-    .sort(([a], [b]) => a.localeCompare(b))
-  return '{' + entries.map(([k, val]) => JSON.stringify(k) + ':' + canonicalizeJson(val)).join(',') + '}'
+  const entries = Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )
+  return (
+    '{' + entries.map(([k, val]) => JSON.stringify(k) + ':' + canonicalizeJson(val)).join(',') + '}'
+  )
 }
 
 /**
@@ -189,7 +193,11 @@ function stepSignature(
  *      | 有工具 + toolResults 非空 | assistant(text+tool_use) + tool | false | true |
  *      | 有工具 + toolResults 为空 | 不写（异常保护） | false | false |
  */
-async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: number): Promise<StepOutcome> {
+async function runReactStep(
+  ctx: StepContext,
+  stepIndex: number,
+  maxSteps: number,
+): Promise<StepOutcome> {
   const stepStart = Date.now()
 
   const pipelineCtx = {
@@ -219,7 +227,9 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     const usageRatio = estimatedTokens / limit
 
     if (usageRatio >= 1.0) {
-      log.error(`[ReactLoop]   context overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%). Halting before submission.`)
+      log.error(
+        `[ReactLoop]   context overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%). Halting before submission.`,
+      )
       const haltText =
         `[auto-halt] Context window exceeded (${estimatedTokens}/${limit} tokens, ${(usageRatio * 100).toFixed(0)}%). ` +
         `Task stopped to avoid silent provider-side truncation. Please start a new session or trim the conversation history.`
@@ -245,7 +255,9 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     }
 
     if (usageRatio > CONTEXT_USAGE_WARNING_RATIO) {
-      log.warn(`[ReactLoop]   context near overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%)`)
+      log.warn(
+        `[ReactLoop]   context near overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%)`,
+      )
       messages.push({
         role: 'system',
         content:
@@ -285,7 +297,11 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
         stepText += chunk.text
         if (chunk.text.length > 0) ctx.callbacks.onTextDelta(chunk.text)
       } else if (chunk.type === 'tool-call') {
-        stepToolCalls.push({ toolCallId: chunk.toolCallId, toolName: chunk.toolName, input: chunk.input })
+        stepToolCalls.push({
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+          input: chunk.input,
+        })
         ctx.callbacks.onToolCall(chunk.toolCallId, chunk.toolName, chunk.input)
       } else if (chunk.type === 'tool-result') {
         ctx.callbacks.onToolResult(chunk.toolCallId, chunk.toolName, chunk.output)
@@ -300,7 +316,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     await result.consumeStream()
 
     const durationMs = Date.now() - stepStart
-    const toolNames = stepToolCalls.map(tc => tc.toolName)
+    const toolNames = stepToolCalls.map((tc) => tc.toolName)
 
     // 无工具调用 → 本次推理结束（正常终态）
     if (stepToolCalls.length === 0) {
@@ -316,11 +332,29 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
         })
         sessionRepo.touch(ctx.sessionId)
         persisted = true
-        return { stepText, wroteAssistantFinal: true, shouldContinue: false, durationMs, toolNames, exitReason: 'no_tool_calls', signature: '', allToolsFailed: null }
+        return {
+          stepText,
+          wroteAssistantFinal: true,
+          shouldContinue: false,
+          durationMs,
+          toolNames,
+          exitReason: 'no_tool_calls',
+          signature: '',
+          allToolsFailed: null,
+        }
       }
       log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
-      persisted = true   // 无东西可持久化，finally 不需兜底
-      return { stepText: '', wroteAssistantFinal: false, shouldContinue: false, durationMs, toolNames, exitReason: 'empty_text', signature: '', allToolsFailed: null }
+      persisted = true // 无东西可持久化，finally 不需兜底
+      return {
+        stepText: '',
+        wroteAssistantFinal: false,
+        shouldContinue: false,
+        durationMs,
+        toolNames,
+        exitReason: 'empty_text',
+        signature: '',
+        allToolsFailed: null,
+      }
     }
 
     // 有工具调用 → 落库 assistant + tool,继续下一步
@@ -331,7 +365,7 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
       //   b) 工具存在但执行路径失败(MCP 崩溃/SDK 解析失败/超时)
       // 两者回传给模型的指示截然不同:前者可以改名重试,后者必须停手。
       const registeredNames = ctx.agent.toolRegistry.getToolNames()
-      toolResults = stepToolCalls.map(tc => ({
+      toolResults = stepToolCalls.map((tc) => ({
         type: 'tool-result' as const,
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
@@ -344,18 +378,27 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
           : `Tool not found: "${tc.toolName}". Available tools: ${registeredNames.join(', ')}`,
         dynamic: true as const,
       })) as typeof toolResults
-      log.warn(`[ReactLoop]   → toolResults empty, injected differentiated feedback [${durationMs}ms]`)
+      log.warn(
+        `[ReactLoop]   → toolResults empty, injected differentiated feedback [${durationMs}ms]`,
+      )
     }
 
     for (const tc of stepToolCalls) {
       log.info(`[ReactLoop]   → tool: ${tc.toolName} [${durationMs}ms]`)
     }
-    log.info(`[ReactLoop]   → persist: assistant(${stepText ? 'text+' : ''}tool_use×${stepToolCalls.length}) + tool(result×${toolResults.length}) [tx]`)
+    log.info(
+      `[ReactLoop]   → persist: assistant(${stepText ? 'text+' : ''}tool_use×${stepToolCalls.length}) + tool(result×${toolResults.length}) [tx]`,
+    )
 
     const assistantBlocks: ContentBlock[] = []
     if (stepText) assistantBlocks.push({ type: 'text', text: stepText })
     for (const tc of stepToolCalls) {
-      assistantBlocks.push({ type: 'tool_use', toolCallId: tc.toolCallId, toolName: tc.toolName, input: tc.input })
+      assistantBlocks.push({
+        type: 'tool_use',
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        input: tc.input,
+      })
     }
 
     const toolBlocks: ContentBlock[] = toolResultPartsToBlocks(toolResults)
@@ -364,16 +407,36 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     // rebuild prompt 时 SDK 会抛 "Every tool_use must have a tool_result"，
     // 整个 session 被永久破坏。createBatch 保证原子落盘。
     messageRepo.createBatch([
-      { id: uuidv4(), session_id: ctx.sessionId, role: 'assistant', content: assistantBlocks, agent_id: ctx.agentId },
-      { id: uuidv4(), session_id: ctx.sessionId, role: 'tool',      content: toolBlocks,      agent_id: ctx.agentId },
+      {
+        id: uuidv4(),
+        session_id: ctx.sessionId,
+        role: 'assistant',
+        content: assistantBlocks,
+        agent_id: ctx.agentId,
+      },
+      {
+        id: uuidv4(),
+        session_id: ctx.sessionId,
+        role: 'tool',
+        content: toolBlocks,
+        agent_id: ctx.agentId,
+      },
     ])
     persisted = true
 
     const signature = stepSignature(stepToolCalls, toolResults)
-    const allToolsFailed = toolBlocks.length > 0 && toolBlocks.every(
-      b => b.type === 'tool_result' && b.isError === true,
-    )
-    return { stepText, wroteAssistantFinal: false, shouldContinue: true, durationMs, toolNames, signature, allToolsFailed }
+    const allToolsFailed =
+      toolBlocks.length > 0 &&
+      toolBlocks.every((b) => b.type === 'tool_result' && b.isError === true)
+    return {
+      stepText,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs,
+      toolNames,
+      signature,
+      allToolsFailed,
+    }
   } catch (streamErr) {
     const durationMs = Date.now() - stepStart
     log.error(`[ReactLoop]   consumeStream failed (${durationMs}ms):`, streamErr)
@@ -385,9 +448,10 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
     if (!persisted && (stepText || stepToolCalls.length > 0)) {
       try {
         const abortedBlocks: ContentBlock[] = []
-        const abortTag = stepToolCalls.length > 0
-          ? `\n\n[step interrupted: tool results not returned]`
-          : `\n\n[step interrupted]`
+        const abortTag =
+          stepToolCalls.length > 0
+            ? `\n\n[step interrupted: tool results not returned]`
+            : `\n\n[step interrupted]`
         if (stepText) {
           abortedBlocks.push({ type: 'text', text: `${stepText}${abortTag}` })
         } else {
@@ -396,8 +460,11 @@ async function runReactStep(ctx: StepContext, stepIndex: number, maxSteps: numbe
         // tool_use 不落库：没有对应 tool_result，保留会破坏 SDK 配对约束。
         // 仅用文字说明"调用过哪些工具"作为审计线索。
         if (stepToolCalls.length > 0) {
-          const toolNamesStr = stepToolCalls.map(tc => tc.toolName).join(', ')
-          abortedBlocks.push({ type: 'text', text: `[tools invoked this step: ${toolNamesStr} — no results returned]` })
+          const toolNamesStr = stepToolCalls.map((tc) => tc.toolName).join(', ')
+          abortedBlocks.push({
+            type: 'text',
+            text: `[tools invoked this step: ${toolNamesStr} — no results returned]`,
+          })
         }
         messageRepo.create({
           id: uuidv4(),
@@ -511,9 +578,10 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
       if (unverifiedCount > 0) {
         log.warn(`[ReactLoop]   fallback: masked ${unverifiedCount} unverifiable quote(s)`)
       }
-      const label = unverifiedCount > 0
-        ? `[auto-summary • ${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked]`
-        : '[auto-summary]'
+      const label =
+        unverifiedCount > 0
+          ? `[auto-summary • ${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked]`
+          : '[auto-summary]'
       const markedText = `${label}\n${cleaned}`
       messageRepo.create({
         id: uuidv4(),
@@ -600,9 +668,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const REPEATED_SIGNATURE_THRESHOLD_WITH_ERROR = 1
   const REPEATED_SIGNATURE_THRESHOLD_NO_ERROR = 2
   const CONSECUTIVE_FAILURE_LIMIT = 3
+  const TOOL_ONLY_STEP_LIMIT = 8
   let lastStepSignature = ''
   let consecutiveRepeatCount = 0
   let consecutiveFailureCount = 0
+  let consecutiveToolOnlySteps = 0
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
@@ -624,7 +694,9 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       if (outcome.signature === lastStepSignature) {
         consecutiveRepeatCount++
         if (consecutiveRepeatCount >= threshold) {
-          log.warn(`[ReactLoop] Dead loop: signature "${outcome.signature}" repeated ${consecutiveRepeatCount + 1}x (isError=${isErrorSig}). Breaking.`)
+          log.warn(
+            `[ReactLoop] Dead loop: signature "${outcome.signature}" repeated ${consecutiveRepeatCount + 1}x (isError=${isErrorSig}). Breaking.`,
+          )
           exitReason = 'repeated_error'
           break
         }
@@ -639,15 +711,19 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     if (outcome.allToolsFailed === true) {
       consecutiveFailureCount++
       if (consecutiveFailureCount >= CONSECUTIVE_FAILURE_LIMIT) {
-        log.warn(`[ReactLoop] Failure streak: ${consecutiveFailureCount} consecutive steps all failed. Breaking.`)
+        log.warn(
+          `[ReactLoop] Failure streak: ${consecutiveFailureCount} consecutive steps all failed. Breaking.`,
+        )
         messageRepo.create({
           id: uuidv4(),
           session_id: ctx.sessionId,
           role: 'assistant',
-          content: [{
-            type: 'text',
-            text: `[auto-halt] Task blocked by ${consecutiveFailureCount} consecutive tool failures. Please review the errors above and provide guidance.`,
-          }],
+          content: [
+            {
+              type: 'text',
+              text: `[auto-halt] Task blocked by ${consecutiveFailureCount} consecutive tool failures. Please review the errors above and provide guidance.`,
+            },
+          ],
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
@@ -659,6 +735,21 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       // 至少一个工具成功 → 清零连续失败计数。
       // null(无工具调用)不 reset,保守。
       consecutiveFailureCount = 0
+    }
+
+    // Tool-only loop detection: model keeps calling tools but never outputs text.
+    // Signature-based detection won't catch this when inputs differ each step.
+    if (outcome.toolNames.length > 0 && outcome.stepText.trim() === '') {
+      consecutiveToolOnlySteps++
+      if (consecutiveToolOnlySteps >= TOOL_ONLY_STEP_LIMIT) {
+        log.warn(
+          `[ReactLoop] Tool-only loop: ${consecutiveToolOnlySteps} consecutive steps with tools but no text. Breaking.`,
+        )
+        exitReason = 'tool_only_loop'
+        break
+      }
+    } else if (outcome.stepText.trim() !== '') {
+      consecutiveToolOnlySteps = 0
     }
 
     if (!outcome.shouldContinue) {
@@ -679,7 +770,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   // 循环结束报告
   const totalMs = Date.now() - loopStart
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
-  log.info(`[ReactLoop] done | steps: ${totalSteps} | total: ${(totalMs / 1000).toFixed(1)}s | exit: ${exitReason}`)
-  log.info(`[ReactLoop]      | text: ${fullText.length} chars | tools: ${totalToolCalls} calls [${[...new Set(allToolNames)].join(', ') || 'none'}]`)
+  log.info(
+    `[ReactLoop] done | steps: ${totalSteps} | total: ${(totalMs / 1000).toFixed(1)}s | exit: ${exitReason}`,
+  )
+  log.info(
+    `[ReactLoop]      | text: ${fullText.length} chars | tools: ${totalToolCalls} calls [${[...new Set(allToolNames)].join(', ') || 'none'}]`,
+  )
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
 }
