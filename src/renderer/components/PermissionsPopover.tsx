@@ -8,29 +8,42 @@ import type {
   PermissionResponse,
   PatternSuggestion,
 } from '@shared/types/permissions'
+import type { ToolConfirmRequest } from '@shared/types/message'
 
 interface Props {
   workspacePath: string
 }
 
 /**
- * 输入框上方的权限入口。集合两件事：
+ * 输入框上方的权限入口。集合三件事：
  *   1. 当前 workspace 的所有规则（Allowed / Denied 分组，支持删除）
- *   2. **待授权请求（Pending）**——agent 调用 workspace 外路径时弹到这里，
- *      不再另开 PermissionDialog，保持 popover 内操作一致
+ *   2. **待授权请求 Permission pending**——agent 调用 workspace 外路径时弹到这里
+ *   3. **待确认工具执行 Tool-confirm pending**——高风险工具(bash/write/edit)
+ *      执行前的二次确认。早期版本用独立的 ToolConfirmDialog 模态,UX 与
+ *      PermissionDialog 割裂;现在统一走 popover,用户视线不被打断。
  *
- * Auto-open：pendingPermission 从 null → 非 null 时，popover 自动展开；用户
- * 看到待授权卡片后做决定。新请求到来时若 popover 已是关闭状态，也会重新展开。
+ * 两种 pending 同时存在时(罕见但可能): permission 优先(它是阻塞整个工具
+ * 链的),tool-confirm 等 permission 处理完再显示。
+ *
+ * Auto-open: pendingPermission 或 pendingToolConfirm 从 null → 非 null 时
+ * 自动展开;决策后自动收起。
  */
 export function PermissionsPopover({ workspacePath }: Props) {
-  const pendingPermission = useChatStore(s => s.pendingPermission)
-  const setPendingPermission = useChatStore(s => s.setPendingPermission)
-  const autoOpenTick = useChatStore(s => s.permissionAutoOpenTick)
+  const pendingPermission = useChatStore((s) => s.pendingPermission)
+  const setPendingPermission = useChatStore((s) => s.setPendingPermission)
+  const pendingToolConfirm = useChatStore((s) => s.pendingToolConfirm)
+  const setPendingToolConfirm = useChatStore((s) => s.setPendingToolConfirm)
+  const autoOpenTick = useChatStore((s) => s.permissionAutoOpenTick)
 
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<PermissionRuleView>({ session: [], persisted: [] })
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // 两种 pending 的整合视图。permission 优先于 tool-confirm。
+  const hasPendingPermission = !!pendingPermission
+  const hasPendingToolConfirm = !!pendingToolConfirm && !hasPendingPermission
+  const hasAnyPending = hasPendingPermission || hasPendingToolConfirm
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -42,31 +55,33 @@ export function PermissionsPopover({ workspacePath }: Props) {
     }
   }, [workspacePath])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    refresh()
+  }, [refresh])
 
   useEffect(() => {
     if (open) refresh()
   }, [open, refresh])
 
-  // 有新 pending permission 请求 → 自动展开 popover
+  // 任意 pending(permission 或 tool-confirm)到达 → 自动展开 popover
   useEffect(() => {
-    if (autoOpenTick > 0 && pendingPermission) {
+    if (autoOpenTick > 0 && hasAnyPending) {
       setOpen(true)
     }
-  }, [autoOpenTick, pendingPermission])
+  }, [autoOpenTick, hasAnyPending])
 
   // 点外部收起——但有 pending 时不允许关闭（强制用户处理）
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (pendingPermission) return   // 待授权时点外面不关，避免"遗忘"一个阻塞的请求
+      if (hasAnyPending) return // 待处理时点外面不关，避免"遗忘"一个阻塞的请求
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open, pendingPermission])
+  }, [open, hasAnyPending])
 
   const handleRemove = async (ruleId: string) => {
     await talorAPI.permissions.remove(workspacePath, ruleId)
@@ -82,47 +97,65 @@ export function PermissionsPopover({ workspacePath }: Props) {
     if (!pendingPermission) return
     talorAPI.chat.sendPermissionResponse({ requestId: pendingPermission.requestId, ...resp })
     setPendingPermission(null)
-    // 规则可能被新增 → 立即刷新列表
-    setTimeout(() => { refresh() }, 100)
+    // 决策后自动收起(与"新请求自动展开"对称);tool-confirm pending 仍保留 open,
+    // popover 下一帧会换成 tool-confirm 卡片。
+    if (!pendingToolConfirm) setOpen(false)
+    // 规则可能被新增 → 后台刷新,下次展开时看到最新列表。
+    setTimeout(() => {
+      refresh()
+    }, 100)
+  }
+
+  const handleToolConfirmDecide = (decision: 'approved' | 'rejected') => {
+    if (!pendingToolConfirm) return
+    talorAPI.chat.sendToolConfirmResponse({
+      toolCallId: pendingToolConfirm.toolCallId,
+      decision,
+    })
+    setPendingToolConfirm(null)
+    // 决策后自动收起(与 handlePermissionDecide 对称)。
+    setOpen(false)
   }
 
   // Deny 规则在当前 UX 里不产生——Pending 的 Deny 按钮只拒绝本次不落库——
   // 所以这里仅展示 allow 规则，避免出现永远为 0 的 Denied 分组。
   const allRules = [...view.session, ...view.persisted]
-  const allowedRules = allRules.filter(r => r.effect === 'allow')
+  const allowedRules = allRules.filter((r) => r.effect === 'allow')
   const totalCount = allowedRules.length
-  const hasSessionRules = view.session.some(r => r.effect === 'allow')
-  const hasPending = !!pendingPermission
+  const hasSessionRules = view.session.some((r) => r.effect === 'allow')
 
   const buttonStyle: React.CSSProperties = {
-    background: hasPending
-      ? 'rgba(234,179,8,0.15)'   // 待授权时金色提示
-      : (open ? 'rgba(59,130,246,0.12)' : 'transparent'),
-    color: hasPending
-      ? '#a16207'
-      : (open ? '#2563eb' : (totalCount > 0 ? '#64748b' : '#94a3b8')),
+    background: hasAnyPending
+      ? 'rgba(234,179,8,0.15)' // 待处理时金色提示
+      : open
+        ? 'rgba(59,130,246,0.12)'
+        : 'transparent',
+    color: hasAnyPending ? '#a16207' : open ? '#2563eb' : totalCount > 0 ? '#64748b' : '#94a3b8',
     border: '1px solid',
-    borderColor: hasPending
-      ? 'rgba(234,179,8,0.4)'
-      : (open ? 'rgba(59,130,246,0.3)' : '#e2e8f0'),
+    borderColor: hasAnyPending ? 'rgba(234,179,8,0.4)' : open ? 'rgba(59,130,246,0.3)' : '#e2e8f0',
   }
 
   return (
     <div className="relative" ref={containerRef}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-1.5 px-2.5 h-7 rounded-md text-[11px] font-medium transition-all"
         style={buttonStyle}
       >
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           <rect x="3" y="11" width="18" height="11" rx="2" />
           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
         </svg>
         <span>Permissions</span>
-        {hasPending && (
-          <span className="font-semibold text-[10px]">· needs review</span>
-        )}
-        {!hasPending && totalCount > 0 && (
+        {hasAnyPending && <span className="font-semibold text-[10px]">· needs review</span>}
+        {!hasAnyPending && totalCount > 0 && (
           <span className="font-mono text-[10px] opacity-80">· {totalCount}</span>
         )}
         <span className="text-[9px] opacity-60">{open ? '▲' : '▼'}</span>
@@ -136,9 +169,13 @@ export function PermissionsPopover({ workspacePath }: Props) {
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-baseline justify-between">
               <p className="text-sm font-semibold text-gray-900">
-                {pendingPermission ? 'Permission required' : 'Permissions'}
+                {hasPendingPermission
+                  ? 'Permission required'
+                  : hasPendingToolConfirm
+                    ? 'Confirm tool execution'
+                    : 'Permissions'}
               </p>
-              {!pendingPermission && (
+              {!hasAnyPending && (
                 <p className="text-xs text-gray-400">
                   {totalCount} rule{totalCount === 1 ? '' : 's'}
                 </p>
@@ -150,13 +187,12 @@ export function PermissionsPopover({ workspacePath }: Props) {
           </div>
 
           <div className="max-h-[480px] overflow-y-auto">
-            {pendingPermission ? (
-              // 有待审批时只展示请求卡片，隐藏现有规则列表——避免用户被
+            {hasPendingPermission ? (
+              // 有待授权时只展示请求卡片，隐藏现有规则列表——避免用户被
               // 已有规则分散注意力，同时也节省纵向空间。
-              <PendingRequestCard
-                request={pendingPermission}
-                onDecide={handlePermissionDecide}
-              />
+              <PendingRequestCard request={pendingPermission!} onDecide={handlePermissionDecide} />
+            ) : hasPendingToolConfirm ? (
+              <ToolConfirmCard request={pendingToolConfirm!} onDecide={handleToolConfirmDecide} />
             ) : (
               <RuleGroup
                 title="Allowed"
@@ -167,10 +203,13 @@ export function PermissionsPopover({ workspacePath }: Props) {
             )}
           </div>
 
-          {(hasSessionRules || totalCount === 0) && !hasPending && (
+          {(hasSessionRules || totalCount === 0) && !hasAnyPending && (
             <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-500">
               {totalCount === 0 && !loading && (
-                <p>No permissions yet. Agent will ask you when accessing a path outside the workspace.</p>
+                <p>
+                  No permissions yet. Agent will ask you when accessing a path outside the
+                  workspace.
+                </p>
               )}
               {hasSessionRules && (
                 <button
@@ -184,6 +223,45 @@ export function PermissionsPopover({ workspacePath }: Props) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Tool-confirm card (高风险工具执行前二次确认) ───────────────────
+
+interface ToolConfirmCardProps {
+  request: ToolConfirmRequest
+  onDecide: (decision: 'approved' | 'rejected') => void
+}
+
+function ToolConfirmCard({ request, onDecide }: ToolConfirmCardProps) {
+  return (
+    <div className="mx-3 my-3 rounded-lg border-2 border-amber-300 bg-amber-50 overflow-hidden">
+      <div className="px-3 py-2 bg-amber-100 border-b border-amber-200">
+        <p className="text-[11px] font-semibold text-amber-900">Pending approval</p>
+        <p className="text-xs text-amber-800 mt-0.5 font-mono">Run {request.toolName}</p>
+      </div>
+
+      <div className="px-3 py-2 bg-gray-900 max-h-48 overflow-y-auto">
+        <pre className="text-xs font-mono whitespace-pre-wrap break-words text-green-400">
+          {request.inputSummary || <span className="text-gray-500 italic">(no arguments)</span>}
+        </pre>
+      </div>
+
+      <div className="px-3 py-2 flex justify-end gap-2 border-t border-amber-200 bg-amber-50">
+        <button
+          onClick={() => onDecide('rejected')}
+          className="px-3 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
+        >
+          Deny
+        </button>
+        <button
+          onClick={() => onDecide('approved')}
+          className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded"
+        >
+          Allow
+        </button>
+      </div>
     </div>
   )
 }
@@ -204,7 +282,9 @@ function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
     request.bulkGrantGroup ? [request.toolName] : [],
   )
 
-  const scopes = useMemo<Array<{ id: ScopeChoice; label: string; preview?: PatternSuggestion['preview'] }>>(() => {
+  const scopes = useMemo<
+    Array<{ id: ScopeChoice; label: string; preview?: PatternSuggestion['preview'] }>
+  >(() => {
     const out: Array<{ id: ScopeChoice; label: string; preview?: PatternSuggestion['preview'] }> = [
       { id: 'once', label: 'Allow once (do not remember)' },
     ]
@@ -216,19 +296,18 @@ function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
 
   const selectedPreview = useMemo(() => {
     if (scope === 'once') return null
-    return request.suggestedPatterns.find(s => s.id === scope)?.preview ?? null
+    return request.suggestedPatterns.find((s) => s.id === scope)?.preview ?? null
   }, [scope, request.suggestedPatterns])
 
   const toggleBulkTool = (tool: string) => {
-    if (tool === request.toolName) return   // 主工具不可取消
-    setBulkTools(prev =>
-      prev.includes(tool) ? prev.filter(t => t !== tool) : [...prev, tool],
-    )
+    if (tool === request.toolName) return // 主工具不可取消
+    setBulkTools((prev) => (prev.includes(tool) ? prev.filter((t) => t !== tool) : [...prev, tool]))
   }
 
-  const title = request.reason === 'path_outside_workspace'
-    ? `${request.toolName} wants to access a path outside the workspace`
-    : `${request.toolName} wants to run`
+  const title =
+    request.reason === 'path_outside_workspace'
+      ? `${request.toolName} wants to access a path outside the workspace`
+      : `${request.toolName} wants to run`
 
   return (
     <div className="mx-3 my-3 rounded-lg border-2 border-amber-300 bg-amber-50 overflow-hidden">
@@ -242,16 +321,14 @@ function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
           {request.inputSummary || <span className="text-gray-500 italic">(no arguments)</span>}
         </pre>
         {request.absPath && request.absPath !== request.inputSummary && (
-          <p className="text-[10px] font-mono mt-1 text-gray-400">
-            Resolves to: {request.absPath}
-          </p>
+          <p className="text-[10px] font-mono mt-1 text-gray-400">Resolves to: {request.absPath}</p>
         )}
       </div>
 
       <div className="px-3 py-2 bg-white">
         <p className="text-[11px] font-medium text-gray-700 mb-1.5">If approved, apply to:</p>
         <div className="space-y-1">
-          {scopes.map(s => (
+          {scopes.map((s) => (
             <label
               key={s.id}
               className="flex items-start gap-1.5 cursor-pointer hover:bg-gray-50 px-1.5 py-1 rounded"
@@ -269,22 +346,27 @@ function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
           ))}
         </div>
 
-        {selectedPreview && (selectedPreview.matches.length > 0 || selectedPreview.doesNotMatch.length > 0) && (
-          <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-[10px] space-y-0.5">
-            {selectedPreview.matches.length > 0 && (
-              <div>
-                <span className="font-medium text-green-700">Matches: </span>
-                <span className="font-mono text-gray-700">{selectedPreview.matches.slice(0, 2).join(', ')}</span>
-              </div>
-            )}
-            {selectedPreview.doesNotMatch.length > 0 && (
-              <div>
-                <span className="font-medium text-red-700">Not: </span>
-                <span className="font-mono text-gray-700">{selectedPreview.doesNotMatch.slice(0, 2).join(', ')}</span>
-              </div>
-            )}
-          </div>
-        )}
+        {selectedPreview &&
+          (selectedPreview.matches.length > 0 || selectedPreview.doesNotMatch.length > 0) && (
+            <div className="mt-2 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 text-[10px] space-y-0.5">
+              {selectedPreview.matches.length > 0 && (
+                <div>
+                  <span className="font-medium text-green-700">Matches: </span>
+                  <span className="font-mono text-gray-700">
+                    {selectedPreview.matches.slice(0, 2).join(', ')}
+                  </span>
+                </div>
+              )}
+              {selectedPreview.doesNotMatch.length > 0 && (
+                <div>
+                  <span className="font-medium text-red-700">Not: </span>
+                  <span className="font-mono text-gray-700">
+                    {selectedPreview.doesNotMatch.slice(0, 2).join(', ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
         {request.bulkGrantGroup && request.bulkGrantGroup.length > 1 && scope !== 'once' && (
           <div className="mt-2 bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
@@ -292,7 +374,7 @@ function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
               Also grant these read-only tools:
             </p>
             <div className="flex flex-wrap gap-2">
-              {request.bulkGrantGroup.map(t => (
+              {request.bulkGrantGroup.map((t) => (
                 <label key={t} className="flex items-center gap-1 text-[10px] cursor-pointer">
                   <input
                     type="checkbox"
@@ -312,7 +394,7 @@ function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
             <input
               type="checkbox"
               checked={remember}
-              onChange={e => setRemember(e.target.checked)}
+              onChange={(e) => setRemember(e.target.checked)}
             />
             <span className="text-[10px] text-gray-700">
               Remember across sessions (saved to this workspace)
@@ -366,7 +448,7 @@ function RuleGroup({ title, rules, effect, onRemove }: RuleGroupProps) {
         {title} <span className="text-gray-400 font-normal">({rules.length})</span>
       </p>
       <ul className="space-y-1">
-        {rules.map(rule => (
+        {rules.map((rule) => (
           <RuleRow key={rule.id} rule={rule} onRemove={onRemove} />
         ))}
       </ul>
@@ -376,9 +458,10 @@ function RuleGroup({ title, rules, effect, onRemove }: RuleGroupProps) {
 
 function RuleRow({ rule, onRemove }: { rule: PermissionRule; onRemove: (id: string) => void }) {
   const patternDisplay = renderPattern(rule)
-  const scopeBadge = rule.scope === 'persisted'
-    ? { label: 'saved', color: 'text-purple-700 bg-purple-50' }
-    : { label: 'session', color: 'text-blue-700 bg-blue-50' }
+  const scopeBadge =
+    rule.scope === 'persisted'
+      ? { label: 'saved', color: 'text-purple-700 bg-purple-50' }
+      : { label: 'session', color: 'text-blue-700 bg-blue-50' }
 
   return (
     <li className="group flex items-start gap-2 px-2 py-1.5 rounded hover:bg-gray-50">

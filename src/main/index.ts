@@ -66,7 +66,9 @@ function createWindow(): void {
     autoHideMenuBar: false,
     title: 'Talor',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      // preload 打成 CJS (.cjs) 以兼容 sandbox:true —— sandboxed preload 不支持
+      // ESM。参见 electron.vite.config.ts preload.rollupOptions.output。
+      preload: join(__dirname, '../preload/index.cjs'),
       // Electron 安全三件套:
       //   - contextIsolation: true  → preload 与页面 JS 世界隔离
       //   - nodeIntegration: false  → 页面禁访问 Node API

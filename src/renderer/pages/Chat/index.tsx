@@ -9,9 +9,9 @@ import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolCallMessage } from '../../components/ToolCallMessage'
-import { ToolConfirmDialog } from '../../components/ToolConfirmDialog'
-// PermissionDialog 已下线到 PermissionsPopover 内嵌渲染（PR #11）。
-// 组件源码保留在 components/PermissionDialog.tsx，未来如需全屏 agent 模式再启用。
+// ToolConfirmDialog 和 PermissionDialog 已下线到 PermissionsPopover 内嵌渲染,
+// UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
+// 但 Chat 页面不再消费它们。
 import { PermissionsPopover } from '../../components/PermissionsPopover'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '../../types/models'
@@ -50,7 +50,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     streamingContent,
     error,
     attachments,
-    pendingToolConfirm,
     setSessions,
     setCurrentSession,
     setMessages,
@@ -59,7 +58,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     clearToolCalls,
     setAttachments,
     removeAttachment,
-    setPendingToolConfirm,
   } = useChatStore()
 
   const [input, setInput] = useState('')
@@ -431,23 +429,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         size_bytes: f.size,
       }))
     if (newAtts.length) setAttachments([...attachments, ...newAtts])
-  }
-
-  const handleToolConfirmApprove = () => {
-    if (!pendingToolConfirm) return
-    talorAPI.chat.sendToolConfirmResponse({
-      toolCallId: pendingToolConfirm.toolCallId,
-      decision: 'approved',
-    })
-    setPendingToolConfirm(null)
-  }
-  const handleToolConfirmReject = () => {
-    if (!pendingToolConfirm) return
-    talorAPI.chat.sendToolConfirmResponse({
-      toolCallId: pendingToolConfirm.toolCallId,
-      decision: 'rejected',
-    })
-    setPendingToolConfirm(null)
   }
 
   // Derived display values
@@ -1612,16 +1593,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           onCancel={() => setSessionToDelete(null)}
         />
       )}
-      {pendingToolConfirm && (
-        <ToolConfirmDialog
-          request={pendingToolConfirm}
-          onApprove={handleToolConfirmApprove}
-          onReject={handleToolConfirmReject}
-        />
-      )}
-      {/* PermissionDialog 已迁移到 PermissionsPopover 内嵌展示（PR #11）；
-          组件文件保留以备未来场景复用。pendingPermission 仍从 chatStore
-          读取但消费点挪到 Popover 里了。 */}
+      {/* ToolConfirmDialog 和 PermissionDialog 都已迁移到 PermissionsPopover
+          内嵌卡片展示,授权 UX 统一为 popover。两个独立对话框组件源码保留,
+          未来若引入全屏 agent 模式再复用。 */}
       {modelSwitchedToast && (
         <div
           className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-[13px] text-white shadow-lg z-50 pointer-events-none"

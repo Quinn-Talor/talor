@@ -11,10 +11,12 @@
         - http://localhost:* 与 ws://localhost:*(dev Vite HMR)
       style-src 保留 'unsafe-inline' 是因为 Tailwind + React 会内联样式。
       script-src 不开 'unsafe-inline' / 'unsafe-eval'(contextIsolation + CSP 双重边界)。
+      注:frame-ancestors 只在 HTTP header 生效,meta 下发会被浏览器忽略;我们
+      不嵌 iframe/webview(主进程 will-attach-webview 已拦截),不再列入。
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'"
     />
     <title>Talor</title>
   </head>
