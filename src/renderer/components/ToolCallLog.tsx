@@ -204,7 +204,8 @@ function groupByStep(items: StreamItem[]): Array<{ stepIndex: number; items: Str
   return groups
 }
 
-function StepGroup({ items }: { items: StreamItem[] }) {
+function StepGroup({ items, isLast }: { items: StreamItem[]; isLast: boolean }) {
+  const [expanded, setExpanded] = useState(false)
   const textContent = items
     .filter((i): i is Extract<StreamItem, { type: 'text' }> => i.type === 'text')
     .map((i) => i.content)
@@ -213,15 +214,30 @@ function StepGroup({ items }: { items: StreamItem[] }) {
     (i): i is Extract<StreamItem, { type: 'tool_call' }> => i.type === 'tool_call',
   )
   const hasText = textContent.trim().length > 0
+  const hasTools = toolItems.length > 0
+
+  if (!hasText && !hasTools) return null
+
+  const showTextExpanded = isLast || expanded
 
   return (
     <div>
-      {hasText && (
-        <div className="text-zinc-700 dark:text-zinc-300 text-[13px] leading-relaxed mb-1 whitespace-pre-wrap">
-          {textContent}
-        </div>
-      )}
-      {toolItems.length > 0 && (
+      {hasText &&
+        (hasTools ? (
+          <button
+            className="text-zinc-500 dark:text-zinc-400 text-[12px] leading-relaxed mb-0.5 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer text-left truncate max-w-full block"
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {showTextExpanded
+              ? textContent.trim()
+              : `${textContent.trim().slice(0, 60)}${textContent.trim().length > 60 ? '…' : ''}`}
+          </button>
+        ) : (
+          <div className="text-zinc-700 dark:text-zinc-300 text-[13px] leading-relaxed mb-1 whitespace-pre-wrap">
+            {textContent}
+          </div>
+        ))}
+      {hasTools && (
         <div className={`flex flex-col gap-0.5 font-mono text-xs ${hasText ? 'pl-3' : ''}`}>
           {toolItems.map((item) => (
             <ToolCallRow key={item.entry.toolCallId} entry={item.entry} />
@@ -240,9 +256,9 @@ export function ToolCallLog() {
   const groups = groupByStep(streamItems)
 
   return (
-    <div className="flex flex-col gap-3 py-1 px-2 mb-3" data-testid="tool-call-log">
-      {groups.map((group) => (
-        <StepGroup key={group.stepIndex} items={group.items} />
+    <div className="flex flex-col gap-1 py-1 px-2 mb-3" data-testid="tool-call-log">
+      {groups.map((group, idx) => (
+        <StepGroup key={group.stepIndex} items={group.items} isLast={idx === groups.length - 1} />
       ))}
     </div>
   )

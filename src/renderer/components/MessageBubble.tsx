@@ -10,8 +10,11 @@ import type { Components } from 'react-markdown'
 import React from 'react'
 import { AttachmentPreview } from './AttachmentPreview'
 
-class ErrorBoundary extends React.Component<{ fallback: React.ReactNode, children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: { fallback: React.ReactNode, children: React.ReactNode }) {
+class ErrorBoundary extends React.Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { fallback: React.ReactNode; children: React.ReactNode }) {
     super(props)
     this.state = { hasError: false }
   }
@@ -33,7 +36,7 @@ interface MessageBubbleProps {
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
-  
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(text)
@@ -43,7 +46,7 @@ function CopyButton({ text }: { text: string }) {
       console.error('Failed to copy text: ', err)
     }
   }
-  
+
   return (
     <button
       onClick={handleCopy}
@@ -55,21 +58,25 @@ function CopyButton({ text }: { text: string }) {
 }
 
 interface CodeProps {
-  node?: unknown;
-  inline?: boolean;
-  className?: string;
-  children?: React.ReactNode;
+  node?: unknown
+  inline?: boolean
+  className?: string
+  children?: React.ReactNode
 }
 
 function CodeBlock({ inline, className, children, ...props }: CodeProps) {
   const match = /language-(\w+)/.exec(className || '')
   const code = String(children ?? '').replace(/\n$/, '')
   const lang = match ? match[1] : ''
-  
+
   if (inline || !match) {
-    return <code className="bg-gray-100 text-pink-500 px-1 py-0.5 rounded text-sm font-mono" {...props}>{children}</code>
+    return (
+      <code className="bg-gray-100 text-pink-500 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+        {children}
+      </code>
+    )
   }
-  
+
   return (
     <div className="relative group my-2 rounded-lg overflow-hidden">
       <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -97,35 +104,35 @@ function CodeBlock({ inline, className, children, ...props }: CodeProps) {
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   const isUser = message.role === 'user'
-  
+
   const parts = decodeMessageContent(message.content)
-  const textContent = parts.map(p => p.type === 'text' ? p.content : '').join('')
-  
+  const textContent = parts.map((p) => (p.type === 'text' ? p.content : '')).join('')
+
   const attachments: Attachment[] = []
-  parts.forEach(p => {
+  parts.forEach((p) => {
     if (isImagePart(p)) {
       attachments.push({
         path: p.data,
         mime_type: p.mime_type,
         filename: p.filename || 'image',
-        size_bytes: 0
+        size_bytes: 0,
       })
     } else if (isFilePart(p)) {
       attachments.push({
         path: p.path,
         mime_type: p.mime_type,
         filename: p.filename,
-        size_bytes: p.size_bytes
+        size_bytes: p.size_bytes,
       })
     }
   })
 
   return (
     <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
-      <div 
+      <div
         className={`max-w-[80%] rounded-lg px-4 py-3 ${
-          isUser 
-            ? 'bg-blue-600 text-white rounded-br-none' 
+          isUser
+            ? 'bg-blue-600 text-white rounded-br-none'
             : 'bg-white text-gray-900 shadow-sm border border-gray-100 rounded-bl-none'
         }`}
       >
@@ -135,25 +142,35 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             {attachments.length > 0 && (
               <div className="flex flex-col gap-2 mt-1">
                 {attachments.map((att, i) => (
-                  <AttachmentPreview 
-                    key={i} 
-                    attachment={{...att, base64_data: isImagePart(parts[i]) && parts[i].type === 'image' && (parts[i] as any).data.startsWith('data:') ? (parts[i] as any).data : undefined}} 
-                    compact 
+                  <AttachmentPreview
+                    key={i}
+                    attachment={{
+                      ...att,
+                      base64_data:
+                        isImagePart(parts[i]) &&
+                        parts[i].type === 'image' &&
+                        (parts[i] as any).data.startsWith('data:')
+                          ? (parts[i] as any).data
+                          : undefined,
+                    }}
+                    compact
                   />
                 ))}
               </div>
             )}
           </div>
         ) : (
-          <div className="markdown-content prose prose-sm max-w-none prose-p:my-1 prose-pre:my-0 prose-pre:p-0 prose-pre:bg-transparent prose-headings:my-2 prose-ul:my-1 prose-li:my-0">
-              <ErrorBoundary 
-                fallback={
-                  <div className="whitespace-pre-wrap break-words text-red-500">
-                    <span className="text-xs mb-1 block uppercase font-bold text-red-400">Markdown Render Error</span>
-                    {textContent}
-                  </div>
-                }
-              >
+          <div className="markdown-content prose prose-sm max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-pre:p-3 prose-pre:rounded-lg prose-pre:bg-zinc-50 dark:prose-pre:bg-zinc-900 prose-headings:my-2 prose-ul:my-1.5 prose-li:my-0.5 prose-code:text-[13px] prose-code:font-medium">
+            <ErrorBoundary
+              fallback={
+                <div className="whitespace-pre-wrap break-words text-red-500">
+                  <span className="text-xs mb-1 block uppercase font-bold text-red-400">
+                    Markdown Render Error
+                  </span>
+                  {textContent}
+                </div>
+              }
+            >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{

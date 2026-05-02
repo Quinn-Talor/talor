@@ -980,13 +980,15 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                             .filter((b) => b.type === 'text')
                             .map((b) => (b as { text?: string }).text ?? '')
                             .join('')
-                          if (textContent.trim()) {
+                            .trim()
+                          if (textContent) {
                             acc.push(
                               <div
                                 key={`${msg.id}-text`}
-                                className="px-2 text-[13px] text-zinc-700 dark:text-zinc-300 mb-1"
+                                className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate"
                               >
-                                {textContent}
+                                {textContent.slice(0, 80)}
+                                {textContent.length > 80 ? '…' : ''}
                               </div>,
                             )
                           }
