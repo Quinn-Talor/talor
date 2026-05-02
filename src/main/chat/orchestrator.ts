@@ -25,7 +25,7 @@ import {
   checkVisionSupport,
   type ValidatedAttachment,
 } from './attachments'
-import { getDefaultProvider } from './provider-selector'
+import { getDefaultProvider, getProviderById } from './provider-selector'
 import { streamRegistry } from './stream-registry'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
@@ -118,8 +118,9 @@ export async function sendChat(
     const abortController = streamRegistry.register(sessionId, messageId)
 
     // Step 4: provider + model；预热 API key；视觉能力校验
-    const provider = getDefaultProvider()
     const session = sessionRepo.getById(sessionId)
+    const provider =
+      (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
     SafeStorageService.getInstance().getApiKey(provider.id)
     if (validated.length > 0) checkVisionSupport(provider, validated)
 

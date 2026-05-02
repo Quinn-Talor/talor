@@ -21,6 +21,7 @@ interface ModelOption {
   id: string
   displayName: string
   providerName: string
+  providerId: string
 }
 
 const BUILTIN_TOOLS = [
@@ -119,6 +120,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
             id: m.id,
             displayName: (m as ModelInfo).display_name || (m as ModelInfo).name,
             providerName: p.name,
+            providerId: p.id,
           })
         }
       }
@@ -263,9 +265,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     setShowModelPicker(false)
     if (!currentSessionId) return
     try {
+      const selectedModel = modelOptions.find((m) => m.id === modelId)
       const updated = await talorAPI.session.updateModel({
         session_id: currentSessionId,
         model_id: modelId,
+        provider_id: selectedModel?.providerId,
       })
       if (updated) {
         setCurrentModelId(updated.model_id)

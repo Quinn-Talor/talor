@@ -227,6 +227,7 @@ export interface SessionRenameParams {
 export interface SessionUpdateModelParams {
   session_id: string
   model_id: string
+  provider_id?: string
 }
 
 export interface SessionCheckModelAvailabilityResult {

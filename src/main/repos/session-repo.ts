@@ -165,6 +165,17 @@ export const sessionRepo = {
     return this.getById(id)
   },
 
+  updateProvider(id: string, provider_id: string): void {
+    const db = getDb()
+    const now = new Date().toISOString()
+    db.prepare('UPDATE sessions SET provider_id = ?, updated_at = ? WHERE id = ?').run(
+      provider_id,
+      now,
+      id,
+    )
+    log.info('[SessionRepo] Updated provider for session:', id, '->', provider_id)
+  },
+
   updateModel(id: string, model_id: string): ChatSession | null {
     const db = getDb()
     const now = new Date().toISOString()

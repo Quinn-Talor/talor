@@ -17,9 +17,14 @@ import { ConfigStore, type Provider } from '../store/config-store'
  */
 export function getDefaultProvider(): Provider {
   const providers = ConfigStore.getInstance().get('providers') as Record<string, Provider>
-  const defaults = Object.values(providers).filter(p => p.is_default && p.enabled)
+  const defaults = Object.values(providers).filter((p) => p.is_default && p.enabled)
   if (defaults.length > 0) return defaults[0]
-  const enabled = Object.values(providers).filter(p => p.enabled)
+  const enabled = Object.values(providers).filter((p) => p.enabled)
   if (enabled.length > 0) return enabled[0]
   throw new Error('No provider available')
+}
+
+export function getProviderById(id: string): Provider | null {
+  const providers = ConfigStore.getInstance().get('providers') as Record<string, Provider>
+  return providers[id] ?? null
 }
