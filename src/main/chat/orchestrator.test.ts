@@ -42,8 +42,12 @@ vi.mock('../services/safe-storage', () => ({
   SafeStorageService: { getInstance: () => ({ getApiKey: hoisted.getApiKey }) },
 }))
 
-vi.mock('../providers/llm-provider', () => ({
-  createModel: hoisted.createModel,
+vi.mock('../providers/model-adapter', () => ({
+  getAdapter: () => ({
+    createModel: hoisted.createModel,
+    fetchModels: vi.fn(async () => []),
+    buildStreamOptions: vi.fn(() => ({})),
+  }),
 }))
 
 vi.mock('../repos/session-repo', () => ({
@@ -57,7 +61,11 @@ vi.mock('../loop/react-loop', () => ({
 
 vi.mock('../prompt/PromptPipeline', () => ({
   resolveProviderConfig: hoisted.resolveProviderConfig,
-  PromptPipeline: class { build() { return Promise.resolve({ messages: [], tools: [] }) } },
+  PromptPipeline: class {
+    build() {
+      return Promise.resolve({ messages: [], tools: [] })
+    }
+  },
 }))
 
 vi.mock('../memory/MemoryManager', () => ({ MemoryManager: class {} }))
@@ -72,7 +80,10 @@ import { sendChat } from './orchestrator'
 
 function makeCallbacks() {
   return {
-    onTextDelta: vi.fn(), onToolCall: vi.fn(), onToolResult: vi.fn(), onDone: vi.fn(),
+    onTextDelta: vi.fn(),
+    onToolCall: vi.fn(),
+    onToolResult: vi.fn(),
+    onDone: vi.fn(),
   }
 }
 function makePorts() {
@@ -83,14 +94,22 @@ function makePorts() {
         id: '__chat__',
         name: 'Talor',
         profile: { id: '__chat__', name: 'Talor', dependencies: { tools: [] } },
-        toolRegistry: { listTools: () => [], getBuiltinTool: () => undefined, getToolNames: () => [] },
+        toolRegistry: {
+          listTools: () => [],
+          getBuiltinTool: () => undefined,
+          getToolNames: () => [],
+        },
         skillRegistry: { isEmpty: () => true, listDescriptions: () => [] },
       })),
       getChatAgent: vi.fn(() => ({
         id: '__chat__',
         name: 'Talor',
         profile: { id: '__chat__', name: 'Talor', dependencies: { tools: [] } },
-        toolRegistry: { listTools: () => [], getBuiltinTool: () => undefined, getToolNames: () => [] },
+        toolRegistry: {
+          listTools: () => [],
+          getBuiltinTool: () => undefined,
+          getToolNames: () => [],
+        },
         skillRegistry: { isEmpty: () => true, listDescriptions: () => [] },
       })),
     } as unknown as import('../agent/agent-manager').AgentManager,
@@ -112,7 +131,10 @@ describe('sendChat', () => {
     const cb = makeCallbacks()
     const res = await sendChat({ sessionId: 's1', content: '  ', attachments: [] }, cb, makePorts())
     expect(res.messageId).toBeTruthy()
-    expect(cb.onDone).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'LLM_ERROR' }))
+    expect(cb.onDone).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'LLM_ERROR' }),
+    )
   })
 
   it('编排顺序：register → validate → provider → persist user → runReactLoop → onDone', async () => {
@@ -129,24 +151,46 @@ describe('sendChat', () => {
     hoisted.validateAttachment.mockRejectedValue(new Error('FILE_TOO_LARGE'))
     const cb = makeCallbacks()
     await sendChat(
-      { sessionId: 's1', content: 'hi', attachments: [{ path: '/p', mime_type: 'image/png', filename: 'a', size_bytes: 1 }] },
-      cb, makePorts(),
+      {
+        sessionId: 's1',
+        content: 'hi',
+        attachments: [{ path: '/p', mime_type: 'image/png', filename: 'a', size_bytes: 1 }],
+      },
+      cb,
+      makePorts(),
     )
-    expect(cb.onDone).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'FILE_TOO_LARGE' }))
+    expect(cb.onDone).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'FILE_TOO_LARGE' }),
+    )
     expect(hoisted.runReactLoop).not.toHaveBeenCalled()
   })
 
   it('视觉不匹配 → PROVIDER_NO_VISION', async () => {
-    hoisted.checkVisionSupport.mockImplementation(() => { throw new Error('PROVIDER_NO_VISION') })
+    hoisted.checkVisionSupport.mockImplementation(() => {
+      throw new Error('PROVIDER_NO_VISION')
+    })
     hoisted.validateAttachment.mockResolvedValue({
-      path: '/p', mime_type: 'image/png', filename: 'a', size_bytes: 1, base64_data: 'data:image/png;base64,x',
+      path: '/p',
+      mime_type: 'image/png',
+      filename: 'a',
+      size_bytes: 1,
+      base64_data: 'data:image/png;base64,x',
     })
     const cb = makeCallbacks()
     await sendChat(
-      { sessionId: 's1', content: '', attachments: [{ path: '/p', mime_type: 'image/png', filename: 'a', size_bytes: 1 }] },
-      cb, makePorts(),
+      {
+        sessionId: 's1',
+        content: '',
+        attachments: [{ path: '/p', mime_type: 'image/png', filename: 'a', size_bytes: 1 }],
+      },
+      cb,
+      makePorts(),
     )
-    expect(cb.onDone).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'PROVIDER_NO_VISION' }))
+    expect(cb.onDone).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'PROVIDER_NO_VISION' }),
+    )
   })
 
   it('成功完成时调用 streamRegistry.cleanup', async () => {
@@ -159,8 +203,11 @@ describe('sendChat', () => {
     hoisted.runReactLoop.mockRejectedValue(new Error('HTTP 429 Too Many Requests'))
     const cb = makeCallbacks()
     await expect(
-      sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts())
+      sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts()),
     ).resolves.toBeTruthy()
-    expect(cb.onDone).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'RATE_LIMITED' }))
+    expect(cb.onDone).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: 'RATE_LIMITED' }),
+    )
   })
 })

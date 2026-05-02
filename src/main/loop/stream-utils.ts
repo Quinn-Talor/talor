@@ -43,7 +43,7 @@ export function truncateOutput(output: string): string {
  *   - { type, value: string | object }：提取 value
  *   - 其它：fallback 到 String(output)
  */
-function extractOutputText(output: unknown): string {
+export function extractOutputText(output: unknown): string {
   if (output === null || output === undefined) return ''
   if (typeof output === 'string') return output
   // ToolErrorEnvelope → 展开为人类可读形式供 LLM 阅读
@@ -88,7 +88,7 @@ const ERROR_OUTPUT_PATTERNS: RegExp[] = [
   /^Invalid input:/,
   /^Invalid type for /,
   /^Invalid value for /,
-  /^"[^"]+" on "[^"]+" /,        // schema-check 的 min/max/length/pattern 违规消息
+  /^"[^"]+" on "[^"]+" /, // schema-check 的 min/max/length/pattern 违规消息
   /^String not found in file:/,
   /^Tool execution failed:/,
   /^Tool not found:/,
@@ -101,7 +101,7 @@ const ERROR_OUTPUT_PATTERNS: RegExp[] = [
 
 function isBuiltinErrorText(text: string): boolean {
   const head = text.trimStart().slice(0, 200)
-  return ERROR_OUTPUT_PATTERNS.some(re => re.test(head))
+  return ERROR_OUTPUT_PATTERNS.some((re) => re.test(head))
 }
 
 /**
@@ -110,7 +110,7 @@ function isBuiltinErrorText(text: string): boolean {
  * 旧 builtin 工具仍用约定错误前缀(ERROR_OUTPUT_PATTERNS)。
  * 三类都要识别,否则 DB 的 isError 字段漏报,死循环检测失效。
  */
-function isErrorOutput(output: unknown): boolean {
+export function isErrorOutput(output: unknown): boolean {
   // 优先级 1: 结构化错误信封(首选,新工具都用这个)
   if (isToolErrorEnvelope(output)) return true
   // 优先级 2: AI SDK 的 error-text / error-json
@@ -146,7 +146,10 @@ function truncateSkillOutput(output: string): string {
   const bytes = Buffer.byteLength(output, 'utf8')
   if (bytes <= MAX_SKILL_RESULT_BYTES) return output
   const buf = Buffer.from(output, 'utf8').subarray(0, MAX_SKILL_RESULT_BYTES)
-  return buf.toString('utf8') + `\n[truncated: skill content too large — original ${bytes} bytes, clipped to 1MB]`
+  return (
+    buf.toString('utf8') +
+    `\n[truncated: skill content too large — original ${bytes} bytes, clipped to 1MB]`
+  )
 }
 
 /**
@@ -156,13 +159,13 @@ function truncateSkillOutput(output: string): string {
  * skill 内容是模型应严格执行的指令载体，单独标 trust="skill-content"，
  * 区别于普通 tool_output（后者属不可信数据）。
  */
-function wrapToolOutput(toolName: string, body: string, trustSkill: boolean): string {
+export function wrapToolOutput(toolName: string, body: string, trustSkill: boolean): string {
   const trustAttr = trustSkill ? ' trust="skill-content"' : ''
   return `<tool_output tool="${escapeTagAttr(toolName)}"${trustAttr}>\n${body}\n</tool_output>`
 }
 
 function escapeTagAttr(v: string): string {
-  return v.replace(/["<>&]/g, c => {
+  return v.replace(/["<>&]/g, (c) => {
     if (c === '"') return '&quot;'
     if (c === '<') return '&lt;'
     if (c === '>') return '&gt;'
@@ -181,11 +184,9 @@ function escapeTagAttr(v: string): string {
  *   - Memory 压缩计算基于 raw,不会浪费 token 预算
  */
 export function toolResultPartsToBlocks(parts: ToolResultLike[]): ToolResultBlock[] {
-  return parts.map(tr => {
+  return parts.map((tr) => {
     const text = extractOutputText(tr.output)
-    const truncated = tr.toolName === 'skill'
-      ? truncateSkillOutput(text)
-      : truncateOutput(text)
+    const truncated = tr.toolName === 'skill' ? truncateSkillOutput(text) : truncateOutput(text)
 
     return {
       type: 'tool_result' as const,

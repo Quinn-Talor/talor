@@ -47,7 +47,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     currentSessionId,
     messages,
     streamState,
-    streamingContent,
+    streamItems,
     error,
     attachments,
     setSessions,
@@ -55,7 +55,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     setMessages,
     addMessage,
     clearStreaming,
-    clearToolCalls,
     setAttachments,
     removeAttachment,
   } = useChatStore()
@@ -220,7 +219,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     if (!userScrolledUpRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages, streamingContent, streamState])
+  }, [messages, streamItems, streamState])
 
   useEffect(() => {
     if (import.meta.env?.DEV) {
@@ -335,7 +334,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     const content = input.trim()
     setInput('')
     clearStreaming()
-    clearToolCalls()
+    clearStreaming()
     addMessage({
       id: `temp-${Date.now()}`,
       session_id: currentSessionId,
@@ -371,7 +370,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const handleStop = async () => {
     if (!currentSessionId) return
     clearStreaming()
-    clearToolCalls()
+    clearStreaming()
     try {
       await talorAPI.chat.abort(currentSessionId)
     } catch {
@@ -934,16 +933,18 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                           toolName?: string
                           input?: unknown
                         }>
-                        if (Array.isArray(blocks) && blocks.every((b) => b.type === 'tool_use')) {
-                          const toolUses = blocks.map((b) => ({
-                            type: 'tool_use' as const,
-                            toolCallId: b.toolCallId ?? '',
-                            toolName: b.toolName ?? '',
-                            input: b.input,
-                          }))
+                        if (Array.isArray(blocks) && blocks.some((b) => b.type === 'tool-call')) {
+                          const toolUses = blocks
+                            .filter((b) => b.type === 'tool-call')
+                            .map((b) => ({
+                              type: 'tool-call' as const,
+                              toolCallId: b.toolCallId ?? '',
+                              toolName: b.toolName ?? '',
+                              input: b.input,
+                            }))
                           const next = messages[idx + 1]
                           let toolResults: Array<{
-                            type: 'tool_result'
+                            type: 'tool-result'
                             toolCallId: string
                             toolName: string
                             output: string
@@ -955,21 +956,35 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                                 type: string
                                 toolCallId?: string
                                 toolName?: string
-                                output?: string
+                                output?: { type: string; value: string }
                                 isError?: boolean
                               }>
                               toolResults = rb
-                                .filter((b) => b.type === 'tool_result')
+                                .filter((b) => b.type === 'tool-result')
                                 .map((b) => ({
-                                  type: 'tool_result' as const,
+                                  type: 'tool-result' as const,
                                   toolCallId: b.toolCallId ?? '',
                                   toolName: b.toolName ?? '',
-                                  output: b.output ?? '',
+                                  output: b.output?.value ?? '',
                                   isError: b.isError ?? false,
                                 }))
                             } catch {
                               /* skip */
                             }
+                          }
+                          const textContent = blocks
+                            .filter((b) => b.type === 'text')
+                            .map((b) => (b as { text?: string }).text ?? '')
+                            .join('')
+                          if (textContent.trim()) {
+                            acc.push(
+                              <div
+                                key={`${msg.id}-text`}
+                                className="px-2 text-[13px] text-zinc-700 dark:text-zinc-300 mb-1"
+                              >
+                                {textContent}
+                              </div>,
+                            )
                           }
                           acc.push(
                             <ToolCallMessage
@@ -988,12 +1003,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     return acc
                   }, [] as React.ReactNode[])}
                   {streamState === 'streaming' && <ToolCallLog />}
-                  {streamState === 'streaming' && streamingContent && (
-                    <MessageBubble
-                      message={{ role: 'assistant', content: streamingContent }}
-                      isStreaming
-                    />
-                  )}
                   {streamState === 'error' && error && (
                     <div
                       className="flex items-start gap-2 p-3 rounded-xl text-[13px]"

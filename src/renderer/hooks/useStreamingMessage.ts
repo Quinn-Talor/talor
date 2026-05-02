@@ -10,27 +10,25 @@ export function useStreamingMessage(sessionId: string | null) {
     if (!sessionId) return
 
     const store = useChatStore.getState()
-    store.clearToolCalls()
+    store.clearStreaming()
 
     const unsubscribeStream = talorAPI.chat.onStream((event: ChatStreamEvent) => {
       if (event.session_id !== sessionId) return
       const s = useChatStore.getState()
 
       if (event.error_code) {
-        if (event.delta) s.appendStreamingContent(event.delta)
+        if (event.delta) s.appendStreamText(event.step_index, event.delta)
         s.setError({ code: event.error_code, message: event.error_message ?? '' })
         s.setStreamState('error')
         return
       }
 
       if (event.delta) {
-        s.appendStreamingContent(event.delta)
+        s.appendStreamText(event.step_index, event.delta)
         s.setStreamState('streaming')
       }
 
       if (event.done) {
-        // Defer commit by one tick so React renders the final delta before
-        // commitStreaming clears streamingContent.
         const messageId = event.message_id
         setTimeout(() => useChatStore.getState().commitStreaming(messageId), 0)
       }
@@ -43,13 +41,17 @@ export function useStreamingMessage(sessionId: string | null) {
         toolCallId: event.tool_call_id,
         toolName: event.tool_name,
         input: event.input,
+        stepIndex: event.step_index,
+        startedAt: event.started_at,
       })
       s.setStreamState('streaming')
     })
 
     const unsubscribeToolResult = talorAPI.chat.onToolResult((event: ChatToolResultEvent) => {
       if (event.session_id !== sessionId) return
-      useChatStore.getState().updateToolResult(event.tool_call_id, event.result, 'done')
+      useChatStore
+        .getState()
+        .updateToolResult(event.tool_call_id, event.result, 'done', event.duration_ms)
     })
 
     const unsubscribeToolConfirm = talorAPI.chat.onToolConfirm((event: ToolConfirmRequest) => {
@@ -58,7 +60,6 @@ export function useStreamingMessage(sessionId: string | null) {
     })
 
     const unsubscribePermission = talorAPI.chat.onPermissionRequest((event: PermissionRequest) => {
-      // PermissionRequest 不带 sessionId——第一版允许当前主界面直接接所有请求。
       useChatStore.getState().setPendingPermission(event)
     })
 

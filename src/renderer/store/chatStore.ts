@@ -9,36 +9,38 @@ export interface ToolCallEntry {
   input: Record<string, unknown>
   result?: unknown
   status: 'pending' | 'done' | 'error' | 'timeout'
+  startedAt: number
+  durationMs?: number
 }
+
+export type StreamItem =
+  | { type: 'text'; stepIndex: number; content: string }
+  | { type: 'tool_call'; stepIndex: number; entry: ToolCallEntry }
 
 interface ChatState {
   sessions: ChatSession[]
   currentSessionId: string | null
   messages: ChatMessage[]
   streamState: 'idle' | 'streaming' | 'done' | 'error' | 'aborted'
-  streamingContent: string
+  streamItems: StreamItem[]
   error: { code: string; message: string } | null
   attachments: Attachment[]
-  toolCalls: ToolCallEntry[]
   pendingToolConfirm: ToolConfirmRequest | null
   pendingPermission: PermissionRequest | null
-  /**
-   * 每当 popover 需要自动展开时递增(有新 permission request 或 tool-confirm 到达)。
-   * PermissionsPopover 订阅这个数字,null → 非 null 时自动展开让用户处理。
-   *
-   * 用计数器而非 boolean 是为了"同一个 request 来两次"也能再次触发
-   * (当前 IPC 协议不会出现,但防守性设计)。
-   *
-   * 命名保留 permission 前缀是历史原因 — popover 原本只处理 permission,
-   * 现在 tool-confirm 也走同一通道,语义实际是"popover-auto-open-tick"。
-   */
   permissionAutoOpenTick: number
 
   setSessions: (sessions: ChatSession[]) => void
   setCurrentSession: (id: string | null) => void
   setMessages: (messages: ChatMessage[]) => void
   addMessage: (message: ChatMessage) => void
-  appendStreamingContent: (delta: string) => void
+  appendStreamText: (stepIndex: number, delta: string) => void
+  addToolCall: (entry: Omit<ToolCallEntry, 'status'> & { stepIndex: number }) => void
+  updateToolResult: (
+    toolCallId: string,
+    result: unknown,
+    status: 'done' | 'error' | 'timeout',
+    durationMs?: number,
+  ) => void
   commitStreaming: (messageId: string) => void
   setStreamState: (state: ChatState['streamState']) => void
   setError: (error: { code: string; message: string } | null) => void
@@ -47,13 +49,6 @@ interface ChatState {
   addAttachment: (attachment: Attachment) => void
   removeAttachment: (index: number) => void
   clearAttachments: () => void
-  addToolCall: (entry: Omit<ToolCallEntry, 'status'>) => void
-  updateToolResult: (
-    toolCallId: string,
-    result: unknown,
-    status: 'done' | 'error' | 'timeout',
-  ) => void
-  clearToolCalls: () => void
   setPendingToolConfirm: (req: ToolConfirmRequest | null) => void
   setPendingPermission: (req: PermissionRequest | null) => void
 }
@@ -63,10 +58,9 @@ export const useChatStore = create<ChatState>((set) => ({
   currentSessionId: null,
   messages: [],
   streamState: 'idle',
-  streamingContent: '',
+  streamItems: [],
   error: null,
   attachments: [],
-  toolCalls: [],
   pendingToolConfirm: null,
   pendingPermission: null,
   permissionAutoOpenTick: 0,
@@ -76,20 +70,46 @@ export const useChatStore = create<ChatState>((set) => ({
     set({
       currentSessionId: id,
       streamState: 'idle',
-      streamingContent: '',
+      streamItems: [],
       error: null,
       attachments: [],
-      toolCalls: [],
     }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
-  appendStreamingContent: (delta) =>
-    set((state) => ({ streamingContent: state.streamingContent + delta })),
-  commitStreaming: (_messageId) =>
-    set({ streamState: 'done', streamingContent: '', error: null, toolCalls: [] }),
+
+  appendStreamText: (stepIndex, delta) =>
+    set((state) => {
+      const items = [...state.streamItems]
+      const last = items[items.length - 1]
+      if (last && last.type === 'text' && last.stepIndex === stepIndex) {
+        items[items.length - 1] = { ...last, content: last.content + delta }
+      } else {
+        items.push({ type: 'text', stepIndex, content: delta })
+      }
+      return { streamItems: items }
+    }),
+
+  addToolCall: ({ stepIndex, ...entry }) =>
+    set((state) => ({
+      streamItems: [
+        ...state.streamItems,
+        { type: 'tool_call', stepIndex, entry: { ...entry, status: 'pending' as const } },
+      ],
+    })),
+
+  updateToolResult: (toolCallId, result, status, durationMs) =>
+    set((state) => ({
+      streamItems: state.streamItems.map((item) => {
+        if (item.type !== 'tool_call') return item
+        if (item.entry.toolCallId !== toolCallId) return item
+        return { ...item, entry: { ...item.entry, result, status, durationMs } }
+      }),
+    })),
+
+  commitStreaming: (_messageId) => set({ streamState: 'done', streamItems: [], error: null }),
   setStreamState: (streamState) => set({ streamState }),
   setError: (error) => set({ error }),
-  clearStreaming: () => set({ streamState: 'idle', streamingContent: '', error: null }),
+  clearStreaming: () => set({ streamState: 'idle', streamItems: [], error: null }),
   setAttachments: (attachments) => set({ attachments }),
   addAttachment: (attachment) =>
     set((state) => ({ attachments: [...state.attachments, attachment] })),
@@ -98,28 +118,15 @@ export const useChatStore = create<ChatState>((set) => ({
       attachments: state.attachments.filter((_, i) => i !== index),
     })),
   clearAttachments: () => set({ attachments: [] }),
-  addToolCall: (entry) =>
-    set((state) => ({
-      toolCalls: [...state.toolCalls, { ...entry, status: 'pending' as const }],
-    })),
-  updateToolResult: (toolCallId, result, status) =>
-    set((state) => ({
-      toolCalls: state.toolCalls.map((tc) =>
-        tc.toolCallId === toolCallId ? { ...tc, result, status } : tc,
-      ),
-    })),
-  clearToolCalls: () => set({ toolCalls: [] }),
   setPendingToolConfirm: (req) =>
     set((state) => ({
       pendingToolConfirm: req,
-      // 同 setPendingPermission:null → 非 null 时 bump tick,触发 popover 自动展开。
       permissionAutoOpenTick:
         req !== null ? state.permissionAutoOpenTick + 1 : state.permissionAutoOpenTick,
     })),
   setPendingPermission: (req) =>
     set((state) => ({
       pendingPermission: req,
-      // 只有从 null → 非 null 时才 bump tick（auto-open 触发）；清空不触发。
       permissionAutoOpenTick:
         req !== null ? state.permissionAutoOpenTick + 1 : state.permissionAutoOpenTick,
     })),

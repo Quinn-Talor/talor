@@ -12,7 +12,7 @@ import log from 'electron-log'
 import { ConfigStore } from '../store/config-store'
 import { SafeStorageService } from '../services/safe-storage'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
-import { createModel } from '../providers/llm-provider'
+import { getAdapter } from '../providers/model-adapter'
 import '../tools/builtin'
 import { runReactLoop } from '../loop/react-loop'
 import { SkillActivationTracker } from '../skills/registry'
@@ -49,9 +49,22 @@ export interface ChatSendParams {
  * 前端通过 `err.code` 做差异化提示（如"API key 无效"），不需要额外的 error 事件。
  */
 export interface ChatCallbacks {
-  onTextDelta(messageId: string, delta: string): void
-  onToolCall(messageId: string, toolCallId: string, toolName: string, input: unknown): void
-  onToolResult(messageId: string, toolCallId: string, toolName: string, output: unknown): void
+  onTextDelta(messageId: string, delta: string, stepIndex: number): void
+  onToolCall(
+    messageId: string,
+    toolCallId: string,
+    toolName: string,
+    input: unknown,
+    stepIndex: number,
+    startedAt: number,
+  ): void
+  onToolResult(
+    messageId: string,
+    toolCallId: string,
+    toolName: string,
+    output: unknown,
+    durationMs: number,
+  ): void
   onDone(messageId: string, err?: { code: ChatErrorCode; message: string }): void
 }
 
@@ -98,9 +111,8 @@ export async function sendChat(
     if (!userContent && attachments.length === 0) throw new Error('Empty message')
 
     // Step 2: 附件校验（并行，任意一个失败都中止本次请求）
-    const validated: ValidatedAttachment[] = attachments.length > 0
-      ? await Promise.all(attachments.map(validateAttachment))
-      : []
+    const validated: ValidatedAttachment[] =
+      attachments.length > 0 ? await Promise.all(attachments.map(validateAttachment)) : []
 
     // Step 3: 注册流（若同 session 有未完成流，先 abort）
     const abortController = streamRegistry.register(sessionId, messageId)
@@ -111,7 +123,8 @@ export async function sendChat(
     SafeStorageService.getInstance().getApiKey(provider.id)
     if (validated.length > 0) checkVisionSupport(provider, validated)
 
-    const model = createModel(provider, session?.model_id)
+    const adapter = getAdapter(provider.type)
+    const model = adapter.createModel(provider, session?.model_id ?? 'default')
     const workspace = session?.workspace ?? ''
 
     // Step 4.5: 获取 Agent（通过 session.agent_id 查找，ADR-2 统一模型）
@@ -129,8 +142,12 @@ export async function sendChat(
     })
     sessionRepo.touch(sessionId)
 
-    log.info('[chat-orch] Starting ReAct loop, model:', session?.model_id ?? 'default',
-      'agent:', agentId)
+    log.info(
+      '[chat-orch] Starting ReAct loop, model:',
+      session?.model_id ?? 'default',
+      'agent:',
+      agentId,
+    )
 
     // Per-execution event bus: subsystems emit/subscribe state-change notifications.
     // Lives only for this sendChat — drops with the stack, no manual unsubscribe needed.
@@ -142,15 +159,18 @@ export async function sendChat(
     const skillTracker = new SkillActivationTracker()
     events.on('memory.compressed', (e) => {
       skillTracker.clear()
-      log.info(`[chat-orch] memory compressed (covered_until=${e.coveredUntilMessageId}), skill tracker cleared`)
+      log.info(
+        `[chat-orch] memory compressed (covered_until=${e.coveredUntilMessageId}), skill tracker cleared`,
+      )
     })
 
     // Step 5.5: 构造 permission port。只在 workspace 已设置且 UI 端口存在时启用；
     // 否则 requestPermission=undefined，工具退化为"needs_consent → deny"。
     const { createPermissionPort } = await import('../permissions/port')
-    const requestPermission = (workspace && ports.promptPermission)
-      ? createPermissionPort({ workspacePath: workspace, promptUI: ports.promptPermission })
-      : undefined
+    const requestPermission =
+      workspace && ports.promptPermission
+        ? createPermissionPort({ workspacePath: workspace, promptUI: ports.promptPermission })
+        : undefined
 
     // Step 6: 驱动 ReAct 循环（工具由 pipeline 每步产出，react-loop 内部调 buildTools 包装）
     const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
@@ -159,7 +179,7 @@ export async function sendChat(
       sessionId,
       messageId,
       userContent,
-      mappedAttachments: validated.map(a => ({
+      mappedAttachments: validated.map((a) => ({
         name: a.filename,
         mediaType: a.mime_type,
         base64: a.base64_data,
@@ -176,10 +196,13 @@ export async function sendChat(
       requestPermission,
       skillTracker,
       events,
+      streamOptions: adapter.buildStreamOptions(),
       callbacks: {
-        onTextDelta: (delta) => callbacks.onTextDelta(messageId, delta),
-        onToolCall:  (id, name, input) => callbacks.onToolCall(messageId, id, name, input),
-        onToolResult: (id, name, output) => callbacks.onToolResult(messageId, id, name, output),
+        onTextDelta: (delta, stepIdx) => callbacks.onTextDelta(messageId, delta, stepIdx),
+        onToolCall: (id, name, input, stepIdx, startedAt) =>
+          callbacks.onToolCall(messageId, id, name, input, stepIdx, startedAt),
+        onToolResult: (id, name, output, durationMs) =>
+          callbacks.onToolResult(messageId, id, name, output, durationMs),
       },
     })
 

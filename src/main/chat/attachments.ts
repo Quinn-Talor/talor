@@ -10,7 +10,7 @@
 
 import fs from 'fs/promises'
 import mime from 'mime-types'
-import type { ContentBlock } from '../../shared/types/message'
+import type { UserContent } from 'ai'
 import { MAX_INLINE_ATTACHMENT_BYTES } from '../../shared/types/message'
 import type { Provider } from '../store/config-store'
 
@@ -55,7 +55,10 @@ export interface ValidatedAttachment {
  * 避免前端误报或攻击者伪造类型。返回值中的 mime_type 字段会被覆盖为推断值。
  */
 export async function validateAttachment(att: {
-  path: string; mime_type: string; filename: string; size_bytes: number
+  path: string
+  mime_type: string
+  filename: string
+  size_bytes: number
 }): Promise<ValidatedAttachment> {
   try {
     await fs.access(att.path)
@@ -81,13 +84,13 @@ export async function validateAttachment(att: {
     // 文本文档：就地读取并可能截断，避免 prompt 里出现"路径+字面量 File: xxx"的假引用
     const buf = await fs.readFile(att.path)
     const byteLen = buf.byteLength
-    const readBuf = byteLen > MAX_INLINE_ATTACHMENT_BYTES
-      ? buf.subarray(0, MAX_INLINE_ATTACHMENT_BYTES)
-      : buf
+    const readBuf =
+      byteLen > MAX_INLINE_ATTACHMENT_BYTES ? buf.subarray(0, MAX_INLINE_ATTACHMENT_BYTES) : buf
     const text = readBuf.toString('utf-8')
-    result.text_content = byteLen > MAX_INLINE_ATTACHMENT_BYTES
-      ? `${text}\n…[truncated: original ${byteLen} bytes, loaded first ${MAX_INLINE_ATTACHMENT_BYTES} bytes. To load the rest, use the read tool on: ${att.path}]`
-      : text
+    result.text_content =
+      byteLen > MAX_INLINE_ATTACHMENT_BYTES
+        ? `${text}\n…[truncated: original ${byteLen} bytes, loaded first ${MAX_INLINE_ATTACHMENT_BYTES} bytes. To load the rest, use the read tool on: ${att.path}]`
+        : text
   } else if (BINARY_DOCUMENT_TYPES.includes(actualMime)) {
     // PDF：base64（不含前缀），走 AI SDK file part
     const buf = await fs.readFile(att.path)
@@ -105,41 +108,33 @@ export function checkVisionSupport(
   provider: Pick<Provider, 'supports_vision'>,
   attachments: Array<{ mime_type: string }>,
 ): void {
-  const hasImage = attachments.some(a => SUPPORTED_IMAGE_TYPES.includes(a.mime_type))
+  const hasImage = attachments.some((a) => SUPPORTED_IMAGE_TYPES.includes(a.mime_type))
   const supportsVision = provider.supports_vision ?? false
   if (hasImage && !supportsVision) throw new Error('PROVIDER_NO_VISION')
 }
 
 /**
- * 把用户文本 + 附件转成 ContentBlock[] 供 DB 存储与下游消费。
- *
- * 规则：
- *   - trim 非空 → 追加 `text` block
- *   - 图片且有 base64_data → 追加 `image` block（下游直接塞给视觉模型）
- *   - 其它 → 追加 `file` block（仅保留 path 引用，由内建 read 工具或模型读取）
- *
- * 空 text + 空 attachments 返回空数组；调用方应确保至少有其一，否则上游 orchestrator 会拦截。
+ * 把用户文本 + 附件转成 SDK UserContent 格式供 DB 存储。
  */
-export function buildUserBlocks(
-  content: string,
-  attachments: ValidatedAttachment[],
-): ContentBlock[] {
-  const blocks: ContentBlock[] = []
-  if (content.trim()) blocks.push({ type: 'text', text: content })
+export function buildUserBlocks(content: string, attachments: ValidatedAttachment[]): UserContent {
+  const parts: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; image: string }
+    | { type: 'file'; data: string; mediaType: string }
+  > = []
+  if (content.trim()) parts.push({ type: 'text', text: content })
   for (const att of attachments) {
     if (att.mime_type.startsWith('image/') && att.base64_data) {
-      blocks.push({ type: 'image', image: att.base64_data, mimeType: att.mime_type })
-    } else {
-      blocks.push({
-        type: 'file',
-        filename: att.filename,
-        mimeType: att.mime_type,
-        path: att.path,
-        textContent: att.text_content,
-        base64Data: att.doc_base64,
-        sizeBytes: att.size_bytes,
+      parts.push({ type: 'image', image: att.base64_data })
+    } else if (att.text_content) {
+      parts.push({
+        type: 'text',
+        text: `[Attachment: ${att.filename} · ${att.mime_type}]\n${att.text_content}\n[End of attachment]`,
       })
+    } else if (att.doc_base64) {
+      parts.push({ type: 'file', data: att.doc_base64, mediaType: att.mime_type })
     }
   }
-  return blocks
+  if (parts.length === 1 && parts[0].type === 'text') return parts[0].text
+  return parts as UserContent
 }

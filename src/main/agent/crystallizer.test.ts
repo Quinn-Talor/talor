@@ -1,16 +1,26 @@
 import { describe, it, expect } from 'vitest'
 import { extractDependenciesFromMessages } from './crystallizer'
-import type { ContentBlock } from '@shared/types/message'
 
 describe('extractDependenciesFromMessages', () => {
   it('AC-E3-01: extracts tools, filtering ALWAYS_AVAILABLE', () => {
-    const messages: Array<{ role: string; content: ContentBlock[] }> = [
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-1', toolName: 'bash', input: { command: 'echo hi' } },
-      ]},
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-2', toolName: 'read', input: { path: '/tmp' } },
-      ]},
+    const messages = [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'tc-1',
+            toolName: 'bash',
+            input: { command: 'echo hi' },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: 'tc-2', toolName: 'read', input: { path: '/tmp' } },
+        ],
+      },
     ]
 
     const result = extractDependenciesFromMessages(messages)
@@ -19,14 +29,33 @@ describe('extractDependenciesFromMessages', () => {
   })
 
   it('AC-E3-01: extracts skills from [SKILL:xxx activated] markers', () => {
-    const messages: Array<{ role: string; content: ContentBlock[] }> = [
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-1', toolName: 'skill', input: { name: 'lark-sheets' } },
-      ]},
-      { role: 'assistant', content: [
-        { type: 'tool_result', toolCallId: 'tc-1', toolName: 'skill',
-          output: '[SKILL:lark-sheets activated]\n\n# lark-sheets\ncontent', isError: false },
-      ]},
+    const messages = [
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'tc-1',
+            toolName: 'skill',
+            input: { name: 'lark-sheets' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tc-1',
+            toolName: 'skill',
+            output: {
+              type: 'text',
+              value: '[SKILL:lark-sheets activated]\n\n# lark-sheets\ncontent',
+            },
+            isError: false,
+          },
+        ],
+      },
     ]
 
     const result = extractDependenciesFromMessages(messages)
@@ -38,17 +67,18 @@ describe('extractDependenciesFromMessages', () => {
     const result = extractDependenciesFromMessages([])
     expect(result.tools).toEqual([])
     expect(result.skills).toEqual([])
-    expect(result.skills).toEqual([])
   })
 
   it('deduplicates tools', () => {
-    const messages: Array<{ role: string; content: ContentBlock[] }> = [
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-1', toolName: 'bash', input: {} },
-      ]},
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-2', toolName: 'bash', input: {} },
-      ]},
+    const messages = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool-call', toolCallId: 'tc-1', toolName: 'bash', input: {} }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool-call', toolCallId: 'tc-2', toolName: 'bash', input: {} }],
+      },
     ]
 
     const result = extractDependenciesFromMessages(messages)
@@ -56,15 +86,31 @@ describe('extractDependenciesFromMessages', () => {
   })
 
   it('extracts multiple skills', () => {
-    const messages: Array<{ role: string; content: ContentBlock[] }> = [
-      { role: 'assistant', content: [
-        { type: 'tool_result', toolCallId: 'tc-1', toolName: 'skill',
-          output: '[SKILL:lark-sheets activated]\n', isError: false },
-      ]},
-      { role: 'assistant', content: [
-        { type: 'tool_result', toolCallId: 'tc-2', toolName: 'skill',
-          output: '[SKILL:lark-im activated]\n', isError: false },
-      ]},
+    const messages = [
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tc-1',
+            toolName: 'skill',
+            output: { type: 'text', value: '[SKILL:lark-sheets activated]\n' },
+            isError: false,
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tc-2',
+            toolName: 'skill',
+            output: { type: 'text', value: '[SKILL:lark-im activated]\n' },
+            isError: false,
+          },
+        ],
+      },
     ]
 
     const result = extractDependenciesFromMessages(messages)

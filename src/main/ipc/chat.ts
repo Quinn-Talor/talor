@@ -38,10 +38,43 @@ export function registerChatHandlers(agentManager: AgentManager): void {
         attachments: raw.attachments ?? [],
       },
       {
-        onTextDelta:  (mid, delta)           => win.webContents.send('chat:stream',      { session_id: sid, message_id: mid, delta, done: false }),
-        onToolCall:   (mid, id, name, input) => win.webContents.send('chat:tool-call',   { session_id: sid, message_id: mid, tool_call_id: id, tool_name: name, input }),
-        onToolResult: (mid, id, name, out)   => win.webContents.send('chat:tool-result', { session_id: sid, message_id: mid, tool_call_id: id, tool_name: name, result: out }),
-        onDone:       (mid, err)             => win.webContents.send('chat:stream',      { session_id: sid, message_id: mid, delta: '', done: true, error_code: err?.code, error_message: err?.message }),
+        onTextDelta: (mid, delta, stepIdx) =>
+          win.webContents.send('chat:stream', {
+            session_id: sid,
+            message_id: mid,
+            delta,
+            done: false,
+            step_index: stepIdx,
+          }),
+        onToolCall: (mid, id, name, input, stepIdx, startedAt) =>
+          win.webContents.send('chat:tool-call', {
+            session_id: sid,
+            message_id: mid,
+            tool_call_id: id,
+            tool_name: name,
+            input,
+            step_index: stepIdx,
+            started_at: startedAt,
+          }),
+        onToolResult: (mid, id, name, out, durationMs) =>
+          win.webContents.send('chat:tool-result', {
+            session_id: sid,
+            message_id: mid,
+            tool_call_id: id,
+            tool_name: name,
+            result: out,
+            duration_ms: durationMs,
+          }),
+        onDone: (mid, err) =>
+          win.webContents.send('chat:stream', {
+            session_id: sid,
+            message_id: mid,
+            delta: '',
+            done: true,
+            step_index: -1,
+            error_code: err?.code,
+            error_message: err?.message,
+          }),
       },
       {
         confirmTool: (payload) => requestToolConfirm(win, payload),

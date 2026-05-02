@@ -19,7 +19,7 @@ function makeConfig(context_limit: number): ProviderContextConfig {
     provider: { id: 'p1', type: 'ollama' } as ProviderContextConfig['provider'],
     context_limit,
     recent_ratio: 0.05,
-    summary_ratio: 0.10,
+    summary_ratio: 0.1,
   }
 }
 
@@ -43,8 +43,8 @@ vi.mock('ai', () => ({
   generateText: vi.fn(async () => ({ text: '摘要文本' })),
 }))
 
-vi.mock('../providers/llm-provider', () => ({
-  createModel: vi.fn(() => ({})),
+vi.mock('../providers/model-adapter', () => ({
+  getAdapter: () => ({ createModel: vi.fn(() => ({})) }),
 }))
 
 import { messageRepo } from '../repos/session-repo'
@@ -110,14 +110,14 @@ describe('ShortTermMemory.getContext', () => {
     const mem = new ShortTermMemory()
     const result = await mem.getContext('s1', makeConfig(8000))
 
-    expect(generateText).not.toHaveBeenCalled()   // 不触发摘要
+    expect(generateText).not.toHaveBeenCalled() // 不触发摘要
     expect(result.summaryMessage).toBeNull()
     expect(result.recentMessages).toHaveLength(50) // 不含末尾巨型消息
   })
 
   it('AC-001-02: 超阈值时触发摘要，recent 区 token ≤ recentBudget', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -139,7 +139,7 @@ describe('ShortTermMemory.getContext', () => {
 
   it('AC-001-03: covered_until 未变时复用摘要，不再调用 LLM', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -165,7 +165,7 @@ describe('ShortTermMemory.getContext', () => {
 
   it('AC-001-04: 增量摘要：输入包含旧摘要 + 新推出消息', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -185,14 +185,15 @@ describe('ShortTermMemory.getContext', () => {
 
     expect(generateText).toHaveBeenCalledTimes(1)
     const callArg = vi.mocked(generateText).mock.calls[0][0]
-    const userContent = (callArg.messages as Array<{ role: string; content: string }>)
-      .find(m => m.role === 'user')!.content
+    const userContent = (callArg.messages as Array<{ role: string; content: string }>).find(
+      (m) => m.role === 'user',
+    )!.content
     expect(userContent).toContain('旧摘要内容')
   })
 
   it('emits memory.compressed when a new summary is generated', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
     vi.mocked(getDb).mockReturnValue({
@@ -214,7 +215,7 @@ describe('ShortTermMemory.getContext', () => {
 
   it('does NOT emit memory.compressed when reusing cached summary', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -258,7 +259,7 @@ describe('ShortTermMemory.getContext', () => {
 
   it('does NOT emit memory.compressed when summary generation fails', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
     vi.mocked(getDb).mockReturnValue({
@@ -285,7 +286,7 @@ describe('ShortTermMemory.getContext', () => {
 
   it('AC-001-06: 摘要生成失败时不阻断请求，但注入 CONTEXT GAP 告警让模型感知缺口', async () => {
     const msgs = Array.from({ length: 100 }, (_, i) =>
-      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300))
+      makeMsg(`msg-${String(i).padStart(3, '0')}`, 'a'.repeat(300)),
     )
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
     vi.mocked(getDb).mockReturnValue({

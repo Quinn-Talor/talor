@@ -13,7 +13,9 @@ const { mockStat, mockAccess, mockReadFile, mockLookup } = vi.hoisted(() => ({
 
 vi.mock('fs/promises', () => ({
   default: { stat: mockStat, access: mockAccess, readFile: mockReadFile },
-  stat: mockStat, access: mockAccess, readFile: mockReadFile,
+  stat: mockStat,
+  access: mockAccess,
+  readFile: mockReadFile,
 }))
 
 vi.mock('mime-types', () => ({
@@ -21,11 +23,7 @@ vi.mock('mime-types', () => ({
   lookup: mockLookup,
 }))
 
-import {
-  validateAttachment,
-  buildUserBlocks,
-  checkVisionSupport,
-} from './attachments'
+import { validateAttachment, buildUserBlocks, checkVisionSupport } from './attachments'
 
 function baseAtt(overrides: Record<string, unknown> = {}) {
   return {
@@ -39,8 +37,10 @@ function baseAtt(overrides: Record<string, unknown> = {}) {
 
 describe('validateAttachment', () => {
   beforeEach(() => {
-    mockStat.mockReset(); mockAccess.mockReset()
-    mockReadFile.mockReset(); mockLookup.mockReset()
+    mockStat.mockReset()
+    mockAccess.mockReset()
+    mockReadFile.mockReset()
+    mockLookup.mockReset()
   })
 
   it('路径不存在时抛 FILE_NOT_FOUND', async () => {
@@ -76,7 +76,9 @@ describe('validateAttachment', () => {
     mockStat.mockResolvedValue({ size: 1000 })
     mockLookup.mockReturnValue('application/pdf')
     mockReadFile.mockResolvedValue(Buffer.from('PDFDATA'))
-    const out = await validateAttachment(baseAtt({ mime_type: 'application/pdf', filename: 'a.pdf' }))
+    const out = await validateAttachment(
+      baseAtt({ mime_type: 'application/pdf', filename: 'a.pdf' }),
+    )
     expect(out.base64_data).toBeUndefined()
     expect(out.doc_base64).toBe(Buffer.from('PDFDATA').toString('base64'))
   })
@@ -108,8 +110,9 @@ describe('checkVisionSupport', () => {
   const nonVisionProvider = { supports_vision: false } as Parameters<typeof checkVisionSupport>[0]
 
   it('provider 不支持视觉但附件含图片时抛 PROVIDER_NO_VISION', () => {
-    expect(() => checkVisionSupport(nonVisionProvider, [{ mime_type: 'image/png' }]))
-      .toThrow('PROVIDER_NO_VISION')
+    expect(() => checkVisionSupport(nonVisionProvider, [{ mime_type: 'image/png' }])).toThrow(
+      'PROVIDER_NO_VISION',
+    )
   })
 
   it('provider 支持视觉时通过', () => {
@@ -117,45 +120,66 @@ describe('checkVisionSupport', () => {
   })
 
   it('无图片附件时通过', () => {
-    expect(() => checkVisionSupport(nonVisionProvider, [{ mime_type: 'application/pdf' }])).not.toThrow()
+    expect(() =>
+      checkVisionSupport(nonVisionProvider, [{ mime_type: 'application/pdf' }]),
+    ).not.toThrow()
   })
 })
 
 describe('buildUserBlocks', () => {
-  it('纯文本返回一个 text block', () => {
-    const blocks = buildUserBlocks('hello', [])
-    expect(blocks).toEqual([{ type: 'text', text: 'hello' }])
+  it('纯文本返回 string', () => {
+    const result = buildUserBlocks('hello', [])
+    expect(result).toBe('hello')
   })
 
   it('空文本 + 无附件返回空数组', () => {
     expect(buildUserBlocks('', [])).toEqual([])
   })
 
-  it('图片附件转 image block', () => {
-    const blocks = buildUserBlocks('', [{
-      path: '/p/a.png', mime_type: 'image/png', filename: 'a.png',
-      size_bytes: 1, base64_data: 'data:image/png;base64,ZmFrZQ==',
-    }])
-    expect(blocks[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
-  })
-
-  it('文档附件转 file block 并携带 text_content/doc_base64', () => {
-    const blocks = buildUserBlocks('', [{
-      path: '/p/a.md', mime_type: 'text/markdown', filename: 'a.md', size_bytes: 10,
-      text_content: '# hello',
-    }])
-    expect(blocks[0]).toMatchObject({
-      type: 'file', filename: 'a.md', mimeType: 'text/markdown', textContent: '# hello',
+  it('图片附件转 SDK image part', () => {
+    const result = buildUserBlocks('', [
+      {
+        path: '/p/a.png',
+        mime_type: 'image/png',
+        filename: 'a.png',
+        size_bytes: 1,
+        base64_data: 'data:image/png;base64,ZmFrZQ==',
+      },
+    ])
+    expect((result as Array<unknown>)[0]).toMatchObject({
+      type: 'image',
+      image: 'data:image/png;base64,ZmFrZQ==',
     })
   })
 
-  it('PDF 附件的 base64 走 base64Data 字段', () => {
-    const blocks = buildUserBlocks('', [{
-      path: '/p/a.pdf', mime_type: 'application/pdf', filename: 'a.pdf', size_bytes: 1,
-      doc_base64: 'UERGU0lH',
-    }])
-    expect(blocks[0]).toMatchObject({
-      type: 'file', filename: 'a.pdf', mimeType: 'application/pdf', base64Data: 'UERGU0lH',
+  it('文档附件转 SDK text part（inline text_content）', () => {
+    const result = buildUserBlocks('', [
+      {
+        path: '/p/a.md',
+        mime_type: 'text/markdown',
+        filename: 'a.md',
+        size_bytes: 10,
+        text_content: '# hello',
+      },
+    ])
+    expect(typeof result).toBe('string')
+    expect(result as string).toContain('# hello')
+  })
+
+  it('PDF 附件转 SDK file part', () => {
+    const result = buildUserBlocks('', [
+      {
+        path: '/p/a.pdf',
+        mime_type: 'application/pdf',
+        filename: 'a.pdf',
+        size_bytes: 1,
+        doc_base64: 'UERGU0lH',
+      },
+    ])
+    expect((result as Array<unknown>)[0]).toMatchObject({
+      type: 'file',
+      data: 'UERGU0lH',
+      mediaType: 'application/pdf',
     })
   })
 })

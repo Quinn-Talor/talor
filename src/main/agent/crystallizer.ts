@@ -6,7 +6,7 @@
 // 允许依赖：shared/*
 // 禁止依赖：ipc/*
 
-import type { ContentBlock } from '@shared/types/message'
+// Uses SDK-format content parts from DB
 
 const ALWAYS_AVAILABLE_TOOLS = new Set(['read', 'ls', 'glob', 'grep', 'skill'])
 
@@ -16,23 +16,30 @@ export interface ExtractedDependencies {
 }
 
 export function extractDependenciesFromMessages(
-  messages: Array<{ role: string; content: ContentBlock[] }>,
+  messages: Array<{
+    role: string
+    content: Array<{ type: string; toolName?: string; input?: unknown; output?: unknown }>
+  }>,
 ): ExtractedDependencies {
   const tools = new Set<string>()
   const skills = new Set<string>()
 
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type === 'tool_use') {
-        const toolName = block.toolName
+      if (block.type === 'tool-call') {
+        const toolName = block.toolName ?? ''
         if (toolName === 'skill') continue
         if (!ALWAYS_AVAILABLE_TOOLS.has(toolName)) {
           tools.add(toolName)
         }
       }
 
-      if (block.type === 'tool_result' && block.toolName === 'skill') {
-        const output = typeof block.output === 'string' ? block.output : ''
+      if (block.type === 'tool-result' && block.toolName === 'skill') {
+        const rawOutput = block.output as { type: string; value: string } | string | undefined
+        const output =
+          typeof rawOutput === 'string'
+            ? rawOutput
+            : ((rawOutput as { value?: string })?.value ?? '')
         const match = output.match(/\[SKILL:(\S+) activated\]/)
         if (match) {
           skills.add(match[1])

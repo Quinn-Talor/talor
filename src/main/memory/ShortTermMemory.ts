@@ -1,5 +1,5 @@
 import { generateText } from 'ai'
-import { createModel } from '../providers/llm-provider'
+import { getAdapter } from '../providers/model-adapter'
 import { messageRepo } from '../repos/session-repo'
 import { getDb } from '../db/index'
 import log from 'electron-log'
@@ -279,7 +279,7 @@ async function generateSummary(
       const blocks = JSON.parse(msg.content) as Array<{
         type: string
         text?: string
-        output?: string
+        output?: { type: string; value: string } | string
         input?: unknown
         isError?: boolean
         toolName?: string
@@ -287,13 +287,15 @@ async function generateSummary(
       const texts: string[] = []
       for (const b of blocks) {
         if (b.type === 'text' && b.text) texts.push(b.text)
-        else if (b.type === 'tool_result' && b.output) {
-          // 带 isError 标记的错误必须原样保留，这是下游 fallback/检测的事实依据
+        else if (b.type === 'reasoning' && b.text) texts.push(`[reasoning: ${b.text}]`)
+        else if (b.type === 'tool-result' && b.output) {
+          const outputStr =
+            typeof b.output === 'string' ? b.output : ((b.output as { value: string })?.value ?? '')
           const errTag = b.isError ? ' ERROR' : ''
           const toolTag = b.toolName ? ` tool=${b.toolName}` : ''
-          texts.push(`[tool_result${errTag}${toolTag}: ${b.output}]`)
-        } else if (b.type === 'tool_use' && b.input)
-          texts.push(`[tool_use: ${JSON.stringify(b.input)}]`)
+          texts.push(`[tool-result${errTag}${toolTag}: ${outputStr}]`)
+        } else if (b.type === 'tool-call' && b.input)
+          texts.push(`[tool-call: ${JSON.stringify(b.input)}]`)
       }
       textContent = texts.join('\n')
     } catch {
@@ -318,7 +320,7 @@ async function generateSummary(
     `6. Respond in English, at most ${summaryBudgetChars} characters.\n` +
     `7. Structure: User intent → Key actions executed (mark success/failure) → Current state.`
 
-  const model = createModel(config.provider, undefined)
+  const model = getAdapter(config.provider.type).createModel(config.provider, 'default')
   const { text } = await generateText({
     model,
     messages: [

@@ -154,6 +154,8 @@ export interface ChatToolCallEvent {
   tool_call_id: string
   tool_name: string
   input: Record<string, unknown>
+  step_index: number
+  started_at: number
 }
 
 export interface ChatToolResultEvent {
@@ -162,6 +164,7 @@ export interface ChatToolResultEvent {
   tool_call_id: string
   tool_name: string
   result: unknown
+  duration_ms: number
 }
 
 export interface SessionUpdateWorkspaceParams {
@@ -211,6 +214,7 @@ export interface ChatStreamEvent {
   message_id: string
   delta: string
   done: boolean
+  step_index: number
   error_code?: ChatErrorCode
   error_message?: string
 }

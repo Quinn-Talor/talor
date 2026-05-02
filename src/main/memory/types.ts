@@ -1,34 +1,19 @@
-import type { CoreMessage } from 'ai'
+import type { ModelMessage } from 'ai'
 import type { ChatMessage } from '../repos/session-repo'
 import { buildToolResultGuide } from '../tools/tool-result-template'
 
 /**
- * 给 LLM 看的 tool_result 值:结构化指引 + raw wrap 内容。
- * DB 只存 rawWrapped,UI 直接读 rawWrapped。只在把 tool_result 转成 LLM 的
- * CoreMessage 时,动态拼接指引。
- *
- * rawWrapped 形如 `<tool_output tool="...">\n<raw>\n</tool_output>`。
- * 拼接结果:
- *   <tool_output tool="bash">
- *   [How to interpret ...]
- *   [bash specifics]
- *   ...
- *   ---
- *   [Raw output]
- *   <raw>
- *   </tool_output>
+ * 给 LLM 看的 tool_result 值:结构化指引 + raw 内容。
+ * DB 只存 raw output,只在 rebuild prompt 时动态拼接指引。
  */
-function wrapToolResultForLLM(toolName: string, rawWrapped: string): string {
+function injectToolResultGuide(toolName: string, rawOutput: string): string {
   const guide = buildToolResultGuide(toolName)
-  // rawWrapped 是 `<tool_output tool="X">\n<raw>\n</tool_output>` 形式。
-  // 我们在 <tool_output> 开标签后插入指引,让 LLM 先看到指引再看 raw。
-  const openTagMatch = rawWrapped.match(/^(<tool_output[^>]*>\n)/)
+  const openTagMatch = rawOutput.match(/^(<tool_output[^>]*>\n)/)
   if (!openTagMatch) {
-    // 不符合预期格式,保守直接前置指引。
-    return `${guide}\n\n---\n\n[Raw output]\n${rawWrapped}`
+    return `${guide}\n\n---\n\n[Raw output]\n${rawOutput}`
   }
   const openTag = openTagMatch[1]
-  const rest = rawWrapped.slice(openTag.length)
+  const rest = rawOutput.slice(openTag.length)
   return `${openTag}${guide}\n\n---\n\n[Raw output]\n${rest}`
 }
 
@@ -48,21 +33,27 @@ export function estimate(content: string): number {
 
 export function estimateMessage(msg: ChatMessage): number {
   try {
-    const blocks = JSON.parse(msg.content) as Array<{ type: string; text?: string }>
-    const text = blocks
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text ?? '')
-      .join('')
-    const imageCount = blocks.filter((b) => b.type === 'image').length
-    const toolResultText = blocks
-      .filter((b) => b.type === 'tool_result')
-      .map((b) => (b as unknown as { output: string }).output ?? '')
-      .join('')
-    const toolUseText = blocks
-      .filter((b) => b.type === 'tool_use')
-      .map((b) => JSON.stringify((b as unknown as { input: unknown }).input ?? ''))
-      .join('')
-    return estimate(text + toolResultText + toolUseText) + imageCount * 85
+    const content = JSON.parse(msg.content)
+    if (typeof content === 'string') return estimate(content)
+    if (!Array.isArray(content)) return estimate(msg.content)
+    const parts = content as Array<{
+      type: string
+      text?: string
+      input?: unknown
+      output?: unknown
+    }>
+    let text = ''
+    let imageCount = 0
+    for (const p of parts) {
+      if (p.type === 'text' || p.type === 'reasoning') text += p.text ?? ''
+      else if (p.type === 'image') imageCount++
+      else if (p.type === 'tool-call') text += JSON.stringify(p.input ?? '')
+      else if (p.type === 'tool-result') {
+        const out = p.output as { value?: string } | string | undefined
+        text += typeof out === 'string' ? out : ((out as { value?: string })?.value ?? '')
+      }
+    }
+    return estimate(text) + imageCount * 85
   } catch {
     return estimate(msg.content)
   }
@@ -77,123 +68,67 @@ export function extractJsonArray(text: string): string[] {
   return parsed as string[]
 }
 
-// ── CoreMessage 转换 ────────────────────────────────────
-// 将 ChatMessage[] 转为 CoreMessage[]，逻辑与 chat.ts toCoreMessages() 相同
-// 但接受消息数组而非从 DB 重新查询，供 ShortTermMemory recent 区使用
+// ── DB → SDK ModelMessage 转换 ─────────────────────────────
 //
-// 历史备注：这里曾有一个 TOOL_RESULT_FULL_WINDOW=4 的滑动窗口，把更早的
-// tool_result 替换为 [Old tool_result elided ...] 占位符。它与后续引入的
-// ShortTermMemory Path A/B 压缩机制构成双重压缩——Path A 下总量远未超阈值
-// 也会触发 elide，导致 skill 指令内容（~4KB）在 5 次工具调用后从 prompt 里
-// 消失；叠加 SkillActivationTracker 拒绝重复激活，形成死循环。
-// 移除后：单条 tool_result 仍由 MAX_TOOL_RESULT_BYTES(8KB) / MAX_SKILL_RESULT_BYTES(1MB)
-// 上限守住；总量溢出由 Path B 的 summary + anchors 负责。两层机制已足够。
-export function messagesToCoreMessages(messages: ChatMessage[]): CoreMessage[] {
-  const result: CoreMessage[] = []
+// DB 直接存 SDK 原生 content 格式（AssistantContent / UserContent / ToolContent）。
+// rebuild prompt 时 JSON.parse 后直接透传给 SDK，唯一的动态处理是为 tool result
+// 注入结构化指引（guide），帮助模型理解工具输出。
+
+export function dbToModelMessages(messages: ChatMessage[]): ModelMessage[] {
+  const result: ModelMessage[] = []
   for (const msg of messages) {
-    let blocks: Array<{ type: string; [k: string]: unknown }>
+    let content: unknown
     try {
-      blocks = JSON.parse(msg.content)
+      content = JSON.parse(msg.content)
     } catch {
-      blocks = [{ type: 'text', text: msg.content }]
+      content = msg.content
     }
 
     if (msg.role === 'system') {
-      const text = blocks
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text as string)
-        .join('\n')
+      const text =
+        typeof content === 'string'
+          ? content
+          : Array.isArray(content)
+            ? (content as Array<{ type: string; text?: string }>)
+                .filter((b) => b.type === 'text')
+                .map((b) => b.text ?? '')
+                .join('\n')
+            : String(content)
       result.push({ role: 'system', content: text })
-    } else if (msg.role === 'user') {
-      const parts: Array<
-        | { type: 'text'; text: string }
-        | { type: 'image'; image: string }
-        | { type: 'file'; data: string; mediaType: string }
-      > = []
-      for (const b of blocks) {
-        if (b.type === 'text') {
-          parts.push({ type: 'text', text: b.text as string })
-        } else if (b.type === 'image') {
-          parts.push({ type: 'image', image: b.image as string })
-        } else if (b.type === 'file') {
-          // ⚠️ 历史 bug：旧实现写 `data: 'File: ${filename}'` 字面字符串，模型根本看不到附件内容。
-          // 现在按 textContent / base64Data / path 三路分派：
-          //   - 文本文档：直接作为 text block 注入，模型可见
-          //   - PDF 等：走 AI SDK 的 file part
-          //   - 都没有（旧 session 的 file block）：显式提示用 read 工具读取，避免静默失效
-          const filename = b.filename as string
-          const mimeType = b.mimeType as string
-          const textContent = b.textContent as string | undefined
-          const base64Data = b.base64Data as string | undefined
-          const path = b.path as string | undefined
-
-          if (textContent !== undefined) {
-            parts.push({
-              type: 'text',
-              text: `[Attachment ${filename} · ${mimeType}]\n${textContent}\n[End of attachment ${filename}]`,
-            })
-          } else if (base64Data) {
-            parts.push({ type: 'file', data: base64Data, mediaType: mimeType })
-          } else {
-            parts.push({
-              type: 'text',
-              text: `[Attachment ${filename} · ${mimeType}${path ? ` · path: ${path}` : ''} · use the read tool to load its contents]`,
-            })
-          }
-        }
-      }
-      result.push({ role: 'user', content: parts.length > 0 ? parts : '' } as CoreMessage)
-    } else if (msg.role === 'assistant') {
-      // AI SDK v6 ToolCallPart 使用 `input` 字段(v5 之前是 `args`,6.0.170 之后
-      // 改名并开始校验). 用错字段会让 AssistantContent 的 discriminated union
-      // 整条 messages 校验失败 → streamText 抛 AI_InvalidPromptError。
-      const parts: Array<
-        | { type: 'text'; text: string }
-        | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
-      > = []
-      for (const b of blocks) {
-        if (b.type === 'text') parts.push({ type: 'text', text: b.text as string })
-        else if (b.type === 'tool_use')
-          parts.push({
-            type: 'tool-call',
-            toolCallId: b.toolCallId as string,
-            toolName: b.toolName as string,
-            input: b.input,
-          })
-      }
-      result.push({ role: 'assistant', content: parts } as CoreMessage)
     } else if (msg.role === 'tool') {
-      const parts: Array<{
-        type: 'tool-result'
-        toolCallId: string
-        toolName: string
-        output: { type: 'text'; value: string }
-      }> = []
-      for (const b of blocks) {
-        if (b.type === 'tool_result') {
-          // DB 里 output 是 wrap 后的 raw。LLM 看到时拼上结构化指引(guide + raw),
-          // 让模型懂得如何判断这次结果(成功/失败/怎么推进)。
-          // 注意:只在 LLM 输入时拼接,DB 与 UI 看到的都还是 raw。
-          const rawWrapped = b.output as string
-          const guidedValue = wrapToolResultForLLM(b.toolName as string, rawWrapped)
-          parts.push({
-            type: 'tool-result',
-            toolCallId: b.toolCallId as string,
-            toolName: b.toolName as string,
-            output: { type: 'text', value: guidedValue },
-          })
-        }
-      }
-      result.push({ role: 'tool', content: parts } as unknown as CoreMessage)
+      const parts = content as Array<{
+        type: string
+        toolName?: string
+        output?: { type: string; value: string }
+        [k: string]: unknown
+      }>
+      result.push({
+        role: 'tool',
+        content: parts.map((p) => {
+          if (p.type === 'tool-result' && p.output?.type === 'text') {
+            const guided = injectToolResultGuide(p.toolName ?? '', p.output.value)
+            return { ...p, output: { ...p.output, value: guided } }
+          }
+          return p
+        }),
+      } as ModelMessage)
+    } else {
+      // user / assistant — 直接透传 SDK 格式
+      result.push({ role: msg.role as 'user' | 'assistant', content } as ModelMessage)
     }
   }
   return result
 }
 
+// 保留旧名称作为别名，供尚未迁移的调用方使用
+export const messagesToCoreMessages = dbToModelMessages as (
+  messages: ChatMessage[],
+) => ModelMessage[]
+
 // ── 共享类型 ────────────────────────────────────────────
 export interface MemoryContext {
-  summaryMessage: CoreMessage | null
-  recentMessages: CoreMessage[]
+  summaryMessage: ModelMessage | null
+  recentMessages: ModelMessage[]
   tokenEstimate: number
 }
 

@@ -12,7 +12,7 @@ import type { PromptPlugin, PipelineContext, PluginResult } from '../types'
 import { estimate } from '../../memory/types'
 
 /**
- * Layer 1 — 行为宪法。8 条原则,每条 ≤ 2 句话。
+ * Layer 1 — 行为宪法。10 条原则。
  *
  * 原则只讲"做事的底线",不讲"选哪个工具"。具体工具选择由 Layer 2 路由表负责。
  */
@@ -87,7 +87,22 @@ const BEHAVIORAL_CHARTER = `# Core Behavior Principles
      • The task seems blocked → say "I'm blocked because <reason>, I need
        <what> from you to proceed".
      • You have nothing new to add → explicitly write that, not silence.
-   Silence is NEVER an answer. Always speak.`
+   Silence is NEVER an answer. Always speak.
+
+10. Parallel tool calls for independent operations.
+    When you need multiple pieces of information that do not depend on each
+    other's results (e.g. reading several files, listing multiple directories,
+    searching different patterns), issue ALL those tool calls in a single
+    response rather than one at a time. This dramatically reduces latency.
+    Only serialize calls when one call's result determines the next call's
+    parameters.
+
+11. Always state intent before tool calls.
+    Every response that includes tool calls MUST begin with a brief text
+    explaining what you are about to do (one sentence, max 20 words).
+    Example: "Reading the config file to check the database settings."
+    This text appears as a step heading in the UI — the user sees your
+    intent before the tool executes. Never call tools without this prefix.`
 
 /**
  * Layer 2 — 决策路由表。把"用户意图信号"映射到"first action"。
@@ -137,13 +152,9 @@ export class SystemPlugin implements PromptPlugin {
       `Operating system: ${process.platform}`,
       `Workspace: ${ctx.workspacePath ?? '(not set)'}`,
     ]
-    const content = [
-      BEHAVIORAL_CHARTER,
-      '---',
-      TASK_ROUTING,
-      '---',
-      runtimeLines.join('\n'),
-    ].join('\n\n')
+    const content = [BEHAVIORAL_CHARTER, '---', TASK_ROUTING, '---', runtimeLines.join('\n')].join(
+      '\n\n',
+    )
     return {
       messages: [{ role: 'system', content }],
       tools: [],

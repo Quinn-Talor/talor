@@ -1,17 +1,15 @@
-import type { ContentBlock } from '@shared/types/message'
-
-interface MessageWithBlocks {
+interface MessageWithParts {
   role: string
-  content: ContentBlock[]
+  content: Array<{ type: string; toolName?: string; input?: unknown }>
 }
 
-export function extractActivatedSkills(messages: MessageWithBlocks[]): string[] {
+export function extractActivatedSkills(messages: MessageWithParts[]): string[] {
   const names: string[] = []
 
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue
     for (const block of msg.content) {
-      if (block.type === 'tool_use' && block.toolName === 'skill') {
+      if (block.type === 'tool-call' && block.toolName === 'skill') {
         const inputObj = block.input as Record<string, unknown> | null
         const skillName = typeof inputObj?.name === 'string' ? inputObj.name : ''
         if (skillName && !names.includes(skillName)) {

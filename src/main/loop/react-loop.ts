@@ -10,17 +10,28 @@
 // 允许依赖：loop/*、repos/*、shared/*
 // 禁止依赖：ipc/*
 
-import { streamText, type LanguageModel, type ModelMessage } from 'ai'
+import {
+  streamText,
+  type LanguageModel,
+  type ModelMessage,
+  type AssistantContent,
+  type ToolContent,
+} from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import { createHash } from 'crypto'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
-import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
+import {
+  buildStreamSignal,
+  isErrorOutput,
+  extractOutputText,
+  truncateOutput,
+  wrapToolOutput,
+} from './stream-utils'
 import { verifyQuotedFacts } from './quote-verifier'
 import { buildTools } from '../tools/build-tools'
 import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks } from './types'
-import type { ContentBlock } from '@shared/types/message'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
@@ -63,6 +74,7 @@ interface StepContext {
   agentId: string
   skillTracker: import('../skills/registry').SkillActivationTracker
   events: import('../chat/events').ExecutionEventBus
+  streamOptions?: Record<string, unknown>
 }
 
 /** runReactStep 返回值——循环控制层据此决定是否继续。 */
@@ -241,7 +253,7 @@ async function runReactStep(
         agent_id: ctx.agentId,
       })
       sessionRepo.touch(ctx.sessionId)
-      ctx.callbacks.onTextDelta(haltText)
+      ctx.callbacks.onTextDelta(haltText, stepIndex)
       return {
         stepText: haltText,
         wroteAssistantFinal: true,
@@ -283,28 +295,47 @@ async function runReactStep(
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
   log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)
 
-  const stepToolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
+  const stepToolCalls: Array<{
+    toolCallId: string
+    toolName: string
+    input: unknown
+    startedAt: number
+  }> = []
   let stepText = ''
+  let stepReasoning = ''
   let persisted = false
 
   const result = streamText({
     model: ctx.model,
     messages,
     tools,
+    ...ctx.streamOptions,
     abortSignal: buildStreamSignal(ctx.abortSignal),
     onChunk({ chunk }) {
       if (chunk.type === 'text-delta') {
         stepText += chunk.text
-        if (chunk.text.length > 0) ctx.callbacks.onTextDelta(chunk.text)
+        if (chunk.text.length > 0) ctx.callbacks.onTextDelta(chunk.text, stepIndex)
+      } else if (chunk.type === 'reasoning-delta') {
+        stepReasoning += chunk.text
       } else if (chunk.type === 'tool-call') {
+        const startedAt = Date.now()
         stepToolCalls.push({
           toolCallId: chunk.toolCallId,
           toolName: chunk.toolName,
           input: chunk.input,
+          startedAt,
         })
-        ctx.callbacks.onToolCall(chunk.toolCallId, chunk.toolName, chunk.input)
+        ctx.callbacks.onToolCall(
+          chunk.toolCallId,
+          chunk.toolName,
+          chunk.input,
+          stepIndex,
+          startedAt,
+        )
       } else if (chunk.type === 'tool-result') {
-        ctx.callbacks.onToolResult(chunk.toolCallId, chunk.toolName, chunk.output)
+        const callEntry = stepToolCalls.find((tc) => tc.toolCallId === chunk.toolCallId)
+        const durationMs = callEntry ? Date.now() - callEntry.startedAt : 0
+        ctx.callbacks.onToolResult(chunk.toolCallId, chunk.toolName, chunk.output, durationMs)
       }
     },
     onError({ error }) {
@@ -323,11 +354,14 @@ async function runReactStep(
       if (stepText) {
         log.info(`[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms]`)
         log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
+        const finalParts: AssistantContent = []
+        if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
+        finalParts.push({ type: 'text', text: stepText })
         messageRepo.create({
           id: ctx.messageId,
           session_id: ctx.sessionId,
           role: 'assistant',
-          content: [{ type: 'text', text: stepText }],
+          content: finalParts,
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
@@ -390,18 +424,33 @@ async function runReactStep(
       `[ReactLoop]   → persist: assistant(${stepText ? 'text+' : ''}tool_use×${stepToolCalls.length}) + tool(result×${toolResults.length}) [tx]`,
     )
 
-    const assistantBlocks: ContentBlock[] = []
-    if (stepText) assistantBlocks.push({ type: 'text', text: stepText })
+    const assistantParts: AssistantContent = []
+    if (stepReasoning) assistantParts.push({ type: 'reasoning', text: stepReasoning })
+    if (stepText) assistantParts.push({ type: 'text', text: stepText })
     for (const tc of stepToolCalls) {
-      assistantBlocks.push({
-        type: 'tool_use',
+      assistantParts.push({
+        type: 'tool-call',
         toolCallId: tc.toolCallId,
         toolName: tc.toolName,
         input: tc.input,
       })
     }
 
-    const toolBlocks: ContentBlock[] = toolResultPartsToBlocks(toolResults)
+    const toolParts: ToolContent = toolResults.map((tr) => {
+      const rawText = extractOutputText(tr.output)
+      const truncated =
+        tr.toolName === 'skill' ? rawText.slice(0, 1_000_000) : truncateOutput(rawText)
+      return {
+        type: 'tool-result' as const,
+        toolCallId: tr.toolCallId,
+        toolName: tr.toolName,
+        output: {
+          type: 'text' as const,
+          value: wrapToolOutput(tr.toolName, truncated, tr.toolName === 'skill'),
+        },
+        isError: isErrorOutput(tr.output),
+      }
+    })
 
     // 事务化：assistant(tool_use) 与 tool(result) 必须成对出现，否则下次
     // rebuild prompt 时 SDK 会抛 "Every tool_use must have a tool_result"，
@@ -411,14 +460,14 @@ async function runReactStep(
         id: uuidv4(),
         session_id: ctx.sessionId,
         role: 'assistant',
-        content: assistantBlocks,
+        content: assistantParts,
         agent_id: ctx.agentId,
       },
       {
         id: uuidv4(),
         session_id: ctx.sessionId,
         role: 'tool',
-        content: toolBlocks,
+        content: toolParts,
         agent_id: ctx.agentId,
       },
     ])
@@ -426,8 +475,10 @@ async function runReactStep(
 
     const signature = stepSignature(stepToolCalls, toolResults)
     const allToolsFailed =
-      toolBlocks.length > 0 &&
-      toolBlocks.every((b) => b.type === 'tool_result' && b.isError === true)
+      toolParts.length > 0 &&
+      toolParts.every(
+        (p) => p.type === 'tool-result' && (p as unknown as { isError?: boolean }).isError === true,
+      )
     return {
       stepText,
       wroteAssistantFinal: false,
@@ -447,21 +498,19 @@ async function runReactStep(
     // 若有 write/edit 已落盘，DB 也不会出现"无任何记录"的审计断层。
     if (!persisted && (stepText || stepToolCalls.length > 0)) {
       try {
-        const abortedBlocks: ContentBlock[] = []
+        const abortedParts: AssistantContent = []
         const abortTag =
           stepToolCalls.length > 0
             ? `\n\n[step interrupted: tool results not returned]`
             : `\n\n[step interrupted]`
         if (stepText) {
-          abortedBlocks.push({ type: 'text', text: `${stepText}${abortTag}` })
+          abortedParts.push({ type: 'text', text: `${stepText}${abortTag}` })
         } else {
-          abortedBlocks.push({ type: 'text', text: abortTag.trimStart() })
+          abortedParts.push({ type: 'text', text: abortTag.trimStart() })
         }
-        // tool_use 不落库：没有对应 tool_result，保留会破坏 SDK 配对约束。
-        // 仅用文字说明"调用过哪些工具"作为审计线索。
         if (stepToolCalls.length > 0) {
           const toolNamesStr = stepToolCalls.map((tc) => tc.toolName).join(', ')
-          abortedBlocks.push({
+          abortedParts.push({
             type: 'text',
             text: `[tools invoked this step: ${toolNamesStr} — no results returned]`,
           })
@@ -470,11 +519,11 @@ async function runReactStep(
           id: uuidv4(),
           session_id: ctx.sessionId,
           role: 'assistant',
-          content: abortedBlocks,
+          content: abortedParts,
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
-        log.info(`[ReactLoop]   partial aborted step persisted (${abortedBlocks.length} blocks)`)
+        log.info(`[ReactLoop]   partial aborted step persisted (${abortedParts.length} parts)`)
       } catch (persistErr) {
         log.error('[ReactLoop]   failed to persist partial aborted step:', persistErr)
       }
@@ -542,7 +591,7 @@ const FALLBACK_GUARDRAIL: ModelMessage = {
     'Silence is a bug. Always speak.',
 }
 
-async function runFallbackSummary(ctx: StepContext): Promise<void> {
+async function runFallbackSummary(ctx: StepContext, stepIndex: number): Promise<void> {
   log.info(`[ReactLoop] ${SEPARATOR} fallback summary ${SEPARATOR}`)
   const summaryStart = Date.now()
   try {
@@ -565,7 +614,7 @@ async function runFallbackSummary(ctx: StepContext): Promise<void> {
     let summaryText = ''
     for await (const chunk of summaryResult.textStream) {
       summaryText += chunk
-      ctx.callbacks.onTextDelta(chunk)
+      ctx.callbacks.onTextDelta(chunk, stepIndex)
     }
     const durationMs = Date.now() - summaryStart
     if (summaryText.trim()) {
@@ -642,6 +691,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     agentId: opts.agent.id,
     skillTracker: opts.skillTracker,
     events: opts.events,
+    streamOptions: opts.streamOptions,
   }
 
   let fullText = ''
@@ -764,7 +814,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   // 兜底摘要：整轮一字没吐且非 abort → 强制一次无工具 streamText
   if (!wroteAssistantFinal && fullText.length === 0 && exitReason !== 'abort') {
     exitReason = 'fallback_summary'
-    await runFallbackSummary(ctx)
+    await runFallbackSummary(ctx, totalSteps)
   }
 
   // 循环结束报告

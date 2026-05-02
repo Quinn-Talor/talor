@@ -136,21 +136,35 @@ export function isFilePart(p: MessagePart): p is FilePart {
 export function decodeMessageContent(content: string): MessagePart[] {
   try {
     const parsed = JSON.parse(content)
+    if (typeof parsed === 'string') return [{ type: 'text', content: parsed }]
     if (!Array.isArray(parsed)) return [{ type: 'text', content }]
     // Normalize ContentBlock format (.text) to legacy MessagePart format (.content)
-    return parsed.map((b: Record<string, unknown>) => {
-      if (b.type === 'text' && 'text' in b && !('content' in b)) {
-        return { type: 'text', content: String(b.text ?? '') } as TextPart
-      }
-      if (b.type === 'image' && 'image' in b) {
-        return { type: 'image', mime_type: String(b.mimeType ?? ''), data: String(b.image ?? ''), filename: b.filename as string | undefined } as ImagePart
-      }
-      if (b.type === 'file' && 'filename' in b) {
-        return { type: 'file', mime_type: String(b.mimeType ?? ''), filename: String(b.filename ?? ''), size_bytes: 0, path: String(b.path ?? '') } as FilePart
-      }
-      // tool_use and tool_result blocks — skip for bubble rendering
-      return null
-    }).filter((p): p is MessagePart => p !== null)
+    return parsed
+      .map((b: Record<string, unknown>) => {
+        if (b.type === 'text' && 'text' in b && !('content' in b)) {
+          return { type: 'text', content: String(b.text ?? '') } as TextPart
+        }
+        if (b.type === 'image' && 'image' in b) {
+          return {
+            type: 'image',
+            mime_type: String(b.mimeType ?? ''),
+            data: String(b.image ?? ''),
+            filename: b.filename as string | undefined,
+          } as ImagePart
+        }
+        if (b.type === 'file' && 'filename' in b) {
+          return {
+            type: 'file',
+            mime_type: String(b.mimeType ?? ''),
+            filename: String(b.filename ?? ''),
+            size_bytes: 0,
+            path: String(b.path ?? ''),
+          } as FilePart
+        }
+        // tool_use and tool_result blocks — skip for bubble rendering
+        return null
+      })
+      .filter((p): p is MessagePart => p !== null)
   } catch {
     return [{ type: 'text', content }]
   }
