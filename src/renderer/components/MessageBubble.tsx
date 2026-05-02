@@ -160,7 +160,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             )}
           </div>
         ) : (
-          <div className="markdown-content prose prose-sm max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-pre:p-3 prose-pre:rounded-lg prose-pre:bg-zinc-50 dark:prose-pre:bg-zinc-900 prose-headings:my-2 prose-ul:my-1.5 prose-li:my-0.5 prose-code:text-[13px] prose-code:font-medium">
+          <div className="markdown-content prose prose-sm max-w-none overflow-x-auto prose-p:my-1.5 prose-p:leading-relaxed prose-pre:my-2 prose-pre:p-3 prose-pre:rounded-lg prose-pre:bg-zinc-50 dark:prose-pre:bg-zinc-900 prose-headings:my-2 prose-ul:my-1.5 prose-li:my-0.5 prose-code:text-[13px] prose-code:font-medium">
             <ErrorBoundary
               fallback={
                 <div className="whitespace-pre-wrap break-words text-red-500">
