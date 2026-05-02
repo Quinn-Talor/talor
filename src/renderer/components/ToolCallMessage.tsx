@@ -142,7 +142,7 @@ export function ToolCallMessage({ toolUses, toolResults }: ToolCallMessageProps)
   const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r]))
 
   return (
-    <div className="flex justify-start mb-1">
+    <div className="flex justify-start">
       <div className="max-w-[85%] w-full">
         <div className="flex flex-col gap-0.5 py-0.5 px-2 font-mono text-xs">
           {toolUses.map((tu) => (

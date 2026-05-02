@@ -128,7 +128,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
   })
 
   return (
-    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex w-full ${isUser ? 'justify-end' : 'justify-start'} mb-2`}>
       <div
         className={`max-w-[80%] rounded-lg px-4 py-3 ${
           isUser

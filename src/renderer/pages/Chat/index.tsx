@@ -926,7 +926,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-3">
                   {messages.reduce((acc, msg, idx) => {
                     if (msg.role === 'tool') return acc
                     if (msg.role === 'assistant') {
@@ -981,23 +981,16 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                             .map((b) => (b as { text?: string }).text ?? '')
                             .join('')
                             .trim()
-                          if (textContent) {
-                            acc.push(
-                              <div
-                                key={`${msg.id}-text`}
-                                className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate"
-                              >
-                                {textContent.slice(0, 80)}
-                                {textContent.length > 80 ? '…' : ''}
-                              </div>,
-                            )
-                          }
                           acc.push(
-                            <ToolCallMessage
-                              key={msg.id}
-                              toolUses={toolUses}
-                              toolResults={toolResults}
-                            />,
+                            <div key={msg.id} className="mb-0.5">
+                              {textContent && (
+                                <div className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate">
+                                  {textContent.slice(0, 80)}
+                                  {textContent.length > 80 ? '…' : ''}
+                                </div>
+                              )}
+                              <ToolCallMessage toolUses={toolUses} toolResults={toolResults} />
+                            </div>,
                           )
                           return acc
                         }
