@@ -238,7 +238,7 @@ function StepGroup({ items, isLast }: { items: StreamItem[]; isLast: boolean }) 
           </div>
         ))}
       {hasTools && (
-        <div className={`flex flex-col gap-0.5 font-mono text-xs ${hasText ? 'pl-3' : ''}`}>
+        <div className="flex flex-col gap-0.5 font-mono text-xs pl-3">
           {toolItems.map((item) => (
             <ToolCallRow key={item.entry.toolCallId} entry={item.entry} />
           ))}

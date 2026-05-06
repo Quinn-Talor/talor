@@ -154,6 +154,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     loadModelOptions()
     loadAgents()
     loadAgentTools(undefined)
+    // MCP 启动比 UI mount 慢约 2 秒。延迟再刷一次,让 MCP 工具及时进入 badge 计数。
+    const t = setTimeout(() => loadAgentTools(undefined), 3000)
+    return () => clearTimeout(t)
   }, [loadSessions, loadModelOptions, loadAgents, loadAgentTools])
 
   // Auto-select most recent session
@@ -1126,8 +1129,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   <div className="relative" ref={toolsPopoverRef}>
                     <button
                       onClick={() => {
-                        setShowToolsPopover((p) => !p)
+                        const next = !showToolsPopover
+                        setShowToolsPopover(next)
                         setShowMcpPopover(false)
+                        if (next) loadAgentTools(currentAgentId)
                       }}
                       className="flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-all"
                       style={{
@@ -1239,8 +1244,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   <div className="relative" ref={mcpPopoverRef}>
                     <button
                       onClick={() => {
-                        setShowMcpPopover((p) => !p)
+                        const next = !showMcpPopover
+                        setShowMcpPopover(next)
                         setShowToolsPopover(false)
+                        // MCP 比 UI mount 慢:按需刷新一次,确保用户看到最新工具列表
+                        if (next) loadAgentTools(currentAgentId)
                       }}
                       className="flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-all"
                       style={{
