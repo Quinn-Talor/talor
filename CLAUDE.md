@@ -1,7 +1,7 @@
 # Talor — AI 协作指南
 
 > 本文档给读 Talor 代码库的 AI agent（Claude Code / Copilot CLI / Codex 等）一个**最快上手入口**。
-> 面向工程师的版本参见 `docs/engineering/`。
+> 详细工程规范（L1 项目知识库）在 `vibe/project/`，遵循 klook-vibe 体系。
 
 ---
 
@@ -23,20 +23,24 @@ src/
 ├── main/                   Electron 主进程(Node 环境)
 │   ├── ipc/               入口层:IPC handlers(不得被业务层依赖)
 │   ├── chat/              业务层:chat:send 用例编排、事件总线
-│   ├── agent/             业务层:Agent 定义、变量解析、delegate
-│   ├── tools/             业务层:工具注册表、内置 7 工具、path-guard
+│   ├── agent/             业务层:Agent 运行时 / Profile 加载 / 打包分发 / 解析器 / Crystallizer
+│   │   └── (含 agent-toolset.ts:Agent 视角的工具集组合,区别于 tools/registry.ts)
+│   ├── accounts/          业务层:第三方账户凭据(account-store)
+│   ├── tools/             业务层:内置工具仓库(registry) + path-guard
 │   │   └── builtin/      bash / read / write / edit / glob / grep / ls
 │   ├── loop/              业务层:ReAct 循环、stream utils、quote-verifier
 │   ├── prompt/            业务层:prompt pipeline + plugins(System/Agent/Memory/Message/ToolSelection)
 │   ├── memory/            业务层:ShortTermMemory (压缩 + 锚点)
 │   ├── mcp/               业务层:MCP 协议客户端(stdio / http transport)
 │   ├── permissions/       业务层:权限规则、path matcher
-│   ├── providers/         业务层:LLM provider 工厂
-│   ├── skills/            业务层:skill 注册表
+│   ├── providers/         业务层:LLM provider 工厂、模型拉取/测试/可用性
+│   │   ├── adapters/     anthropic / openai / google / ollama
+│   │   └── capability/   模型能力检测(detector) + 手动覆盖(updater)
+│   ├── skills/            业务层:skill 注册表 + metadata-extractor(SKILL.md frontmatter 解析)
 │   ├── repos/             基础设施:session/message/mcp-server CRUD
 │   ├── db/                基础设施:SQLite 初始化、schema 迁移
 │   ├── store/             基础设施:ConfigStore (electron-store)
-│   └── services/          基础设施:safe-storage 等
+│   └── services/          基础设施:safe-storage(Electron 平台能力封装)
 ├── preload/               preload 脚本(contextBridge API 暴露)
 ├── renderer/              渲染进程(React)
 │   ├── pages/             页面组件(Chat / Settings / Agent)
@@ -44,9 +48,10 @@ src/
 │   ├── hooks/             React hooks
 │   ├── store/             Zustand store
 │   ├── api/               preload 封装层
+│   ├── types/             仅渲染端使用的类型(chat/config)
 │   └── lib/               工具函数
 └── shared/
-    └── types/             主/渲染共享类型
+    └── types/             主/渲染共享类型(agent / ipc / message / models / permissions)
 ```
 
 **分层依赖方向**：`ipc → 业务层 → 基础设施`，反向不允许。业务层文件头部声明允许/禁止的依赖。
@@ -57,8 +62,9 @@ src/
 
 开发前必读：
 
-1. **[docs/engineering/standards.md](docs/engineering/standards.md)** — 规则清单（MUST / SHOULD / NEVER）。动手前至少扫一遍章节标题。
-2. **[docs/engineering/patterns.md](docs/engineering/patterns.md)** — 通用模式 + 参考实现索引。遇到问题先查这里有没有对应模式。
+1. **[vibe/project/standards.md](vibe/project/standards.md)** — 规则清单（MUST / SHOULD / NEVER）。动手前至少扫一遍章节标题。
+2. **[vibe/project/patterns.md](vibe/project/patterns.md)** — 通用模式 + 参考实现索引。遇到问题先查这里有没有对应模式。
+3. **[vibe/project/overview.md](vibe/project/overview.md)** — 项目架构总览。
 
 做对应任务时读：
 
@@ -180,9 +186,10 @@ npm run build         # electron-vite build + electron-builder 打包
 
 ## 9. 相关文档导航
 
-| 文档                                                           | 对象             | 内容                              |
-| -------------------------------------------------------------- | ---------------- | --------------------------------- |
-| [docs/engineering/standards.md](docs/engineering/standards.md) | 工程师 / AI      | 规则清单（MUST / SHOULD / NEVER） |
-| [docs/engineering/patterns.md](docs/engineering/patterns.md)   | 工程师 / AI      | 模式 + 参考实现索引               |
-| [docs/superpowers/](docs/superpowers/)                         | Claude Code 插件 | superpowers 体系的 plans/specs    |
-| README.md                                                      | 用户 / 贡献者    | 项目简介、安装、License           |
+| 文档                                                   | 对象             | 内容                              |
+| ------------------------------------------------------ | ---------------- | --------------------------------- |
+| [vibe/project/standards.md](vibe/project/standards.md) | 工程师 / AI      | 规则清单（MUST / SHOULD / NEVER） |
+| [vibe/project/patterns.md](vibe/project/patterns.md)   | 工程师 / AI      | 模式 + 参考实现索引               |
+| [vibe/project/overview.md](vibe/project/overview.md)   | 工程师 / AI      | 项目架构总览                      |
+| [docs/superpowers/](docs/superpowers/)                 | Claude Code 插件 | superpowers 体系的 plans/specs    |
+| README.md                                              | 用户 / 贡献者    | 项目简介、安装、License           |
