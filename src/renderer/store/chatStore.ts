@@ -98,13 +98,21 @@ export const useChatStore = create<ChatState>((set) => ({
     })),
 
   updateToolResult: (toolCallId, result, status, durationMs) =>
-    set((state) => ({
-      streamItems: state.streamItems.map((item) => {
+    set((state) => {
+      let matched = false
+      const next = state.streamItems.map((item) => {
         if (item.type !== 'tool_call') return item
         if (item.entry.toolCallId !== toolCallId) return item
+        matched = true
         return { ...item, entry: { ...item.entry, result, status, durationMs } }
-      }),
-    })),
+      })
+      if (!matched) {
+        // 防御：tool-result 在 tool-call 之前到达，或工具调用 ID 不一致都会卡 spinner。
+        // 至少留一条警告便于排查。
+        console.warn('[chatStore] tool-result for unknown toolCallId:', toolCallId)
+      }
+      return { streamItems: next }
+    }),
 
   commitStreaming: (_messageId) => set({ streamState: 'done', streamItems: [], error: null }),
   setStreamState: (streamState) => set({ streamState }),

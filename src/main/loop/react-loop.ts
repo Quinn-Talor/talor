@@ -312,6 +312,12 @@ async function runReactStep(
     input: unknown
     startedAt: number
   }> = []
+  // 跟踪本步已通过 onChunk 解决的 toolCallId。AI SDK 的 onChunk 只投递
+  // tool-result,不投递 tool-error；tool-error 只走 fullStream。如果工具因
+  // SDK 层错误(input 校验失败、execute 抛 uncaught error 等)走 tool-error
+  // 路径,渲染端的 spinner 会卡死。stream 消费结束后用 result.steps 对账,
+  // 给未解决的 toolCallId 主动发 onToolResult。
+  const stepResolvedToolCallIds = new Set<string>()
   let stepText = ''
   let stepReasoning = ''
   let persisted = false
@@ -346,6 +352,7 @@ async function runReactStep(
       } else if (chunk.type === 'tool-result') {
         const callEntry = stepToolCalls.find((tc) => tc.toolCallId === chunk.toolCallId)
         const durationMs = callEntry ? Date.now() - callEntry.startedAt : 0
+        stepResolvedToolCallIds.add(chunk.toolCallId)
         ctx.callbacks.onToolResult(chunk.toolCallId, chunk.toolName, chunk.output, durationMs)
       }
     },
@@ -356,6 +363,34 @@ async function runReactStep(
 
   try {
     await result.consumeStream()
+
+    // SDK 层 tool-error 不进 onChunk;对未解决的 toolCallId 主动发一个错误结果,
+    // 否则渲染端的 spinner 永远卡在 pending。
+    const sdkSteps = await result.steps
+    for (const tc of stepToolCalls) {
+      if (stepResolvedToolCallIds.has(tc.toolCallId)) continue
+      const sdkResult = sdkSteps
+        .flatMap((s) => s.content)
+        .find(
+          (p) =>
+            (p.type === 'tool-result' || p.type === 'tool-error') && p.toolCallId === tc.toolCallId,
+        )
+      const errMsg =
+        sdkResult && sdkResult.type === 'tool-error'
+          ? sdkResult.error instanceof Error
+            ? sdkResult.error.message
+            : typeof sdkResult.error === 'string'
+              ? sdkResult.error
+              : JSON.stringify(sdkResult.error)
+          : 'tool returned no result'
+      log.warn(`[ReactLoop]   → reconcile tool-error: ${tc.toolName} ${errMsg}`)
+      ctx.callbacks.onToolResult(
+        tc.toolCallId,
+        tc.toolName,
+        { __talor_error: true, code: 'SDK_TOOL_ERROR', message: errMsg },
+        Date.now() - tc.startedAt,
+      )
+    }
 
     const durationMs = Date.now() - stepStart
     const toolNames = stepToolCalls.map((tc) => tc.toolName)
