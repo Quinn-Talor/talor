@@ -11,6 +11,7 @@ import { ToolRegistry } from './tool-registry'
 import type { McpToolSource } from './tool-registry'
 import type { SkillRegistry } from '../skills/registry'
 import { createSkillTool } from '../skills/skill-tool'
+import { createSearchTool } from '../tools/builtin/search-tool'
 
 export interface AgentOptions {
   profile: AgentProfile
@@ -33,13 +34,16 @@ export class Agent {
     this.mcpRegistry = opts.mcpRegistry
     this.skillRegistry = opts.skillRegistry
 
-    const allowedTools = new Set(
-      opts.profile.dependencies.tools.map(t => t.name),
-    )
+    const allowedTools = new Set(opts.profile.dependencies.tools.map((t) => t.name))
 
     const agentTools: ToolDefinition[] = []
     if (!opts.skillRegistry.isEmpty()) {
       agentTools.push(createSkillTool(opts.skillRegistry))
+    }
+    if (opts.mcpRegistry) {
+      // search_tool 持有 mcpRegistry 引用做按需查询。是否暴露给 LLM 由
+      // ToolRegistry.listBuiltinTools 在 mcpRegistry 实际工具数 > 0 时决定。
+      agentTools.push(createSearchTool(opts.mcpRegistry))
     }
 
     this.toolRegistry = new ToolRegistry(

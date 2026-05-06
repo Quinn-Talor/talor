@@ -87,7 +87,7 @@ function makeOpts(overrides: Partial<ReactLoopOptions> = {}): ReactLoopOptions {
     } as unknown as ReactLoopOptions['agent'],
     confirmTool: vi.fn(async () => true),
     ...overrides,
-  }
+  } as unknown as ReactLoopOptions
 }
 
 describe('runReactLoop — text-only response', () => {
@@ -267,7 +267,11 @@ describe('runReactLoop — dead-loop detection', () => {
   function agent(names: string[] = ['bash']): ReactLoopOptions['agent'] {
     return {
       id: '__chat__',
-      toolRegistry: { listTools: () => [], getToolNames: () => names },
+      toolRegistry: {
+        listTools: () => [],
+        getToolNames: () => names,
+        listMcpTools: () => [],
+      },
     } as unknown as ReactLoopOptions['agent']
   }
 
@@ -349,14 +353,15 @@ describe('runReactLoop — dead-loop detection', () => {
     expect(toolCalls).toBe(3)
   })
 
-  it('连续 3 步全部失败才 break (任一步成功即清零)', async () => {
+  it('连续 3 步全部失败 → 进入 failure-recovery 摘要而非冷halt', async () => {
     let stepIdx = 0
     mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
       if (!params.onChunk) {
+        // runFailureStreakSummary 调用：返回 streaming text（mock 解释文本）
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
           textStream: (async function* () {
-            yield ''
+            yield 'I tried bash 3 times and all failed: err1, err2, err3.'
           })(),
         }
       }
@@ -380,15 +385,90 @@ describe('runReactLoop — dead-loop detection', () => {
     const opts = makeOpts({ maxSteps: 10, agent: agent() })
     await runReactLoop(opts)
 
-    // 连续 3 步全失败 → break。每步签名都不同,触发的是连续失败而非签名判定。
     const toolCalls = mockStreamText.mock.calls.filter(
       (c) => (c[0] as { onChunk?: unknown })?.onChunk,
     ).length
     expect(toolCalls).toBe(3)
-    const haltCall = mockMessageCreate.mock.calls.find(
-      (c) => Array.isArray(c[0].content) && c[0].content[0]?.text?.includes('[auto-halt]'),
+    // 不再写 [auto-halt]，而是 [failure-recovery] 摘要
+    const recoveryCall = mockMessageCreate.mock.calls.find(
+      (c) =>
+        Array.isArray(c[0].content) &&
+        typeof c[0].content[0]?.text === 'string' &&
+        c[0].content[0].text.startsWith('[failure-recovery'),
     )
-    expect(haltCall).toBeDefined()
+    expect(recoveryCall).toBeDefined()
+    // 摘要文本来自模型（这里是 mock 的解释文本）
+    expect(recoveryCall?.[0].content[0].text).toContain('err')
+    // 旧的冷halt 文案不应出现
+    const haltCall = mockMessageCreate.mock.calls.find(
+      (c) =>
+        Array.isArray(c[0].content) &&
+        typeof c[0].content[0]?.text === 'string' &&
+        c[0].content[0].text.includes('[auto-halt]'),
+    )
+    expect(haltCall).toBeUndefined()
+  })
+
+  it('streak=2 时注入 failure-streak hint 给模型自我修正机会', async () => {
+    let stepIdx = 0
+    // 每步快照"是否含 failure-streak hint"——直接在 capture 时计算，避免共享数组引用陷阱
+    const hintPresentPerStep: boolean[] = []
+    // 让 pipeline.build 每次返回新 array（避免 react-loop push hint 反向污染早期快照）
+    const opts = makeOpts({
+      maxSteps: 10,
+      agent: agent(),
+      pipeline: {
+        build: vi.fn(async () => ({
+          messages: [{ role: 'user', content: 'hello' }],
+          tools: [],
+        })),
+      } as unknown as ReactLoopOptions['pipeline'],
+    })
+
+    mockStreamText.mockImplementation(
+      (params: {
+        onChunk?: (arg: { chunk: unknown }) => void
+        messages?: Array<{ role: string; content: unknown }>
+      }) => {
+        if (!params.onChunk) {
+          return {
+            consumeStream: vi.fn().mockResolvedValue(undefined),
+            textStream: (async function* () {
+              yield 'recovered'
+            })(),
+          }
+        }
+        stepIdx++
+        const hasHint = (params.messages ?? []).some(
+          (m) =>
+            m.role === 'system' &&
+            typeof m.content === 'string' &&
+            m.content.includes('failure-streak warning'),
+        )
+        hintPresentPerStep.push(hasHint)
+        params.onChunk({
+          chunk: {
+            type: 'tool-call',
+            toolCallId: `tc${stepIdx}`,
+            toolName: 'bash',
+            input: { cmd: `cmd${stepIdx}` },
+          },
+        })
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          toolResults: Promise.resolve([
+            { toolCallId: `tc${stepIdx}`, toolName: 'bash', output: `Error: err${stepIdx}` },
+          ]),
+        }
+      },
+    )
+
+    await runReactLoop(opts)
+
+    // step 0: streak=0, 无 hint
+    // step 1: streak=1, 无 hint
+    // step 2: streak=2, 有 hint（即将 break，最后修正机会）
+    expect(hintPresentPerStep).toEqual([false, false, true])
   })
 
   it('同命令但字段顺序不同时 signature 相同,触发重复侦测', async () => {
@@ -606,7 +686,7 @@ describe('runReactLoop — fallback summary quote verification', () => {
       maxSteps: 2,
       agent: {
         id: '__chat__',
-        toolRegistry: { listTools: () => [], getToolNames: () => ['read'] },
+        toolRegistry: { listTools: () => [], getToolNames: () => ['read'], listMcpTools: () => [] },
       } as unknown as ReactLoopOptions['agent'],
     })
     await runReactLoop(opts)
@@ -648,7 +728,7 @@ describe('runReactLoop — fallback summary quote verification', () => {
       maxSteps: 2,
       agent: {
         id: '__chat__',
-        toolRegistry: { listTools: () => [], getToolNames: () => ['bash'] },
+        toolRegistry: { listTools: () => [], getToolNames: () => ['bash'], listMcpTools: () => [] },
       } as unknown as ReactLoopOptions['agent'],
     })
     await runReactLoop(opts)
@@ -700,10 +780,17 @@ describe('runReactLoop — empty toolResults disambiguation', () => {
     })
   }
 
-  function agentWithRegistered(names: string[]): ReactLoopOptions['agent'] {
+  function agentWithRegistered(
+    names: string[],
+    mcpNames: string[] = [],
+  ): ReactLoopOptions['agent'] {
     return {
       id: '__chat__',
-      toolRegistry: { listTools: () => [], getToolNames: () => names },
+      toolRegistry: {
+        listTools: () => [],
+        getToolNames: () => names,
+        listMcpTools: () => mcpNames.map((n) => ({ name: n, description: '', parameters: {} })),
+      },
     } as unknown as ReactLoopOptions['agent']
   }
 
@@ -748,5 +835,223 @@ describe('runReactLoop — empty toolResults disambiguation', () => {
     expect(parts[0].output.value).toMatch(/Tool execution failed: "bash"/)
     expect(parts[0].output.value).toMatch(/unlikely to help/)
     expect(parts[0].output.value).not.toMatch(/Tool not found/)
+  })
+
+  it('MCP tool called before search_tool: injects "not yet loaded" redirect message', async () => {
+    // 在方案 B 下，MCP 工具不会被收回。但模型可能在 search_tool 之前就尝试调
+    // 一个它"知道"存在的 MCP 工具（比如从训练历史/系统提示推断）。这种情况
+    // 应给出引导消息而非误导性 "execution failed"。
+    setupToolCallThenFinalText('browser_snapshot')
+
+    const opts = makeOpts({
+      maxSteps: 3,
+      agent: agentWithRegistered(
+        ['bash', 'read', 'browser_snapshot', 'search_tool'],
+        ['browser_snapshot'], // browser_snapshot is in MCP but NOT yet loaded (search_tool not called)
+      ),
+      pipeline: {
+        build: vi.fn().mockResolvedValue({
+          messages: [{ role: 'user', content: 'hi' }],
+          tools: [
+            { name: 'bash', description: '', parameters: {} },
+            { name: 'read', description: '', parameters: {} },
+            { name: 'search_tool', description: '', parameters: {} },
+          ],
+        }),
+      } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    const batchCall = mockMessageCreateBatch.mock.calls[0][0] as Array<{
+      role: string
+      content: unknown
+    }>
+    const toolMsg = batchCall.find((m) => m.role === 'tool')
+    const parts = JSON.parse(JSON.stringify(toolMsg?.content)) as Array<{
+      output: { value: string }
+    }>
+    expect(parts[0].output.value).toMatch(/MCP tool "browser_snapshot" is not yet loaded/)
+    expect(parts[0].output.value).toMatch(/search_tool/)
+    expect(parts[0].output.value).not.toMatch(/Tool execution failed/)
+    expect(parts[0].output.value).not.toMatch(/Tool not found/)
+  })
+})
+
+describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBuildTools.mockResolvedValue({})
+  })
+
+  function setupScriptedSteps(
+    scripts: Array<{ toolNames: string[]; text?: string; toolOutputs?: string[] }>,
+  ) {
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+      const script = scripts[stepIdx] ?? { toolNames: [] }
+      stepIdx++
+      const text = script.text ?? ''
+      if (text) params.onChunk?.({ chunk: { type: 'text-delta', text } })
+      const toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
+      script.toolNames.forEach((name, i) => {
+        const toolCallId = `tc-${stepIdx}-${i}`
+        const input = { idx: i }
+        params.onChunk?.({
+          chunk: { type: 'tool-call', toolCallId, toolName: name, input },
+        })
+        toolCalls.push({ toolCallId, toolName: name, input })
+      })
+      const toolResults = toolCalls.map((tc, i) => ({
+        type: 'tool-result' as const,
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        input: tc.input,
+        output: script.toolOutputs?.[i] ?? `${tc.toolName} ok`,
+        dynamic: true as const,
+      }))
+      return {
+        consumeStream: vi.fn().mockResolvedValue(undefined),
+        toolResults: Promise.resolve(toolResults),
+      }
+    })
+  }
+
+  /**
+   * agent mock with both `getToolNames` (used by react-loop fallback) and
+   * `listMcpTools` (used by react-loop to classify tool names as MCP).
+   */
+  function makeAgentWithRegistered(
+    allNames: string[],
+    mcpNames: string[],
+  ): ReactLoopOptions['agent'] {
+    return {
+      id: '__chat__',
+      toolRegistry: {
+        listTools: () => allNames.map((n) => ({ name: n, description: '', parameters: {} })),
+        getToolNames: () => allNames,
+        listMcpTools: () => mcpNames.map((n) => ({ name: n, description: '', parameters: {} })),
+        execute: vi.fn(),
+      },
+    } as unknown as ReactLoopOptions['agent']
+  }
+
+  function captureFlags(buildFn: ReturnType<typeof vi.fn>) {
+    return buildFn.mock.calls.map((c) => {
+      const ctx = c[0] as {
+        mcpExpandThisStep?: boolean
+        usedMcpToolNames?: string[]
+      }
+      return {
+        expand: ctx.mcpExpandThisStep,
+        used: ctx.usedMcpToolNames ?? [],
+      }
+    })
+  }
+
+  it('AC-6-1: first step has expand=false, used=[]', async () => {
+    setupScriptedSteps([{ toolNames: [], text: 'done' }])
+    const buildFn = vi
+      .fn()
+      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    const opts = makeOpts({
+      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    expect(buildFn).toHaveBeenCalledTimes(1)
+    const flags = captureFlags(buildFn)
+    expect(flags[0]).toEqual({ expand: false, used: [] })
+  })
+
+  it('AC-6-2: search_tool call → next step expand=true, then resets', async () => {
+    setupScriptedSteps([
+      { toolNames: ['search_tool'] },
+      { toolNames: ['m1'] },
+      { toolNames: [], text: 'done' },
+    ])
+    const buildFn = vi
+      .fn()
+      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    const opts = makeOpts({
+      maxSteps: 5,
+      agent: makeAgentWithRegistered(['search_tool', 'm1'], ['m1']),
+      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    expect(buildFn).toHaveBeenCalledTimes(3)
+    const flags = captureFlags(buildFn)
+    expect(flags[0]).toEqual({ expand: false, used: [] })
+    expect(flags[1]).toEqual({ expand: true, used: [] }) // post-search_tool expansion
+    expect(flags[2]).toEqual({ expand: false, used: ['m1'] }) // m1 added to used set
+  })
+
+  it('AC-6-3: cumulative used MCP names across steps', async () => {
+    setupScriptedSteps([
+      { toolNames: ['search_tool'] }, // step 0 → next expand
+      { toolNames: ['m1'] }, // step 1: expand=true, picks m1
+      { toolNames: ['m1'] }, // step 2: expand=false, used=[m1], reuse m1
+      { toolNames: ['search_tool'] }, // step 3: still used=[m1], next expand
+      { toolNames: ['m2'] }, // step 4: expand=true, picks m2
+      { toolNames: [], text: 'done' },
+    ])
+    const buildFn = vi
+      .fn()
+      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    const opts = makeOpts({
+      maxSteps: 10,
+      agent: makeAgentWithRegistered(['search_tool', 'm1', 'm2'], ['m1', 'm2']),
+      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    const flags = captureFlags(buildFn)
+    expect(flags[0]).toEqual({ expand: false, used: [] })
+    expect(flags[1]).toEqual({ expand: true, used: [] })
+    expect(flags[2]).toEqual({ expand: false, used: ['m1'] })
+    expect(flags[3]).toEqual({ expand: false, used: ['m1'] })
+    expect(flags[4]).toEqual({ expand: true, used: ['m1'] })
+    expect(flags[5]).toEqual({ expand: false, used: ['m1', 'm2'] })
+  })
+
+  it('builtin tools do not pollute used set', async () => {
+    setupScriptedSteps([
+      { toolNames: ['read', 'bash'] }, // builtin only
+      { toolNames: ['search_tool'] },
+      { toolNames: ['m1', 'glob'] }, // mix MCP + builtin
+      { toolNames: [], text: 'done' },
+    ])
+    const buildFn = vi
+      .fn()
+      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    const opts = makeOpts({
+      maxSteps: 10,
+      agent: makeAgentWithRegistered(['search_tool', 'm1', 'read', 'bash', 'glob'], ['m1']),
+      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    const flags = captureFlags(buildFn)
+    expect(flags[3].used).toEqual(['m1']) // only m1, not read/bash/glob
+  })
+
+  it('search_tool with simultaneous MCP call still expands next + adds to used', async () => {
+    setupScriptedSteps([
+      // Hypothetical: model calls search_tool AND m1 in same step (parallel)
+      { toolNames: ['search_tool', 'm1'] },
+      { toolNames: [], text: 'done' },
+    ])
+    const buildFn = vi
+      .fn()
+      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    const opts = makeOpts({
+      maxSteps: 5,
+      agent: makeAgentWithRegistered(['search_tool', 'm1'], ['m1']),
+      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    const flags = captureFlags(buildFn)
+    expect(flags[1]).toEqual({ expand: true, used: ['m1'] })
   })
 })

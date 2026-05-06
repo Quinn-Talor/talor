@@ -19,9 +19,14 @@ function makeTool(name: string): ToolDefinition {
 }
 
 const builtinRegistry = new BuiltinToolRegistry([
-  makeTool('read'), makeTool('write'), makeTool('edit'),
-  makeTool('bash'), makeTool('glob'), makeTool('grep'),
-  makeTool('ls'), makeTool('skill'),
+  makeTool('read'),
+  makeTool('write'),
+  makeTool('edit'),
+  makeTool('bash'),
+  makeTool('glob'),
+  makeTool('grep'),
+  makeTool('ls'),
+  makeTool('skill'),
 ])
 
 const PLATFORM_PROFILE: AgentProfile = {
@@ -89,8 +94,8 @@ describe('Agent', () => {
 
     const tools = agent.toolRegistry.getToolNames()
     expect(tools).toContain('bash')
-    expect(tools).toContain('read')   // ALWAYS_AVAILABLE
-    expect(tools).toContain('skill')  // ALWAYS_AVAILABLE
+    expect(tools).toContain('read') // ALWAYS_AVAILABLE
+    expect(tools).toContain('skill') // ALWAYS_AVAILABLE
     expect(tools).not.toContain('write')
     expect(tools).not.toContain('edit')
   })
@@ -113,7 +118,10 @@ describe('Agent', () => {
       ...BUSINESS_PROFILE,
       dependencies: {
         ...BUSINESS_PROFILE.dependencies,
-        tools: [{ name: 'bash', required: true }, { name: 'write', required: false }],
+        tools: [
+          { name: 'bash', required: true },
+          { name: 'write', required: false },
+        ],
       },
     }
     const agent = new Agent({
@@ -127,7 +135,73 @@ describe('Agent', () => {
     const tools = agent.toolRegistry.getToolNames()
     expect(tools).toContain('bash')
     expect(tools).toContain('write')
-    expect(tools).toContain('read')   // ALWAYS_AVAILABLE
+    expect(tools).toContain('read') // ALWAYS_AVAILABLE
     expect(tools).not.toContain('edit')
+  })
+
+  describe('TASK-3: search_tool injection', () => {
+    const mcpWithTools = {
+      listRegisteredTools: () => [
+        { name: 'srv_a', description: '', parameters: {}, provider: 'srv' },
+      ],
+      execute: async () => ({ output: 'noop' }),
+    }
+    const mcpEmpty = {
+      listRegisteredTools: () => [],
+      execute: async () => ({ output: 'noop' }),
+    }
+
+    it('AC-3-1: agent has mcpRegistry with tools → search_tool visible in builtin set', () => {
+      const agent = new Agent({
+        profile: PLATFORM_PROFILE,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: mcpWithTools,
+        skillRegistry: SkillRegistry.fromDir(null),
+      })
+      const builtinNames = agent.toolRegistry.listBuiltinTools().map((t) => t.name)
+      expect(builtinNames).toContain('search_tool')
+    })
+
+    it('does not inject search_tool when mcpRegistry is null', () => {
+      const agent = new Agent({
+        profile: PLATFORM_PROFILE,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+      })
+      const builtinNames = agent.toolRegistry.listBuiltinTools().map((t) => t.name)
+      expect(builtinNames).not.toContain('search_tool')
+    })
+
+    it('hides search_tool when mcpRegistry has zero tools (lazy/disconnected)', () => {
+      const agent = new Agent({
+        profile: PLATFORM_PROFILE,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: mcpEmpty,
+        skillRegistry: SkillRegistry.fromDir(null),
+      })
+      const builtinNames = agent.toolRegistry.listBuiltinTools().map((t) => t.name)
+      expect(builtinNames).not.toContain('search_tool')
+    })
+
+    it('AC-3-2: search_tool execute reads from injected mcpRegistry', async () => {
+      const agent = new Agent({
+        profile: PLATFORM_PROFILE,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: mcpWithTools,
+        skillRegistry: SkillRegistry.fromDir(null),
+      })
+      const result = await agent.toolRegistry.execute(
+        'search_tool',
+        {},
+        { sessionId: 's', workspace: '' },
+      )
+      expect(result.output as string).toContain('Loaded 1 MCP tools')
+      expect(result.output as string).toContain('srv')
+    })
   })
 })

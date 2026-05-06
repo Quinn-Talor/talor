@@ -1,99 +1,243 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { ToolSelectionPlugin } from './ToolSelectionPlugin'
 import type { PipelineContext } from '../types'
 import type { Provider } from '../../store/config-store'
+import type { ToolMetadata } from '../../tools/types'
 
-vi.mock('ai', () => ({ generateText: vi.fn() }))
-vi.mock('../../providers/llm-provider', () => ({ createModel: vi.fn(() => ({})) }))
-vi.mock('electron-log', () => ({ default: { warn: vi.fn() } }))
-
-import { generateText } from 'ai'
-import log from 'electron-log'
-
-function makeTools(count: number) {
-  return Array.from({ length: count }, (_, i) => ({
-    name: `tool_${i + 1}`,
-    description: `Tool ${i + 1}`,
-    parameters: {},
-  }))
+function makeTool(name: string): ToolMetadata {
+  return { name, description: `desc:${name}`, parameters: {} }
 }
 
-function makeCtx(text = 'test', toolCount = 15): PipelineContext {
-  const tools = makeTools(toolCount)
+function makeAgentMock(builtinTools: ToolMetadata[], mcpTools: ToolMetadata[]) {
   return {
-    sessionId: 's1',
-    currentMessage: { text },
-    provider: { id: 'p1' } as Provider,
-    providerConfig: { provider: { id: 'p1' } as Provider, context_limit: 8000, recent_ratio: 0.05, summary_ratio: 0.10 },
-    workspacePath: undefined,
-    agent: {
-      toolRegistry: { listTools: () => tools },
-    } as unknown as import('../../agent/agent').Agent,
-  }
+    toolRegistry: {
+      listBuiltinTools: () => builtinTools,
+      listMcpTools: () => mcpTools,
+      listTools: () => [...builtinTools, ...mcpTools],
+    },
+  } as unknown as import('../../agent/agent').Agent
 }
 
-describe('ToolSelectionPlugin', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('AC-004-04: < 50 个工具直接返回，不调用 LLM', async () => {
-    const result = await new ToolSelectionPlugin().build(makeCtx('test', 30))
-    expect(result.tools).toHaveLength(30)
-    expect(generateText).not.toHaveBeenCalled()
-  })
-
-  it('AC-004-02: >= 50 个工具时调用 LLM 选择', async () => {
-    vi.mocked(generateText).mockResolvedValue({ text: '["tool_2","tool_5","tool_10"]' } as ReturnType<typeof generateText> extends Promise<infer T> ? T : never)
-    const result = await new ToolSelectionPlugin().build(makeCtx('test', 55))
-    expect(generateText).toHaveBeenCalledTimes(1)
-    expect(result.tools.map(t => t.name)).toEqual(['tool_2', 'tool_5', 'tool_10'])
-  })
-
-  it('AC-004-02b: 筛选成功时注入 system notice 告知已筛选', async () => {
-    vi.mocked(generateText).mockResolvedValue({ text: '["tool_1","tool_2"]' } as ReturnType<typeof generateText> extends Promise<infer T> ? T : never)
-    const result = await new ToolSelectionPlugin().build(makeCtx('test', 60))
-    expect(result.messages).toHaveLength(1)
-    expect(result.messages[0].role).toBe('system')
-    expect(result.messages[0].content).toMatch(/Tool list was pre-filtered to 2\/60/)
-  })
-
-  it('AC-004-03: LLM 失败时降级到前 49 个工具', async () => {
-    vi.mocked(generateText).mockRejectedValue(new Error('timeout'))
-    const result = await new ToolSelectionPlugin().build(makeCtx('test', 55))
-    expect(result.tools).toHaveLength(49)
-    expect(log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('LLM-based tool selection failed'),
-      expect.any(Error)
-    )
-  })
-
-  it('AC-004-03b: 降级时注入 [DEGRADED] notice + 完整工具名列表', async () => {
-    vi.mocked(generateText).mockRejectedValue(new Error('timeout'))
-    const result = await new ToolSelectionPlugin().build(makeCtx('test', 55))
-    expect(result.messages).toHaveLength(1)
-    const content = result.messages[0].content as string
-    expect(content).toMatch(/^\[DEGRADED\]/)
-    expect(content).toMatch(/first 49 of 55 tools/)
-    expect(content).toContain('tool_1')
-    expect(content).toContain('tool_55')
-  })
-
-  it('generateText 调用携带 abortSignal 超时', async () => {
-    vi.mocked(generateText).mockResolvedValue({ text: '["tool_1"]' } as ReturnType<typeof generateText> extends Promise<infer T> ? T : never)
-    await new ToolSelectionPlugin().build(makeCtx('test', 55))
-    const callArg = vi.mocked(generateText).mock.calls[0][0]
-    expect(callArg).toHaveProperty('abortSignal')
-    expect(callArg.abortSignal).toBeInstanceOf(AbortSignal)
-  })
-
-  it('no agent → returns empty tools', async () => {
-    const ctx: PipelineContext = {
-      sessionId: 's1',
-      currentMessage: { text: 'test' },
+function makeCtx(opts: {
+  builtinTools?: ToolMetadata[]
+  mcpTools?: ToolMetadata[]
+  mcpExpandThisStep?: boolean
+  usedMcpToolNames?: string[]
+  noAgent?: boolean
+}): PipelineContext {
+  const ctx: PipelineContext = {
+    sessionId: 's1',
+    currentMessage: { text: 'test' },
+    provider: { id: 'p1' } as Provider,
+    providerConfig: {
       provider: { id: 'p1' } as Provider,
-      providerConfig: { provider: { id: 'p1' } as Provider, context_limit: 8000, recent_ratio: 0.05, summary_ratio: 0.10 },
-      workspacePath: undefined,
-    }
-    const result = await new ToolSelectionPlugin().build(ctx)
-    expect(result.tools).toHaveLength(0)
+      context_limit: 8000,
+      recent_ratio: 0.05,
+      summary_ratio: 0.1,
+    },
+    workspacePath: undefined,
+  }
+  if (!opts.noAgent) {
+    ctx.agent = makeAgentMock(opts.builtinTools ?? [], opts.mcpTools ?? [])
+  }
+  if (opts.mcpExpandThisStep !== undefined) ctx.mcpExpandThisStep = opts.mcpExpandThisStep
+  if (opts.usedMcpToolNames !== undefined) ctx.usedMcpToolNames = opts.usedMcpToolNames
+  return ctx
+}
+
+const BUILTIN_8 = [
+  makeTool('read'),
+  makeTool('write'),
+  makeTool('edit'),
+  makeTool('bash'),
+  makeTool('glob'),
+  makeTool('grep'),
+  makeTool('ls'),
+  makeTool('skill'),
+]
+const BUILTIN_9_WITH_SEARCH = [...BUILTIN_8, makeTool('search_tool')]
+const MCP_3 = [makeTool('m1'), makeTool('m2'), makeTool('m3')]
+
+describe('ToolSelectionPlugin (Plan C: cumulative-used)', () => {
+  describe('AC-5-1: no MCP tools returns base only', () => {
+    it('returns base tools when listMcpTools is empty', async () => {
+      const ctx = makeCtx({ builtinTools: BUILTIN_8, mcpTools: [] })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(8)
+      expect(result.tools.map((t) => t.name)).toEqual(BUILTIN_8.map((t) => t.name))
+      expect(result.messages).toEqual([])
+    })
+  })
+
+  describe('AC-5-2: initial state — no expand, no used MCP → base only', () => {
+    it('returns base when MCP available but never invoked yet', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: false,
+        usedMcpToolNames: [],
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(9)
+      const names = result.tools.map((t) => t.name)
+      expect(names).toContain('search_tool')
+      expect(names).not.toContain('m1')
+    })
+
+    it('treats undefined fields as initial state', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(9)
+    })
+  })
+
+  describe('AC-5-3a: mcpExpandThisStep=true → base + ALL MCP (one-shot)', () => {
+    it('exposes all MCP tools when expand flag is set', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: true,
+        usedMcpToolNames: [],
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(12)
+      const names = result.tools.map((t) => t.name)
+      expect(names).toContain('m1')
+      expect(names).toContain('m2')
+      expect(names).toContain('m3')
+    })
+
+    it('expand overrides used set (still shows all)', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: true,
+        usedMcpToolNames: ['m1'], // even with used set, expand wins
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(12)
+    })
+  })
+
+  describe('AC-5-3b: cumulative used → base + only used MCP', () => {
+    it('exposes only used MCP tools when expand=false', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: false,
+        usedMcpToolNames: ['m1'],
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(10)
+      const names = result.tools.map((t) => t.name)
+      expect(names).toContain('m1')
+      expect(names).not.toContain('m2')
+      expect(names).not.toContain('m3')
+    })
+
+    it('exposes multiple used MCP tools', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: false,
+        usedMcpToolNames: ['m1', 'm3'],
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(11)
+      const names = result.tools.map((t) => t.name)
+      expect(names).toContain('m1')
+      expect(names).toContain('m3')
+      expect(names).not.toContain('m2')
+    })
+
+    it('ignores unknown names in used set (defensive)', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: false,
+        usedMcpToolNames: ['m1', 'unknown_tool'],
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      expect(result.tools).toHaveLength(10) // only m1 added
+      expect(result.tools.map((t) => t.name)).toContain('m1')
+    })
+  })
+
+  describe('AC-5-4: messages always empty', () => {
+    it('no system notices in any scenario', async () => {
+      const scenarios: Array<{ desc: string; ctx: PipelineContext }> = [
+        { desc: 'no MCP', ctx: makeCtx({ builtinTools: BUILTIN_8, mcpTools: [] }) },
+        {
+          desc: 'initial',
+          ctx: makeCtx({ builtinTools: BUILTIN_9_WITH_SEARCH, mcpTools: MCP_3 }),
+        },
+        {
+          desc: 'expand',
+          ctx: makeCtx({
+            builtinTools: BUILTIN_9_WITH_SEARCH,
+            mcpTools: MCP_3,
+            mcpExpandThisStep: true,
+          }),
+        },
+        {
+          desc: 'cumulative',
+          ctx: makeCtx({
+            builtinTools: BUILTIN_9_WITH_SEARCH,
+            mcpTools: MCP_3,
+            usedMcpToolNames: ['m1'],
+          }),
+        },
+        { desc: 'no agent', ctx: makeCtx({ noAgent: true }) },
+      ]
+      for (const s of scenarios) {
+        const result = await new ToolSelectionPlugin().build(s.ctx)
+        expect(result.messages, `messages should be empty for: ${s.desc}`).toEqual([])
+      }
+    })
+  })
+
+  describe('boundary cases', () => {
+    it('no agent → empty tools', async () => {
+      const result = await new ToolSelectionPlugin().build(makeCtx({ noAgent: true }))
+      expect(result.tools).toEqual([])
+      expect(result.tokenEstimate).toBe(0)
+    })
+
+    it('preserves order: builtin first, MCP after', async () => {
+      const ctx = makeCtx({
+        builtinTools: BUILTIN_9_WITH_SEARCH,
+        mcpTools: MCP_3,
+        mcpExpandThisStep: true,
+      })
+      const result = await new ToolSelectionPlugin().build(ctx)
+      const names = result.tools.map((t) => t.name)
+      expect(names.slice(0, 9)).toEqual(BUILTIN_9_WITH_SEARCH.map((t) => t.name))
+      expect(names.slice(9)).toEqual(MCP_3.map((t) => t.name))
+    })
+
+    it('tokenEstimate scales with exposed MCP', async () => {
+      const initial = await new ToolSelectionPlugin().build(
+        makeCtx({ builtinTools: BUILTIN_9_WITH_SEARCH, mcpTools: MCP_3 }),
+      )
+      const cumulative = await new ToolSelectionPlugin().build(
+        makeCtx({
+          builtinTools: BUILTIN_9_WITH_SEARCH,
+          mcpTools: MCP_3,
+          usedMcpToolNames: ['m1'],
+        }),
+      )
+      const expand = await new ToolSelectionPlugin().build(
+        makeCtx({
+          builtinTools: BUILTIN_9_WITH_SEARCH,
+          mcpTools: MCP_3,
+          mcpExpandThisStep: true,
+        }),
+      )
+      expect(cumulative.tokenEstimate).toBeGreaterThan(initial.tokenEstimate)
+      expect(expand.tokenEstimate).toBeGreaterThan(cumulative.tokenEstimate)
+    })
   })
 })

@@ -29,6 +29,20 @@ export interface PipelineContext {
   skillTracker?: SkillActivationTracker
   /** Per-execution event bus for state-change notifications (e.g., memory.compressed). */
   events?: ExecutionEventBus
+  /**
+   * 累积可见策略（方案 C）状态。仅 ToolSelectionPlugin 消费。
+   *
+   * mcpExpandThisStep:
+   *   仅在"刚调用过 search_tool"的下一步置 true，让模型一次性看到全部 MCP
+   *   工具的 schema，能正确选择并构造调用。一步后回落到 false。
+   *
+   * usedMcpToolNames:
+   *   累积已被实际调用过的 MCP 工具名。在 mcpExpandThisStep=false 的步骤里，
+   *   ToolSelectionPlugin 只暴露这些已用过的工具，省 token；新工具需再调
+   *   search_tool 触发一次扩展。
+   */
+  mcpExpandThisStep?: boolean
+  usedMcpToolNames?: string[]
 }
 
 export interface PluginResult {

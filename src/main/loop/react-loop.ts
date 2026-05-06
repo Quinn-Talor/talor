@@ -209,6 +209,10 @@ async function runReactStep(
   ctx: StepContext,
   stepIndex: number,
   maxSteps: number,
+  mcpExpandThisStep: boolean,
+  usedMcpToolNames: string[],
+  /** 渐进式失败提示——streak=2 时由 runReactLoop 注入，让模型在最后机会前自我修正。 */
+  failureHintMessage: string | null,
 ): Promise<StepOutcome> {
   const stepStart = Date.now()
 
@@ -221,6 +225,8 @@ async function runReactStep(
     agent: ctx.agent,
     skillTracker: ctx.skillTracker,
     events: ctx.events,
+    mcpExpandThisStep,
+    usedMcpToolNames,
   }
   const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
 
@@ -291,6 +297,11 @@ async function runReactStep(
     skillTracker: ctx.skillTracker,
     abortSignal: ctx.abortSignal,
   })
+
+  if (failureHintMessage) {
+    messages.push({ role: 'system', content: failureHintMessage })
+    log.info(`[ReactLoop]   injected failure-streak hint`)
+  }
 
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
   log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)
@@ -394,24 +405,38 @@ async function runReactStep(
     // 有工具调用 → 落库 assistant + tool,继续下一步
     let toolResults: Awaited<typeof result.toolResults> = await result.toolResults
     if (toolResults.length === 0) {
-      // toolResults 空有两类原因:
+      // toolResults 空有三类原因:
       //   a) 工具名根本不在 registry(模型编造了工具名)
-      //   b) 工具存在但执行路径失败(MCP 崩溃/SDK 解析失败/超时)
-      // 两者回传给模型的指示截然不同:前者可以改名重试,后者必须停手。
+      //   b) MCP 工具在 registry 但 search_tool 还没被调过(尚未注入到 tools)
+      //   c) 工具暴露了但执行路径失败(MCP 崩溃/SDK 解析失败/超时)
+      // 三者反馈差异巨大:a) 改名重试; b) 先调 search_tool; c) 必须停手。
       const registeredNames = ctx.agent.toolRegistry.getToolNames()
-      toolResults = stepToolCalls.map((tc) => ({
-        type: 'tool-result' as const,
-        toolCallId: tc.toolCallId,
-        toolName: tc.toolName,
-        input: tc.input,
-        output: registeredNames.includes(tc.toolName)
-          ? `Tool execution failed: "${tc.toolName}" was invoked but returned no result ` +
+      const exposedNames = new Set(toolSchemas.map((t) => t.name))
+      const mcpToolNames = new Set(ctx.agent.toolRegistry.listMcpTools().map((t) => t.name))
+      toolResults = stepToolCalls.map((tc) => {
+        let output: string
+        if (!registeredNames.includes(tc.toolName)) {
+          output = `Tool not found: "${tc.toolName}". Available tools: ${registeredNames.join(', ')}`
+        } else if (!exposedNames.has(tc.toolName) && mcpToolNames.has(tc.toolName)) {
+          output =
+            `MCP tool "${tc.toolName}" is not yet loaded in your tool set. ` +
+            `Call \`search_tool\` first to load all MCP tools, then re-issue this tool call.`
+        } else {
+          output =
+            `Tool execution failed: "${tc.toolName}" was invoked but returned no result ` +
             `(likely transport error, timeout, or MCP server crash). ` +
             `Retrying with the same parameters is unlikely to help — try a different approach, ` +
             `adjust the parameters, or fall back to another tool.`
-          : `Tool not found: "${tc.toolName}". Available tools: ${registeredNames.join(', ')}`,
-        dynamic: true as const,
-      })) as typeof toolResults
+        }
+        return {
+          type: 'tool-result' as const,
+          toolCallId: tc.toolCallId,
+          toolName: tc.toolName,
+          input: tc.input,
+          output,
+          dynamic: true as const,
+        }
+      }) as typeof toolResults
       log.warn(
         `[ReactLoop]   → toolResults empty, injected differentiated feedback [${durationMs}ms]`,
       )
@@ -591,6 +616,107 @@ const FALLBACK_GUARDRAIL: ModelMessage = {
     'Silence is a bug. Always speak.',
 }
 
+/**
+ * 失败连击降级摘要。streak >= 3 时调用，替代旧的 "[auto-halt]" 硬中断。
+ *
+ * 行为：禁用 tools 再做一次 streamText，强制模型用文本向用户说明：
+ *   - 它尝试了什么
+ *   - 失败的具体错误
+ *   - 用户可能的后续动作
+ *
+ * 与 runFallbackSummary 的区别：触发时机不同（这是失败链触发，不是空文本触发），
+ * 但底层流程几乎一致——共享落库、verifyQuotedFacts、token-stream 回调。
+ */
+const FAILURE_STREAK_GUARDRAIL: ModelMessage = {
+  role: 'system',
+  content:
+    '[Tool failure recovery mode]\n' +
+    'You just had 3 consecutive tool calls that all failed. To prevent further wasted attempts, ' +
+    'tools are now disabled for this final response. You MUST output text explaining to the user:\n' +
+    '1. What you were trying to accomplish.\n' +
+    '2. Each tool call you made and the verbatim error it returned.\n' +
+    '3. Why you believe it kept failing (e.g., file does not exist, missing permission, wrong path).\n' +
+    '4. What the user can do next (provide more info / different approach / accept partial result).\n' +
+    'Quote error text exactly as it appeared in <tool_output>. Do not invent facts. Do not pretend ' +
+    'anything succeeded. If you genuinely have nothing useful to say, output the single sentence: ' +
+    '"I was unable to complete the task because <verbatim summary of last tool error>. Please advise."',
+}
+
+async function runFailureStreakSummary(
+  ctx: StepContext,
+  stepIndex: number,
+  failureCount: number,
+): Promise<void> {
+  log.info(`[ReactLoop] ${SEPARATOR} failure-streak summary (count=${failureCount}) ${SEPARATOR}`)
+  const summaryStart = Date.now()
+  try {
+    const summaryCtx = {
+      sessionId: ctx.sessionId,
+      currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
+      provider: ctx.provider,
+      providerConfig: ctx.providerConfig,
+      workspacePath: ctx.workspace || undefined,
+      agent: ctx.agent,
+      skillTracker: ctx.skillTracker,
+      events: ctx.events,
+    }
+    const { messages } = await ctx.pipeline.build(summaryCtx)
+    const summaryResult = streamText({
+      model: ctx.model,
+      messages: [...messages, FAILURE_STREAK_GUARDRAIL],
+      abortSignal: buildStreamSignal(ctx.abortSignal),
+    })
+    let summaryText = ''
+    for await (const chunk of summaryResult.textStream) {
+      summaryText += chunk
+      ctx.callbacks.onTextDelta(chunk, stepIndex)
+    }
+    const durationMs = Date.now() - summaryStart
+    const baseText =
+      summaryText.trim() ||
+      `I was unable to complete the task after ${failureCount} consecutive tool failures. Please advise.`
+    const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)
+    const { cleaned, unverifiedCount } = verifyQuotedFacts(baseText, toolOutputs)
+    if (unverifiedCount > 0) {
+      log.warn(`[ReactLoop]   failure-streak: masked ${unverifiedCount} unverifiable quote(s)`)
+    }
+    const label =
+      unverifiedCount > 0
+        ? `[failure-recovery • ${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked]`
+        : '[failure-recovery]'
+    const markedText = `${label}\n${cleaned}`
+    messageRepo.create({
+      id: uuidv4(),
+      session_id: ctx.sessionId,
+      role: 'assistant',
+      content: [{ type: 'text', text: markedText }],
+      agent_id: ctx.agentId,
+    })
+    sessionRepo.touch(ctx.sessionId)
+    log.info(`[ReactLoop]   → failure-streak summary: ${baseText.length} chars [${durationMs}ms]`)
+  } catch (err) {
+    log.error(
+      `[ReactLoop]   → failure-streak summary failed [${Date.now() - summaryStart}ms]:`,
+      err,
+    )
+    // 兜底兜底——summary 自身失败时回退到原来的 [auto-halt] 行为，保证至少
+    // 用户看到一条消息而不是静默退出。
+    messageRepo.create({
+      id: uuidv4(),
+      session_id: ctx.sessionId,
+      role: 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: `[auto-halt] Task blocked by ${failureCount} consecutive tool failures. Please review the errors above and provide guidance.`,
+        },
+      ],
+      agent_id: ctx.agentId,
+    })
+    sessionRepo.touch(ctx.sessionId)
+  }
+}
+
 async function runFallbackSummary(ctx: StepContext, stepIndex: number): Promise<void> {
   log.info(`[ReactLoop] ${SEPARATOR} fallback summary ${SEPARATOR}`)
   const summaryStart = Date.now()
@@ -723,13 +849,55 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   let consecutiveRepeatCount = 0
   let consecutiveFailureCount = 0
   let consecutiveToolOnlySteps = 0
+  // 累积可见策略（方案 C）：
+  //   - mcpExpandThisStep: 一次性"全集"展示——仅在刚调完 search_tool 的下一步置 true
+  //   - usedMcpToolNames:  累积已使用过的 MCP 工具名（本轮内只增不减）
+  // 平衡 token 开销（不暴露未用过的 MCP schema）与上下文稳定（已用过的工具
+  // 一直可见，避免反复 search 浪费）。
+  let mcpExpandThisStep = false
+  const usedMcpToolNames = new Set<string>()
+  // 缓存 MCP 工具名集合用于判断 outcome.toolNames 中哪些是 MCP（仅在首次需要时取）
+  let mcpNameSet: Set<string> | null = null
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
       exitReason = 'abort'
       break
     }
-    const outcome = await runReactStep(ctx, step, maxSteps)
+    // Strategy A — 渐进式失败提示：streak 累积到阈值-1 时（即下一次失败就 break），
+    // 注入一条 system 消息让模型自我修正：换思路、换工具、或求助用户。
+    const failureHintMessage =
+      consecutiveFailureCount === CONSECUTIVE_FAILURE_LIMIT - 1
+        ? `[failure-streak warning] Your previous ${consecutiveFailureCount} tool calls all returned errors. ` +
+          `One more failure and tool execution will stop for this turn. ` +
+          `Reconsider before your next action: try a different tool or different parameters, ` +
+          `verify your assumptions (paths exist? syntax correct?), or summarize what you've tried ` +
+          `and ask the user for guidance. Do NOT repeat the same approach.`
+        : null
+
+    const outcome = await runReactStep(
+      ctx,
+      step,
+      maxSteps,
+      mcpExpandThisStep,
+      Array.from(usedMcpToolNames),
+      failureHintMessage,
+    )
+    // 默认下一步不再扩展；search_tool 调用会再次置 true
+    let nextExpand = false
+    if (outcome.toolNames.length > 0) {
+      if (!mcpNameSet) {
+        mcpNameSet = new Set(ctx.agent.toolRegistry.listMcpTools().map((t) => t.name))
+      }
+      for (const tn of outcome.toolNames) {
+        if (tn === 'search_tool') {
+          nextExpand = true
+        } else if (mcpNameSet.has(tn)) {
+          usedMcpToolNames.add(tn)
+        }
+      }
+    }
+    mcpExpandThisStep = nextExpand
     totalSteps++
     fullText += outcome.stepText
     totalToolCalls += outcome.toolNames.length
@@ -761,22 +929,12 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     if (outcome.allToolsFailed === true) {
       consecutiveFailureCount++
       if (consecutiveFailureCount >= CONSECUTIVE_FAILURE_LIMIT) {
+        // Strategy B — 优雅退出：到达失败链阈值时不立即 halt，而是禁用工具、
+        // 强制模型用文本向用户解释发生了什么。比"[auto-halt]"冷消息友好得多。
         log.warn(
-          `[ReactLoop] Failure streak: ${consecutiveFailureCount} consecutive steps all failed. Breaking.`,
+          `[ReactLoop] Failure streak: ${consecutiveFailureCount} consecutive steps all failed. Switching to text-only recovery summary.`,
         )
-        messageRepo.create({
-          id: uuidv4(),
-          session_id: ctx.sessionId,
-          role: 'assistant',
-          content: [
-            {
-              type: 'text',
-              text: `[auto-halt] Task blocked by ${consecutiveFailureCount} consecutive tool failures. Please review the errors above and provide guidance.`,
-            },
-          ],
-          agent_id: ctx.agentId,
-        })
-        sessionRepo.touch(ctx.sessionId)
+        await runFailureStreakSummary(ctx, totalSteps, consecutiveFailureCount)
         wroteAssistantFinal = true
         exitReason = 'repeated_error'
         break
