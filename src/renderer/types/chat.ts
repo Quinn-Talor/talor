@@ -57,6 +57,8 @@ export interface ChatToolResultEvent {
   tool_call_id: string
   tool_name: string
   result: unknown
+  is_error: boolean
+  duration_ms?: number
 }
 
 export type StreamState = 'idle' | 'streaming' | 'done' | 'error' | 'aborted'

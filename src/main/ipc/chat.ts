@@ -15,6 +15,7 @@ import { requestToolConfirm } from './tool-confirm'
 import { requestPermissionFromRenderer } from './permission'
 import { sendChat } from '../chat/orchestrator'
 import { streamRegistry } from '../chat/stream-registry'
+import { isErrorOutput } from '../loop/stream-utils'
 import type { AgentManager } from '../agent/agent-manager'
 
 /** 渲染端传入的 snake_case 参数结构。 */
@@ -63,6 +64,7 @@ export function registerChatHandlers(agentManager: AgentManager): void {
             tool_call_id: id,
             tool_name: name,
             result: out,
+            is_error: isErrorOutput(out),
             duration_ms: durationMs,
           }),
         onDone: (mid, err) =>

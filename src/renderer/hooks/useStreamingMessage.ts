@@ -51,7 +51,12 @@ export function useStreamingMessage(sessionId: string | null) {
       if (event.session_id !== sessionId) return
       useChatStore
         .getState()
-        .updateToolResult(event.tool_call_id, event.result, 'done', event.duration_ms)
+        .updateToolResult(
+          event.tool_call_id,
+          event.result,
+          event.is_error ? 'error' : 'done',
+          event.duration_ms,
+        )
     })
 
     const unsubscribeToolConfirm = talorAPI.chat.onToolConfirm((event: ToolConfirmRequest) => {
