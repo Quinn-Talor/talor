@@ -1,7 +1,7 @@
 import log from 'electron-log'
 import type { Provider } from '../store/config-store'
-import type { ModelInfo } from '../types/models'
-import { getAdapter } from '../providers/model-adapter'
+import type { ModelInfo } from '@shared/types/models'
+import { getAdapter } from './model-adapter'
 
 const modelCache = new Map<string, ModelInfo[]>()
 export const CACHE_TTL_MS = 300_000

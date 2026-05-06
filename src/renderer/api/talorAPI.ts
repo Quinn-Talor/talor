@@ -1,14 +1,29 @@
 import type { ProviderType, ConnectionTestResult, Provider, ProviderInput } from '../types/config'
-import type { ChatSession, ChatMessage, ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent, Attachment } from '../types/chat'
-import type { ProviderModelResponse, ModelInfo } from '../types/models'
+import type {
+  ChatSession,
+  ChatMessage,
+  ChatStreamEvent,
+  ChatToolCallEvent,
+  ChatToolResultEvent,
+  Attachment,
+} from '../types/chat'
+import type { ProviderModelResponse, ModelInfo } from '@shared/types/models'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
-import type { PermissionRequest, PermissionResponse, PermissionRuleView } from '@shared/types/permissions'
+import type {
+  PermissionRequest,
+  PermissionResponse,
+  PermissionRuleView,
+} from '@shared/types/permissions'
 
 declare global {
   interface Window {
     talorAPI: {
       config: {
-        get: () => Promise<{ config_dir: string; providers: Record<string, Provider>; window_bounds: unknown }>
+        get: () => Promise<{
+          config_dir: string
+          providers: Record<string, Provider>
+          window_bounds: unknown
+        }>
         save: (config: unknown) => Promise<void>
       }
       providers: {
@@ -17,26 +32,46 @@ declare global {
         update: (id: string, updates: ProviderInput) => Promise<Provider>
         delete: (id: string) => Promise<void>
         setDefault: (id: string) => Promise<void>
-        testConnection: (config: { type: ProviderType; base_url: string; api_key?: string }) => Promise<ConnectionTestResult>
+        testConnection: (config: {
+          type: ProviderType
+          base_url: string
+          api_key?: string
+        }) => Promise<ConnectionTestResult>
         getModels: (providerId: string, forceRefresh?: boolean) => Promise<ProviderModelResponse>
         refreshModels: (providerId: string) => Promise<ProviderModelResponse>
         detectCapabilities: (params: { providerId: string; modelId: string }) => Promise<ModelInfo>
-        updateModelCapabilities: (params: { providerId: string; modelId: string; capabilities: import('../types/models').ModelCapability[] }) => Promise<ModelInfo>
+        updateModelCapabilities: (params: {
+          providerId: string
+          modelId: string
+          capabilities: import('@shared/types/models').ModelCapability[]
+        }) => Promise<ModelInfo>
       }
       session: {
         list: () => Promise<ChatSession[]>
         create: (params: { provider_id: string; model_id?: string }) => Promise<ChatSession>
         get: (id: string) => Promise<ChatSession | null>
         rename: (params: { session_id: string; title: string }) => Promise<ChatSession | null>
-        updateModel: (params: { session_id: string; model_id: string }) => Promise<ChatSession | null>
-        updateWorkspace: (params: { session_id: string; workspace: string }) => Promise<ChatSession | null>
-        checkModelAvailability: (params: { session_id: string }) => Promise<{ available: boolean; model_id?: string }>
+        updateModel: (params: {
+          session_id: string
+          model_id: string
+        }) => Promise<ChatSession | null>
+        updateWorkspace: (params: {
+          session_id: string
+          workspace: string
+        }) => Promise<ChatSession | null>
+        checkModelAvailability: (params: {
+          session_id: string
+        }) => Promise<{ available: boolean; model_id?: string }>
         delete: (sessionId: string) => Promise<void>
         getMessages: (sessionId: string) => Promise<ChatMessage[]>
         touch: (sessionId: string) => Promise<void>
       }
       chat: {
-        send: (params: { session_id: string; content: string; attachments?: Attachment[] }) => Promise<{ message_id: string }>
+        send: (params: {
+          session_id: string
+          content: string
+          attachments?: Attachment[]
+        }) => Promise<{ message_id: string }>
         abort: (sessionId: string) => Promise<void>
         onStream: (callback: (event: ChatStreamEvent) => void) => () => void
         onToolCall: (callback: (event: ChatToolCallEvent) => void) => () => void
@@ -54,17 +89,41 @@ declare global {
       }
       mcp: {
         list: () => Promise<import('../../preload/index').MCPServer[]>
-        create: (server: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPServer>
+        create: (
+          server: import('../../preload/index').MCPServerInput,
+        ) => Promise<import('../../preload/index').MCPServer>
         get: (id: string) => Promise<import('../../preload/index').MCPServer>
-        update: (id: string, updates: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPServer>
+        update: (
+          id: string,
+          updates: import('../../preload/index').MCPServerInput,
+        ) => Promise<import('../../preload/index').MCPServer>
         delete: (id: string) => Promise<void>
-        setEnabled: (id: string, enabled: boolean) => Promise<import('../../preload/index').MCPServer>
-        testConnection: (server: import('../../preload/index').MCPServerInput) => Promise<import('../../preload/index').MCPConnectionTestResult>
-        connect: (serverId: string) => Promise<{ status: string; message?: string; error_code?: string }>
-        disconnect: (serverId: string) => Promise<{ status: string; message?: string; error_code?: string }>
-        listTools: () => Promise<Array<{ name: string; description: string; parameters: Record<string, unknown>; schema?: Record<string, unknown>; provider?: string }>>
+        setEnabled: (
+          id: string,
+          enabled: boolean,
+        ) => Promise<import('../../preload/index').MCPServer>
+        testConnection: (
+          server: import('../../preload/index').MCPServerInput,
+        ) => Promise<import('../../preload/index').MCPConnectionTestResult>
+        connect: (
+          serverId: string,
+        ) => Promise<{ status: string; message?: string; error_code?: string }>
+        disconnect: (
+          serverId: string,
+        ) => Promise<{ status: string; message?: string; error_code?: string }>
+        listTools: () => Promise<
+          Array<{
+            name: string
+            description: string
+            parameters: Record<string, unknown>
+            schema?: Record<string, unknown>
+            provider?: string
+          }>
+        >
         connectedServers: () => Promise<string[]>
-        getServerStatus: () => Promise<Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>>
+        getServerStatus: () => Promise<
+          Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>
+        >
       }
       window: {
         minimize: () => void
@@ -78,7 +137,17 @@ declare global {
           defaultPath?: string
           buttonLabel?: string
           filters?: { name: string; extensions: string[] }[]
-          properties?: Array<'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles' | 'createDirectory' | 'promptToCreate' | 'noResolveAliases' | 'treatPackageAsDirectory' | 'dontAddToRecent'>
+          properties?: Array<
+            | 'openFile'
+            | 'openDirectory'
+            | 'multiSelections'
+            | 'showHiddenFiles'
+            | 'createDirectory'
+            | 'promptToCreate'
+            | 'noResolveAliases'
+            | 'treatPackageAsDirectory'
+            | 'dontAddToRecent'
+          >
         }) => Promise<string[] | null>
       }
       agents: {
@@ -116,16 +185,39 @@ const stubProviders = {
   update: () => Promise.resolve({} as Provider),
   delete: () => Promise.resolve(),
   setDefault: () => Promise.resolve(),
-  testConnection: () => Promise.resolve({ status: 'failure', error_code: 'LLM_CONNECTION_FAILED' } as ConnectionTestResult),
-  getModels: () => Promise.resolve({ models: [], refreshed_at: new Date().toISOString(), cache_ttl: 300, from_cache: false } as ProviderModelResponse),
-  refreshModels: () => Promise.resolve({ models: [], refreshed_at: new Date().toISOString(), cache_ttl: 300, from_cache: false } as ProviderModelResponse),
+  testConnection: () =>
+    Promise.resolve({
+      status: 'failure',
+      error_code: 'LLM_CONNECTION_FAILED',
+    } as ConnectionTestResult),
+  getModels: () =>
+    Promise.resolve({
+      models: [],
+      refreshed_at: new Date().toISOString(),
+      cache_ttl: 300,
+      from_cache: false,
+    } as ProviderModelResponse),
+  refreshModels: () =>
+    Promise.resolve({
+      models: [],
+      refreshed_at: new Date().toISOString(),
+      cache_ttl: 300,
+      from_cache: false,
+    } as ProviderModelResponse),
   detectCapabilities: () => Promise.resolve({} as ModelInfo),
   updateModelCapabilities: () => Promise.resolve({} as ModelInfo),
 }
 
 const stubSession = {
   list: () => Promise.resolve([] as ChatSession[]),
-  create: () => Promise.resolve({ id: '', title: '', provider_id: '', created_at: '', updated_at: '' } as ChatSession),
+  create: () =>
+    Promise.resolve({
+      id: '',
+      title: '',
+      provider_id: '',
+      created_at: '',
+      updated_at: '',
+    } as ChatSession),
   get: () => Promise.resolve(null),
   rename: () => Promise.resolve(null),
   updateModel: () => Promise.resolve(null),
@@ -154,7 +246,6 @@ const stubPermissions = {
   clearSession: () => Promise.resolve(),
   listWorkspaces: () => Promise.resolve([]),
 }
-
 
 const stubMcp = {
   list: () => Promise.resolve([]),
@@ -208,58 +299,120 @@ const stubAccounts = {
 
 export const talorAPI = new Proxy({} as Window['talorAPI'], {
   get(_target, prop) {
-    const real = window.talorAPI ? (window.talorAPI as Record<string, unknown>)[prop as string] : undefined
+    const real = window.talorAPI
+      ? (window.talorAPI as Record<string, unknown>)[prop as string]
+      : undefined
 
     if (prop === 'config') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubConfig as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['config']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubConfig as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['config']
     }
     if (prop === 'providers') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubProviders as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['providers']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubProviders as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['providers']
     }
     if (prop === 'session') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubSession as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['session']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubSession as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['session']
     }
     if (prop === 'chat') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubChat as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['chat']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubChat as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['chat']
     }
     if (prop === 'permissions') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubPermissions as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['permissions']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubPermissions as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['permissions']
     }
 
     if (prop === 'mcp') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubMcp as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['mcp']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubMcp as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['mcp']
     }
     if (prop === 'window') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubWindow as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['window']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubWindow as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['window']
     }
     if (prop === 'file') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubFile as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['file']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubFile as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['file']
     }
     if (prop === 'agents') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubAgents as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['agents']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubAgents as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['agents']
     }
     if (prop === 'accounts') {
-      return new Proxy({}, {
-        get: (_, p) => real ? (real as Record<string, unknown>)?.[p as string] : (stubAccounts as Record<string, unknown>)?.[p as string],
-      }) as Window['talorAPI']['accounts']
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubAccounts as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['accounts']
     }
     return undefined
   },

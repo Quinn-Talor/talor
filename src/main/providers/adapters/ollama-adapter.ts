@@ -1,7 +1,7 @@
 import { createOllama } from 'ollama-ai-provider-v2'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
-import { createBasicModelInfo } from '../../types/models'
+import { createBasicModelInfo } from '@shared/types/models'
 
 export const ollamaAdapter: ModelAdapter = {
   createModel(provider, modelId) {

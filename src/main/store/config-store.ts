@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync, unlinkSync } from 'fs'
 import log from 'electron-log'
-import type { ModelInfo } from '../types/models'
+import type { ModelInfo } from '@shared/types/models'
 
 interface WindowBounds {
   width: number
@@ -28,15 +28,15 @@ export interface Provider {
   type: 'ollama' | 'openai' | 'anthropic' | 'google'
   name: string
   base_url: string
-  models: ModelInfo[]           // Updated: ModelInfo objects instead of string array
+  models: ModelInfo[] // Updated: ModelInfo objects instead of string array
   enabled: boolean
   is_default: boolean
   supports_vision: boolean
   created_at: string
   updated_at: string
   // New fields for model caching
-  models_last_updated?: string   // ISO timestamp of last model list update
-  models_cache_ttl?: number      // Cache TTL in seconds (default: 300)
+  models_last_updated?: string // ISO timestamp of last model list update
+  models_cache_ttl?: number // Cache TTL in seconds (default: 300)
   context_limit?: number
   recent_ratio?: number
   summary_ratio?: number
@@ -50,7 +50,7 @@ export interface ProviderInput {
   enabled: boolean
   is_default: boolean
   supports_vision?: boolean
-  models?: ModelInfo[]           // Updated: ModelInfo objects instead of string array
+  models?: ModelInfo[] // Updated: ModelInfo objects instead of string array
 }
 
 interface StoreSchema {
@@ -65,7 +65,7 @@ const DEFAULT_CONFIG: AppConfig = {
     height: 800,
     x: 0,
     y: 0,
-    is_maximized: false
+    is_maximized: false,
   },
   default_context_limit: 1_000_000,
   default_recent_ratio: 0.05,
@@ -82,7 +82,7 @@ export class ConfigStore {
     this.store = new Store<StoreSchema>({
       name: 'config',
       cwd: join(app.getPath('home'), '.talor'),
-      defaults: { config: DEFAULT_CONFIG }
+      defaults: { config: DEFAULT_CONFIG },
     })
   }
 

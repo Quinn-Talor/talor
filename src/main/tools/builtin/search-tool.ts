@@ -7,12 +7,12 @@
 // 工厂函数模式：与 createSkillTool 同。Agent 构造时调用 createSearchTool(mcpRegistry)
 // 加入 agentTools，不进 BuiltinToolRegistry。
 //
-// 允许依赖：tools/types、agent/tool-registry（McpToolSource 类型）
+// 允许依赖：tools/types、agent/agent-toolset（McpToolSource 类型）
 // 禁止依赖：ipc/*
 
 import log from 'electron-log'
 import type { ToolDefinition, ToolErrorEnvelope, ToolMetadata } from '../types'
-import type { McpToolSource } from '../../agent/tool-registry'
+import type { McpToolSource } from '../../agent/agent-toolset'
 
 function buildEnvelope(code: string, message: string): ToolErrorEnvelope {
   return { __talor_error: true, code, message }

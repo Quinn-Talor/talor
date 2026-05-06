@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ModelInfo, ModelCapability } from '../types/models'
+import type { ModelInfo, ModelCapability } from '@shared/types/models'
 import { getCapabilityDetail } from '../lib/capability-detail'
 
 interface ModelCardProps {
@@ -18,15 +18,22 @@ function CapabilityBadge({ capability, compact = false }: CapabilityBadgeProps) 
   const [showDetail, setShowDetail] = useState(false)
   const detail = getCapabilityDetail(capability)
 
-  const CATEGORY_STYLES: Record<ModelCapability['category'], { bg: string; text: string; icon: string }> = {
-    text:   { bg: 'bg-gray-100',   text: 'text-gray-700',  icon: '📝' },
-    vision: { bg: 'bg-blue-100',   text: 'text-blue-700',  icon: '🖼️' },
-    tools:  { bg: 'bg-amber-100',  text: 'text-amber-700', icon: '🔧' },
-    video:  { bg: 'bg-purple-100', text: 'text-purple-700',icon: '🎥' },
-    audio:  { bg: 'bg-green-100',  text: 'text-green-700', icon: '🎵' },
+  const CATEGORY_STYLES: Record<
+    ModelCapability['category'],
+    { bg: string; text: string; icon: string }
+  > = {
+    text: { bg: 'bg-gray-100', text: 'text-gray-700', icon: '📝' },
+    vision: { bg: 'bg-blue-100', text: 'text-blue-700', icon: '🖼️' },
+    tools: { bg: 'bg-amber-100', text: 'text-amber-700', icon: '🔧' },
+    video: { bg: 'bg-purple-100', text: 'text-purple-700', icon: '🎥' },
+    audio: { bg: 'bg-green-100', text: 'text-green-700', icon: '🎵' },
   }
 
-  const style = CATEGORY_STYLES[capability.category] ?? { bg: 'bg-gray-100', text: 'text-gray-700', icon: '❓' }
+  const style = CATEGORY_STYLES[capability.category] ?? {
+    bg: 'bg-gray-100',
+    text: 'text-gray-700',
+    icon: '❓',
+  }
 
   if (compact) {
     return (
@@ -34,7 +41,10 @@ function CapabilityBadge({ capability, compact = false }: CapabilityBadgeProps) 
         <span
           className={`px-1.5 py-0.5 text-xs rounded ${style.bg} ${style.text} cursor-pointer hover:opacity-80 inline-flex items-center gap-0.5`}
           title={`${detail.label} — 点击查看详情`}
-          onClick={(e) => { e.stopPropagation(); setShowDetail(!showDetail) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowDetail(!showDetail)
+          }}
           data-testid={`capability-badge-${capability.type}`}
           role="button"
           aria-expanded={showDetail}
@@ -82,7 +92,10 @@ function CapabilityBadge({ capability, compact = false }: CapabilityBadgeProps) 
             ? `${style.bg} ${style.text} ring-2 ring-offset-1 ring-current`
             : `${style.bg} ${style.text} hover:opacity-80`
         }`}
-        onClick={(e) => { e.stopPropagation(); setShowDetail(!showDetail) }}
+        onClick={(e) => {
+          e.stopPropagation()
+          setShowDetail(!showDetail)
+        }}
         data-testid={`capability-badge-${capability.type}`}
         aria-expanded={showDetail}
         aria-label={`${detail.label} — 点击查看详情`}
@@ -138,7 +151,12 @@ function CapabilityBadge({ capability, compact = false }: CapabilityBadgeProps) 
   )
 }
 
-export function ModelCard({ model, isSelected = false, onSelect, compact = false }: ModelCardProps) {
+export function ModelCard({
+  model,
+  isSelected = false,
+  onSelect,
+  compact = false,
+}: ModelCardProps) {
   const handleClick = () => {
     if (onSelect) {
       onSelect(model.id)
@@ -146,7 +164,7 @@ export function ModelCard({ model, isSelected = false, onSelect, compact = false
   }
 
   if (compact) {
-    const supportedCaps = model.capabilities.filter(c => c.supported)
+    const supportedCaps = model.capabilities.filter((c) => c.supported)
     return (
       <div
         className={`p-3 rounded-lg border transition-colors cursor-pointer ${
@@ -163,16 +181,26 @@ export function ModelCard({ model, isSelected = false, onSelect, compact = false
           </div>
           <div className="flex items-center gap-1 ml-2 shrink-0 relative">
             {supportedCaps.length > 0 ? (
-              supportedCaps.map(cap => (
+              supportedCaps.map((cap) => (
                 <CapabilityBadge key={cap.type} capability={cap} compact={true} />
               ))
             ) : (
               <>
                 {model.supports_vision && (
-                  <span className="px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-600" title="图片理解">🖼️</span>
+                  <span
+                    className="px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-600"
+                    title="图片理解"
+                  >
+                    🖼️
+                  </span>
                 )}
                 {model.supports_tools && (
-                  <span className="px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-600" title="工具调用">🔧</span>
+                  <span
+                    className="px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-600"
+                    title="工具调用"
+                  >
+                    🔧
+                  </span>
                 )}
               </>
             )}
@@ -187,9 +215,7 @@ export function ModelCard({ model, isSelected = false, onSelect, compact = false
 
   return (
     <div
-      className={`p-4 rounded-xl border transition-colors ${
-        onSelect ? 'cursor-pointer' : ''
-      } ${
+      className={`p-4 rounded-xl border transition-colors ${onSelect ? 'cursor-pointer' : ''} ${
         isSelected
           ? 'border-primary-400 bg-primary-50'
           : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
@@ -206,14 +232,14 @@ export function ModelCard({ model, isSelected = false, onSelect, compact = false
           </div>
           <p className="text-xs text-gray-500 truncate mb-2">{model.id}</p>
 
-          {model.description && (
-            <p className="text-sm text-gray-600 mb-3">{model.description}</p>
-          )}
+          {model.description && <p className="text-sm text-gray-600 mb-3">{model.description}</p>}
 
           <div className="flex flex-wrap gap-1.5">
-            {model.capabilities.filter(c => c.supported).map(cap => (
-              <CapabilityBadge key={cap.type} capability={cap} />
-            ))}
+            {model.capabilities
+              .filter((c) => c.supported)
+              .map((cap) => (
+                <CapabilityBadge key={cap.type} capability={cap} />
+              ))}
             {model.max_tokens && (
               <span className="px-2 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-700">
                 {model.max_tokens.toLocaleString()} tokens
@@ -226,7 +252,14 @@ export function ModelCard({ model, isSelected = false, onSelect, compact = false
           <div className="shrink-0">
             {isSelected ? (
               <div className="w-5 h-5 rounded-full bg-primary-500 flex items-center justify-center">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="3"
+                >
                   <polyline points="20,6 9,17 4,12" />
                 </svg>
               </div>

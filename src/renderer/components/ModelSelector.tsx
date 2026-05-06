@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { talorAPI } from '../api/talorAPI'
 import type { Provider } from '../types/config'
-import type { ModelInfo } from '../types/models'
+import type { ModelInfo } from '@shared/types/models'
 import { ModelCard } from './ModelCard'
 
 interface ModelSelectorProps {
@@ -25,7 +25,7 @@ export function ModelSelector({ onSelect, onCancel }: ModelSelectorProps) {
         setError(null)
         const data = await talorAPI.providers.list()
         setProviders(data)
-        const defaultProvider = data.find(p => p.is_default) || data[0]
+        const defaultProvider = data.find((p) => p.is_default) || data[0]
         if (defaultProvider) {
           setSelectedProviderId(defaultProvider.id)
         }
@@ -94,9 +94,7 @@ export function ModelSelector({ onSelect, onCancel }: ModelSelectorProps) {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              模型提供商
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">模型提供商</label>
             {loadingProviders ? (
               <div className="text-sm text-gray-400 py-2">加载中...</div>
             ) : providers.length === 0 ? (
@@ -108,10 +106,10 @@ export function ModelSelector({ onSelect, onCancel }: ModelSelectorProps) {
             ) : (
               <select
                 value={selectedProviderId}
-                onChange={e => setSelectedProviderId(e.target.value)}
+                onChange={(e) => setSelectedProviderId(e.target.value)}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
               >
-                {providers.map(p => (
+                {providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                     {p.is_default ? ' (默认)' : ''}
@@ -123,9 +121,7 @@ export function ModelSelector({ onSelect, onCancel }: ModelSelectorProps) {
 
           {selectedProviderId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                选择模型
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">选择模型</label>
               {loadingModels ? (
                 <div className="text-sm text-gray-400 py-2">正在检测模型...</div>
               ) : models.length === 0 ? (
@@ -134,7 +130,7 @@ export function ModelSelector({ onSelect, onCancel }: ModelSelectorProps) {
                 </div>
               ) : (
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                  {models.map(model => (
+                  {models.map((model) => (
                     <ModelCard
                       key={model.id}
                       model={model}

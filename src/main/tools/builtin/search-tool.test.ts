@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { createSearchTool } from './search-tool'
 import { isToolErrorEnvelope } from '../types'
 import type { ToolExecuteContext, ToolMetadata } from '../types'
-import type { McpToolSource } from '../../agent/tool-registry'
+import type { McpToolSource } from '../../agent/agent-toolset'
 
 function makeMcpSource(tools: ToolMetadata[]): McpToolSource {
   return {

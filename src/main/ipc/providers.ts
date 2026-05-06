@@ -1,11 +1,11 @@
 // src/main/ipc/providers.ts —— 入口层：provider IPC handlers
-// 允许依赖：services/*（provider-fetcher 等基础能力）、store/*、shared/*
+// 允许依赖：providers/*（provider-fetcher 等基础能力）、services/safe-storage、store/*、shared/*
 
 import { ipcMain } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import { ConfigStore } from '../store/config-store'
 import type { Provider, ProviderInput } from '../store/config-store'
-import { testConnection, ProviderType } from '../services/provider-tester'
+import { testConnection, ProviderType } from '../providers/provider-tester'
 import { SafeStorageService } from '../services/safe-storage'
 
 export function registerProviderHandlers(): void {
@@ -31,7 +31,7 @@ export function registerProviderHandlers(): void {
       supports_vision: input.supports_vision ?? false,
       models: input.models ?? [],
       created_at: now,
-      updated_at: now
+      updated_at: now,
     }
 
     if (apiKey) {
@@ -69,7 +69,7 @@ export function registerProviderHandlers(): void {
       is_default: restUpdates.is_default ?? providers[id].is_default,
       supports_vision: restUpdates.supports_vision ?? providers[id].supports_vision,
       models: restUpdates.models ?? providers[id].models,
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
     }
 
     store.set('providers', providers)
@@ -95,7 +95,7 @@ export function registerProviderHandlers(): void {
     for (const [pid, provider] of Object.entries(providers)) {
       updatedProviders[pid] = {
         ...provider,
-        is_default: pid === id
+        is_default: pid === id,
       }
     }
 
@@ -106,150 +106,183 @@ export function registerProviderHandlers(): void {
     'providers:testConnection',
     (_event, config: { type: ProviderType; base_url: string; api_key?: string }) => {
       return testConnection(config)
-    }
+    },
   )
 
   // New endpoints for model management
-  ipcMain.handle('providers:getModels', async (_event, providerId: string, forceRefresh = false) => {
-    const store = ConfigStore.getInstance()
-    const providers = store.get('providers') ?? {}
-    const provider = providers[providerId]
-    
-    if (!provider) {
-      throw new Error(`Provider not found: ${providerId}`)
-    }
+  ipcMain.handle(
+    'providers:getModels',
+    async (_event, providerId: string, forceRefresh = false) => {
+      const store = ConfigStore.getInstance()
+      const providers = store.get('providers') ?? {}
+      const provider = providers[providerId]
 
-    try {
-      const { getProviderModels, isCacheValid } = await import('../services/provider-fetcher')
+      if (!provider) {
+        throw new Error(`Provider not found: ${providerId}`)
+      }
 
-      if (!forceRefresh && isCacheValid(provider.models_last_updated) && (provider.models?.length ?? 0) > 0) {
-        return {
-          models: provider.models,
-          refreshed_at: provider.models_last_updated,
-          cache_ttl: provider.models_cache_ttl ?? 300,
-          from_cache: true
+      try {
+        const { getProviderModels, isCacheValid } = await import('../providers/provider-fetcher')
+
+        if (
+          !forceRefresh &&
+          isCacheValid(provider.models_last_updated) &&
+          (provider.models?.length ?? 0) > 0
+        ) {
+          return {
+            models: provider.models,
+            refreshed_at: provider.models_last_updated,
+            cache_ttl: provider.models_cache_ttl ?? 300,
+            from_cache: true,
+          }
         }
-      }
 
-      const models = await getProviderModels(provider, forceRefresh)
-      
-      const now = new Date().toISOString()
-      providers[providerId] = {
-        ...provider,
-        models,
-        models_last_updated: now,
-        models_cache_ttl: provider.models_cache_ttl ?? 300
+        const models = await getProviderModels(provider, forceRefresh)
+
+        const now = new Date().toISOString()
+        providers[providerId] = {
+          ...provider,
+          models,
+          models_last_updated: now,
+          models_cache_ttl: provider.models_cache_ttl ?? 300,
+        }
+        store.set('providers', providers)
+
+        return {
+          models,
+          refreshed_at: now,
+          cache_ttl: provider.models_cache_ttl ?? 300,
+          from_cache: false,
+        }
+      } catch (error) {
+        throw new Error(
+          `Failed to get models for provider ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
       }
-      store.set('providers', providers)
-      
-      return {
-        models,
-        refreshed_at: now,
-        cache_ttl: provider.models_cache_ttl ?? 300,
-        from_cache: false
-      }
-    } catch (error) {
-      throw new Error(`Failed to get models for provider ${providerId}: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })
+    },
+  )
 
   ipcMain.handle('providers:refreshModels', async (_event, providerId: string) => {
     const store = ConfigStore.getInstance()
     const providers = store.get('providers') ?? {}
     const provider = providers[providerId]
-    
+
     if (!provider) {
       throw new Error(`Provider not found: ${providerId}`)
     }
 
     try {
-      const { getProviderModels } = await import('../services/provider-fetcher')
+      const { getProviderModels } = await import('../providers/provider-fetcher')
       const models = await getProviderModels(provider, true)
-      
+
       const now = new Date().toISOString()
       providers[providerId] = {
         ...provider,
         models,
         models_last_updated: now,
-        models_cache_ttl: provider.models_cache_ttl ?? 300
+        models_cache_ttl: provider.models_cache_ttl ?? 300,
       }
       store.set('providers', providers)
-      
+
       return {
         models,
         refreshed_at: now,
-        cache_ttl: provider.models_cache_ttl ?? 300
+        cache_ttl: provider.models_cache_ttl ?? 300,
       }
     } catch (error) {
-      throw new Error(`Failed to refresh models for provider ${providerId}: ${error instanceof Error ? error.message : String(error)}`)
+      throw new Error(
+        `Failed to refresh models for provider ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   })
 
-  ipcMain.handle('providers:detectCapabilities', async (_event, params: { providerId: string; modelId: string }) => {
-    const store = ConfigStore.getInstance()
-    const providers = store.get('providers') ?? {}
-    const provider = providers[params.providerId]
+  ipcMain.handle(
+    'providers:detectCapabilities',
+    async (_event, params: { providerId: string; modelId: string }) => {
+      const store = ConfigStore.getInstance()
+      const providers = store.get('providers') ?? {}
+      const provider = providers[params.providerId]
 
-    if (!provider) {
-      throw new Error(`Provider not found: ${params.providerId}`)
-    }
+      if (!provider) {
+        throw new Error(`Provider not found: ${params.providerId}`)
+      }
 
-    const model = provider.models?.find(m => m.id === params.modelId)
-    if (!model) {
-      throw new Error(`Model not found: ${params.modelId}`)
-    }
+      const model = provider.models?.find((m) => m.id === params.modelId)
+      if (!model) {
+        throw new Error(`Model not found: ${params.modelId}`)
+      }
 
-    const { detectModelCapabilities, getCapabilitiesWithFallback } = await import('../services/capability-detector')
-    const capabilities = getCapabilitiesWithFallback(() => detectModelCapabilities(model))
+      const { detectModelCapabilities, getCapabilitiesWithFallback } =
+        await import('../providers/capability/detector')
+      const capabilities = getCapabilitiesWithFallback(() => detectModelCapabilities(model))
 
-    const updatedModel = {
-      ...model,
-      capabilities,
-      supports_vision: capabilities.some(c => c.type === 'image_understanding' && c.supported),
-      supports_tools: capabilities.some(c => c.type === 'function_calling' && c.supported),
-    }
+      const updatedModel = {
+        ...model,
+        capabilities,
+        supports_vision: capabilities.some((c) => c.type === 'image_understanding' && c.supported),
+        supports_tools: capabilities.some((c) => c.type === 'function_calling' && c.supported),
+      }
 
-    const updatedModels = (provider.models ?? []).map(m => m.id === params.modelId ? updatedModel : m)
-    providers[params.providerId] = {
-      ...provider,
-      models: updatedModels,
-    }
-    store.set('providers', providers)
+      const updatedModels = (provider.models ?? []).map((m) =>
+        m.id === params.modelId ? updatedModel : m,
+      )
+      providers[params.providerId] = {
+        ...provider,
+        models: updatedModels,
+      }
+      store.set('providers', providers)
 
-    return updatedModel
-  })
+      return updatedModel
+    },
+  )
 
-  ipcMain.handle('providers:updateModelCapabilities', async (_event, params: { providerId: string; modelId: string; capabilities: import('../types/models').ModelCapability[] }) => {
-    const store = ConfigStore.getInstance()
-    const providers = store.get('providers') ?? {}
-    const provider = providers[params.providerId]
+  ipcMain.handle(
+    'providers:updateModelCapabilities',
+    async (
+      _event,
+      params: {
+        providerId: string
+        modelId: string
+        capabilities: import('@shared/types/models').ModelCapability[]
+      },
+    ) => {
+      const store = ConfigStore.getInstance()
+      const providers = store.get('providers') ?? {}
+      const provider = providers[params.providerId]
 
-    if (!provider) {
-      throw new Error(`Provider not found: ${params.providerId}`)
-    }
+      if (!provider) {
+        throw new Error(`Provider not found: ${params.providerId}`)
+      }
 
-    const model = provider.models?.find(m => m.id === params.modelId)
-    if (!model) {
-      throw new Error(`Model not found: ${params.modelId}`)
-    }
+      const model = provider.models?.find((m) => m.id === params.modelId)
+      if (!model) {
+        throw new Error(`Model not found: ${params.modelId}`)
+      }
 
-    const { applyManualCapabilities } = await import('../services/capability-updater')
-    const manualCapabilities = applyManualCapabilities(params.capabilities)
+      const { applyManualCapabilities } = await import('../providers/capability/updater')
+      const manualCapabilities = applyManualCapabilities(params.capabilities)
 
-    const updatedModel = {
-      ...model,
-      capabilities: manualCapabilities,
-      supports_vision: manualCapabilities.some(c => c.type === 'image_understanding' && c.supported),
-      supports_tools: manualCapabilities.some(c => c.type === 'function_calling' && c.supported),
-    }
+      const updatedModel = {
+        ...model,
+        capabilities: manualCapabilities,
+        supports_vision: manualCapabilities.some(
+          (c) => c.type === 'image_understanding' && c.supported,
+        ),
+        supports_tools: manualCapabilities.some(
+          (c) => c.type === 'function_calling' && c.supported,
+        ),
+      }
 
-    const updatedModels = (provider.models ?? []).map(m => m.id === params.modelId ? updatedModel : m)
-    providers[params.providerId] = {
-      ...provider,
-      models: updatedModels,
-    }
-    store.set('providers', providers)
+      const updatedModels = (provider.models ?? []).map((m) =>
+        m.id === params.modelId ? updatedModel : m,
+      )
+      providers[params.providerId] = {
+        ...provider,
+        models: updatedModels,
+      }
+      store.set('providers', providers)
 
-    return updatedModel
-  })
+      return updatedModel
+    },
+  )
 }

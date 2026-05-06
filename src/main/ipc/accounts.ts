@@ -1,10 +1,10 @@
 // src/main/ipc/accounts.ts — 入口层：账户管理 IPC handlers
 //
-// 允许依赖：agent/accounts
+// 允许依赖：accounts/account-store
 // 禁止依赖：业务决策
 
 import { ipcMain } from 'electron'
-import type { AccountStore } from '../agent/accounts'
+import type { AccountStore } from '../accounts/account-store'
 import type { Account } from '@shared/types/agent'
 
 export function registerAccountHandlers(accountStore: AccountStore): void {

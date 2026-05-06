@@ -48,7 +48,7 @@ coverage/
 # Temporary / scratch
 vibe/*
 !vibe/project/
-skills/
+/skills/
 snapshot.yml
 *.png
 

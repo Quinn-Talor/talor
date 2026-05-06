@@ -14,7 +14,7 @@ import { ToolCallMessage } from '../../components/ToolCallMessage'
 // 但 Chat 页面不再消费它们。
 import { PermissionsPopover } from '../../components/PermissionsPopover'
 import type { Attachment } from '../../types/chat'
-import type { ModelInfo } from '../../types/models'
+import type { ModelInfo } from '@shared/types/models'
 import type { AgentCardData } from '../../components/AgentCard'
 
 interface ModelOption {

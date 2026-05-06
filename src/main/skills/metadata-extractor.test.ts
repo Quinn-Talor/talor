@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
-import { extractSkillCliBins } from './skill-metadata'
+import { extractSkillCliBins } from './metadata-extractor'
 
 let tempDir: string
 
@@ -32,7 +32,10 @@ describe('extractSkillCliBins', () => {
   })
 
   it('merges bins from multiple skills and deduplicates', () => {
-    writeSkill('lark-sheets', 'name: lark-sheets\nmetadata:\n  requires:\n    bins: ["lark-cli", "node"]')
+    writeSkill(
+      'lark-sheets',
+      'name: lark-sheets\nmetadata:\n  requires:\n    bins: ["lark-cli", "node"]',
+    )
     writeSkill('lark-im', 'name: lark-im\nmetadata:\n  requires:\n    bins: ["lark-cli"]')
 
     const bins = extractSkillCliBins(tempDir)

@@ -1,4 +1,4 @@
-// src/main/agent/skill-metadata.ts — 业务层：从 SKILL.md 提取 CLI 依赖
+// src/main/skills/metadata-extractor.ts — 业务层：从 SKILL.md 提取 CLI 依赖
 //
 // 遍历 skills/*/SKILL.md，解析 frontmatter metadata.requires.bins。
 //
@@ -43,14 +43,14 @@ export function extractSkillCliBins(skillsDir: string): string[] {
 
       const binsList = binsMatch[1]
         .split(',')
-        .map(s => s.trim().replace(/^["']|["']$/g, ''))
+        .map((s) => s.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
 
       for (const bin of binsList) {
         bins.add(bin)
       }
     } catch (err) {
-      log.warn('[skill-metadata] Failed to parse SKILL.md in', name, ':', err)
+      log.warn('[metadata-extractor] Failed to parse SKILL.md in', name, ':', err)
     }
   }
 

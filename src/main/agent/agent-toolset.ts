@@ -1,4 +1,7 @@
-// src/main/agent/tool-registry.ts — 业务层：Agent 的工具注册中心
+// src/main/agent/agent-toolset.ts — 业务层：Agent 的工具集组合（运行时视图）
+//
+// 命名说明：与 tools/registry.ts（内置工具仓库）区分。本模块组合 BuiltinToolRegistry
+// + MCP + Agent 私有工具，按白名单暴露给 LLM；tools/registry.ts 是单一来源仓库。
 //
 // 组合 BuiltinToolRegistry + Agent 专属工具 + MCP tools → 白名单过滤。
 // 对外提供 listBuiltinTools() / listMcpTools() / listTools() / execute()。

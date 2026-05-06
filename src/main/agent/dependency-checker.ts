@@ -18,7 +18,7 @@ import { execSync } from 'child_process'
 import { gte as semverGte, valid as semverValid } from 'semver'
 import log from 'electron-log'
 import type { AgentProfile, DependencyCheckResult, DependencyStepResult } from '@shared/types/agent'
-import { extractSkillCliBins } from './skill-metadata'
+import { extractSkillCliBins } from '../skills/metadata-extractor'
 
 export function checkDependencies(
   profile: AgentProfile,
@@ -32,7 +32,9 @@ export function checkDependencies(
   const steps: DependencyStepResult[] = []
   const appVersion = opts?.appVersion ?? '0.1.0'
   const accountValues = opts?.accountValues ?? new Map<string, string>()
-  const builtinToolNames = opts?.builtinToolNames ?? new Set(['read', 'write', 'edit', 'bash', 'glob', 'grep', 'ls', 'skill'])
+  const builtinToolNames =
+    opts?.builtinToolNames ??
+    new Set(['read', 'write', 'edit', 'bash', 'glob', 'grep', 'ls', 'skill'])
 
   // Step 1: minAppVersion
   if (profile.minAppVersion) {
@@ -74,12 +76,12 @@ export function checkDependencies(
 
   // Step 3: CLI 检查
   const skillCliBins = extractSkillCliBins(skillsDir)
-  const declaredCliCommands = profile.dependencies.cli.map(c => c.command)
+  const declaredCliCommands = profile.dependencies.cli.map((c) => c.command)
   const allCliCommands = [...new Set([...declaredCliCommands, ...skillCliBins])]
 
   const cliResults: string[] = []
   for (const command of allCliCommands) {
-    const cliDep = profile.dependencies.cli.find(c => c.command === command)
+    const cliDep = profile.dependencies.cli.find((c) => c.command === command)
     const checkCmd = cliDep?.checkCommand ?? `${command} --version`
 
     try {
@@ -87,11 +89,12 @@ export function checkDependencies(
     } catch {
       if (cliDep?.install) {
         try {
-          const installCmd = cliDep.install.type === 'npm'
-            ? `npm install -g ${cliDep.install.package}`
-            : cliDep.install.type === 'brew'
-              ? `brew install ${cliDep.install.formula}`
-              : `curl -fsSL ${(cliDep.install as { url: string }).url} | sh`
+          const installCmd =
+            cliDep.install.type === 'npm'
+              ? `npm install -g ${cliDep.install.package}`
+              : cliDep.install.type === 'brew'
+                ? `brew install ${cliDep.install.formula}`
+                : `curl -fsSL ${(cliDep.install as { url: string }).url} | sh`
 
           log.info('[dep-checker] Auto-installing CLI:', command, '→', installCmd)
           execSync(installCmd, { stdio: 'pipe', timeout: 60000 })
@@ -102,7 +105,9 @@ export function checkDependencies(
             cliResults.push(`${command}: 安装后仍然不可用`)
           }
         } catch (installErr) {
-          cliResults.push(`${command}: 自动安装失败 — ${installErr instanceof Error ? installErr.message : String(installErr)}`)
+          cliResults.push(
+            `${command}: 自动安装失败 — ${installErr instanceof Error ? installErr.message : String(installErr)}`,
+          )
         }
       } else {
         const source = skillCliBins.includes(command)
@@ -114,7 +119,12 @@ export function checkDependencies(
   }
 
   if (cliResults.length > 0) {
-    steps.push({ step: 'cli', status: 'missing', message: cliResults.join('; '), details: cliResults })
+    steps.push({
+      step: 'cli',
+      status: 'missing',
+      message: cliResults.join('; '),
+      details: cliResults,
+    })
   } else {
     steps.push({ step: 'cli', status: 'pass' })
   }
@@ -131,7 +141,12 @@ export function checkDependencies(
   }
 
   if (mcpIssues.length > 0) {
-    steps.push({ step: 'mcpServer', status: 'missing', message: mcpIssues.join('; '), details: mcpIssues })
+    steps.push({
+      step: 'mcpServer',
+      status: 'missing',
+      message: mcpIssues.join('; '),
+      details: mcpIssues,
+    })
   } else {
     steps.push({ step: 'mcpServer', status: 'pass' })
   }
@@ -145,7 +160,12 @@ export function checkDependencies(
   }
 
   if (missingTools.length > 0) {
-    steps.push({ step: 'tool', status: 'missing', message: `缺少 Tool: ${missingTools.join(', ')}`, details: missingTools })
+    steps.push({
+      step: 'tool',
+      status: 'missing',
+      message: `缺少 Tool: ${missingTools.join(', ')}`,
+      details: missingTools,
+    })
   } else {
     steps.push({ step: 'tool', status: 'pass' })
   }
@@ -163,14 +183,22 @@ export function checkDependencies(
   // Also check MCP auth envVars
   for (const mcp of profile.dependencies.mcpServers) {
     if (mcp.transport.type === 'http' && mcp.transport.auth) {
-      if (!accountValues.has(mcp.transport.auth.envVar) && !missingVars.includes(mcp.transport.auth.envVar)) {
+      if (
+        !accountValues.has(mcp.transport.auth.envVar) &&
+        !missingVars.includes(mcp.transport.auth.envVar)
+      ) {
         missingVars.push(mcp.transport.auth.envVar)
       }
     }
   }
 
   if (missingVars.length > 0) {
-    steps.push({ step: 'config', status: 'missing', message: `未配置变量: ${missingVars.join(', ')}`, details: missingVars })
+    steps.push({
+      step: 'config',
+      status: 'missing',
+      message: `未配置变量: ${missingVars.join(', ')}`,
+      details: missingVars,
+    })
   } else {
     steps.push({ step: 'config', status: 'pass' })
   }
@@ -187,13 +215,18 @@ export function checkDependencies(
   }
 
   if (missingKnowledge.length > 0) {
-    steps.push({ step: 'knowledge', status: 'missing', message: `缺少知识文件: ${missingKnowledge.join(', ')}`, details: missingKnowledge })
+    steps.push({
+      step: 'knowledge',
+      status: 'missing',
+      message: `缺少知识文件: ${missingKnowledge.join(', ')}`,
+      details: missingKnowledge,
+    })
   } else {
     steps.push({ step: 'knowledge', status: 'pass' })
   }
 
   // Step 8: 汇总
-  const passed = steps.every(s => s.status === 'pass')
+  const passed = steps.every((s) => s.status === 'pass')
   steps.push({ step: 'complete', status: passed ? 'pass' : 'fail' })
 
   return { passed, steps }

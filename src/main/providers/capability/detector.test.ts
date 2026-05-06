@@ -8,9 +8,9 @@ import {
   detectModelCapabilities,
   getCapabilitiesWithFallback,
   VISION_MODEL_PATTERNS,
-  TOOLS_MODEL_PATTERNS
-} from './capability-detector'
-import type { ModelInfo } from '../types/models'
+  TOOLS_MODEL_PATTERNS,
+} from './detector'
+import type { ModelInfo } from '@shared/types/models'
 
 // Helper to build a minimal ModelInfo
 function makeModel(id: string, name: string, providerId = 'test-provider'): ModelInfo {
@@ -21,7 +21,7 @@ function makeModel(id: string, name: string, providerId = 'test-provider'): Mode
     display_name: name,
     capabilities: [],
     supports_vision: false,
-    supports_tools: false
+    supports_tools: false,
   }
 }
 
@@ -31,17 +31,17 @@ describe('detectModelCapabilities', () => {
     const model = makeModel('openai/gpt-4o', 'gpt-4o')
     const caps = detectModelCapabilities(model)
 
-    const types = caps.map(c => c.type)
+    const types = caps.map((c) => c.type)
     expect(types).toContain('text_generation')
     expect(types).toContain('image_understanding')
     expect(types).toContain('function_calling')
 
-    const vision = caps.find(c => c.type === 'image_understanding')!
+    const vision = caps.find((c) => c.type === 'image_understanding')!
     expect(vision.supported).toBe(true)
     expect(vision.source).toBe('auto')
     expect(vision.category).toBe('vision')
 
-    const tools = caps.find(c => c.type === 'function_calling')!
+    const tools = caps.find((c) => c.type === 'function_calling')!
     expect(tools.supported).toBe(true)
     expect(tools.source).toBe('auto')
     expect(tools.category).toBe('tools')
@@ -51,7 +51,7 @@ describe('detectModelCapabilities', () => {
   it('detects vision for gpt-4-vision-preview', () => {
     const model = makeModel('openai/gpt-4-vision-preview', 'gpt-4-vision-preview')
     const caps = detectModelCapabilities(model)
-    const vision = caps.find(c => c.type === 'image_understanding')!
+    const vision = caps.find((c) => c.type === 'image_understanding')!
     expect(vision.supported).toBe(true)
   })
 
@@ -60,11 +60,11 @@ describe('detectModelCapabilities', () => {
     const model = makeModel('ollama/qwen3:4b', 'qwen3:4b')
     const caps = detectModelCapabilities(model)
 
-    const text = caps.find(c => c.type === 'text_generation')!
+    const text = caps.find((c) => c.type === 'text_generation')!
     expect(text.supported).toBe(true)
     expect(text.source).toBe('default')
 
-    const vision = caps.find(c => c.type === 'image_understanding')
+    const vision = caps.find((c) => c.type === 'image_understanding')
     expect(vision?.supported).toBeFalsy()
   })
 
@@ -73,10 +73,10 @@ describe('detectModelCapabilities', () => {
     const model = makeModel('anthropic/claude-3-sonnet-20240229', 'claude-3-sonnet-20240229')
     const caps = detectModelCapabilities(model)
 
-    const vision = caps.find(c => c.type === 'image_understanding')!
+    const vision = caps.find((c) => c.type === 'image_understanding')!
     expect(vision.supported).toBe(true)
 
-    const tools = caps.find(c => c.type === 'function_calling')!
+    const tools = caps.find((c) => c.type === 'function_calling')!
     expect(tools.supported).toBe(true)
   })
 
@@ -97,7 +97,7 @@ describe('detectModelCapabilities', () => {
   it('sets detected_at for auto-detected capabilities', () => {
     const model = makeModel('openai/gpt-4o', 'gpt-4o')
     const caps = detectModelCapabilities(model)
-    const autoCaps = caps.filter(c => c.source === 'auto')
+    const autoCaps = caps.filter((c) => c.source === 'auto')
     expect(autoCaps.length).toBeGreaterThan(0)
     for (const cap of autoCaps) {
       expect(cap.detected_at).toBeDefined()
@@ -113,7 +113,7 @@ describe('getCapabilitiesWithFallback', () => {
       throw new Error('API error')
     })
     expect(caps.length).toBeGreaterThan(0)
-    const text = caps.find(c => c.type === 'text_generation')!
+    const text = caps.find((c) => c.type === 'text_generation')!
     expect(text.supported).toBe(true)
     expect(text.source).toBe('default')
   })
@@ -122,7 +122,7 @@ describe('getCapabilitiesWithFallback', () => {
   it('returns fn result when no error', () => {
     const model = makeModel('openai/gpt-4o', 'gpt-4o')
     const caps = getCapabilitiesWithFallback(() => detectModelCapabilities(model))
-    const vision = caps.find(c => c.type === 'image_understanding')
+    const vision = caps.find((c) => c.type === 'image_understanding')
     expect(vision?.supported).toBe(true)
   })
 })

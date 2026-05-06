@@ -11,7 +11,7 @@ import { Agent } from './agent'
 import type { AgentOptions } from './agent'
 import { AgentLoader } from './loader'
 import type { BuiltinToolRegistry } from './builtin-registry'
-import type { McpToolSource } from './tool-registry'
+import type { McpToolSource } from './agent-toolset'
 import { SkillRegistry } from '../skills/registry'
 import { McpRegistry } from '../mcp/client'
 import type { MCPServerConfig } from '../mcp/types'
@@ -41,7 +41,7 @@ const CRYSTALLIZER_PROFILE: AgentProfile = {
   role: {
     capabilities: [
       'Analyze the tools and workflow used in the conversation history.',
-      'Guide the user through defining an agent\'s role and capabilities.',
+      "Guide the user through defining an agent's role and capabilities.",
       'Draft an agent.json specification.',
     ],
     constraints: [

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { Provider, ProviderType, ProviderInput } from '../../types/config'
-import type { ModelInfo } from '../../types/models'
+import type { ModelInfo } from '@shared/types/models'
 import { validateProviderForm } from '../../lib/validation'
 import { ModelCard } from '../../components/ModelCard'
 import { talorAPI } from '../../api/talorAPI'
@@ -19,7 +19,7 @@ const PROVIDER_TYPE_OPTIONS: { value: ProviderType; label: string; defaultUrl?: 
   { value: 'ollama', label: 'Ollama', defaultUrl: 'http://localhost:11434' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
-  { value: 'google', label: 'Google AI' }
+  { value: 'google', label: 'Google AI' },
 ]
 
 export function ProviderForm({
@@ -29,7 +29,7 @@ export function ProviderForm({
   onCancel,
   onTest,
   testStatus,
-  testResult
+  testResult,
 }: ProviderFormProps) {
   const [type, setType] = useState<ProviderType>(provider?.type ?? 'ollama')
   const [name, setName] = useState(provider?.name ?? '')
@@ -40,7 +40,9 @@ export function ProviderForm({
   const [models, setModels] = useState<ModelInfo[]>(provider?.models ?? [])
   const [modelsLoading, setModelsLoading] = useState(false)
   const [modelsError, setModelsError] = useState<string | null>(null)
-  const [lastRefreshed, setLastRefreshed] = useState<string | null>(provider?.models_last_updated ?? null)
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(
+    provider?.models_last_updated ?? null,
+  )
 
   useEffect(() => {
     if (!provider && type === 'ollama' && !baseUrl) {
@@ -110,17 +112,17 @@ export function ProviderForm({
         api_key: apiKey.trim(),
         enabled,
         is_default: provider?.is_default ?? false,
-        models: models
+        models: models,
       })
     },
-    [name, type, baseUrl, apiKey, enabled, existingNames, provider, onSubmit, models]
+    [name, type, baseUrl, apiKey, enabled, existingNames, provider, onSubmit, models],
   )
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Escape') onCancel()
     },
-    [onCancel]
+    [onCancel],
   )
 
   return (
@@ -195,9 +197,7 @@ export function ProviderForm({
           </div>
         )}
 
-        {type === 'ollama' && (
-          <p className="text-xs text-gray-400 -mt-2">API Key（可选）</p>
-        )}
+        {type === 'ollama' && <p className="text-xs text-gray-400 -mt-2">API Key（可选）</p>}
 
         <div className="flex items-center gap-2">
           <button
@@ -217,8 +217,19 @@ export function ProviderForm({
             {testStatus === 'testing' ? (
               <span className="flex items-center gap-1.5">
                 <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
                 </svg>
                 测试中
               </span>
@@ -260,8 +271,19 @@ export function ProviderForm({
                   {modelsLoading ? (
                     <span className="flex items-center gap-1">
                       <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
                       </svg>
                       刷新中
                     </span>
@@ -295,9 +317,7 @@ export function ProviderForm({
                 ))}
               </div>
             ) : (
-              <div className="py-4 text-center text-sm text-gray-400">
-                未检测到可用模型
-              </div>
+              <div className="py-4 text-center text-sm text-gray-400">未检测到可用模型</div>
             )}
           </div>
         )}
@@ -310,7 +330,9 @@ export function ProviderForm({
             onChange={(e) => setEnabled(e.target.checked)}
             className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
           />
-          <label htmlFor="enabled" className="text-sm text-gray-600">启用</label>
+          <label htmlFor="enabled" className="text-sm text-gray-600">
+            启用
+          </label>
         </div>
 
         <div className="flex gap-3 pt-2">

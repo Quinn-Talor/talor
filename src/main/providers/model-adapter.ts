@@ -5,7 +5,7 @@
 
 import type { LanguageModel } from 'ai'
 import type { Provider } from '../store/config-store'
-import type { ModelInfo } from '../types/models'
+import type { ModelInfo } from '@shared/types/models'
 import { openaiAdapter } from './adapters/openai-adapter'
 import { anthropicAdapter } from './adapters/anthropic-adapter'
 import { googleAdapter } from './adapters/google-adapter'

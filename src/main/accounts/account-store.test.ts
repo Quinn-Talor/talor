@@ -11,7 +11,7 @@ vi.mock('../db/index', () => ({
   getDb: () => testDb,
 }))
 
-import { AccountStore } from './accounts'
+import { AccountStore } from './account-store'
 
 let store: AccountStore
 

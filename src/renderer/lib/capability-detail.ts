@@ -1,4 +1,4 @@
-import type { ModelCapability } from '../types/models'
+import type { ModelCapability } from '@shared/types/models'
 
 export interface CapabilityDetail {
   label: string

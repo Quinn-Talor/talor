@@ -1,6 +1,6 @@
 import log from 'electron-log'
-import type { ModelCapability, ModelInfo } from '../types/models'
-import { DEFAULT_MODEL_CAPABILITIES } from '../types/models'
+import type { ModelCapability, ModelInfo } from '@shared/types/models'
+import { DEFAULT_MODEL_CAPABILITIES } from '@shared/types/models'
 
 export const VISION_MODEL_PATTERNS: RegExp[] = [
   /gpt-4[-_]?(o|vision|turbo|mini)/i,
@@ -31,7 +31,7 @@ export const TOOLS_MODEL_PATTERNS: RegExp[] = [
 ]
 
 function matchesAny(name: string, patterns: RegExp[]): boolean {
-  return patterns.some(p => p.test(name))
+  return patterns.some((p) => p.test(name))
 }
 
 export function detectModelCapabilities(model: ModelInfo): ModelCapability[] {
@@ -76,9 +76,7 @@ export function detectModelCapabilities(model: ModelInfo): ModelCapability[] {
   return capabilities
 }
 
-export function getCapabilitiesWithFallback(
-  fn: () => ModelCapability[]
-): ModelCapability[] {
+export function getCapabilitiesWithFallback(fn: () => ModelCapability[]): ModelCapability[] {
   try {
     return fn()
   } catch (err) {

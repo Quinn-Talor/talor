@@ -1,11 +1,11 @@
 // src/main/ipc/session.ts —— 入口层：session IPC handlers
-// 允许依赖：services/*（基础能力）、repos/*、shared/*    禁止依赖：loop/*
+// 允许依赖：providers/*、services/*、repos/*、shared/*    禁止依赖：loop/*
 
 import { ipcMain } from 'electron'
 import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/session-repo'
 import { ConfigStore } from '../store/config-store'
-import { getProviderModels } from '../services/provider-fetcher'
-import { checkModelAvailability } from '../services/model-availability'
+import { getProviderModels } from '../providers/provider-fetcher'
+import { checkModelAvailability } from '../providers/model-availability'
 import log from 'electron-log'
 
 export function registerSessionHandlers(): void {

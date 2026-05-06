@@ -2,7 +2,7 @@
 //
 // 仅管理内置工具（read/write/edit/ls/glob/grep/bash）。
 // MCP 工具由 McpRegistry 管理，不在此注册。
-// Agent 的 ToolRegistry（agent/tool-registry.ts）组合本模块 + McpRegistry → 白名单过滤。
+// Agent 的 ToolRegistry（agent/agent-toolset.ts）组合本模块 + McpRegistry → 白名单过滤。
 
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
@@ -16,12 +16,7 @@ import type {
 import { diagnoseInputMismatch } from './input-diagnostics'
 import { checkSchema, type SchemaParams } from './schema-check'
 import { formatZodError } from './zod-diagnostics'
-export type {
-  ToolDefinition,
-  ToolResult,
-  ToolExecuteContext,
-  ToolMetadata,
-} from './types'
+export type { ToolDefinition, ToolResult, ToolExecuteContext, ToolMetadata } from './types'
 import {
   DEFAULT_MAX_READ_SIZE_BYTES,
   DEFAULT_MAX_WRITE_SIZE_BYTES,

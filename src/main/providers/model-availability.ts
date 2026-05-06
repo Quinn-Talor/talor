@@ -1,4 +1,4 @@
-import type { ModelInfo } from '../types/models'
+import type { ModelInfo } from '@shared/types/models'
 
 export interface ModelAvailabilityResult {
   available: boolean
@@ -7,9 +7,9 @@ export interface ModelAvailabilityResult {
 
 export function checkModelAvailability(
   modelId: string | undefined,
-  providerModels: ModelInfo[]
+  providerModels: ModelInfo[],
 ): ModelAvailabilityResult {
   if (!modelId) return { available: false }
-  const model = providerModels.find(m => m.id === modelId)
+  const model = providerModels.find((m) => m.id === modelId)
   return model ? { available: true, model } : { available: false }
 }

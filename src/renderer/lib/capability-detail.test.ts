@@ -7,12 +7,12 @@
  */
 import { describe, it, expect } from 'vitest'
 import { getCapabilityDetail } from './capability-detail'
-import type { ModelCapability } from '../types/models'
+import type { ModelCapability } from '@shared/types/models'
 
 function makeCapability(
   category: ModelCapability['category'],
   type: string,
-  supported = true
+  supported = true,
 ): ModelCapability {
   return { category, type, supported, description: '', source: 'auto' }
 }

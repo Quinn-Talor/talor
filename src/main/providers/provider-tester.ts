@@ -42,7 +42,7 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
     const response = await fetch(endpoint, {
       method: 'GET',
       headers,
-      signal: controller.signal
+      signal: controller.signal,
     })
 
     clearTimeout(timeout)
@@ -51,7 +51,7 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
       return {
         status: 'failure',
         error_code: 'AUTH_FAILED',
-        message: '认证失败：Invalid API Key'
+        message: '认证失败：Invalid API Key',
       }
     }
 
@@ -59,7 +59,7 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
       return {
         status: 'failure',
         error_code: 'QUOTA_EXCEEDED',
-        message: 'API Key 有效但配额不足，请检查账户余额'
+        message: 'API Key 有效但配额不足，请检查账户余额',
       }
     }
 
@@ -67,7 +67,7 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
       return {
         status: 'failure',
         error_code: 'UNKNOWN',
-        message: `连接失败：服务器返回错误 ${response.status}`
+        message: `连接失败：服务器返回错误 ${response.status}`,
       }
     }
 
@@ -77,7 +77,7 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
     return {
       status: 'success',
       latency_ms: Date.now() - start,
-      models_count: modelsCount
+      models_count: modelsCount,
     }
   } catch (error) {
     clearTimeout(timeout)
@@ -86,7 +86,7 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
       return {
         status: 'failure',
         error_code: 'TIMEOUT',
-        message: '连接超时，请检查网络或 base_url'
+        message: '连接超时，请检查网络或 base_url',
       }
     }
 
@@ -94,18 +94,22 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
 
     const errMsg = error instanceof Error ? error.message : String(error)
 
-    if (errMsg.includes('ECONNREFUSED') || errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo')) {
+    if (
+      errMsg.includes('ECONNREFUSED') ||
+      errMsg.includes('ENOTFOUND') ||
+      errMsg.includes('getaddrinfo')
+    ) {
       return {
         status: 'failure',
         error_code: 'CONNECTION_REFUSED',
-        message: `连接失败：无法连接到 ${config.base_url}，请确认服务已启动`
+        message: `连接失败：无法连接到 ${config.base_url}，请确认服务已启动`,
       }
     }
 
     return {
       status: 'failure',
       error_code: 'UNKNOWN',
-      message: `连接失败：${errMsg}`
+      message: `连接失败：${errMsg}`,
     }
   }
 }

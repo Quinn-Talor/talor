@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { checkModelAvailability } from './model-availability'
-import type { ModelInfo } from '../types/models'
+import type { ModelInfo } from '@shared/types/models'
 
 const makeModel = (id: string): ModelInfo => ({
   id,

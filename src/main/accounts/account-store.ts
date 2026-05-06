@@ -1,4 +1,4 @@
-// src/main/agent/accounts.ts — 业务层:账户凭据管理
+// src/main/accounts/account-store.ts — 业务层:账户凭据管理
 //
 // 凭据存 DB(account_keys 表,见 src/main/repos/account-repo.ts)。
 // secret 字段使用 SafeStorageService 加密后以 base64 存入 value 列,

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { BuiltinToolRegistry } from './builtin-registry'
-import { ToolRegistry } from './tool-registry'
+import { ToolRegistry } from './agent-toolset'
 import type { ToolDefinition, ToolMetadata } from '../tools/types'
-import type { McpToolSource } from './tool-registry'
+import type { McpToolSource } from './agent-toolset'
 
 function makeTool(name: string): ToolDefinition {
   return {

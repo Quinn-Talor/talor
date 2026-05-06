@@ -2,7 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
 import { SafeStorageService } from '../../services/safe-storage'
-import { createBasicModelInfo } from '../../types/models'
+import { createBasicModelInfo } from '@shared/types/models'
 
 export const anthropicAdapter: ModelAdapter = {
   createModel(provider, modelId) {
