@@ -58,6 +58,56 @@ import { runReactLoop } from './react-loop'
 import { toolResultPartsToBlocks } from './stream-utils'
 import type { ReactLoopOptions } from './types'
 
+/**
+ * Simulate AI SDK v6 tool lifecycle: experimental_onToolCallStart + Finish.
+ * Replaces the older params.onChunk({chunk: {type: 'tool-call'}}) pattern that
+ * stopped working when react-loop migrated tool wiring off onChunk to fix the
+ * spinner-flash-1ms bug.
+ */
+type StreamTextParams = {
+  onChunk?: (arg: { chunk: unknown }) => void
+  experimental_onToolCallStart?: (event: {
+    toolCall: { toolCallId: string; toolName: string; input: unknown }
+  }) => void
+  experimental_onToolCallFinish?: (
+    event:
+      | {
+          toolCall: { toolCallId: string; toolName: string; input: unknown }
+          durationMs: number
+          success: true
+          output: unknown
+        }
+      | {
+          toolCall: { toolCallId: string; toolName: string; input: unknown }
+          durationMs: number
+          success: false
+          error: unknown
+        },
+  ) => void
+}
+
+function fireToolCall(
+  params: StreamTextParams,
+  toolCallId: string,
+  toolName: string,
+  input: unknown,
+  output: unknown = '',
+  success = true,
+): void {
+  const toolCall = { toolCallId, toolName, input }
+  params.experimental_onToolCallStart?.({ toolCall })
+  if (success) {
+    params.experimental_onToolCallFinish?.({ toolCall, durationMs: 1, success: true, output })
+  } else {
+    params.experimental_onToolCallFinish?.({
+      toolCall,
+      durationMs: 1,
+      success: false,
+      error: output,
+    })
+  }
+}
+
 function makeOpts(overrides: Partial<ReactLoopOptions> = {}): ReactLoopOptions {
   const controller = new AbortController()
   return {
@@ -276,11 +326,9 @@ describe('runReactLoop — dead-loop detection', () => {
   }
 
   it('带 error 的同签名第 2 次即 break (阈值 1)', async () => {
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       if (params.onChunk) {
-        params.onChunk({
-          chunk: { type: 'tool-call', toolCallId: 'tc', toolName: 'bash', input: { cmd: 'ls' } },
-        })
+        fireToolCall(params, 'tc', 'bash', { cmd: 'ls' }, 'Error: same error')
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
           toolResults: Promise.resolve([
@@ -318,16 +366,9 @@ describe('runReactLoop — dead-loop detection', () => {
       })),
     )
 
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       if (params.onChunk) {
-        params.onChunk({
-          chunk: {
-            type: 'tool-call',
-            toolCallId: 'tc',
-            toolName: 'read',
-            input: { path: 'a.txt' },
-          },
-        })
+        fireToolCall(params, 'tc', 'read', { path: 'a.txt' }, 'same content')
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
           toolResults: Promise.resolve([
@@ -355,7 +396,7 @@ describe('runReactLoop — dead-loop detection', () => {
 
   it('连续 3 步全部失败 → 进入 failure-recovery 摘要而非冷halt', async () => {
     let stepIdx = 0
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       if (!params.onChunk) {
         // runFailureStreakSummary 调用：返回 streaming text（mock 解释文本）
         return {
@@ -366,14 +407,7 @@ describe('runReactLoop — dead-loop detection', () => {
         }
       }
       stepIdx++
-      params.onChunk({
-        chunk: {
-          type: 'tool-call',
-          toolCallId: `tc${stepIdx}`,
-          toolName: 'bash',
-          input: { cmd: `cmd${stepIdx}` },
-        },
-      })
+      fireToolCall(params, `tc${stepIdx}`, 'bash', { cmd: `cmd${stepIdx}` }, `Error: err${stepIdx}`)
       return {
         consumeStream: vi.fn().mockResolvedValue(undefined),
         toolResults: Promise.resolve([
@@ -426,10 +460,7 @@ describe('runReactLoop — dead-loop detection', () => {
     })
 
     mockStreamText.mockImplementation(
-      (params: {
-        onChunk?: (arg: { chunk: unknown }) => void
-        messages?: Array<{ role: string; content: unknown }>
-      }) => {
+      (params: StreamTextParams & { messages?: Array<{ role: string; content: unknown }> }) => {
         if (!params.onChunk) {
           return {
             consumeStream: vi.fn().mockResolvedValue(undefined),
@@ -446,14 +477,13 @@ describe('runReactLoop — dead-loop detection', () => {
             m.content.includes('failure-streak warning'),
         )
         hintPresentPerStep.push(hasHint)
-        params.onChunk({
-          chunk: {
-            type: 'tool-call',
-            toolCallId: `tc${stepIdx}`,
-            toolName: 'bash',
-            input: { cmd: `cmd${stepIdx}` },
-          },
-        })
+        fireToolCall(
+          params,
+          `tc${stepIdx}`,
+          'bash',
+          { cmd: `cmd${stepIdx}` },
+          `Error: err${stepIdx}`,
+        )
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
           toolResults: Promise.resolve([
@@ -473,7 +503,7 @@ describe('runReactLoop — dead-loop detection', () => {
 
   it('同命令但字段顺序不同时 signature 相同,触发重复侦测', async () => {
     let stepIdx = 0
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       if (!params.onChunk) {
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
@@ -487,9 +517,7 @@ describe('runReactLoop — dead-loop detection', () => {
         stepIdx === 1
           ? { command: 'ls', description: 'note' }
           : { description: 'note', command: 'ls' }
-      params.onChunk({
-        chunk: { type: 'tool-call', toolCallId: `tc${stepIdx}`, toolName: 'bash', input },
-      })
+      fireToolCall(params, `tc${stepIdx}`, 'bash', input, 'Error: same error')
       return {
         consumeStream: vi.fn().mockResolvedValue(undefined),
         toolResults: Promise.resolve([
@@ -517,7 +545,7 @@ describe('runReactLoop — dead-loop detection', () => {
     // 指引文本 → hash 相同;新逻辑跳到 [Raw output] 之后,能区分不同的 raw。
     const GUIDE_PREFIX = '[How to interpret this result]\n\n' + 'x'.repeat(1000) + '\n\n---\n\n'
     let stepIdx = 0
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       if (!params.onChunk) {
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
@@ -528,21 +556,15 @@ describe('runReactLoop — dead-loop detection', () => {
       }
       stepIdx++
       // 两次同 input,但 output 的 raw 段不同——signature 应当不同
-      params.onChunk({
-        chunk: {
-          type: 'tool-call',
-          toolCallId: `tc${stepIdx}`,
-          toolName: 'read',
-          input: { path: '/x' },
-        },
-      })
+      const output = GUIDE_PREFIX + '[Raw output]\nraw-content-' + stepIdx
+      fireToolCall(params, `tc${stepIdx}`, 'read', { path: '/x' }, output)
       return {
         consumeStream: vi.fn().mockResolvedValue(undefined),
         toolResults: Promise.resolve([
           {
             toolCallId: `tc${stepIdx}`,
             toolName: 'read',
-            output: GUIDE_PREFIX + '[Raw output]\nraw-content-' + stepIdx,
+            output,
           },
         ]),
       }
@@ -575,7 +597,7 @@ describe('runReactLoop — dead-loop detection', () => {
       })),
     )
 
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       if (!params.onChunk) {
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
@@ -585,14 +607,7 @@ describe('runReactLoop — dead-loop detection', () => {
         }
       }
       stepIdx++
-      params.onChunk({
-        chunk: {
-          type: 'tool-call',
-          toolCallId: `tc${stepIdx}`,
-          toolName: 'bash',
-          input: { cmd: `cmd${stepIdx}` },
-        },
-      })
+      fireToolCall(params, `tc${stepIdx}`, 'bash', { cmd: `cmd${stepIdx}` }, `out${stepIdx}`)
       return {
         consumeStream: vi.fn().mockResolvedValue(undefined),
         toolResults: Promise.resolve([
@@ -626,40 +641,31 @@ describe('runReactLoop — fallback summary quote verification', () => {
    */
   function setupFallbackScenarioWithSummary(summaryText: string) {
     let call = 0
-    mockStreamText.mockImplementation(
-      (params: { onChunk?: (arg: { chunk: unknown }) => void; messages?: unknown[] }) => {
-        call++
-        if (call === 1) {
-          // 第 1 步:触发 tool-call 但 toolResults 返回空 → 走 disambiguation 分支
-          params.onChunk?.({
-            chunk: {
-              type: 'tool-call',
-              toolCallId: 'tc1',
-              toolName: 'read',
-              input: { path: '/a' },
-            },
-          })
-          return {
-            consumeStream: vi.fn().mockResolvedValue(undefined),
-            toolResults: Promise.resolve([]),
-          }
-        }
-        if (call === 2) {
-          // 第 2 步:无工具、无文本 → 触发兜底
-          return {
-            consumeStream: vi.fn().mockResolvedValue(undefined),
-            toolResults: Promise.resolve([]),
-          }
-        }
-        // 第 3 次 streamText = runFallbackSummary 内部调用:产出摘要
-        // 兜底分支用 `for await (const chunk of result.textStream)` 消费
+    mockStreamText.mockImplementation((params: StreamTextParams & { messages?: unknown[] }) => {
+      call++
+      if (call === 1) {
+        // 第 1 步:触发 tool-call 但 toolResults 返回空 → 走 disambiguation 分支
+        fireToolCall(params, 'tc1', 'read', { path: '/a' })
         return {
-          textStream: (async function* () {
-            yield summaryText
-          })(),
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          toolResults: Promise.resolve([]),
         }
-      },
-    )
+      }
+      if (call === 2) {
+        // 第 2 步:无工具、无文本 → 触发兜底
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          toolResults: Promise.resolve([]),
+        }
+      }
+      // 第 3 次 streamText = runFallbackSummary 内部调用:产出摘要
+      // 兜底分支用 `for await (const chunk of result.textStream)` 消费
+      return {
+        textStream: (async function* () {
+          yield summaryText
+        })(),
+      }
+    })
   }
 
   it('fallback 摘要里未命中 tool_output 的长引用被替换为 ⟨unverifiable⟩', async () => {
@@ -761,18 +767,16 @@ describe('runReactLoop — empty toolResults disambiguation', () => {
    */
   function setupToolCallThenFinalText(toolName: string) {
     let call = 0
-    mockStreamText.mockImplementation((params: { onChunk: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       call++
       if (call === 1) {
-        params.onChunk({
-          chunk: { type: 'tool-call', toolCallId: 'tc1', toolName, input: { x: 1 } },
-        })
+        fireToolCall(params, 'tc1', toolName, { x: 1 })
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
           toolResults: Promise.resolve([]),
         }
       }
-      params.onChunk({ chunk: { type: 'text-delta', text: 'done' } })
+      params.onChunk?.({ chunk: { type: 'text-delta', text: 'done' } })
       return {
         consumeStream: vi.fn().mockResolvedValue(undefined),
         toolResults: Promise.resolve([]),
@@ -887,7 +891,7 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
     scripts: Array<{ toolNames: string[]; text?: string; toolOutputs?: string[] }>,
   ) {
     let stepIdx = 0
-    mockStreamText.mockImplementation((params: { onChunk?: (arg: { chunk: unknown }) => void }) => {
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
       const script = scripts[stepIdx] ?? { toolNames: [] }
       stepIdx++
       const text = script.text ?? ''
@@ -896,9 +900,8 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
       script.toolNames.forEach((name, i) => {
         const toolCallId = `tc-${stepIdx}-${i}`
         const input = { idx: i }
-        params.onChunk?.({
-          chunk: { type: 'tool-call', toolCallId, toolName: name, input },
-        })
+        const output = script.toolOutputs?.[i] ?? `${name} ok`
+        fireToolCall(params, toolCallId, name, input, output)
         toolCalls.push({ toolCallId, toolName: name, input })
       })
       const toolResults = toolCalls.map((tc, i) => ({
