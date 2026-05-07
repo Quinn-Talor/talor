@@ -312,11 +312,10 @@ async function runReactStep(
     input: unknown
     startedAt: number
   }> = []
-  // 跟踪本步已通过 onChunk 解决的 toolCallId。AI SDK 的 onChunk 只投递
-  // tool-result,不投递 tool-error；tool-error 只走 fullStream。如果工具因
-  // SDK 层错误(input 校验失败、execute 抛 uncaught error 等)走 tool-error
-  // 路径,渲染端的 spinner 会卡死。stream 消费结束后用 result.steps 对账,
-  // 给未解决的 toolCallId 主动发 onToolResult。
+  // 跟踪本步通过 experimental_onToolCallFinish 已解决的 toolCallId。
+  // 该回调对 success / error 都会触发,正常情况下应当全部解决。这里保留 Set
+  // 仅作为兜底:若某个 toolCallId 走了非常规路径 (SDK 取消、未来 API 变更
+  // 等),consumeStream 之后用 result.steps 对账,给未解决的发一个错误结果。
   const stepResolvedToolCallIds = new Set<string>()
   let stepText = ''
   let stepReasoning = ''
@@ -329,32 +328,58 @@ async function runReactStep(
     ...ctx.streamOptions,
     abortSignal: buildStreamSignal(ctx.abortSignal),
     onChunk({ chunk }) {
+      // 只处理文本类 chunk:tool-call / tool-result chunk 在 AI SDK v6 内部被
+      // 等到 execute() 完成后一起 flush,放在这里会导致 spinner 闪 1ms 就消失。
+      // 工具生命周期改用 experimental_onToolCallStart / Finish(execute 前后实时触发)。
       if (chunk.type === 'text-delta') {
         stepText += chunk.text
         if (chunk.text.length > 0) ctx.callbacks.onTextDelta(chunk.text, stepIndex)
       } else if (chunk.type === 'reasoning-delta') {
         stepReasoning += chunk.text
-      } else if (chunk.type === 'tool-call') {
-        const startedAt = Date.now()
-        stepToolCalls.push({
-          toolCallId: chunk.toolCallId,
-          toolName: chunk.toolName,
-          input: chunk.input,
-          startedAt,
-        })
-        ctx.callbacks.onToolCall(
-          chunk.toolCallId,
-          chunk.toolName,
-          chunk.input,
-          stepIndex,
-          startedAt,
-        )
-      } else if (chunk.type === 'tool-result') {
-        const callEntry = stepToolCalls.find((tc) => tc.toolCallId === chunk.toolCallId)
-        const durationMs = callEntry ? Date.now() - callEntry.startedAt : 0
-        stepResolvedToolCallIds.add(chunk.toolCallId)
-        ctx.callbacks.onToolResult(chunk.toolCallId, chunk.toolName, chunk.output, durationMs)
       }
+    },
+    experimental_onToolCallStart({ toolCall }) {
+      const startedAt = Date.now()
+      stepToolCalls.push({
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        input: toolCall.input,
+        startedAt,
+      })
+      log.info(
+        `[ReactLoop]   ⊳ tool-start: ${toolCall.toolName} id=${toolCall.toolCallId.slice(0, 12)}`,
+      )
+      ctx.callbacks.onToolCall(
+        toolCall.toolCallId,
+        toolCall.toolName,
+        toolCall.input,
+        stepIndex,
+        startedAt,
+      )
+    },
+    experimental_onToolCallFinish(event) {
+      stepResolvedToolCallIds.add(event.toolCall.toolCallId)
+      log.info(
+        `[ReactLoop]   ⊲ tool-finish: ${event.toolCall.toolName} id=${event.toolCall.toolCallId.slice(0, 12)} [${event.durationMs}ms] success=${event.success}`,
+      )
+      const output = event.success
+        ? event.output
+        : {
+            __talor_error: true,
+            code: 'SDK_TOOL_ERROR',
+            message:
+              event.error instanceof Error
+                ? event.error.message
+                : typeof event.error === 'string'
+                  ? event.error
+                  : JSON.stringify(event.error),
+          }
+      ctx.callbacks.onToolResult(
+        event.toolCall.toolCallId,
+        event.toolCall.toolName,
+        output,
+        event.durationMs,
+      )
     },
     onError({ error }) {
       log.error('[ReactLoop]   stream error:', error)
