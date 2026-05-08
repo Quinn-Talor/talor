@@ -4,6 +4,8 @@ import log from 'electron-log'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
+export type SessionStatus = 'running' | 'completed' | 'aborted'
+
 export interface SessionRow {
   id: string
   title: string
@@ -12,6 +14,9 @@ export interface SessionRow {
   workspace: string | null
   agent_id: string
   parent_session_id: string | null
+  parent_message_id: string | null
+  status: SessionStatus
+  metadata: string | null
   created_at: string
   updated_at: string
 }
@@ -34,6 +39,10 @@ export interface ChatSession {
   workspace?: string
   agent_id: string
   parent_session_id?: string
+  parent_message_id?: string
+  status: SessionStatus
+  /** 临时元数据（KV）。crystallizer / 子组件用此通道传 session 上下文，不参与持久化语义。 */
+  metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -56,8 +65,24 @@ function rowToSession(row: SessionRow): ChatSession {
     workspace: row.workspace ?? undefined,
     agent_id: row.agent_id ?? '__chat__',
     parent_session_id: row.parent_session_id ?? undefined,
+    parent_message_id: row.parent_message_id ?? undefined,
+    status: (row.status as SessionStatus) ?? 'completed',
+    metadata: parseMetadata(row.metadata),
     created_at: row.created_at,
     updated_at: row.updated_at,
+  }
+}
+
+function parseMetadata(raw: string | null): Record<string, unknown> | undefined {
+  if (raw === null || raw === undefined || raw === '') return undefined
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+    return undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -93,37 +118,103 @@ export const sessionRepo = {
     model_id?: string
     agent_id?: string
     parent_session_id?: string
+    parent_message_id?: string
+    workspace?: string
+    status?: SessionStatus
   }): ChatSession {
     const db = getDb()
     const id = uuidv4()
     const now = new Date().toISOString()
     const agentId = params.agent_id ?? '__chat__'
+    // 顶层 session 默认 'completed'（不参与状态机），子 session 由调用方显式传 'running'。
+    const status: SessionStatus = params.status ?? 'completed'
     db.prepare(
       `
-      INSERT INTO sessions (id, title, provider_id, model_id, agent_id, parent_session_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, title, provider_id, model_id, workspace, agent_id, parent_session_id, parent_message_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     ).run(
       id,
       params.title,
       params.provider_id,
       params.model_id ?? null,
+      params.workspace ?? null,
       agentId,
       params.parent_session_id ?? null,
+      params.parent_message_id ?? null,
+      status,
       now,
       now,
     )
-    log.info('[SessionRepo] Created session:', id, 'agent:', agentId)
+    log.info(
+      '[SessionRepo] Created session:',
+      id,
+      'agent:',
+      agentId,
+      params.parent_session_id ? `parent=${params.parent_session_id}` : '',
+      `status=${status}`,
+    )
     return {
       id,
       title: params.title,
       provider_id: params.provider_id,
       model_id: params.model_id,
+      workspace: params.workspace,
       agent_id: agentId,
       parent_session_id: params.parent_session_id,
+      parent_message_id: params.parent_message_id,
+      status,
       created_at: now,
       updated_at: now,
     }
+  },
+
+  /**
+   * 读 session.metadata（JSON KV）。crystallizer 等组件读 session 上下文用。
+   * 不存在或解析失败返空对象 {}（保守降级，不阻断业务流程）。
+   */
+  getMetadata(id: string): Record<string, unknown> {
+    try {
+      const db = getDb()
+      const row = db.prepare('SELECT metadata FROM sessions WHERE id = ?').get(id) as
+        | { metadata: string | null }
+        | undefined
+      if (!row) return {}
+      return parseMetadata(row.metadata) ?? {}
+    } catch (err) {
+      log.warn('[SessionRepo] getMetadata failed:', id, err)
+      return {}
+    }
+  },
+
+  /**
+   * 写 session.metadata。整体替换语义（不做 deep merge —— 调用方按需 spread 现有值后再传入）。
+   * 不存在的 sessionId 静默无操作（按 SQL UPDATE 0 行行为）。
+   */
+  setMetadata(id: string, metadata: Record<string, unknown>): void {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const json = JSON.stringify(metadata)
+    db.prepare('UPDATE sessions SET metadata = ?, updated_at = ? WHERE id = ?').run(json, now, id)
+    log.info('[SessionRepo] Updated metadata:', id, 'keys:', Object.keys(metadata).join(','))
+  },
+
+  /**
+   * 更新 session 状态。仅用于子 session 终态切换：
+   *   'running' → 'completed' | 'aborted'
+   * 顶层 session 默认 'completed'，本方法对其无意义但不报错（按 SQL 行为）。
+   *
+   * 不存在返 null（§E-MUST-2）。
+   */
+  updateStatus(id: string, status: SessionStatus): ChatSession | null {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const info = db
+      .prepare('UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?')
+      .run(status, now, id)
+    if (info.changes === 0) return null
+    log.info('[SessionRepo] Updated status:', id, '->', status)
+    return this.getById(id)
   },
 
   updateAgentId(id: string, agentId: string): ChatSession | null {
@@ -208,6 +299,47 @@ export const sessionRepo = {
     const db = getDb()
     db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     log.info('[SessionRepo] Deleted session:', id)
+  },
+
+  /**
+   * 列出此 session 委托过的子 agent_id 集合（基于结构事实查 child sessions）。
+   *
+   * 用途：crystallizer 沉淀时把这些 id 写入新 agent profile 的
+   * `dependencies.subagents`，让抽出的业务 agent 在新 session 工作时能继续委托。
+   *
+   * 实现：查 sessions 表中 parent_session_id = sessionId 的所有子 session，
+   * 取 distinct agent_id（按首次出现时间排序）。**不依赖 SQL 字符串扫描**——
+   * 子 session 行是 delegate_agent.execute 调用的结构事实，零假阳性。
+   *
+   * 失败时（DB 异常）返回 [] + log.warn（保守降级，不阻塞 crystallizer）。
+   */
+  listDelegatedAgents(sessionId: string): string[] {
+    try {
+      const db = getDb()
+      const rows = db
+        .prepare(
+          `SELECT agent_id, MIN(created_at) AS first_at
+             FROM sessions
+            WHERE parent_session_id = ?
+            GROUP BY agent_id
+            ORDER BY first_at ASC`,
+        )
+        .all(sessionId) as Array<{ agent_id: string }>
+      return rows.map((r) => r.agent_id)
+    } catch (err) {
+      log.warn('[SessionRepo] listDelegatedAgents failed:', sessionId, err)
+      return []
+    }
+  },
+
+  /**
+   * 判断 session 历史中是否发生过 delegate_agent 调用。
+   *
+   * v2 实现：调用 listDelegatedAgents().length > 0（结构事实，零字符串扫描）。
+   * 兼容旧调用方；新代码推荐直接用 listDelegatedAgents 拿到具体 id 列表。
+   */
+  hasDelegation(sessionId: string): boolean {
+    return this.listDelegatedAgents(sessionId).length > 0
   },
 }
 

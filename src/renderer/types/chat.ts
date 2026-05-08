@@ -32,6 +32,8 @@ export interface ChatMessage {
   created_at: string
 }
 
+export type SessionStatus = 'running' | 'completed' | 'aborted'
+
 export interface ChatSession {
   id: string
   title: string
@@ -39,6 +41,12 @@ export interface ChatSession {
   model_id?: string
   workspace?: string
   agent_id?: string
+  /** 父 session id（如果此 session 是被 delegate_agent 创建的子 session）。 */
+  parent_session_id?: string
+  /** 父 step 触发委托时正在 stream 的 assistant message id。 */
+  parent_message_id?: string
+  /** 子 session 生命周期状态；顶层 session 默认 'completed'，不参与状态机。 */
+  status?: SessionStatus
   created_at: string
   updated_at: string
 }

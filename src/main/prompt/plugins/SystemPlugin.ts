@@ -143,6 +143,26 @@ Do NOT pre-read every \`MUST READ\` file the skill mentions before your first
 attempt. Skill docs often over-require reading; the real source of truth is
 whether the CLI succeeded.`
 
+/**
+ * Layer 2.5 — 委托引导（仅当 agent 持有 delegate_agent 工具时追加）。
+ *
+ * 鼓励模型把独立子任务并行委托给专家 subagent。"context" 字段必须自包含，
+ * 因为 subagent 看不到此对话。
+ */
+const DELEGATION_GUIDANCE = `# Subagent delegation
+
+When you have multiple independent sub-tasks (translation, focused research,
+isolated coding), prefer delegating them to specialized subagents via the
+\`delegate_agent\` tool rather than doing everything inline.
+
+For multiple independent delegations, emit them as parallel \`delegate_agent\`
+tool calls in the SAME step (multiple tool_use blocks). Do not chain them
+serially across steps.
+
+The \`context\` field MUST contain all background the subagent needs.
+The subagent CANNOT see this conversation; it only sees its own profile,
+the \`instruction\`, and the \`context\` you provide.`
+
 export class SystemPlugin implements PromptPlugin {
   name = 'SystemPlugin'
 
@@ -152,9 +172,17 @@ export class SystemPlugin implements PromptPlugin {
       `Operating system: ${process.platform}`,
       `Workspace: ${ctx.workspacePath ?? '(not set)'}`,
     ]
-    const content = [BEHAVIORAL_CHARTER, '---', TASK_ROUTING, '---', runtimeLines.join('\n')].join(
-      '\n\n',
-    )
+
+    // 仅当此 agent 实际持有 delegate_agent 工具时，注入委托引导文本。
+    // 工作模式 / __crystallizer__ 因 disabledTools 拿不到此工具，引导文本
+    // 不出现，避免误导模型尝试调用不存在的工具。
+    const sections: string[] = [BEHAVIORAL_CHARTER, '---', TASK_ROUTING]
+    if (ctx.agent?.toolRegistry.hasTool('delegate_agent')) {
+      sections.push('---', DELEGATION_GUIDANCE)
+    }
+    sections.push('---', runtimeLines.join('\n'))
+
+    const content = sections.join('\n\n')
     return {
       messages: [{ role: 'system', content }],
       tools: [],

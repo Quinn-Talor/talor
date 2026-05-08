@@ -11,6 +11,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     provider_id TEXT NOT NULL,
     model_id TEXT,
     workspace TEXT,
+    agent_id TEXT NOT NULL DEFAULT '__chat__',
+    parent_session_id TEXT,
+    parent_message_id TEXT,
+    status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('running', 'completed', 'aborted')),
+    metadata TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -23,6 +28,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role         TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
     content      TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT 'blocks',
+    agent_id     TEXT NOT NULL DEFAULT '__chat__',
     created_at   TEXT NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
@@ -102,51 +108,122 @@ export function initChatDb(): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
+  // Drop outdated sessions/messages tables before CREATE.
+  // Per project decision: do NOT preserve historical session data when schema
+  // changes. Schema is the source of truth; old data is wiped on upgrade.
+  recreateSessionsIfOutdated(db)
+
   db.exec(CREATE_SESSIONS)
+  db.exec(CREATE_MESSAGES)
+  db.exec(CREATE_INDEX)
   db.exec(CREATE_MCP_SERVERS)
   db.exec(CREATE_SESSION_SUMMARIES)
   db.exec(CREATE_ACCOUNT_KEYS)
 
-  // Migrate sessions: add workspace column if missing
-  const sessionCols = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>
-  if (!sessionCols.some((c) => c.name === 'workspace')) {
-    db.exec(`ALTER TABLE sessions ADD COLUMN workspace TEXT;`)
-    log.info('[ChatDB] Migrated: added workspace column')
-  }
-
-  // Clear-and-recreate messages table when schema is outdated
-  const msgCols = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
-  const hasContentType = msgCols.some((c) => c.name === 'content_type')
-  const hasToolRole = msgCols.length > 0 // table exists
-  if (!hasContentType && hasToolRole) {
-    // Old schema without content_type — drop and recreate (clear-and-recreate migration)
-    log.info('[ChatDB] Migrating messages table: dropping old schema')
-    db.exec('DROP TABLE IF EXISTS messages;')
-  }
-  db.exec(CREATE_MESSAGES)
-  db.exec(CREATE_INDEX)
-
-  // Migrate sessions: add agent_id column if missing (default: __chat__)
-  if (!sessionCols.some((c) => c.name === 'agent_id')) {
-    db.exec("ALTER TABLE sessions ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
-    log.info('[ChatDB] Migrated: added sessions.agent_id')
-  }
-
-  // Migrate sessions: add parent_session_id column if missing
-  if (!sessionCols.some((c) => c.name === 'parent_session_id')) {
-    db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT')
-    log.info('[ChatDB] Migrated: added sessions.parent_session_id')
-  }
-
-  // Migrate messages: add agent_id column if missing
-  const currentMsgCols = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>
-  if (!currentMsgCols.some((c) => c.name === 'agent_id')) {
-    db.exec("ALTER TABLE messages ADD COLUMN agent_id TEXT NOT NULL DEFAULT '__chat__'")
-    log.info('[ChatDB] Migrated: added messages.agent_id')
-  }
+  // Cleanup orphan running sub-sessions left from previous crashed runs.
+  cleanupOrphanRunningSubSessions(db)
 
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db
+}
+
+/**
+ * 检查 sessions / messages 表是否符合最新 schema；任一表 outdated（必需列
+ * 缺失）则**连同两表一起 DROP**，让后续 `CREATE TABLE IF NOT EXISTS` 重建为
+ * 干净的最新 schema。
+ *
+ * 设计决策：**不保留历史 session 数据**。schema 是 source of truth，
+ * 升级时旧数据直接丢弃。messages 通过 FK 依赖 sessions，drop 顺序：
+ * messages 先于 sessions。
+ *
+ * 必需列清单与各 CREATE_* DDL 同步；任一列缺失即触发重建。
+ *
+ * 全新数据库（两表都不存在）走 IF NOT EXISTS 创建路径，本函数 no-op。
+ */
+export function recreateSessionsIfOutdated(db: Database.Database): void {
+  const sessionsRequiredCols = [
+    'id',
+    'title',
+    'provider_id',
+    'model_id',
+    'workspace',
+    'agent_id',
+    'parent_session_id',
+    'parent_message_id',
+    'status',
+    'metadata',
+    'created_at',
+    'updated_at',
+  ]
+  const messagesRequiredCols = [
+    'id',
+    'session_id',
+    'role',
+    'content',
+    'content_type',
+    'agent_id',
+    'created_at',
+  ]
+
+  const sessionsMissing = collectMissingCols(db, 'sessions', sessionsRequiredCols)
+  const messagesMissing = collectMissingCols(db, 'messages', messagesRequiredCols)
+
+  if (sessionsMissing === null && messagesMissing === null) return // 全新 DB
+  if (sessionsMissing?.length === 0 && messagesMissing?.length === 0) return // 都最新
+
+  const reasons: string[] = []
+  if (sessionsMissing && sessionsMissing.length > 0)
+    reasons.push(`sessions(missing: ${sessionsMissing.join(', ')})`)
+  if (messagesMissing && messagesMissing.length > 0)
+    reasons.push(`messages(missing: ${messagesMissing.join(', ')})`)
+
+  log.info(
+    `[ChatDB] schema outdated [${reasons.join('; ')}]. ` +
+      `Dropping sessions + messages and recreating with fresh schema (old data discarded).`,
+  )
+  db.exec('DROP TABLE IF EXISTS messages;')
+  db.exec('DROP TABLE IF EXISTS sessions;')
+}
+
+/** 返回缺失列名数组；表不存在返 null（区分"表不存在"vs"表存在但缺列"）。 */
+function collectMissingCols(
+  db: Database.Database,
+  tableName: string,
+  required: string[],
+): string[] | null {
+  const exists = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+    .get(tableName) as { name: string } | undefined
+  if (!exists) return null
+  const cols = (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map(
+    (c) => c.name,
+  )
+  return required.filter((c) => !cols.includes(c))
+}
+
+/**
+ * Subagent delegation TASK-1：启动期把所有 status='running' 且
+ * parent_session_id 非空的 session 转成 'aborted'。
+ *
+ * 用途：上次进程崩溃留下的 in-flight 子 session，在新一次启动时纠正状态，
+ * 避免 UI 永远显示"跑中"。
+ *
+ * 仅作用于子 session（parent_session_id IS NOT NULL）；顶层 session 的
+ * 'running' 状态目前未被本特性使用，保留不动。
+ */
+export function cleanupOrphanRunningSubSessions(db: Database.Database): void {
+  const info = db
+    .prepare(
+      `UPDATE sessions
+          SET status = 'aborted',
+              updated_at = ?
+        WHERE status = 'running'
+          AND parent_session_id IS NOT NULL`,
+    )
+    .run(new Date().toISOString())
+  if (info.changes > 0) {
+    log.info(`[ChatDB] Cleaned up ${info.changes} orphan running sub-sessions`)
+  }
 }
 
 export function closeChatDb(): void {

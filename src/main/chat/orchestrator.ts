@@ -32,8 +32,12 @@ import type { ToolConfirmPort } from '../ipc/tool-confirm'
 
 // 单例：pipeline 和 memoryManager 按进程全局持有，避免每次请求重建插件链。
 // 注：单例副作用意味着未来增加与 session 绑定的状态时要小心——目前两者都是无状态的。
+//
+// `pipeline` 也供 delegate_agent 子 loop 复用（pipeline.build(ctx) 按 sessionId
+// 取消息，不持有 session 级状态）；通过 sharedPromptPipeline export 暴露。
 const memoryManager = new MemoryManager()
 const pipeline = new PromptPipeline(memoryManager)
+export const sharedPromptPipeline = pipeline
 
 /** chat:send 业务入参（camelCase；入口层负责 snake_case ↔ camelCase 转换）。 */
 export interface ChatSendParams {

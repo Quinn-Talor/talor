@@ -214,4 +214,51 @@ describe('ToolRegistry', () => {
       expect(names).toContain('search_tool')
     })
   })
+
+  describe('disabledTools (TASK-4, AC-019: 通用机制)', () => {
+    it('AC-019 (trigger): listTools excludes disabled tools', () => {
+      const registry = new ToolRegistry(
+        builtinRegistry,
+        null,
+        new Set(), // platform-style: no allowlist
+        [],
+        new Set(['bash', 'write']),
+      )
+      const names = registry.getToolNames()
+      expect(names).not.toContain('bash')
+      expect(names).not.toContain('write')
+      expect(names).toContain('read') // not disabled
+    })
+
+    it('AC-019 (no-trigger): empty disabledTools means nothing filtered', () => {
+      const registry = new ToolRegistry(builtinRegistry, null, new Set(), [], new Set())
+      const names = registry.getToolNames()
+      expect(names).toContain('bash')
+      expect(names).toContain('write')
+    })
+
+    it('disabledTools applies even when allowedTools whitelist is set', () => {
+      const registry = new ToolRegistry(
+        builtinRegistry,
+        null,
+        new Set(['bash', 'write']), // explicitly allowed
+        [],
+        new Set(['bash']), // but disabled wins
+      )
+      const names = registry.getToolNames()
+      expect(names).not.toContain('bash')
+      expect(names).toContain('write')
+    })
+
+    it('execute() path is NOT filtered by disabledTools (internal helpers can still call)', async () => {
+      const registry = new ToolRegistry(builtinRegistry, null, new Set(), [], new Set(['bash']))
+      // bash is disabled in listTools, but execute should still find and run it
+      const result = await registry.execute(
+        'bash',
+        {},
+        {} as Parameters<typeof registry.execute>[2],
+      )
+      expect(result.output).toBe('bash result')
+    })
+  })
 })

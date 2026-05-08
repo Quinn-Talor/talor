@@ -10,11 +10,16 @@
 // 关键概念区分：
 //   1. "工具已注册"（execute 时能找到）vs "工具对 LLM 暴露"（出现在 listTools）
 //      —— 不同 Agent 注册的工具集相同（共享 BuiltinToolRegistry），但暴露给 LLM
-//      的子集可以不同。后者由 allowedTools + ALWAYS_AVAILABLE_TOOLS 决策。
-//   2. 平台 Agent（__chat__ / __crystallizer__）：allowedTools.size === 0，不过滤，
-//      所有已注册工具都暴露。
+//      的子集可以不同。后者由 disabledTools + allowedTools + ALWAYS_AVAILABLE_TOOLS
+//      共同决策。
+//   2. 平台 Agent（__chat__ / __coordinator__ / __crystallizer__）：
+//      allowedTools.size === 0，不走白名单过滤；但 disabledTools（profile 声明）
+//      仍会过滤掉不暴露的工具（例如 __chat__ / __crystallizer__ 的
+//      disabledTools 含 'delegate_agent'）。
 //   3. 业务 Agent（如 sales-analyst）：profile.dependencies.tools 显式声明白名单，
-//      此时仅"白名单 ∪ ALWAYS_AVAILABLE_TOOLS"对 LLM 暴露，详见 ALWAYS_AVAILABLE_TOOLS 注释。
+//      此时仅"白名单 ∪ ALWAYS_AVAILABLE_TOOLS"对 LLM 暴露，再叠加 disabledTools 过滤。
+//      业务 agent 永不接收 DelegationRuntime（架构层），即使 profile 没声明
+//      disabledTools 也拿不到 delegate_agent 工具实例。
 //
 // search_tool 处理：Agent 构造时按需注入到 agentTools。本 registry 在 mcpRegistry
 // 无任何工具时主动从 listBuiltinTools 输出中过滤掉，避免暴露一个永远返回
@@ -41,15 +46,17 @@ import type { BuiltinToolRegistry } from './builtin-registry'
  * 故意排除：
  *   - write / edit：写文件，必须显式声明
  *   - bash：执行任意命令，最高风险
- *   - delegate_agent：调度其他 Agent，权责重
+ *   - delegate_agent：通过 DelegationRuntime 注入 + profile.disabledTools 控制，
+ *     不走 ALWAYS_AVAILABLE 路径（业务 agent 永不持有此工具实例）
  *   - MCP 工具：走 search_tool 按需加载，或显式 allowlist
  *
  * 注意：ALWAYS_AVAILABLE_TOOLS 是"豁免白名单"，不等于"必然存在"。如果 Agent
  * 没有注入对应工具（比如 skillRegistry 为空时不注入 skill 工具），它仍不在
  * 最终 tools 列表里。本集合只在 applyAllowlist filter 时绕开 allowlist 检查。
  *
- * 平台 Agent（__chat__ / __crystallizer__）的 allowedTools 为空集，本豁免逻辑
- * 不生效——平台 Agent 默认全部可用，反而是业务 Agent 才需要这层豁免。
+ * 平台 Agent（__chat__ / __coordinator__ / __crystallizer__）的 allowedTools
+ * 为空集，本豁免逻辑不生效——平台 Agent 默认全部可用，反而是业务 Agent 才需要这层豁免。
+ * disabledTools 黑名单作用于全部 Agent（包括平台 Agent），与 allowedTools 正交。
  */
 export const ALWAYS_AVAILABLE_TOOLS = new Set([
   'read',
@@ -58,6 +65,10 @@ export const ALWAYS_AVAILABLE_TOOLS = new Set([
   'grep',
   'skill',
   'search_tool',
+  // delegate_agent 是元工具（按 profile.subagents/allowAnyBusinessSubagent 派生 scope）。
+  // 默认对所有 agent 暴露 —— 业务 agent 通过 profile.disabledTools 显式禁用，
+  // 或不声明任何 subagents 让 scope=[]（持有工具但 listing 为空 → LLM 自然不会调）。
+  'delegate_agent',
 ])
 
 export interface McpToolSource {
@@ -81,16 +92,19 @@ function toMetadata(t: ToolDefinition): ToolMetadata {
 
 export class ToolRegistry {
   private readonly agentToolMap: ReadonlyMap<string, ToolDefinition>
+  private readonly disabledTools: ReadonlySet<string>
 
   constructor(
     private readonly builtinRegistry: BuiltinToolRegistry,
     private readonly mcpRegistry: McpToolSource | null,
     private readonly allowedTools: ReadonlySet<string>,
     agentTools?: ToolDefinition[],
+    disabledTools?: ReadonlySet<string>,
   ) {
     const map = new Map<string, ToolDefinition>()
     for (const t of agentTools ?? []) map.set(t.name, t)
     this.agentToolMap = map
+    this.disabledTools = disabledTools ?? new Set<string>()
   }
 
   /**
@@ -122,8 +136,13 @@ export class ToolRegistry {
   }
 
   private applyAllowlist(tools: ToolMetadata[]): ToolMetadata[] {
-    if (this.allowedTools.size === 0) return tools
-    return tools.filter((t) => this.allowedTools.has(t.name) || ALWAYS_AVAILABLE_TOOLS.has(t.name))
+    // 先做 disabledTools 黑名单过滤（profile 级声明）。这条规则永远生效，
+    // 与 allowedTools 是否为空无关 —— 平台 agent allowedTools 为空也要尊重。
+    const notDisabled = tools.filter((t) => !this.disabledTools.has(t.name))
+    if (this.allowedTools.size === 0) return notDisabled
+    return notDisabled.filter(
+      (t) => this.allowedTools.has(t.name) || ALWAYS_AVAILABLE_TOOLS.has(t.name),
+    )
   }
 
   getToolNames(): string[] {

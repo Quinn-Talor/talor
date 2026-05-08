@@ -204,4 +204,146 @@ describe('Agent', () => {
       expect(result.output as string).toContain('srv')
     })
   })
+
+  describe('TASK-2 delegate_agent scope (AC-021, AC-023, AC-025)', () => {
+    function makeStubRuntime(agentList: string[] = []): unknown {
+      return {
+        agentManager: {
+          getAgent: (id: string) =>
+            agentList.includes(id) ? { id, profile: { id, name: id, description: '' } } : null,
+          listBusinessAgentIds: () => agentList,
+        },
+        runReactLoop: async () => {},
+        sessionRepo: {} as unknown,
+        pipeline: {} as unknown,
+        config: {
+          maxConcurrencyPerSession: 10,
+          queueTimeoutMs: 5_000,
+          executionTimeoutMs: 10_000,
+        },
+        providerContextProvider: () => ({ model: {}, provider: {}, providerConfig: {} }),
+      }
+    }
+
+    it('AC-021 (trigger): subagents=[A] → listing only A', () => {
+      const profile: AgentProfile = {
+        ...BUSINESS_PROFILE,
+        id: 'sales-trend-analyzer',
+        dependencies: {
+          tools: [],
+          mcpServers: [],
+          skills: [],
+          cli: [],
+          subagents: [{ id: 'sales-analyst-001', required: true }],
+        },
+      }
+      const agent = new Agent({
+        profile,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+        delegationRuntime: makeStubRuntime(['sales-analyst-001', 'other-agent']) as Parameters<
+          typeof Agent
+        >[0]['delegationRuntime'],
+      } as Parameters<typeof Agent>[0])
+
+      const tools = agent.toolRegistry.getToolNames()
+      expect(tools).toContain('delegate_agent')
+
+      const desc = agent.toolRegistry.listTools().find((t) => t.name === 'delegate_agent')
+        ?.description as string
+      expect(desc).toContain('sales-analyst-001')
+      expect(desc).not.toContain('other-agent') // 不在 scope 内不展示
+      expect(desc).toContain('ONLY delegate to') // scope 限定提示
+    })
+
+    it('AC-023 (trigger): allowAnyBusinessSubagent=true → listing 含所有业务 agent', () => {
+      const profile: AgentProfile = {
+        ...PLATFORM_PROFILE,
+        dependencies: {
+          tools: [],
+          mcpServers: [],
+          skills: [],
+          cli: [],
+          allowAnyBusinessSubagent: true,
+        },
+      }
+      const agent = new Agent({
+        profile,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+        delegationRuntime: makeStubRuntime(['a', 'b', 'c']) as Parameters<
+          typeof Agent
+        >[0]['delegationRuntime'],
+      } as Parameters<typeof Agent>[0])
+
+      const tools = agent.toolRegistry.getToolNames()
+      expect(tools).toContain('delegate_agent')
+
+      const desc = agent.toolRegistry.listTools().find((t) => t.name === 'delegate_agent')
+        ?.description as string
+      expect(desc).toContain('a')
+      expect(desc).toContain('b')
+      expect(desc).toContain('c')
+      expect(desc).toContain('any registered business agent')
+    })
+
+    it('AC-022 (no-trigger): no subagents + no allowAnyBusinessSubagent → listing 为空', () => {
+      const profile: AgentProfile = {
+        ...BUSINESS_PROFILE,
+        dependencies: {
+          tools: [],
+          mcpServers: [],
+          skills: [],
+          cli: [],
+        },
+      }
+      const agent = new Agent({
+        profile,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+        delegationRuntime: makeStubRuntime([]) as Parameters<typeof Agent>[0]['delegationRuntime'],
+      } as Parameters<typeof Agent>[0])
+
+      const desc = agent.toolRegistry.listTools().find((t) => t.name === 'delegate_agent')
+        ?.description as string
+      expect(desc).toContain('no subagents available')
+    })
+
+    it('AC-025: 同时声明 subagents + allowAnyBusinessSubagent → allowAny 优先 + 警告', () => {
+      const profile: AgentProfile = {
+        ...PLATFORM_PROFILE,
+        dependencies: {
+          tools: [],
+          mcpServers: [],
+          skills: [],
+          cli: [],
+          subagents: [{ id: 'a', required: true }],
+          allowAnyBusinessSubagent: true,
+        },
+      }
+      const agent = new Agent({
+        profile,
+        source: null,
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+        delegationRuntime: makeStubRuntime(['a', 'b']) as Parameters<
+          typeof Agent
+        >[0]['delegationRuntime'],
+      } as Parameters<typeof Agent>[0])
+
+      const desc = agent.toolRegistry.listTools().find((t) => t.name === 'delegate_agent')
+        ?.description as string
+      // 应该列出全部（a, b），不是只列 a
+      expect(desc).toContain('a')
+      expect(desc).toContain('b')
+      expect(desc).toContain('any registered business agent')
+    })
+  })
 })

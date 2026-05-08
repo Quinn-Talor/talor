@@ -18,9 +18,14 @@ function makeTool(name: string): ToolDefinition {
 }
 
 const builtinRegistry = new BuiltinToolRegistry([
-  makeTool('read'), makeTool('write'), makeTool('edit'),
-  makeTool('bash'), makeTool('glob'), makeTool('grep'),
-  makeTool('ls'), makeTool('skill'),
+  makeTool('read'),
+  makeTool('write'),
+  makeTool('edit'),
+  makeTool('bash'),
+  makeTool('glob'),
+  makeTool('grep'),
+  makeTool('ls'),
+  makeTool('skill'),
 ])
 
 const BUSINESS_PROFILE: AgentProfile = {
@@ -32,7 +37,9 @@ const BUSINESS_PROFILE: AgentProfile = {
   knowledge: { files: [] },
   dependencies: {
     tools: [{ name: 'bash', required: true }],
-    mcpServers: [], skills: [], cli: [],
+    mcpServers: [],
+    skills: [],
+    cli: [],
   },
 }
 
@@ -71,8 +78,8 @@ describe('AgentManager', () => {
   it('platform __crystallizer__ has limited tools', () => {
     const cryst = manager.getAgent('__crystallizer__')!
     const tools = cryst.toolRegistry.getToolNames()
-    expect(tools).toContain('read')   // declared + ALWAYS_AVAILABLE
-    expect(tools).toContain('skill')  // ALWAYS_AVAILABLE
+    expect(tools).toContain('read') // declared + ALWAYS_AVAILABLE
+    expect(tools).toContain('skill') // ALWAYS_AVAILABLE
     expect(tools).not.toContain('bash')
     expect(tools).not.toContain('write')
   })
@@ -145,8 +152,62 @@ describe('AgentManager', () => {
 
     const tools = agent.toolRegistry.getToolNames()
     expect(tools).toContain('bash')
-    expect(tools).toContain('read')    // ALWAYS_AVAILABLE
+    expect(tools).toContain('read') // ALWAYS_AVAILABLE
     expect(tools).not.toContain('write')
     expect(tools).not.toContain('edit')
+  })
+})
+
+// ─── TASK-4: 三平台 agent + disabledTools 通用机制 ───────────────────────
+
+describe('AgentManager v2 platform agents (AC-012)', () => {
+  let manager: AgentManager
+
+  beforeEach(() => {
+    manager = new AgentManager()
+    // stubRuntime 必须含 agentManager（buildDescription 在 delegate_agent
+    // 工厂期就调用 listBusinessAgentIds，构造时 agentManager 必须可用）。
+    // 这里循环引用 manager → ok，因为 manager.init 在 stub 函数被调时已完成 platformChat 装配。
+    const stubRuntime = {
+      agentManager: {
+        getAgent: (id: string) => manager.getAgent(id),
+        listBusinessAgentIds: () => manager.listBusinessAgentIds(),
+      },
+      runReactLoop: async () => {},
+      sessionRepo: {} as unknown,
+      pipeline: {} as unknown,
+      config: { maxConcurrencyPerSession: 10, queueTimeoutMs: 5_000, executionTimeoutMs: 10_000 },
+      providerContextProvider: () => ({ model: {}, provider: {}, providerConfig: {} }),
+    } as unknown as Parameters<AgentManager['init']>[0]['delegationRuntime']
+    manager.init({
+      builtinRegistry,
+      mcpRegistry: null,
+      skillRegistry: SkillRegistry.fromDir(null),
+      delegationRuntime: stubRuntime,
+    } as Parameters<AgentManager['init']>[0])
+  })
+
+  it('AC-012: __chat__ DOES expose delegate_agent (allowAnyBusinessSubagent=true)', () => {
+    const chat = manager.getAgent('__chat__')!
+    const tools = chat.toolRegistry.getToolNames()
+    expect(tools).toContain('delegate_agent')
+  })
+
+  it('__coordinator__ no longer exists as a platform agent', () => {
+    expect(manager.getAgent('__coordinator__')).toBeNull()
+  })
+
+  it('AC-012: __crystallizer__ has delegate_agent tool with empty scope (TASK-2)', () => {
+    const cryst = manager.getAgent('__crystallizer__')!
+    const tools = cryst.toolRegistry.getToolNames()
+    // 持有工具但 scope=[] —— LLM 看到的 description listing 为空（在 buildDescription 体现）
+    expect(tools).toContain('delegate_agent')
+  })
+
+  it('CRYSTALLIZER_PROFILE.role.capabilities mention delegated_subagents ingestion', () => {
+    const cryst = manager.getAgent('__crystallizer__')!
+    const caps = cryst.profile.role.capabilities.join(' ')
+    expect(caps).toContain('delegated_subagents')
+    expect(caps).toMatch(/dependencies\.subagents/)
   })
 })

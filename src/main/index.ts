@@ -30,8 +30,14 @@ import { initChatDb, closeChatDb } from './db/index'
 import { AgentManager } from './agent/agent-manager'
 import { BuiltinToolRegistry } from './agent/builtin-registry'
 import { AccountStore } from './accounts/account-store'
-import { createDelegateAgentTool } from './agent/delegate-agent'
+import type { DelegationRuntime } from './agent/delegate-agent'
 import { toolRegistry } from './tools/registry'
+import { sessionRepo } from './repos/session-repo'
+import { sharedPromptPipeline } from './chat/orchestrator'
+import { runReactLoop } from './loop/react-loop'
+import { getAdapter } from './providers/model-adapter'
+import { getDefaultProvider, getProviderById } from './chat/provider-selector'
+import { resolveProviderConfig } from './prompt/PromptPipeline'
 import { SkillRegistry } from './skills/registry'
 import { SafeStorageService } from './services/safe-storage'
 import { safeStorage } from 'electron'
@@ -162,9 +168,10 @@ app.whenReady().then(() => {
   configStore.ensureInitialized()
   initChatDb()
 
-  // Initialize Agent system — collect builtin tool definitions (7 + delegate_agent)
-  // skill tool 不在全局 BuiltinToolRegistry，由 Agent 构造时按需注入
-  const builtinToolDefs = [...toolRegistry.listAll(), createDelegateAgentTool(agentManager)]
+  // Initialize Agent system — builtin tool definitions (skill / delegate_agent
+  // are NOT in BuiltinToolRegistry; they're agent-level instances created in
+  // Agent constructor when relevant runtime is injected).
+  const builtinToolDefs = toolRegistry.listAll()
   const builtinRegistry = new BuiltinToolRegistry(builtinToolDefs)
   const agentsDir = join(app.getPath('home'), '.talor', 'agents')
   const skillsDir = join(app.getPath('home'), '.talor', 'skills')
@@ -180,11 +187,38 @@ app.whenReady().then(() => {
 
   registerAccountHandlers(accountStore)
 
+  // Compose DelegationRuntime: subagent execution dependencies bundle.
+  // Only platform agents receive this; business agents get undefined (architecture
+  // defense — they cannot delegate even if their profile forgot disabledTools).
+  const delegationRuntime: DelegationRuntime = {
+    agentManager,
+    runReactLoop,
+    sessionRepo,
+    pipeline: sharedPromptPipeline,
+    config: configStore.getDelegation(),
+    providerContextProvider: (parentSessionId: string) => {
+      // Mirror orchestrator's provider/model resolution path so subagent inherits
+      // parent's provider config (provider, modelId, streamOptions).
+      const session = sessionRepo.getById(parentSessionId)
+      const provider =
+        (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
+      const adapter = getAdapter(provider.type)
+      const model = adapter.createModel(provider, session?.model_id ?? 'default')
+      return {
+        model,
+        provider,
+        providerConfig: resolveProviderConfig(provider),
+        streamOptions: adapter.buildStreamOptions(),
+      }
+    },
+  }
+
   agentManager.init({
     builtinRegistry,
     mcpRegistry,
     skillRegistry: platformSkillRegistry,
     agentsDir,
+    delegationRuntime,
   })
   log.info('[Main] Agent system initialized')
 

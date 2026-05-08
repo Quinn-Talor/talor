@@ -23,6 +23,13 @@ export interface ValidationResult {
  *   - 'MCP_ERROR' / 'MCP_TIMEOUT' / 'MCP_DISCONNECTED'
  *   - 'SCHEMA_INVALID' / 'VERIFY_BLOCKED' / 'VERIFY_CRASH'
  *   - 'BASH_STDERR_FAILURE' / 'EDIT_AMBIGUOUS_MATCH' 等工具特定错误
+ *   - 'AGENT_NOT_FOUND' / 'DELEGATION_QUEUE_TIMEOUT'
+ *   - 'SUBAGENT_TIMEOUT' / 'SUBAGENT_ABORTED' / 'SUBAGENT_FAILED'
+ *   - 'SUBAGENT_MCP_INIT_FAILED' / 'SUBAGENT_MAX_STEPS'
+ *
+ * 注：subagent 委托深度上限不再用 envelope 错误码——靠业务 agent 结构性
+ *     不持有 delegate_agent 工具来防递归（buildTools 不暴露 + AgentManager
+ *     不给业务 agent 注入 DelegationRuntime，两层防御）。
  */
 export interface ToolErrorEnvelope {
   __talor_error: true
@@ -81,7 +88,11 @@ export interface ToolDefinition<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   /** Zod schema。提供则 registry 用 Zod 校验,跳过 schema-check。 */
   zodSchema?: TSchema
   validate?: (input: unknown, context: ToolExecuteContext) => ValidationResult
-  verify?: (output: unknown, input: unknown, context: ToolExecuteContext) => VerifyResult | Promise<VerifyResult>
+  verify?: (
+    output: unknown,
+    input: unknown,
+    context: ToolExecuteContext,
+  ) => VerifyResult | Promise<VerifyResult>
   execute: (input: unknown, context: ToolExecuteContext) => Promise<{ output: unknown }>
 }
 
@@ -138,6 +149,24 @@ export interface ToolExecuteContext extends ToolConfig {
    * tools may opt in as needed.
    */
   abortSignal?: AbortSignal
+  /**
+   * Parent ReAct loop's currently-streaming assistant message id. Subagent
+   * delegation uses this to populate sub-session.parent_message_id when
+   * creating a child session row.
+   *
+   * Filled by `buildTools()` from the parent runReactLoop's messageId. Other
+   * tools can ignore this field.
+   */
+  parentMessageId?: string
+  /**
+   * Parent's confirmTool port. Subagent delegation forwards this into the
+   * child runReactLoop so high-risk tools inside the subagent (bash / write /
+   * edit) can still surface confirmation dialogs to the user.
+   *
+   * Filled by `buildTools()` from its `opts.confirmTool`. Other tools can
+   * ignore this field.
+   */
+  confirmTool?: import('../ipc/tool-confirm').ToolConfirmPort
 }
 
 export type PermissionPort = (req: PermissionRequestInput) => Promise<boolean>
@@ -170,4 +199,3 @@ export interface ToolMetadata {
   riskLevel?: 'HIGH' | 'LOW'
   provider?: string
 }
-

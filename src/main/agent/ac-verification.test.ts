@@ -447,9 +447,10 @@ describe('Block E: 沉淀流程', () => {
       const cryst = manager.getAgent('__crystallizer__')
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
-      expect(cryst!.profile.role.capabilities).toContain(
-        'Analyze the tools and workflow used in the conversation history.',
-      )
+      // v2: capabilities 改为 ingestion 流程；保留对"分析"语义的检查（不强制原文）
+      const caps = cryst!.profile.role.capabilities.join(' ')
+      expect(caps.toLowerCase()).toMatch(/analyze/)
+      expect(caps).toContain('delegated_subagents')
     })
   })
 

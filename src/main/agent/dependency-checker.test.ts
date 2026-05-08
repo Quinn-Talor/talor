@@ -32,14 +32,14 @@ describe('checkDependencies', () => {
   it('all pass for minimal profile', () => {
     const result = checkDependencies(BASE_PROFILE, tempDir, { appVersion: '1.0.0' })
     expect(result.passed).toBe(true)
-    expect(result.steps.every(s => s.status === 'pass')).toBe(true)
+    expect(result.steps.every((s) => s.status === 'pass')).toBe(true)
   })
 
   it('AC-B2-01: minAppVersion fail', () => {
     const profile = { ...BASE_PROFILE, minAppVersion: '99.0.0' }
     const result = checkDependencies(profile, tempDir, { appVersion: '0.2.0' })
     expect(result.passed).toBe(false)
-    const step = result.steps.find(s => s.step === 'minAppVersion')!
+    const step = result.steps.find((s) => s.step === 'minAppVersion')!
     expect(step.status).toBe('fail')
     expect(step.message).toContain('99.0.0')
     expect(step.message).toContain('0.2.0')
@@ -48,7 +48,7 @@ describe('checkDependencies', () => {
   it('minAppVersion pass', () => {
     const profile = { ...BASE_PROFILE, minAppVersion: '0.1.0' }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find(s => s.step === 'minAppVersion')!
+    const step = result.steps.find((s) => s.step === 'minAppVersion')!
     expect(step.status).toBe('pass')
   })
 
@@ -56,12 +56,19 @@ describe('checkDependencies', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
       knowledge: {
-        files: [{ path: './knowledge/manual.md', description: 'Manual', required: true, format: 'markdown' }],
+        files: [
+          {
+            path: './knowledge/manual.md',
+            description: 'Manual',
+            required: true,
+            format: 'markdown',
+          },
+        ],
       },
     }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
     expect(result.passed).toBe(false)
-    const step = result.steps.find(s => s.step === 'knowledge')!
+    const step = result.steps.find((s) => s.step === 'knowledge')!
     expect(step.status).toBe('missing')
     expect(step.message).toContain('manual.md')
   })
@@ -73,11 +80,18 @@ describe('checkDependencies', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
       knowledge: {
-        files: [{ path: './knowledge/manual.md', description: 'Manual', required: true, format: 'markdown' }],
+        files: [
+          {
+            path: './knowledge/manual.md',
+            description: 'Manual',
+            required: true,
+            format: 'markdown',
+          },
+        ],
       },
     }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find(s => s.step === 'knowledge')!
+    const step = result.steps.find((s) => s.step === 'knowledge')!
     expect(step.status).toBe('pass')
   })
 
@@ -86,11 +100,16 @@ describe('checkDependencies', () => {
       ...BASE_PROFILE,
       dependencies: {
         ...BASE_PROFILE.dependencies,
-        skills: [{ source: { type: 'npx', uri: 'test/repo' }, items: [{ name: 'missing-skill', required: true }] }],
+        skills: [
+          {
+            source: { type: 'npx', uri: 'test/repo' },
+            items: [{ name: 'missing-skill', required: true }],
+          },
+        ],
       },
     }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find(s => s.step === 'skill')!
+    const step = result.steps.find((s) => s.step === 'skill')!
     expect(step.status).toBe('missing')
     expect(step.details).toContain('missing-skill')
   })
@@ -108,7 +127,7 @@ describe('checkDependencies', () => {
       },
     }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find(s => s.step === 'skill')!
+    const step = result.steps.find((s) => s.step === 'skill')!
     expect(step.status).toBe('pass')
   })
 
@@ -117,16 +136,18 @@ describe('checkDependencies', () => {
       ...BASE_PROFILE,
       dependencies: {
         ...BASE_PROFILE.dependencies,
-        mcpServers: [{
-          name: 'company-api',
-          transport: {
-            type: 'http',
-            url: 'https://mcp.company.com',
-            auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
+        mcpServers: [
+          {
+            name: 'company-api',
+            transport: {
+              type: 'http',
+              url: 'https://mcp.company.com',
+              auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
+            },
+            tools: ['search_orders'],
+            required: true,
           },
-          tools: ['search_orders'],
-          required: true,
-        }],
+        ],
       },
     }
 
@@ -135,7 +156,7 @@ describe('checkDependencies', () => {
       accountValues: new Map(),
     })
 
-    const step = result.steps.find(s => s.step === 'mcpServer')!
+    const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('missing')
     expect(step.message).toContain('COMPANY_API_TOKEN')
   })
@@ -145,16 +166,18 @@ describe('checkDependencies', () => {
       ...BASE_PROFILE,
       dependencies: {
         ...BASE_PROFILE.dependencies,
-        mcpServers: [{
-          name: 'company-api',
-          transport: {
-            type: 'http',
-            url: 'https://mcp.company.com',
-            auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
+        mcpServers: [
+          {
+            name: 'company-api',
+            transport: {
+              type: 'http',
+              url: 'https://mcp.company.com',
+              auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
+            },
+            tools: ['search_orders'],
+            required: true,
           },
-          tools: ['search_orders'],
-          required: true,
-        }],
+        ],
       },
     }
 
@@ -163,7 +186,7 @@ describe('checkDependencies', () => {
       accountValues: new Map([['COMPANY_API_TOKEN', 'tok_xxx']]),
     })
 
-    const step = result.steps.find(s => s.step === 'mcpServer')!
+    const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('pass')
   })
 
@@ -177,7 +200,7 @@ describe('checkDependencies', () => {
     }
 
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find(s => s.step === 'tool')!
+    const step = result.steps.find((s) => s.step === 'tool')!
     expect(step.status).toBe('missing')
     expect(step.details).toContain('nonexistent_tool')
   })
@@ -192,7 +215,74 @@ describe('checkDependencies', () => {
     }
 
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find(s => s.step === 'tool')!
+    const step = result.steps.find((s) => s.step === 'tool')!
     expect(step.status).toBe('pass')
+  })
+
+  describe('TASK-3 subagent dependency check (AC-030, AC-031)', () => {
+    it('AC-030 (trigger): missing required subagent', () => {
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        dependencies: {
+          ...BASE_PROFILE.dependencies,
+          subagents: [{ id: 'B', required: true }],
+        },
+      }
+      const result = checkDependencies(profile, tempDir, {
+        appVersion: '1.0.0',
+        registeredBusinessAgents: new Set(['A', 'C']), // B 不在内
+      })
+      const step = result.steps.find((s) => s.step === 'subagent')!
+      expect(step.status).toBe('missing')
+      expect(step.message).toContain('B')
+    })
+
+    it('AC-031 (no-trigger): all required subagents are registered', () => {
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        dependencies: {
+          ...BASE_PROFILE.dependencies,
+          subagents: [
+            { id: 'A', required: true },
+            { id: 'B', required: true },
+          ],
+        },
+      }
+      const result = checkDependencies(profile, tempDir, {
+        appVersion: '1.0.0',
+        registeredBusinessAgents: new Set(['A', 'B', 'C']),
+      })
+      const step = result.steps.find((s) => s.step === 'subagent')!
+      expect(step.status).toBe('pass')
+    })
+
+    it('non-required subagent missing → still pass', () => {
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        dependencies: {
+          ...BASE_PROFILE.dependencies,
+          subagents: [{ id: 'optional-helper', required: false }],
+        },
+      }
+      const result = checkDependencies(profile, tempDir, {
+        appVersion: '1.0.0',
+        registeredBusinessAgents: new Set(),
+      })
+      const step = result.steps.find((s) => s.step === 'subagent')!
+      expect(step.status).toBe('pass')
+    })
+
+    it('skip subagent check when registeredBusinessAgents not provided (back-compat)', () => {
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        dependencies: {
+          ...BASE_PROFILE.dependencies,
+          subagents: [{ id: 'B', required: true }],
+        },
+      }
+      const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
+      const step = result.steps.find((s) => s.step === 'subagent')!
+      expect(step.status).toBe('pass')
+    })
   })
 })

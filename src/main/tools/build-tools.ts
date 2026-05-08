@@ -63,6 +63,8 @@ export async function buildTools(opts: {
     skillTracker: opts.skillTracker,
     requestPermission: opts.requestPermission,
     abortSignal: opts.abortSignal,
+    parentMessageId: messageId,
+    confirmTool,
   }
   const tools: Record<string, ReturnType<typeof dynamicTool>> = {}
 

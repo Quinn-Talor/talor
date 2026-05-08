@@ -27,6 +27,11 @@ export function checkDependencies(
     appVersion?: string
     accountValues?: Map<string, string>
     builtinToolNames?: Set<string>
+    /**
+     * 已注册业务 agent_id 集合（用于校验 profile.dependencies.subagents）。
+     * 不传时跳过 subagent 检查（向后兼容，例如启用前的预检）。
+     */
+    registeredBusinessAgents?: Set<string>
   },
 ): DependencyCheckResult {
   const steps: DependencyStepResult[] = []
@@ -168,6 +173,30 @@ export function checkDependencies(
     })
   } else {
     steps.push({ step: 'tool', status: 'pass' })
+  }
+
+  // Step 5b: Subagent 依赖检查（profile.dependencies.subagents）
+  // 仅当调用方提供 registeredBusinessAgents 集合时执行；否则跳过（pass）以兼容旧调用方。
+  if (opts?.registeredBusinessAgents) {
+    const subagentDeps = profile.dependencies.subagents ?? []
+    const missingSubagents: string[] = []
+    for (const dep of subagentDeps) {
+      if (dep.required && !opts.registeredBusinessAgents.has(dep.id)) {
+        missingSubagents.push(dep.id)
+      }
+    }
+    if (missingSubagents.length > 0) {
+      steps.push({
+        step: 'subagent',
+        status: 'missing',
+        message: `Required subagents not installed or disabled: ${missingSubagents.join(', ')}`,
+        details: missingSubagents,
+      })
+    } else {
+      steps.push({ step: 'subagent', status: 'pass' })
+    }
+  } else {
+    steps.push({ step: 'subagent', status: 'pass' })
   }
 
   // Step 6: Config 检查

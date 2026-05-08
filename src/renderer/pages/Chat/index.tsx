@@ -4,6 +4,7 @@ import { useStreamingMessage } from '../../hooks/useStreamingMessage'
 import { talorAPI } from '../../api/talorAPI'
 import { MessageBubble } from '../../components/MessageBubble'
 import { SessionItem, getDateGroup, agentColor } from '../../components/SessionItem'
+import { useUIStore } from '../../store/uiStore'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
@@ -451,10 +452,18 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const agentBuiltinTools = agentTools.filter((t) => !t.provider)
   const agentMcpTools = agentTools.filter((t) => !!t.provider)
 
+  // Filter out sub-sessions (parent_session_id non-null) unless user opts in.
+  // 默认隐藏子 session：用户视角下子 session 是 delegate_agent 的实施细节，
+  // 不是直接对话目标；调试 / 排查时通过开关打开。
+  const showSubSessions = useUIStore((s) => s.showSubSessions)
+  const visibleSessions = sessions.filter((s) => showSubSessions || s.parent_session_id == null)
+
   // Group sessions by date
-  const todaySessions = sessions.filter((s) => getDateGroup(s.updated_at) === 'today')
-  const yesterdaySessions = sessions.filter((s) => getDateGroup(s.updated_at) === 'yesterday')
-  const earlierSessions = sessions.filter((s) => getDateGroup(s.updated_at) === 'earlier')
+  const todaySessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'today')
+  const yesterdaySessions = visibleSessions.filter(
+    (s) => getDateGroup(s.updated_at) === 'yesterday',
+  )
+  const earlierSessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'earlier')
 
   const agentMap = new Map(agents.map((a) => [a.id, a]))
 

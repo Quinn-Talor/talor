@@ -13,6 +13,22 @@ interface WindowBounds {
   is_maximized: boolean
 }
 
+/**
+ * Subagent delegation 配置（系统级，所有 session 共享）。
+ * 不开放 profile 级覆盖（KISS：MVP 阶段）。
+ *
+ * 字段命名用 camelCase 与 delegate-agent.ts 的 DelegationConfig 类型对齐
+ * （运行时透传，无需翻译层）。
+ */
+export interface DelegationConfig {
+  /** 同 session 同时执行的 delegation 数上限。默认 10。 */
+  maxConcurrencyPerSession: number
+  /** delegation 在 p-limit 队列里等待的最长时间（ms）。默认 300_000 (5min)。 */
+  queueTimeoutMs: number
+  /** 单次 delegation 实际执行的最长时间（ms）。默认 1_800_000 (30min)。 */
+  executionTimeoutMs: number
+}
+
 interface AppConfig {
   config_dir: string
   providers: Record<string, Provider>
@@ -21,6 +37,7 @@ interface AppConfig {
   default_recent_ratio?: number
   default_summary_ratio?: number
   max_react_steps?: number
+  delegation?: DelegationConfig
 }
 
 export interface Provider {
@@ -57,6 +74,12 @@ interface StoreSchema {
   config: AppConfig
 }
 
+export const DEFAULT_DELEGATION_CONFIG: DelegationConfig = {
+  maxConcurrencyPerSession: 10,
+  queueTimeoutMs: 300_000, // 5 min
+  executionTimeoutMs: 1_800_000, // 30 min
+}
+
 const DEFAULT_CONFIG: AppConfig = {
   config_dir: '.talor',
   providers: {},
@@ -70,6 +93,7 @@ const DEFAULT_CONFIG: AppConfig = {
   default_context_limit: 1_000_000,
   default_recent_ratio: 0.05,
   default_summary_ratio: 0.05,
+  delegation: DEFAULT_DELEGATION_CONFIG,
 }
 
 export class ConfigStore {
@@ -139,6 +163,21 @@ export class ConfigStore {
 
   getAll(): AppConfig {
     return this.store.get('config') ?? DEFAULT_CONFIG
+  }
+
+  /**
+   * 读 delegation 命名空间。缺失字段用默认值兜底（不 throw），保证旧安装包升级
+   * 后立即可用。
+   */
+  getDelegation(): DelegationConfig {
+    const stored = this.get('delegation') as Partial<DelegationConfig> | undefined
+    return { ...DEFAULT_DELEGATION_CONFIG, ...(stored ?? {}) }
+  }
+
+  /** 写 delegation 命名空间，merge 风格（保留未指定字段）。 */
+  setDelegation(partial: Partial<DelegationConfig>): void {
+    const current = this.getDelegation()
+    this.set('delegation', { ...current, ...partial })
   }
 
   private saveConfig(config: AppConfig): void {
