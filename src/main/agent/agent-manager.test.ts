@@ -204,10 +204,24 @@ describe('AgentManager v2 platform agents (AC-012)', () => {
     expect(tools).toContain('delegate_agent')
   })
 
-  it('CRYSTALLIZER_PROFILE.role.capabilities mention delegated_subagents ingestion', () => {
+  it('CRYSTALLIZER_PROFILE.role drives draft loop (AC-018, TASK-3)', () => {
     const cryst = manager.getAgent('__crystallizer__')!
-    const caps = cryst.profile.role.capabilities.join(' ')
-    expect(caps).toContain('delegated_subagents')
+    const role = cryst.profile.role
+    const caps = role.capabilities.join(' ')
+    const constraints = role.constraints?.join(' ') ?? ''
+
+    // FIRST user message contains S1 history snapshot
+    expect(caps).toMatch(/FIRST user message/i)
+    // Output wrapped in fenced ```json``` block (renderer parses this)
+    expect(caps).toMatch(/```json```|fenced .*json.* code block/i)
+    // dependencies.subagents must be carried over when delegation observed
     expect(caps).toMatch(/dependencies\.subagents/)
+    // Multi-turn iteration: re-output UPDATED block on user feedback
+    expect(caps).toMatch(/UPDATED .*```json``` block/i)
+    // Constraint: Do NOT write files (renderer saves)
+    expect(constraints).toMatch(/Do NOT write files/i)
+    // Constraint: id snake-case + reserved __X__ prefix forbidden
+    expect(constraints).toMatch(/snake-case/i)
+    expect(constraints).toMatch(/__/i)
   })
 })

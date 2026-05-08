@@ -14,6 +14,11 @@ import { ToolCallMessage } from '../../components/ToolCallMessage'
 // UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
 // 但 Chat 页面不再消费它们。
 import { PermissionsPopover } from '../../components/PermissionsPopover'
+import { CrystallizeSeparator } from '../../components/CrystallizeSeparator'
+import { WorkbenchAgentList } from '../../components/WorkbenchAgentList'
+import { DraftReviewModal } from '../../components/DraftReviewModal'
+import { AgentPreviewModal } from '../../components/AgentPreviewModal'
+import { useCrystallizeWorkbench } from '../../hooks/useCrystallizeWorkbench'
 import type { Attachment } from '../../types/chat'
 import type { ModelInfo } from '@shared/types/models'
 import type { AgentCardData } from '../../components/AgentCard'
@@ -89,6 +94,15 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const modelPickerRef = useRef<HTMLDivElement>(null)
   const agentPickerRef = useRef<HTMLDivElement>(null)
 
+  // Agent extraction workbench (inline collapsible panel; spec §B.9)
+  // 工作台 session 的流式事件不订阅 — useStreamingMessage 仍跟原 session,
+  // 用户跟 crystallizer 对话后通过 ws.refresh() 拉最新 workbench messages。
+  // 这是 spec §B.9.4 F2 接受的 UX：crystallizer 输出非流式渲染，stream 完成后整体刷新。
+  const ws = useCrystallizeWorkbench({ originSessionId: currentSessionId })
+  const [separatorCollapsed, setSeparatorCollapsed] = useState(false)
+  const [reviewProfile, setReviewProfile] = useState<Record<string, unknown> | null>(null)
+  const [previewAgentId, setPreviewAgentId] = useState<string | null>(null)
+
   useStreamingMessage(currentSessionId)
 
   const loadSessions = useCallback(async () => {
@@ -98,6 +112,24 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       console.error('Failed to load sessions', e)
     }
   }, [setSessions])
+
+  // 启动 agent 会话：从工作台 list 行 / preview modal / Agents 页 共用同一逻辑。
+  // 流程：关工作台（如果开着）→ createSession → reload sessions list → 切到新 session
+  // 必须放在 loadSessions 之后 —— deps 数组引用 loadSessions，hoisting 不允许前置。
+  const startAgentSession = useCallback(
+    async (agentId: string) => {
+      try {
+        const result = await talorAPI.agents.createSession(agentId)
+        if (ws.isOpen) await ws.close()
+        setPreviewAgentId(null)
+        await loadSessions()
+        setCurrentSession(result.session_id)
+      } catch (err) {
+        alert(`启动失败: ${err instanceof Error ? err.message : err}`)
+      }
+    },
+    [ws, loadSessions, setCurrentSession],
+  )
 
   const loadMessages = useCallback(
     async (id: string) => {
@@ -227,6 +259,20 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }, [messages, streamItems, streamState])
 
+  // 工作台打开 / 工作台消息变化时滚到 messagesEndRef —— 工作台 panel 渲染
+  // 在 messagesEndRef 之上，所以滚到 end 就是滚到工作台最底部，
+  // 让用户立刻看到 crystallizer 最新输出而不必手动下滑。
+  // 强制滚动（忽略 userScrolledUp），因为这是用户主动点击触发的视图变化。
+  useEffect(() => {
+    if (ws.isOpen) {
+      userScrolledUpRef.current = false
+      // 等下一帧渲染完成（panel 已挂载）再滚
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+      })
+    }
+  }, [ws.isOpen, ws.workbenchMessages.length])
+
   useEffect(() => {
     if (import.meta.env?.DEV) {
       ;(window as unknown as Record<string, unknown>).__test_setAttachments = setAttachments
@@ -343,21 +389,34 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     setInput('')
     clearStreaming()
     clearStreaming()
-    addMessage({
-      id: `temp-${Date.now()}`,
-      session_id: currentSessionId,
-      role: 'user',
-      content,
-      created_at: new Date().toISOString(),
-    })
+
+    // 沉淀模式下输入路由到 workbench session（spec §B.9.4 F2）。
+    // 注意：addMessage 用 currentSessionId 时会污染 chat store 显示；
+    // 走 workbench 时不 addMessage，依赖 ws.refresh() 在 send 完成后拉到。
+    const targetSessionId = ws.workbenchSessionId ?? currentSessionId
+    const routedToWorkbench = targetSessionId !== currentSessionId
+
+    if (!routedToWorkbench) {
+      addMessage({
+        id: `temp-${Date.now()}`,
+        session_id: currentSessionId,
+        role: 'user',
+        content,
+        created_at: new Date().toISOString(),
+      })
+    }
     try {
       await talorAPI.chat.send({
-        session_id: currentSessionId,
+        session_id: targetSessionId,
         content,
         attachments: attachments.length > 0 ? attachments : undefined,
       })
       setAttachments([])
-      await loadMessages(currentSessionId)
+      if (routedToWorkbench) {
+        await ws.refresh()
+      } else {
+        await loadMessages(currentSessionId)
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       if (msg.includes('FILE_TOO_LARGE')) alert('文件大小超过限制（最大 50MB）')
@@ -455,8 +514,12 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   // Filter out sub-sessions (parent_session_id non-null) unless user opts in.
   // 默认隐藏子 session：用户视角下子 session 是 delegate_agent 的实施细节，
   // 不是直接对话目标；调试 / 排查时通过开关打开。
+  // 工作台 session（agent_id='__crystallizer__'）也始终隐藏（AC-016）—
+  // 它是导出 Agent 的内部对话区，不应作为顶层 session 暴露给用户切换。
   const showSubSessions = useUIStore((s) => s.showSubSessions)
-  const visibleSessions = sessions.filter((s) => showSubSessions || s.parent_session_id == null)
+  const visibleSessions = sessions.filter(
+    (s) => s.agent_id !== '__crystallizer__' && (showSubSessions || s.parent_session_id == null),
+  )
 
   // Group sessions by date
   const todaySessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'today')
@@ -782,8 +845,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 )}
               </div>
 
-              {/* Model selector (right) */}
-              <div className="relative ml-auto mr-0" ref={modelPickerRef}>
+              {/* Model selector (left, next to agent picker) */}
+              <div className="relative" ref={modelPickerRef}>
                 <button
                   onClick={() => setShowModelPicker((p) => !p)}
                   className="flex items-center gap-2 rounded-[8px] px-2 transition-colors hover:bg-[#f1f5f9]"
@@ -822,7 +885,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 </button>
                 {showModelPicker && (
                   <div
-                    className="absolute top-full right-0 mt-1 bg-white rounded-xl shadow-lg z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg z-50 overflow-hidden"
                     style={{ width: 288, border: '1px solid #e2e8f0' }}
                     data-testid="model-picker-dropdown"
                   >
@@ -864,6 +927,108 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   </div>
                 )}
               </div>
+
+              {/* Export Agent (right) — 沿用左侧 agent / model picker 的视觉规格
+                  (h=34, gray bg, 0.5px border, 24x24 icon square, 12px label, 9px subtitle, chevron)
+                  状态：箭头方向反映折叠区开关状态（▼ 关 / ▲ 开）。 */}
+              {(() => {
+                const currentSession = sessions.find((s) => s.id === currentSessionId)
+                const showExport =
+                  currentSession != null &&
+                  currentSession.agent_id !== '__crystallizer__' &&
+                  currentSession.parent_session_id == null &&
+                  messages.length >= 3
+                if (!showExport) return null
+                const active = ws.isOpen
+                return (
+                  <div className="ml-auto">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (ws.isOpen) {
+                          void ws.close()
+                        } else {
+                          void ws.open().catch((err) => {
+                            alert(`无法打开沉淀工作台: ${err instanceof Error ? err.message : err}`)
+                          })
+                        }
+                      }}
+                      disabled={ws.isLoading}
+                      title={active ? '关闭沉淀工作台' : '基于当前对话提取一个 Agent'}
+                      aria-label={
+                        active ? 'Close Export Agent workbench' : 'Open Export Agent workbench'
+                      }
+                      className="flex items-center gap-2 rounded-[8px] px-2 transition-colors hover:bg-[#f1f5f9] disabled:opacity-50"
+                      style={{
+                        height: 34,
+                        background: '#f8fafc',
+                        border: '0.5px solid #e2e8f0',
+                      }}
+                      data-testid="export-as-agent-btn"
+                      data-active={active ? 'true' : 'false'}
+                    >
+                      <div
+                        className="flex items-center justify-center rounded-[6px] text-[10px] shrink-0"
+                        style={{
+                          width: 24,
+                          height: 24,
+                          background: 'rgba(139,92,246,0.15)',
+                          color: '#8b5cf6',
+                        }}
+                      >
+                        {ws.isLoading ? (
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            className="animate-spin"
+                          >
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              strokeDasharray="50"
+                              strokeDashoffset="20"
+                            />
+                          </svg>
+                        ) : (
+                          <span className="leading-none">🔮</span>
+                        )}
+                      </div>
+                      <div className="text-left">
+                        <div
+                          className="text-[12px] font-medium leading-tight"
+                          style={{ color: '#334155' }}
+                        >
+                          Export Agent
+                        </div>
+                        <div className="text-[9px] leading-tight" style={{ color: '#94a3b8' }}>
+                          {active ? '工作台已展开' : '从当前对话提取'}
+                        </div>
+                      </div>
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        style={{
+                          color: active ? '#8b5cf6' : '#94a3b8',
+                          flexShrink: 0,
+                          transform: active ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 200ms ease',
+                        }}
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                    </button>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Model unavailable banner */}
@@ -1042,6 +1207,74 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                       </div>
                     </div>
                   )}
+
+                  {/* Crystallize workbench panel — spec §B.9.2 */}
+                  {ws.isOpen && (
+                    <div
+                      className="rounded-lg overflow-hidden"
+                      style={{
+                        border: '1px solid #c084fc',
+                        background: '#faf5ff',
+                      }}
+                      data-testid="crystallize-workbench"
+                    >
+                      <CrystallizeSeparator
+                        collapsed={separatorCollapsed}
+                        basedOnMessageCount={messages.length}
+                        onToggleCollapse={() => setSeparatorCollapsed((v) => !v)}
+                      />
+                      {!separatorCollapsed && (
+                        <>
+                          <div className="px-3 py-3 space-y-2">
+                            {ws.workbenchMessages.length === 0 ? (
+                              <div
+                                className="text-[12px] text-center py-4"
+                                style={{ color: '#94a3b8' }}
+                              >
+                                工作台已就绪。在下方输入"开始"或"请基于这段对话提议 agent"，让
+                                Crystallizer 提议草稿。
+                              </div>
+                            ) : (
+                              ws.workbenchMessages.map((m) => (
+                                <MessageBubble
+                                  key={m.id}
+                                  message={m}
+                                  variant="crystallize"
+                                  onReviewDraft={(profile) => setReviewProfile(profile)}
+                                />
+                              ))
+                            )}
+                            {/* 流式 token 增量：done 之前的内容渲染成临时
+                                assistant bubble；done 后 hook 的 refresh()
+                                会把持久化的 message 拉到 workbenchMessages
+                                里再清空 streamingText。 */}
+                            {ws.isStreaming && (
+                              <MessageBubble
+                                message={{ role: 'assistant', content: ws.streamingText }}
+                                variant="crystallize"
+                                isStreaming
+                              />
+                            )}
+                          </div>
+                          <WorkbenchAgentList
+                            agents={ws.generatedAgents}
+                            onPreview={(id) => setPreviewAgentId(id)}
+                            onStart={(id) => void startAgentSession(id)}
+                            onRemove={(id) => {
+                              if (
+                                window.confirm(
+                                  `从工作台移除 ${id}？\n\nagent.json 文件不会被删除（只从此工作台 list 移除）。要彻底删除请去 Agents 页。`,
+                                )
+                              ) {
+                                void ws.removeAgent(id)
+                              }
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
+
                   <div ref={messagesEndRef} />
                 </div>
               )}
@@ -1098,11 +1331,24 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
 
                 {/* Textarea */}
                 <div className="px-4 pb-1">
+                  {ws.isOpen && (
+                    <div
+                      className="text-[11px] mb-1"
+                      style={{ color: '#7c3aed' }}
+                      data-testid="crystallize-input-hint"
+                    >
+                      🔮 Crystallizer 沉淀模式 — 关闭工作台回到 {currentAgentName}
+                    </div>
+                  )}
                   <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={`给 ${currentAgentName} 发消息...`}
+                    placeholder={
+                      ws.isOpen
+                        ? '描述你想从对话中提取什么样的 agent...'
+                        : `给 ${currentAgentName} 发消息...`
+                    }
                     disabled={streamState === 'streaming'}
                     className="w-full resize-none outline-none bg-transparent text-[13px] leading-relaxed placeholder-[#94a3b8] disabled:opacity-50"
                     style={{ color: '#334155', minHeight: 48, maxHeight: 160 }}
@@ -1616,6 +1862,25 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           confirmLabel="删除"
           onConfirm={handleDeleteSession}
           onCancel={() => setSessionToDelete(null)}
+        />
+      )}
+      {reviewProfile && ws.workbenchSessionId && (
+        <DraftReviewModal
+          open
+          initialProfile={reviewProfile}
+          workbenchSessionId={ws.workbenchSessionId}
+          onClose={() => setReviewProfile(null)}
+          onSaved={() => {
+            void ws.refresh()
+          }}
+        />
+      )}
+      {previewAgentId && (
+        <AgentPreviewModal
+          open
+          agentId={previewAgentId}
+          onClose={() => setPreviewAgentId(null)}
+          onStart={startAgentSession}
         />
       )}
       {/* ToolConfirmDialog 和 PermissionDialog 都已迁移到 PermissionsPopover

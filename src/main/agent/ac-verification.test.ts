@@ -447,10 +447,12 @@ describe('Block E: 沉淀流程', () => {
       const cryst = manager.getAgent('__crystallizer__')
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
-      // v2: capabilities 改为 ingestion 流程；保留对"分析"语义的检查（不强制原文）
+      // v3 (agent-extraction): capabilities drive draft loop; keep "analyze" check;
+      // historic delegated_subagents text is replaced by dependencies.subagents
+      // (ingestion now happens inline in the FIRST user message, not via metadata).
       const caps = cryst!.profile.role.capabilities.join(' ')
       expect(caps.toLowerCase()).toMatch(/analyze/)
-      expect(caps).toContain('delegated_subagents')
+      expect(caps).toMatch(/dependencies\.subagents/)
     })
   })
 

@@ -302,6 +302,31 @@ export const sessionRepo = {
   },
 
   /**
+   * 查找已为某个 source session 创建过的 workbench session。
+   * 用 metadata.source_session_id 反查（不依赖 title / parent_session_id）。
+   *
+   * 用途：agents:start-crystallize 决定"复用既有"还是"新建"workbench。
+   * 不存在返 null。
+   */
+  findWorkbenchForSource(sourceSessionId: string): ChatSession | null {
+    try {
+      const db = getDb()
+      const row = db
+        .prepare(
+          `SELECT * FROM sessions
+            WHERE agent_id = '__crystallizer__'
+              AND json_extract(metadata, '$.source_session_id') = ?
+            LIMIT 1`,
+        )
+        .get(sourceSessionId) as SessionRow | undefined
+      return row ? rowToSession(row) : null
+    } catch (err) {
+      log.warn('[SessionRepo] findWorkbenchForSource failed:', sourceSessionId, err)
+      return null
+    }
+  },
+
+  /**
    * 列出此 session 委托过的子 agent_id 集合（基于结构事实查 child sessions）。
    *
    * 用途：crystallizer 沉淀时把这些 id 写入新 agent profile 的

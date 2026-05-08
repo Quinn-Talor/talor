@@ -162,7 +162,25 @@ declare global {
         import: () => Promise<unknown>
         installDeps: (id: string) => Promise<unknown>
         update: (id: string, profile: unknown) => Promise<void>
-        crystallize: (sessionId: string) => Promise<unknown>
+        startCrystallize: (sessionId: string) => Promise<{
+          success: boolean
+          error?: string
+          workbench_session_id?: string
+          reused?: boolean
+          initial_prompt?: string
+        }>
+        finishCrystallize: (workbenchSessionId: string) => Promise<{ success: boolean }>
+        createFromDraft: (
+          profile: unknown,
+          workbenchSessionId: string,
+        ) => Promise<{ success: boolean; error?: string; id?: string; created_at?: string }>
+        listFromWorkbench: (
+          workbenchSessionId: string,
+        ) => Promise<Array<{ id: string; name: string; created_at: string }>>
+        removeFromWorkbench: (
+          workbenchSessionId: string,
+          agentId: string,
+        ) => Promise<{ success: boolean }>
       }
       accounts: {
         list: () => Promise<unknown[]>
@@ -287,7 +305,11 @@ const stubAgents = {
   import: () => Promise.resolve(null),
   installDeps: () => Promise.resolve(null),
   update: () => Promise.resolve(),
-  crystallize: () => Promise.resolve(null),
+  startCrystallize: () => Promise.resolve({ success: false, error: 'no preload' }),
+  finishCrystallize: () => Promise.resolve({ success: false }),
+  createFromDraft: () => Promise.resolve({ success: false, error: 'no preload' }),
+  listFromWorkbench: () => Promise.resolve([]),
+  removeFromWorkbench: () => Promise.resolve({ success: false }),
 }
 
 const stubAccounts = {

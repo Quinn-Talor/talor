@@ -123,6 +123,11 @@ export function initChatDb(): Database.Database {
   // Cleanup orphan running sub-sessions left from previous crashed runs.
   cleanupOrphanRunningSubSessions(db)
 
+  // 注：crystallizer 工作台 session 不在启动期清理。产品决策：派生 session 永久保留。
+  // 即便 source S1 被用户删除，对应 workbench 仍在 DB 里（前端通过
+  // agent_id !== '__crystallizer__' 过滤，用户不感知）。这避免了"事后兜底"机制，
+  // 且保留了用户跟 crystallizer 的多轮对话 + workbench.metadata.created_agents。
+
   log.info('[ChatDB] Initialized at:', dbPath, 'WAL mode enabled')
   return db
 }

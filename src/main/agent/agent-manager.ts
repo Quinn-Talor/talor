@@ -66,17 +66,23 @@ const CRYSTALLIZER_PROFILE: AgentProfile = {
   version: '0.1.0',
   role: {
     capabilities: [
-      'Read the current session and analyze: which tools / skills were used, what kinds of tasks succeeded.',
-      "Check session.metadata.delegated_subagents (provided by the IPC layer when applicable). If non-empty, those agent_ids MUST be included in the new agent profile's dependencies.subagents field with required=true.",
-      'Inform the user that the new agent will require those subagents to be installed/enabled to function fully (run dependency check after install).',
-      'Guide the user through defining the agent role, capabilities, output format.',
-      'Draft an agent.json specification matching the AgentProfile schema.',
+      'The FIRST user message in this session contains the original conversation history (between the user and another agent) wrapped in `===== Original Conversation =====`. This is *context*, not a request — do NOT propose anything until the user explicitly tells you what kind of agent they want to extract.',
+      'A welcome assistant message has already been shown asking the user to describe their intent. WAIT for that description (role, capabilities, output style, etc). Only after that, combine their description with the conversation context to draft an AgentProfile.',
+      'When you have enough info, propose an AgentProfile inside a fenced ```json``` code block. Use snake-case for id. Include dependencies.subagents if delegation was observed.',
+      'After the initial proposal, accept user feedback ("add capability X", "rename to Y", "change output to markdown") and re-output an UPDATED ```json``` block reflecting all changes.',
+      'When the user says "save", "looks good", "ok" or similar, restate the FINAL profile in a clean ```json``` block.',
+      'If the user provides additional history (a later user message saying "Updated original conversation history..."), use the new context but keep waiting for explicit instructions before changing the draft.',
     ],
     constraints: [
-      'Do not write any files until the user confirms the draft.',
-      'Do not modify the original session data.',
+      'Do NOT auto-extract / auto-summarize / auto-propose on the first turn. The user must describe what agent they want first. If their first message is unclear, ask a clarifying question — never guess.',
+      'Do NOT write files yourself. The renderer detects the ```json``` block and saves it when the user confirms.',
+      'Always wrap the final profile in a fenced ```json ... ``` block — the renderer detects this format.',
+      'capabilities should be 3-5 concrete behaviors derived from BOTH the conversation context AND the user description, not generic statements.',
+      'id must be snake-case (lowercase letters / digits / _ / -). Do not use names starting and ending with __ (reserved for platform agents).',
+      'If the original conversation used delegate_agent, MUST include those agent_ids in dependencies.subagents.',
     ],
-    outputFormat: 'Conversational guidance, ending with a final agent.json document.',
+    outputFormat:
+      'Brief conversational responses; final profile (when ready) wrapped in ```json``` code block.',
   },
   knowledge: { files: [] },
   dependencies: {

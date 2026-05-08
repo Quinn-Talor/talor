@@ -237,8 +237,41 @@ const talorAPI = {
     installDeps: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:install-deps', id),
     update: (id: string, profile: unknown): Promise<void> =>
       ipcRenderer.invoke('agents:update', { id, profile }),
-    crystallize: (sessionId: string): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('agents:crystallize', { session_id: sessionId }),
+    startCrystallize: (
+      sessionId: string,
+    ): Promise<{
+      success: boolean
+      error?: string
+      workbench_session_id?: string
+      reused?: boolean
+      initial_prompt?: string
+    }> => ipcRenderer.invoke('agents:start-crystallize', { session_id: sessionId }),
+    finishCrystallize: (workbenchSessionId: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:finish-crystallize', {
+        workbench_session_id: workbenchSessionId,
+      }),
+    createFromDraft: (
+      profile: unknown,
+      workbenchSessionId: string,
+    ): Promise<{ success: boolean; error?: string; id?: string; created_at?: string }> =>
+      ipcRenderer.invoke('agents:create-from-draft', {
+        profile,
+        workbench_session_id: workbenchSessionId,
+      }),
+    listFromWorkbench: (
+      workbenchSessionId: string,
+    ): Promise<Array<{ id: string; name: string; created_at: string }>> =>
+      ipcRenderer.invoke('agents:list-from-workbench', {
+        workbench_session_id: workbenchSessionId,
+      }),
+    removeFromWorkbench: (
+      workbenchSessionId: string,
+      agentId: string,
+    ): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('agents:remove-from-workbench', {
+        workbench_session_id: workbenchSessionId,
+        agent_id: agentId,
+      }),
     switchAgent: (sessionId: string, agentId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('session:switch-agent', { session_id: sessionId, agent_id: agentId }),
     listTools: (
