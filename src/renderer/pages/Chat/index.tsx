@@ -1436,7 +1436,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                             {agentBuiltinTools.length} 个
                           </span>
                         </div>
-                        <div className="p-1.5">
+                        <div className="p-1.5 overflow-y-auto" style={{ maxHeight: 360 }}>
                           {agentBuiltinTools.map((t) => (
                             <div
                               key={t.name}
@@ -1484,7 +1484,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                                     </span>
                                   )}
                                 </div>
-                                <div className="text-[11px] mt-0.5" style={{ color: '#94a3b8' }}>
+                                <div
+                                  className="text-[11px] mt-0.5 line-clamp-2"
+                                  style={{ color: '#94a3b8' }}
+                                  title={t.description}
+                                >
                                   {t.description}
                                 </div>
                               </div>
