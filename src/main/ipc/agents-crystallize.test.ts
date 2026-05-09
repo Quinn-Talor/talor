@@ -241,6 +241,44 @@ const VALID_PROFILE: AgentProfile = {
   dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
 }
 
+// 镜像 ipc/agents.ts 的 reconcileCreatedAgents:
+// 把 created_agents 跟磁盘真相对账,把已删除的 agent 从 metadata 抠掉并持久化。
+// 测试里用 existsSync 替代 loader.getById（loader 在测试里没起 — 走 fs 检查同效果）。
+type CreatedAgentEntry = {
+  id: string
+  version: string
+  created_at: string
+  based_on_message_count: number
+}
+function reconcileCreatedAgents(
+  workbenchSessionId: string,
+  agentsDir: string,
+): CreatedAgentEntry[] {
+  const meta = sessionRepo.getMetadata(workbenchSessionId)
+  const created = (meta.created_agents as CreatedAgentEntry[] | undefined) ?? []
+  if (created.length === 0) return []
+  const alive: CreatedAgentEntry[] = []
+  const removed: string[] = []
+  for (const c of created) {
+    if (existsSync(join(agentsDir, c.id, 'agent.json'))) alive.push(c)
+    else removed.push(c.id)
+  }
+  if (removed.length > 0) {
+    sessionRepo.setMetadata(workbenchSessionId, { ...meta, created_agents: alive })
+  }
+  return alive
+}
+function listFromWorkbench(
+  workbenchSessionId: string,
+  agentsDir: string,
+): Array<CreatedAgentEntry & { exists: boolean }> {
+  const created = reconcileCreatedAgents(workbenchSessionId, agentsDir)
+  return created.map((c) => ({
+    ...c,
+    exists: existsSync(join(agentsDir, c.id, 'agent.json')),
+  }))
+}
+
 describe('start-crystallize (TASK-2: AC-001/002/003/012)', () => {
   it('AC-001: first call creates workbench + pre-injects user(snapshot) + assistant(welcome), no auto-trigger', () => {
     const s1 = sessionRepo.create({
@@ -483,7 +521,7 @@ describe('create-from-draft (TASK-2: AC-009/010/011)', () => {
 })
 
 describe('list-from-workbench / remove-from-workbench (TASK-2: AC-013/014)', () => {
-  it('AC-013: list returns exists=true for present agents, exists=false for removed', () => {
+  it('AC-013: list reconciles stale entries — only returns agents whose files still exist', () => {
     const s1 = sessionRepo.create({ title: 'X', provider_id: 'p1' })
     messageRepo.create({
       id: uuidv4(),
@@ -516,18 +554,63 @@ describe('list-from-workbench / remove-from-workbench (TASK-2: AC-013/014)', () 
     mkdirSync(join(agentsDirRoot, 'B'), { recursive: true })
     writeFileSync(join(agentsDirRoot, 'B', 'agent.json'), JSON.stringify(VALID_PROFILE), 'utf-8')
 
-    // 模拟 list 行为（直接读 metadata + checkConflict）
-    const meta = sessionRepo.getMetadata(wsId)
-    const created = meta.created_agents as Array<{ id: string }>
-    const result = created.map((c) => {
-      const exists = existsSync(join(agentsDirRoot, c.id, 'agent.json'))
-      return { ...c, exists }
+    // 走 list 自愈路径：A（缺失）被过滤掉,B（存在）保留
+    const result = listFromWorkbench(wsId, agentsDirRoot)
+    expect(result.length).toBe(1)
+    expect(result[0].id).toBe('B')
+    expect(result[0].exists).toBe(true)
+  })
+
+  it('list persists the reconciliation — second call sees clean metadata even if all stale', () => {
+    const s1 = sessionRepo.create({ title: 'X', provider_id: 'p1' })
+    messageRepo.create({
+      id: uuidv4(),
+      session_id: s1.id,
+      role: 'user',
+      content: [{ type: 'text', text: 'm' }],
+      agent_id: '__chat__',
+    })
+    const wsId = startCrystallize(s1.id).workbench_session_id!
+
+    // 全是 stale entries（A、B 都没在磁盘上）
+    sessionRepo.setMetadata(wsId, {
+      ...sessionRepo.getMetadata(wsId),
+      created_agents: [
+        { id: 'A', version: '1.0.0', created_at: 't', based_on_message_count: 1 },
+        { id: 'B', version: '1.0.0', created_at: 't', based_on_message_count: 1 },
+      ],
     })
 
-    expect(result[0].id).toBe('A')
-    expect(result[0].exists).toBe(false)
-    expect(result[1].id).toBe('B')
-    expect(result[1].exists).toBe(true)
+    // 第 1 次 list:返回空 + 持久化清理
+    expect(listFromWorkbench(wsId, agentsDirRoot)).toEqual([])
+    const after1 = sessionRepo.getMetadata(wsId)
+    expect((after1.created_agents as unknown[]).length).toBe(0)
+
+    // 第 2 次 list:依旧空（不是因为再次 reconcile,而是 metadata 已干净）
+    expect(listFromWorkbench(wsId, agentsDirRoot)).toEqual([])
+  })
+
+  it('reconcile is a no-op when all entries are alive — does not rewrite metadata', () => {
+    const s1 = sessionRepo.create({ title: 'X', provider_id: 'p1' })
+    messageRepo.create({
+      id: uuidv4(),
+      session_id: s1.id,
+      role: 'user',
+      content: [{ type: 'text', text: 'm' }],
+      agent_id: '__chat__',
+    })
+    const wsId = startCrystallize(s1.id).workbench_session_id!
+    mkdirSync(join(agentsDirRoot, 'B'), { recursive: true })
+    writeFileSync(join(agentsDirRoot, 'B', 'agent.json'), JSON.stringify(VALID_PROFILE), 'utf-8')
+    sessionRepo.setMetadata(wsId, {
+      ...sessionRepo.getMetadata(wsId),
+      created_agents: [{ id: 'B', version: '1.0.0', created_at: 't', based_on_message_count: 1 }],
+    })
+    const before = JSON.stringify(sessionRepo.getMetadata(wsId))
+    const result = listFromWorkbench(wsId, agentsDirRoot)
+    expect(result.length).toBe(1)
+    expect(result[0].id).toBe('B')
+    expect(JSON.stringify(sessionRepo.getMetadata(wsId))).toBe(before)
   })
 
   it('AC-014: remove drops entry from metadata but does NOT delete agent.json', () => {

@@ -73,6 +73,51 @@ function countFailedToolCalls(messages: Array<{ content?: unknown }>): number {
 }
 
 export function registerAgentHandlers(agentManager: AgentManager): void {
+  /**
+   * 把 workbench.metadata.created_agents 跟 AgentLoader 的真相对账：
+   * agent 文件已被外部删除（Settings → Agents 删除、手动 rm 等）的条目从 metadata 抠掉并持久化。
+   *
+   * 何时调用：
+   *   - agents:start-crystallize 复用既有 workbench 时（用户重新进工作台 → 看到的就是干净的）
+   *   - agents:list-from-workbench 每次刷新（工作台开着的时候用户去删 agent 也能立刻同步）
+   *
+   * 不在 agents:delete 里 cascade，避免入口层耦合 workbench 的内部数据结构；
+   * 走"懒清理 + 持久化"路线，自愈对外部修改也健壮。
+   */
+  function reconcileCreatedAgents(workbenchSessionId: string): Array<{
+    id: string
+    version: string
+    created_at: string
+    based_on_message_count: number
+  }> {
+    const meta = sessionRepo.getMetadata(workbenchSessionId)
+    const created =
+      (meta.created_agents as
+        | Array<{
+            id: string
+            version: string
+            created_at: string
+            based_on_message_count: number
+          }>
+        | undefined) ?? []
+    if (created.length === 0) return []
+    const loader = agentManager.getLoader()
+    if (!loader) return created // loader 未就绪：保守返回原列表，不误删
+    const alive: typeof created = []
+    const removed: string[] = []
+    for (const c of created) {
+      if (loader.getById(c.id)) alive.push(c)
+      else removed.push(c.id)
+    }
+    if (removed.length > 0) {
+      sessionRepo.setMetadata(workbenchSessionId, { ...meta, created_agents: alive })
+      log.info(
+        `[Crystallize] reconciled workbench=${workbenchSessionId}: removed ${removed.length} stale agents (${removed.join(', ')})`,
+      )
+    }
+    return alive
+  }
+
   ipcMain.handle('agents:list', () => {
     // 仅业务 agent 出现在用户列表里。__chat__ 是默认主对话（不需 picker）；
     // __crystallizer__ 是沉淀引导（专用按钮触发，不进列表）。
@@ -423,6 +468,9 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
 
       const existing = sessionRepo.findWorkbenchForSource(raw.session_id)
       if (existing) {
+        // 复用既有 workbench：先把 created_agents 跟 loader 对账，
+        // 用户在 Settings 删过的 agent 不会再以 exists=false 的死链出现。
+        reconcileCreatedAgents(existing.id)
         const meta = sessionRepo.getMetadata(existing.id)
         const lastCount = (meta.last_snapshot_message_count as number | undefined) ?? 0
         if (lastCount !== currentMsgCount) {
@@ -670,19 +718,13 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
   )
 
   ipcMain.handle('agents:list-from-workbench', (_event, raw: { workbench_session_id: string }) => {
-    const meta = sessionRepo.getMetadata(raw.workbench_session_id)
-    const created =
-      (meta.created_agents as
-        | Array<{
-            id: string
-            version: string
-            created_at: string
-            based_on_message_count: number
-          }>
-        | undefined) ?? []
+    // 每次列表请求都做一次自愈：工作台开着时用户在别处删了 agent，
+    // 下一次 refresh() 就能立即把死链从 metadata 抠掉，UI 不再显示。
+    const created = reconcileCreatedAgents(raw.workbench_session_id)
     const loader = agentManager.getLoader()
     return created.map((c) => {
       const entry = loader?.getById(c.id) ?? null
+      // reconcile 后理论上 entry 一定存在;loader 失效或并发删除时 fallback。
       return {
         id: c.id,
         name: entry?.profile.identity.name ?? c.id,
