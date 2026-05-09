@@ -19,13 +19,45 @@ export interface MCPServerInput {
   enabled?: boolean
 }
 
+// Reconcile the running mcpRegistry with the latest DB state for a single
+// server. Without this, a server created/edited at runtime stays in DB but is
+// never loaded into memory until app restart (connectAllEnabled at startup).
+//
+// reconnect=true: force disconnect+reconnect on currently-connected servers
+//   (use after `update`, so config changes — env / args / url — propagate).
+// reconnect=false: only fill the gap between desired and actual state
+//   (use after `create` / `setEnabled`).
+//
+// Failures are logged, not thrown: IPC must succeed regardless — DB is source
+// of truth, and the user can re-test or restart to retry the connection.
+async function syncRegistry(serverId: string, reconnect: boolean): Promise<void> {
+  const server = mcpServerRepo.getById(serverId)
+  if (!server) return
+  const isConnected = mcpRegistry.getConnectedServers().includes(serverId)
+
+  try {
+    if (!server.enabled) {
+      if (isConnected) await mcpRegistry.disconnectServer(serverId)
+      return
+    }
+    if (isConnected && reconnect) {
+      await mcpRegistry.disconnectServer(serverId)
+      await mcpRegistry.connectServer(serverId)
+    } else if (!isConnected) {
+      await mcpRegistry.connectServer(serverId)
+    }
+  } catch (err) {
+    log.error('[MCP IPC] syncRegistry failed:', serverId, err)
+  }
+}
+
 export function registerMCPHandlers(): void {
   ipcMain.handle('mcp:servers:list', () => {
     return mcpServerRepo.list()
   })
 
-  ipcMain.handle('mcp:servers:create', (_event, input: MCPServerInput) => {
-    return mcpServerRepo.create({
+  ipcMain.handle('mcp:servers:create', async (_event, input: MCPServerInput) => {
+    const server = mcpServerRepo.create({
       name: input.name,
       type: input.type,
       command: input.command,
@@ -34,6 +66,8 @@ export function registerMCPHandlers(): void {
       url: input.url,
       auth: input.auth,
     })
+    await syncRegistry(server.id, false)
+    return server
   })
 
   ipcMain.handle('mcp:servers:get', (_event, id: string) => {
@@ -44,29 +78,42 @@ export function registerMCPHandlers(): void {
     return server
   })
 
-  ipcMain.handle('mcp:servers:update', (_event, id: string, updates: Partial<MCPServerInput>) => {
-    const server = mcpServerRepo.update(id, updates)
-    if (!server) {
-      throw new Error(`MCP Server not found: ${id}`)
-    }
-    return server
-  })
+  ipcMain.handle(
+    'mcp:servers:update',
+    async (_event, id: string, updates: Partial<MCPServerInput>) => {
+      const server = mcpServerRepo.update(id, updates)
+      if (!server) {
+        throw new Error(`MCP Server not found: ${id}`)
+      }
+      await syncRegistry(id, true)
+      return server
+    },
+  )
 
-  ipcMain.handle('mcp:servers:delete', (_event, id: string) => {
+  ipcMain.handle('mcp:servers:delete', async (_event, id: string) => {
+    if (mcpRegistry.getConnectedServers().includes(id)) {
+      try {
+        await mcpRegistry.disconnectServer(id)
+      } catch (err) {
+        log.error('[MCP IPC] Pre-delete disconnect failed:', id, err)
+      }
+    }
     mcpServerRepo.delete(id)
   })
 
-  ipcMain.handle('mcp:servers:setEnabled', (_event, id: string, enabled: boolean) => {
+  ipcMain.handle('mcp:servers:setEnabled', async (_event, id: string, enabled: boolean) => {
     const server = mcpServerRepo.setEnabled(id, enabled)
     if (!server) {
       throw new Error(`MCP Server not found: ${id}`)
     }
+    await syncRegistry(id, false)
     return server
   })
 
-  ipcMain.handle('mcp:servers:importConfig', (_event, configJson: string) => {
+  ipcMain.handle('mcp:servers:importConfig', async (_event, configJson: string) => {
     const config = JSON.parse(configJson)
     const results: Array<{ name: string; status: 'created' | 'updated' }> = []
+    const touchedIds: string[] = []
 
     for (const [name, serverConfig] of Object.entries(config)) {
       const typedConfig = serverConfig as {
@@ -79,8 +126,13 @@ export function registerMCPHandlers(): void {
       }
       const existing = mcpServerRepo.getByName(name)
       const status = existing ? 'updated' : 'created'
-      mcpServerRepo.upsertFromConfig(name, typedConfig)
+      const upserted = mcpServerRepo.upsertFromConfig(name, typedConfig)
       results.push({ name, status })
+      touchedIds.push(upserted.id)
+    }
+
+    for (const id of touchedIds) {
+      await syncRegistry(id, true)
     }
 
     return results
@@ -104,123 +156,129 @@ export function registerMCPHandlers(): void {
     return JSON.stringify(config, null, 2)
   })
 
-  ipcMain.handle('mcp:servers:testConnection', async (_event, server: {
-    type: MCPServerType
-    command?: string
-    args?: string[]
-    env?: Record<string, string>
-    url?: string
-    auth?: MCPAuthConfig
-  }) => {
-    const start = Date.now()
-    const timeout = 30000
+  ipcMain.handle(
+    'mcp:servers:testConnection',
+    async (
+      _event,
+      server: {
+        type: MCPServerType
+        command?: string
+        args?: string[]
+        env?: Record<string, string>
+        url?: string
+        auth?: MCPAuthConfig
+      },
+    ) => {
+      const start = Date.now()
+      const timeout = 30000
 
-    try {
-      if (server.type === 'http' && server.url) {
-        const headers: Record<string, string> = {}
-        if (server.auth) {
-          if (server.auth.type === 'bearer' && server.auth.token) {
-            headers['Authorization'] = `Bearer ${server.auth.token}`
-          } else if (server.auth.type === 'apiKey' && server.auth.apiKey) {
-            headers['X-API-Key'] = server.auth.apiKey
+      try {
+        if (server.type === 'http' && server.url) {
+          const headers: Record<string, string> = {}
+          if (server.auth) {
+            if (server.auth.type === 'bearer' && server.auth.token) {
+              headers['Authorization'] = `Bearer ${server.auth.token}`
+            } else if (server.auth.type === 'apiKey' && server.auth.apiKey) {
+              headers['X-API-Key'] = server.auth.apiKey
+            }
+          }
+
+          const controller = new AbortController()
+          const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+          try {
+            const response = await fetch(server.url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...headers,
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/list',
+              }),
+              signal: controller.signal,
+            })
+
+            clearTimeout(timeoutId)
+
+            if (!response.ok) {
+              return {
+                status: 'failure',
+                error_code: 'CONNECTION_FAILED',
+                message: `HTTP ${response.status}: ${response.statusText}`,
+              }
+            }
+
+            const data = (await response.json()) as { result?: { tools?: Array<{ name: string }> } }
+            const toolsCount = data.result?.tools?.length ?? 0
+
+            return {
+              status: 'success',
+              latency_ms: Date.now() - start,
+              tools_count: toolsCount,
+              message: `✅ 连接成功，发现 ${toolsCount} 个工具`,
+            }
+          } catch (httpError) {
+            clearTimeout(timeoutId)
+            if (httpError instanceof Error && httpError.name === 'AbortError') {
+              return {
+                status: 'failure',
+                error_code: 'TIMEOUT',
+                message: `❌ 连接超时（${timeout / 1000}秒），请检查 Server 是否运行`,
+              }
+            }
+            throw httpError
           }
         }
 
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), timeout)
+        if (server.type === 'stdio' && server.command) {
+          const config: MCPServerConfig = {
+            id: 'test-' + Date.now(),
+            name: 'test',
+            type: 'stdio',
+            command: server.command,
+            args: server.args || [],
+            env: server.env || {},
+            enabled: true,
+          }
 
-        try {
-          const response = await fetch(server.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...headers,
-            },
-            body: JSON.stringify({
-              jsonrpc: '2.0',
-              id: 1,
-              method: 'tools/list'
-            }),
-            signal: controller.signal
-          })
-
-          clearTimeout(timeoutId)
-
-          if (!response.ok) {
+          const transport = new StdioTransport(config)
+          try {
+            await transport.connect()
+            const tools = await transport.listTools()
+            transport.disconnect()
+            return {
+              status: 'success',
+              latency_ms: Date.now() - start,
+              tools_count: tools.length,
+              message: `✅ 连接成功，发现 ${tools.length} 个工具`,
+            }
+          } catch (err) {
             return {
               status: 'failure',
               error_code: 'CONNECTION_FAILED',
-              message: `HTTP ${response.status}: ${response.statusText}`
+              message: `❌ 连接失败：${err instanceof Error ? err.message : '未知错误'}`,
             }
           }
-
-          const data = await response.json() as { result?: { tools?: Array<{ name: string }> } }
-          const toolsCount = data.result?.tools?.length ?? 0
-
-          return {
-            status: 'success',
-            latency_ms: Date.now() - start,
-            tools_count: toolsCount,
-            message: `✅ 连接成功，发现 ${toolsCount} 个工具`
-          }
-        } catch (httpError) {
-          clearTimeout(timeoutId)
-          if (httpError instanceof Error && httpError.name === 'AbortError') {
-            return {
-              status: 'failure',
-              error_code: 'TIMEOUT',
-              message: `❌ 连接超时（${timeout / 1000}秒），请检查 Server 是否运行`
-            }
-          }
-          throw httpError
-        }
-      }
-
-      if (server.type === 'stdio' && server.command) {
-        const config: MCPServerConfig = {
-          id: 'test-' + Date.now(),
-          name: 'test',
-          type: 'stdio',
-          command: server.command,
-          args: server.args || [],
-          env: server.env || {},
-          enabled: true,
         }
 
-        const transport = new StdioTransport(config)
-        try {
-          await transport.connect()
-          const tools = await transport.listTools()
-          transport.disconnect()
-          return {
-            status: 'success',
-            latency_ms: Date.now() - start,
-            tools_count: tools.length,
-            message: `✅ 连接成功，发现 ${tools.length} 个工具`
-          }
-        } catch (err) {
-          return {
-            status: 'failure',
-            error_code: 'CONNECTION_FAILED',
-            message: `❌ 连接失败：${err instanceof Error ? err.message : '未知错误'}`
-          }
+        return {
+          status: 'failure',
+          error_code: 'INVALID_CONFIG',
+          message: '无效的服务器配置',
+        }
+      } catch (error) {
+        log.error('[MCP] Connection test failed:', error)
+        return {
+          status: 'failure',
+          error_code: 'CONNECTION_FAILED',
+          message: `❌ 连接失败：${error instanceof Error ? error.message : '未知错误'}`,
         }
       }
-
-      return {
-        status: 'failure',
-        error_code: 'INVALID_CONFIG',
-        message: '无效的服务器配置'
-      }
-    } catch (error) {
-      log.error('[MCP] Connection test failed:', error)
-      return {
-        status: 'failure',
-        error_code: 'CONNECTION_FAILED',
-        message: `❌ 连接失败：${error instanceof Error ? error.message : '未知错误'}`
-      }
-    }
-  })
+    },
+  )
 
   ipcMain.handle('mcp:connect', async (_event, serverId: string) => {
     try {
@@ -231,7 +289,7 @@ export function registerMCPHandlers(): void {
       return {
         status: 'failure',
         error_code: 'CONNECTION_FAILED',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       }
     }
   })
@@ -245,7 +303,7 @@ export function registerMCPHandlers(): void {
       return {
         status: 'failure',
         error_code: 'DISCONNECT_FAILED',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        message: error instanceof Error ? error.message : 'Unknown error',
       }
     }
   })
