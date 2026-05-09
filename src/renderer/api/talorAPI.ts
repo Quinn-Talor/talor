@@ -173,7 +173,17 @@ declare global {
         createFromDraft: (
           profile: unknown,
           workbenchSessionId: string,
-        ) => Promise<{ success: boolean; error?: string; id?: string; created_at?: string }>
+        ) => Promise<{
+          success: boolean
+          error?: string
+          id?: string
+          created_at?: string
+          skill_install?: {
+            installed: Array<{ name: string; from: string }>
+            skipped: Array<{ name: string; reason: string }>
+            failed: Array<{ name: string; error: string }>
+          }
+        }>
         listFromWorkbench: (
           workbenchSessionId: string,
         ) => Promise<Array<{ id: string; name: string; created_at: string }>>
@@ -181,6 +191,37 @@ declare global {
           workbenchSessionId: string,
           agentId: string,
         ) => Promise<{ success: boolean }>
+        listTools?: (agentId: string) => Promise<
+          Array<{
+            name: string
+            description: string
+            parameters: Record<string, unknown>
+            provider?: string
+            riskLevel?: string
+          }>
+        >
+        // Schema 1.0
+        validate: (profile: unknown) => Promise<{
+          valid: boolean
+          errors: Array<{
+            severity: 'error' | 'warn'
+            rule: number
+            path: string
+            message: string
+          }>
+          warnings: Array<{
+            severity: 'error' | 'warn'
+            rule: number
+            path: string
+            message: string
+          }>
+        }>
+        preview: (profile: unknown) => Promise<unknown>
+        listTemplates: () => Promise<
+          Array<{ id: string; name: string; description: string; profile: unknown }>
+        >
+        duplicate: (id: string) => Promise<unknown>
+        dryRun: (args: { profile: unknown; userMessage: string }) => Promise<unknown>
       }
       accounts: {
         list: () => Promise<unknown[]>
@@ -310,6 +351,12 @@ const stubAgents = {
   createFromDraft: () => Promise.resolve({ success: false, error: 'no preload' }),
   listFromWorkbench: () => Promise.resolve([]),
   removeFromWorkbench: () => Promise.resolve({ success: false }),
+  listTools: () => Promise.resolve([]),
+  validate: () => Promise.resolve({ valid: false, errors: [], warnings: [] }),
+  preview: () => Promise.resolve(null),
+  listTemplates: () => Promise.resolve([]),
+  duplicate: () => Promise.resolve(null),
+  dryRun: () => Promise.resolve(null),
 }
 
 const stubAccounts = {

@@ -1,14 +1,48 @@
-// src/main/prompt/plugins/AgentPromptPlugin.ts — 业务层：Agent prompt 拼装
+// src/main/prompt/plugins/AgentPromptPlugin.ts — 业务层：Agent prompt 模板化拼装 (Schema 1.0)
 //
-// 从 Agent 实例的 profile + skillRegistry 构建 prompt 层（角色/知识/few-shot/skill 列表）。
+// 把 Agent 实体属性 + iteration 状态 → 单份模板渲染 → system message。
+// 6 个语义锁定增强已嵌入模板:
+//   ① mission 按 priority 分组 (CORE / AUXILIARY)
+//   ② workflow 显示 inputs
+//   ③ acceptance ⚠️ REJECTED 强语气
+//   ④ rubric 升格为独立 Quality Pledges 段
+//   ⑤ self-check 加步定位
+//   ⑥ implicit acceptance (knowledge.required → tool-was-used) 由 Agent 装配阶段注入
 //
-// 允许依赖：prompt/*、shared/*
+// 允许依赖：prompt/*、agent/*、shared/*
 // 禁止依赖：ipc/*
 
-import type { CoreMessage } from 'ai'
 import type { PromptPlugin, PipelineContext, PluginResult } from '../types'
-import type { AgentProfile, AgentRole, AgentKnowledge, KnowledgeFileRef } from '@shared/types/agent'
-import type { SkillRegistry } from '../../skills/registry'
+import { render } from '../render'
+import { naturalize, joinNaturalize, schemaToBullets } from '../naturalize'
+import { buildRuntimeContext, type TemplateContext } from '../runtime-context'
+import { loadAgentSystemPromptTemplate, _resetTemplateCache } from '../template-loader'
+
+// re-export for backward-compat tests that previously called this from plugin
+export { _resetTemplateCache }
+
+const helpers = {
+  joinNaturalize: (criteria: unknown) => {
+    if (!Array.isArray(criteria)) return ''
+    return joinNaturalize(criteria as Parameters<typeof joinNaturalize>[0])
+  },
+  naturalize: (criterion: unknown) => {
+    if (!criterion || typeof criterion !== 'object') return ''
+    return naturalize(criterion as Parameters<typeof naturalize>[0])
+  },
+  joinBackticks: (arr: unknown, sep: unknown = ' · ') => {
+    if (!Array.isArray(arr)) return ''
+    const s = typeof sep === 'string' ? sep : ' · '
+    return arr.map((x) => '`' + String(x) + '`').join(s)
+  },
+  joinComma: (arr: unknown) => {
+    if (!Array.isArray(arr)) return ''
+    return arr.map(String).join(', ')
+  },
+  schemaToBullets: (schema: unknown) => {
+    return schemaToBullets(schema)
+  },
+}
 
 export class AgentPromptPlugin implements PromptPlugin {
   name = 'AgentPromptPlugin'
@@ -18,129 +52,39 @@ export class AgentPromptPlugin implements PromptPlugin {
       return { messages: [], tools: [], tokenEstimate: 0 }
     }
 
-    const messages: CoreMessage[] = []
-    const { profile, skillRegistry } = ctx.agent
-
-    const identityHeader = buildIdentityHeader(profile)
-    const agentPrompt = buildAgentPrompt(profile.role)
-    const knowledgeIndex = buildKnowledgeIndex(profile.knowledge)
-    const skillListing = buildSkillListing(skillRegistry)
-
-    const sections = [identityHeader, agentPrompt, knowledgeIndex, skillListing].filter(Boolean)
-    const content = sections.join('\n\n')
-
-    if (content) {
-      messages.push({ role: 'system', content })
+    const template = loadAgentSystemPromptTemplate()
+    if (!template) {
+      // 模板加载失败 fallback: 仅注入 identity
+      const fallback = `You are "${ctx.agent.profile.identity.name}". ${ctx.agent.profile.identity.description}`
+      return {
+        messages: [{ role: 'system', content: fallback }],
+        tools: [],
+        tokenEstimate: Math.ceil(fallback.length / 3),
+      }
     }
 
-    const fewShot = buildFewShot(profile.role)
-    messages.push(...fewShot)
+    // PipelineContext 不携带 iterationNumber/tokensUsed (TASK-8 接入 react-loop 后再传);
+    // 此处用启发式默认: ON-DEMAND 段按"首次进入"渲染。
+    // 这两个字段是 PromptPipelineContext 的可选扩展字段(orchestrator 显式注入时才有),
+    // 用类型断言访问而不是绕过类型系统。
+    const ctxWithIteration = ctx as PipelineContext & {
+      iterationNumber?: number
+      tokensUsed?: number
+    }
+    const iterationNumber = ctxWithIteration.iterationNumber ?? 0
+    const tokensUsed = ctxWithIteration.tokensUsed ?? 0
 
-    const tokenEstimate = Math.ceil(content.length / 3) + fewShot.length * 50
+    const tplCtx: TemplateContext = buildRuntimeContext(ctx.agent, { iterationNumber, tokensUsed })
 
-    return { messages, tools: [], tokenEstimate }
-  }
-}
+    // render 接受通用 Record<string, unknown>;TemplateContext 是其特化输入,
+    // 强转是签名兼容必需,非绕过类型系统(编码指南 #4)。
+    const content =
+      render(template, tplCtx as unknown as Record<string, unknown>, helpers).trimEnd() + '\n'
 
-/**
- * 身份头 —— 强制以"当前 agent"为答复主体，压制 session 历史中残留的其他 agent 人设。
- *
- * 场景：用户在同一 session 切换过 agent（business → __chat__），上一个 agent 的
- * assistant message 会留在 messages 历史里。LLM 重建 prompt 时看到自己上一句"我是
- * 飞书助手"，会自然延续此身份，导致用户问"你是谁"得到错误答案。
- *
- * 此条目放在 system prompt 的 agent 段最前面，明确告诉模型：
- *   - 当前身份是谁
- *   - 历史中若有其他 agent 的回答，那是切换前的别人，不是当前的你
- *
- * 设计原则参考 patterns §P4：把"模型必须如此"的不变量写进 prompt，但仍保留
- * 历史 messages 的完整性（不删历史，靠 LLM 服从约束）。
- */
-function buildIdentityHeader(profile: AgentProfile): string {
-  const lines: string[] = []
-  lines.push(`# Your identity`)
-  lines.push(`You are "${profile.name}" (agent_id: ${profile.id}).`)
-  if (profile.description) {
-    lines.push(profile.description)
-  }
-  lines.push('')
-  lines.push(
-    `IMPORTANT: This session may contain assistant messages from previous agents ` +
-      `(the user may have switched agents within this session). Those past responses ` +
-      `do NOT define your current identity. From this turn onward, always answer as ` +
-      `"${profile.name}" with the role and capabilities described below. If the user ` +
-      `asks "who are you", answer based on this profile, not on past assistant messages.`,
-  )
-  return lines.join('\n')
-}
-
-function buildAgentPrompt(role: AgentRole): string {
-  const parts: string[] = []
-
-  if (role.capabilities.length > 0) {
-    parts.push(`Your core capabilities:\n${role.capabilities.map((c) => `- ${c}`).join('\n')}`)
-  }
-
-  if (role.constraints && role.constraints.length > 0) {
-    parts.push(`Your behavioral constraints:\n${role.constraints.map((c) => `- ${c}`).join('\n')}`)
-  }
-
-  if (role.outputFormat) {
-    parts.push(`Your output format: ${role.outputFormat}`)
-  }
-
-  if (role.personality) {
-    parts.push(`Your style: ${role.personality}`)
-  }
-
-  return parts.join('\n\n')
-}
-
-function buildKnowledgeIndex(knowledge: AgentKnowledge): string {
-  if (!knowledge.files || knowledge.files.length === 0) return ''
-
-  const lines = knowledge.files.map((f: KnowledgeFileRef) => `- ${f.path}: ${f.description}`)
-  return `Available knowledge files (load with the read tool when needed):\n${lines.join('\n')}`
-}
-
-const MAX_SKILL_DESCRIPTION_CHARS = 1536
-
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + '...' : s
-}
-
-function buildSkillListing(skillRegistry: SkillRegistry): string {
-  if (skillRegistry.isEmpty()) return ''
-
-  const skills = skillRegistry.listAll()
-  if (skills.length === 0) return ''
-
-  const listing = skills
-    .map((s) => {
-      const desc = truncate(s.metadata.description, MAX_SKILL_DESCRIPTION_CHARS)
-      const whenToUse = s.metadata.when_to_use
-      const whenLine = whenToUse
-        ? `\n  When to use: ${truncate(whenToUse, MAX_SKILL_DESCRIPTION_CHARS)}`
-        : ''
-      return `- ${s.metadata.name}\n  ${desc}${whenLine}`
-    })
-    .join('\n\n')
-
-  return `## Available Skills
-
-Each entry is an encapsulated capability. Use via \`skill\` tool (see Task Routing). The "When to use" line lists trigger phrases and example requests — match the user's input against these to pick a skill.
-
-${listing}`
-}
-
-function buildFewShot(role: AgentRole): CoreMessage[] {
-  if (!role.sampleConversations || role.sampleConversations.length === 0) return []
-
-  const messages: CoreMessage[] = []
-  for (const conv of role.sampleConversations) {
-    for (const msg of conv.messages) {
-      messages.push({ role: msg.role, content: msg.content })
+    return {
+      messages: [{ role: 'system', content }],
+      tools: [],
+      tokenEstimate: Math.ceil(content.length / 3),
     }
   }
-  return messages
 }

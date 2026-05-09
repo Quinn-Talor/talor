@@ -1,12 +1,13 @@
-// src/main/agent/dependency-checker.ts — 业务层：Agent 依赖检查 8 步链
+// src/main/agent/dependency-checker.ts — 业务层：Agent 依赖检查 8 步链 (Schema 1.0)
 //
-// Step 1: minAppVersion  → semver 比较
-// Step 2: Skill 安装     → installSkills（外部调用）
-// Step 3: CLI 自动安装   → checkCommand → 缺失则自动安装 → 再检查
-// Step 4: MCP Server     → 安装包（外部调用）
-// Step 5: Tool 白名单校验
+// Step 1: minAppVersion  → semver 比较 (从 profile.identity.minAppVersion)
+// Step 2: Skill 安装     → installSkills (从 profile.method.skills)
+// Step 3: CLI 自动安装   → checkCommand (从 profile.method.cli)
+// Step 4: MCP Server     → 安装包 (从 profile.method.mcpServers)
+// Step 5: Tool 白名单校验 (从 profile.method.tools，过滤 !disabled)
+// Step 5b: Subagent 依赖 (从 profile.method.collaboration?.subagents)
 // Step 6: Config 检查    → 扫描 {{变量}}
-// Step 7: Knowledge 检查 → 知识文件存在
+// Step 7: Knowledge 检查 → 知识文件存在 (从 profile.method.knowledge filter type='file')
 // Step 8: 汇总
 //
 // 允许依赖：agent/*、shared/*、semver、fs、child_process
@@ -28,8 +29,8 @@ export function checkDependencies(
     accountValues?: Map<string, string>
     builtinToolNames?: Set<string>
     /**
-     * 已注册业务 agent_id 集合（用于校验 profile.dependencies.subagents）。
-     * 不传时跳过 subagent 检查（向后兼容，例如启用前的预检）。
+     * 已注册业务 agent_id 集合（用于校验 collaboration.subagents）。
+     * 不传时跳过 subagent 检查。
      */
     registeredBusinessAgents?: Set<string>
   },
@@ -41,13 +42,21 @@ export function checkDependencies(
     opts?.builtinToolNames ??
     new Set(['read', 'write', 'edit', 'bash', 'glob', 'grep', 'ls', 'skill'])
 
+  const minAppVersion = profile.identity.minAppVersion
+  const skills = profile.method.skills ?? []
+  const cli = profile.method.cli ?? []
+  const mcpServers = profile.method.mcpServers ?? []
+  const tools = profile.method.tools ?? []
+  const subagents = profile.method.collaboration?.subagents ?? []
+  const knowledge = profile.method.knowledge ?? []
+
   // Step 1: minAppVersion
-  if (profile.minAppVersion) {
-    if (!semverValid(profile.minAppVersion) || !semverGte(appVersion, profile.minAppVersion)) {
+  if (minAppVersion) {
+    if (!semverValid(minAppVersion) || !semverGte(appVersion, minAppVersion)) {
       steps.push({
         step: 'minAppVersion',
         status: 'fail',
-        message: `需要 Talor >= ${profile.minAppVersion}，当前版本 ${appVersion}`,
+        message: `需要 Talor >= ${minAppVersion}，当前版本 ${appVersion}`,
       })
     } else {
       steps.push({ step: 'minAppVersion', status: 'pass' })
@@ -56,15 +65,13 @@ export function checkDependencies(
     steps.push({ step: 'minAppVersion', status: 'pass' })
   }
 
-  // Step 2: Skill 检查（检查 skills 目录是否存在）
+  // Step 2: Skill 检查（v8.1 SkillItem 是 flat: { name, required, purpose? }）
   const skillsDir = join(dirPath, 'skills')
   const missingSkills: string[] = []
-  for (const group of profile.dependencies.skills) {
-    for (const item of group.items) {
-      const skillPath = join(skillsDir, item.name, 'SKILL.md')
-      if (!existsSync(skillPath)) {
-        missingSkills.push(item.name)
-      }
+  for (const item of skills) {
+    const skillPath = join(skillsDir, item.name, 'SKILL.md')
+    if (!existsSync(skillPath)) {
+      missingSkills.push(item.name)
     }
   }
 
@@ -81,12 +88,12 @@ export function checkDependencies(
 
   // Step 3: CLI 检查
   const skillCliBins = extractSkillCliBins(skillsDir)
-  const declaredCliCommands = profile.dependencies.cli.map((c) => c.command)
+  const declaredCliCommands = cli.map((c) => c.command)
   const allCliCommands = [...new Set([...declaredCliCommands, ...skillCliBins])]
 
   const cliResults: string[] = []
   for (const command of allCliCommands) {
-    const cliDep = profile.dependencies.cli.find((c) => c.command === command)
+    const cliDep = cli.find((c) => c.command === command)
     const checkCmd = cliDep?.checkCommand ?? `${command} --version`
 
     try {
@@ -136,7 +143,7 @@ export function checkDependencies(
 
   // Step 4: MCP Server 检查
   const mcpIssues: string[] = []
-  for (const mcp of profile.dependencies.mcpServers) {
+  for (const mcp of mcpServers) {
     if (mcp.transport.type === 'http' && mcp.transport.auth) {
       const envVar = mcp.transport.auth.envVar
       if (!accountValues.has(envVar)) {
@@ -156,10 +163,10 @@ export function checkDependencies(
     steps.push({ step: 'mcpServer', status: 'pass' })
   }
 
-  // Step 5: Tool 白名单校验
+  // Step 5: Tool 白名单校验（required 且未 disabled 且不在 builtin 集合 → missing）
   const missingTools: string[] = []
-  for (const dep of profile.dependencies.tools) {
-    if (dep.required && !builtinToolNames.has(dep.name)) {
+  for (const dep of tools) {
+    if (dep.required && !dep.disabled && !builtinToolNames.has(dep.name)) {
       missingTools.push(dep.name)
     }
   }
@@ -175,12 +182,10 @@ export function checkDependencies(
     steps.push({ step: 'tool', status: 'pass' })
   }
 
-  // Step 5b: Subagent 依赖检查（profile.dependencies.subagents）
-  // 仅当调用方提供 registeredBusinessAgents 集合时执行；否则跳过（pass）以兼容旧调用方。
+  // Step 5b: Subagent 依赖检查
   if (opts?.registeredBusinessAgents) {
-    const subagentDeps = profile.dependencies.subagents ?? []
     const missingSubagents: string[] = []
-    for (const dep of subagentDeps) {
+    for (const dep of subagents) {
       if (dep.required && !opts.registeredBusinessAgents.has(dep.id)) {
         missingSubagents.push(dep.id)
       }
@@ -210,7 +215,7 @@ export function checkDependencies(
   }
 
   // Also check MCP auth envVars
-  for (const mcp of profile.dependencies.mcpServers) {
+  for (const mcp of mcpServers) {
     if (mcp.transport.type === 'http' && mcp.transport.auth) {
       if (
         !accountValues.has(mcp.transport.auth.envVar) &&
@@ -232,13 +237,13 @@ export function checkDependencies(
     steps.push({ step: 'config', status: 'pass' })
   }
 
-  // Step 7: Knowledge 检查
+  // Step 7: Knowledge 检查（仅 type='file' 且 required）
   const missingKnowledge: string[] = []
-  for (const file of profile.knowledge.files) {
-    if (file.required) {
-      const absPath = join(dirPath, file.path)
+  for (const k of knowledge) {
+    if (k.type === 'file' && k.required) {
+      const absPath = join(dirPath, k.path)
       if (!existsSync(absPath)) {
-        missingKnowledge.push(file.path)
+        missingKnowledge.push(k.path)
       }
     }
   }

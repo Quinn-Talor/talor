@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useChatStore } from '../../store/chatStore'
 import { useStreamingMessage } from '../../hooks/useStreamingMessage'
 import { talorAPI } from '../../api/talorAPI'
@@ -191,6 +191,86 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     const t = setTimeout(() => loadAgentTools(undefined), 3000)
     return () => clearTimeout(t)
   }, [loadSessions, loadModelOptions, loadAgents, loadAgentTools])
+
+  // 性能关键: 消息列表渲染缓存 — 仅在 messages 变化时重算
+  // 之前每次输入(setInput)都会让父组件重渲染,触发这段含 40+ JSON.parse 的 reduce,
+  // 导致输入卡顿。useMemo 后输入完全不影响这段计算。
+  const renderedMessages = useMemo<React.ReactNode[]>(() => {
+    return messages.reduce((acc, msg, idx) => {
+      if (msg.role === 'tool') return acc
+      if (msg.role === 'assistant') {
+        try {
+          const blocks = JSON.parse(msg.content) as Array<{
+            type: string
+            toolCallId?: string
+            toolName?: string
+            input?: unknown
+          }>
+          if (Array.isArray(blocks) && blocks.some((b) => b.type === 'tool-call')) {
+            const toolUses = blocks
+              .filter((b) => b.type === 'tool-call')
+              .map((b) => ({
+                type: 'tool-call' as const,
+                toolCallId: b.toolCallId ?? '',
+                toolName: b.toolName ?? '',
+                input: b.input,
+              }))
+            const next = messages[idx + 1]
+            let toolResults: Array<{
+              type: 'tool-result'
+              toolCallId: string
+              toolName: string
+              output: string
+              isError: boolean
+            }> = []
+            if (next?.role === 'tool') {
+              try {
+                const rb = JSON.parse(next.content) as Array<{
+                  type: string
+                  toolCallId?: string
+                  toolName?: string
+                  output?: { type: string; value: string }
+                  isError?: boolean
+                }>
+                toolResults = rb
+                  .filter((b) => b.type === 'tool-result')
+                  .map((b) => ({
+                    type: 'tool-result' as const,
+                    toolCallId: b.toolCallId ?? '',
+                    toolName: b.toolName ?? '',
+                    output: b.output?.value ?? '',
+                    isError: b.isError ?? false,
+                  }))
+              } catch {
+                /* skip */
+              }
+            }
+            const textContent = blocks
+              .filter((b) => b.type === 'text')
+              .map((b) => (b as { text?: string }).text ?? '')
+              .join('')
+              .trim()
+            acc.push(
+              <div key={msg.id} className="mb-0.5">
+                {textContent && (
+                  <div className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate">
+                    {textContent.slice(0, 80)}
+                    {textContent.length > 80 ? '…' : ''}
+                  </div>
+                )}
+                <ToolCallMessage toolUses={toolUses} toolResults={toolResults} />
+              </div>,
+            )
+            return acc
+          }
+        } catch {
+          /* render normal */
+        }
+      }
+      acc.push(<MessageBubble key={msg.id} message={msg} />)
+      return acc
+    }, [] as React.ReactNode[])
+  }, [messages])
 
   // Auto-select most recent session
   useEffect(() => {
@@ -1104,80 +1184,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {messages.reduce((acc, msg, idx) => {
-                    if (msg.role === 'tool') return acc
-                    if (msg.role === 'assistant') {
-                      try {
-                        const blocks = JSON.parse(msg.content) as Array<{
-                          type: string
-                          toolCallId?: string
-                          toolName?: string
-                          input?: unknown
-                        }>
-                        if (Array.isArray(blocks) && blocks.some((b) => b.type === 'tool-call')) {
-                          const toolUses = blocks
-                            .filter((b) => b.type === 'tool-call')
-                            .map((b) => ({
-                              type: 'tool-call' as const,
-                              toolCallId: b.toolCallId ?? '',
-                              toolName: b.toolName ?? '',
-                              input: b.input,
-                            }))
-                          const next = messages[idx + 1]
-                          let toolResults: Array<{
-                            type: 'tool-result'
-                            toolCallId: string
-                            toolName: string
-                            output: string
-                            isError: boolean
-                          }> = []
-                          if (next?.role === 'tool') {
-                            try {
-                              const rb = JSON.parse(next.content) as Array<{
-                                type: string
-                                toolCallId?: string
-                                toolName?: string
-                                output?: { type: string; value: string }
-                                isError?: boolean
-                              }>
-                              toolResults = rb
-                                .filter((b) => b.type === 'tool-result')
-                                .map((b) => ({
-                                  type: 'tool-result' as const,
-                                  toolCallId: b.toolCallId ?? '',
-                                  toolName: b.toolName ?? '',
-                                  output: b.output?.value ?? '',
-                                  isError: b.isError ?? false,
-                                }))
-                            } catch {
-                              /* skip */
-                            }
-                          }
-                          const textContent = blocks
-                            .filter((b) => b.type === 'text')
-                            .map((b) => (b as { text?: string }).text ?? '')
-                            .join('')
-                            .trim()
-                          acc.push(
-                            <div key={msg.id} className="mb-0.5">
-                              {textContent && (
-                                <div className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate">
-                                  {textContent.slice(0, 80)}
-                                  {textContent.length > 80 ? '…' : ''}
-                                </div>
-                              )}
-                              <ToolCallMessage toolUses={toolUses} toolResults={toolResults} />
-                            </div>,
-                          )
-                          return acc
-                        }
-                      } catch {
-                        /* render normal */
-                      }
-                    }
-                    acc.push(<MessageBubble key={msg.id} message={msg} />)
-                    return acc
-                  }, [] as React.ReactNode[])}
+                  {renderedMessages}
                   {streamState === 'streaming' && <ToolCallLog />}
                   {streamState === 'error' && error && (
                     <div

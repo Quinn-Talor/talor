@@ -28,3 +28,42 @@ export function getProviderById(id: string): Provider | null {
   const providers = ConfigStore.getInstance().get('providers') as Record<string, Provider>
   return providers[id] ?? null
 }
+
+/**
+ * Schema 1.0: profile.preferences.providerId 既可能是 UUID(从 UI 锁定具体 provider),
+ * 也可能是 type 字符串(如 'anthropic',从模板/Crystallizer 内置 profile)。
+ * 此函数同时支持两种查找方式 + model 配对校验:返回的 provider 必须已配置且
+ * model 列表包含 modelId(若提供 modelId)。
+ *
+ * @param idOrType  Provider.id (UUID) 或 Provider.type ('anthropic'/'openai'/...)
+ * @param modelId   要求该 provider 必须提供这个模型;若提供后没匹配到 → 返回 null
+ *                  (调用方应 fallback 到 session/default,避免 model/provider 不匹配)
+ * @returns 第一个匹配 + enabled 的 provider;无匹配返回 null
+ */
+export function findProviderByPreference(idOrType: string, modelId?: string): Provider | null {
+  const providers = ConfigStore.getInstance().get('providers') as Record<string, Provider>
+
+  // 候选: 先按 UUID 主键匹配,再按 type 匹配(可能多个,取 enabled+default 优先)
+  const byId = providers[idOrType] ?? null
+  const candidates: Provider[] = byId
+    ? [byId]
+    : Object.values(providers).filter((p) => p.type === idOrType)
+
+  // 配对校验: modelId 提供时,必须 candidate.models 中存在该 id
+  for (const p of candidates) {
+    if (!p.enabled) continue
+    if (modelId && !p.models.some((m) => m.id === modelId)) continue
+    return p
+  }
+  return null
+}
+
+/** 跨 provider 扫描:第一个 enabled 且 models 含 modelId 的 provider. */
+export function findProviderByModel(modelId: string): Provider | null {
+  const providers = ConfigStore.getInstance().get('providers') as Record<string, Provider>
+  for (const p of Object.values(providers)) {
+    if (!p.enabled) continue
+    if (p.models.some((m) => m.id === modelId)) return p
+  }
+  return null
+}

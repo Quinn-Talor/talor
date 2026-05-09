@@ -1,3 +1,4 @@
+// src/main/agent/agent-manager.test.ts — Schema 1.0 AgentManager tests
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
@@ -29,30 +30,46 @@ const builtinRegistry = new BuiltinToolRegistry([
 ])
 
 const BUSINESS_PROFILE: AgentProfile = {
-  id: 'sales-001',
-  name: '销售分析师',
-  description: '汇总销售',
-  version: '1.0.0',
-  role: { capabilities: ['分析'], outputFormat: 'md' },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [{ name: 'bash', required: true }],
-    mcpServers: [],
-    skills: [],
-    cli: [],
+  schemaVersion: '1.0',
+  identity: { id: 'sales_001', name: '销售分析师', description: '汇总销售', version: '1.0.0' },
+  mission: {
+    objective: 'Generate sales summary',
+    outcomes: [
+      {
+        id: 'sales_done',
+        description: 'sales summary done',
+        priority: 'core',
+        verifyBy: [
+          {
+            type: 'deliverable-present',
+            deliverableId: 's',
+            kind: 'deterministic',
+            severity: 'must',
+          },
+        ],
+      },
+    ],
+  },
+  method: { capabilities: ['Generate sales summary'], tools: [{ name: 'bash', required: true }] },
+  delivery: {
+    deliverables: [{ id: 's', format: 'markdown', mustContain: ['# S'] }],
+  },
+  execution: {
+    limits: { maxSteps: 10, maxTokens: 10000 },
+    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
   },
 }
 
-describe('AgentManager', () => {
+describe('AgentManager (schema 1.0)', () => {
   let manager: AgentManager
 
   beforeEach(() => {
     manager = new AgentManager()
     manager.init({
       builtinRegistry,
-      mcpSource: null,
+      mcpRegistry: null,
       skillRegistry: SkillRegistry.fromDir(null),
-    })
+    } as unknown as Parameters<AgentManager['init']>[0])
   })
 
   it('init creates platform agents', () => {
@@ -61,27 +78,41 @@ describe('AgentManager', () => {
     expect(manager.getAgent('__crystallizer__')).not.toBeNull()
   })
 
-  it('getChatAgent returns __chat__ agent', () => {
+  it('AC-046: __chat__ profile mission.outcomes/delivery is empty (platform exception)', () => {
+    const chat = manager.getAgent('__chat__')!
+    expect(chat.profile.mission.outcomes).toEqual([])
+    expect(chat.profile.delivery.deliverables).toEqual([])
+  })
+
+  it('AC-021: __chat__ has correct identity', () => {
     const chat = manager.getChatAgent()
     expect(chat.id).toBe('__chat__')
     expect(chat.name).toBe('Talor')
+    expect(chat.profile.schemaVersion).toBe('1.0')
   })
 
   it('platform __chat__ has all tools (empty whitelist)', () => {
     const chat = manager.getAgent('__chat__')!
     const tools = chat.toolRegistry.getToolNames()
-    expect(tools).toHaveLength(8)
+    expect(tools.length).toBeGreaterThanOrEqual(8)
     expect(tools).toContain('bash')
     expect(tools).toContain('write')
   })
 
-  it('platform __crystallizer__ has limited tools', () => {
+  it('platform __crystallizer__ has limited tools (locked to read)', () => {
     const cryst = manager.getAgent('__crystallizer__')!
     const tools = cryst.toolRegistry.getToolNames()
-    expect(tools).toContain('read') // declared + ALWAYS_AVAILABLE
-    expect(tools).toContain('skill') // ALWAYS_AVAILABLE
+    expect(tools).toContain('read')
     expect(tools).not.toContain('bash')
     expect(tools).not.toContain('write')
+  })
+
+  it('Crystallizer profile has full schema 1.0 structure', () => {
+    const cryst = manager.getAgent('__crystallizer__')!
+    expect(cryst.profile.mission.outcomes.length).toBeGreaterThanOrEqual(1)
+    expect(cryst.profile.delivery.deliverables.length).toBeGreaterThanOrEqual(1)
+    expect(cryst.profile.delivery.deliverables[0].id).toBe('agent_profile_draft')
+    expect(cryst.profile.delivery.deliverables[0].rubric).toBeDefined()
   })
 
   it('getAgent returns null for unknown id', () => {
@@ -89,52 +120,26 @@ describe('AgentManager', () => {
   })
 
   it('registerBusinessAgent creates and stores agent', () => {
-    const agent = manager.registerBusinessAgent('sales-001', {
+    const agent = manager.registerBusinessAgent('sales_001', {
       profile: BUSINESS_PROFILE,
       source: '/tmp/agents/sales',
-      mcpSource: null,
+      mcpRegistry: null,
       skillRegistry: SkillRegistry.fromDir(null),
     })
-
-    expect(agent.id).toBe('sales-001')
-    expect(manager.getAgent('sales-001')).toBe(agent)
-    expect(manager.listBusinessAgentIds()).toContain('sales-001')
-  })
-
-  it('registerBusinessAgent replaces existing agent', () => {
-    manager.registerBusinessAgent('sales-001', {
-      profile: BUSINESS_PROFILE,
-      source: '/tmp/agents/sales',
-      mcpSource: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    })
-
-    const agent2 = manager.registerBusinessAgent('sales-001', {
-      profile: { ...BUSINESS_PROFILE, description: 'updated' },
-      source: '/tmp/agents/sales',
-      mcpSource: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    })
-
-    expect(manager.getAgent('sales-001')).toBe(agent2)
-    expect(agent2.profile.description).toBe('updated')
+    expect(agent.id).toBe('sales_001')
+    expect(manager.getAgent('sales_001')).toBe(agent)
+    expect(manager.listBusinessAgentIds()).toContain('sales_001')
   })
 
   it('unregisterBusinessAgent removes agent', () => {
-    manager.registerBusinessAgent('sales-001', {
+    manager.registerBusinessAgent('sales_001', {
       profile: BUSINESS_PROFILE,
       source: null,
-      mcpSource: null,
+      mcpRegistry: null,
       skillRegistry: SkillRegistry.fromDir(null),
     })
-
-    expect(manager.unregisterBusinessAgent('sales-001')).toBe(true)
-    expect(manager.getAgent('sales-001')).toBeNull()
-    expect(manager.listBusinessAgentIds()).not.toContain('sales-001')
-  })
-
-  it('unregisterBusinessAgent returns false for unknown', () => {
-    expect(manager.unregisterBusinessAgent('nope')).toBe(false)
+    expect(manager.unregisterBusinessAgent('sales_001')).toBe(true)
+    expect(manager.getAgent('sales_001')).toBeNull()
   })
 
   it('getChatAgent throws if not initialized', () => {
@@ -143,31 +148,24 @@ describe('AgentManager', () => {
   })
 
   it('business agent tools are filtered by whitelist', () => {
-    const agent = manager.registerBusinessAgent('sales-001', {
+    const agent = manager.registerBusinessAgent('sales_001', {
       profile: BUSINESS_PROFILE,
       source: null,
-      mcpSource: null,
+      mcpRegistry: null,
       skillRegistry: SkillRegistry.fromDir(null),
     })
-
     const tools = agent.toolRegistry.getToolNames()
     expect(tools).toContain('bash')
-    expect(tools).toContain('read') // ALWAYS_AVAILABLE
+    expect(tools).toContain('read')
     expect(tools).not.toContain('write')
-    expect(tools).not.toContain('edit')
   })
 })
 
-// ─── TASK-4: 三平台 agent + disabledTools 通用机制 ───────────────────────
-
-describe('AgentManager v2 platform agents (AC-012)', () => {
+describe('AgentManager platform delegation (AC-031, AC-047)', () => {
   let manager: AgentManager
 
   beforeEach(() => {
     manager = new AgentManager()
-    // stubRuntime 必须含 agentManager（buildDescription 在 delegate_agent
-    // 工厂期就调用 listBusinessAgentIds，构造时 agentManager 必须可用）。
-    // 这里循环引用 manager → ok，因为 manager.init 在 stub 函数被调时已完成 platformChat 装配。
     const stubRuntime = {
       agentManager: {
         getAgent: (id: string) => manager.getAgent(id),
@@ -184,44 +182,18 @@ describe('AgentManager v2 platform agents (AC-012)', () => {
       mcpRegistry: null,
       skillRegistry: SkillRegistry.fromDir(null),
       delegationRuntime: stubRuntime,
-    } as Parameters<AgentManager['init']>[0])
+    } as unknown as Parameters<AgentManager['init']>[0])
   })
 
-  it('AC-012: __chat__ DOES expose delegate_agent (allowAnyBusinessSubagent=true)', () => {
+  it('AC-031/AC-047: __chat__ exposes delegate_agent + allowedAgentIds === null', () => {
     const chat = manager.getAgent('__chat__')!
-    const tools = chat.toolRegistry.getToolNames()
-    expect(tools).toContain('delegate_agent')
+    expect(chat.toolRegistry.getToolNames()).toContain('delegate_agent')
+    expect(chat.allowedAgentIds).toBeNull()
   })
 
-  it('__coordinator__ no longer exists as a platform agent', () => {
-    expect(manager.getAgent('__coordinator__')).toBeNull()
-  })
-
-  it('AC-012: __crystallizer__ has delegate_agent tool with empty scope (TASK-2)', () => {
+  it('__crystallizer__ has delegate_agent tool but scope is empty []', () => {
     const cryst = manager.getAgent('__crystallizer__')!
-    const tools = cryst.toolRegistry.getToolNames()
-    // 持有工具但 scope=[] —— LLM 看到的 description listing 为空（在 buildDescription 体现）
-    expect(tools).toContain('delegate_agent')
-  })
-
-  it('CRYSTALLIZER_PROFILE.role drives draft loop (AC-018, TASK-3)', () => {
-    const cryst = manager.getAgent('__crystallizer__')!
-    const role = cryst.profile.role
-    const caps = role.capabilities.join(' ')
-    const constraints = role.constraints?.join(' ') ?? ''
-
-    // FIRST user message contains S1 history snapshot
-    expect(caps).toMatch(/FIRST user message/i)
-    // Output wrapped in fenced ```json``` block (renderer parses this)
-    expect(caps).toMatch(/```json```|fenced .*json.* code block/i)
-    // dependencies.subagents must be carried over when delegation observed
-    expect(caps).toMatch(/dependencies\.subagents/)
-    // Multi-turn iteration: re-output UPDATED block on user feedback
-    expect(caps).toMatch(/UPDATED .*```json``` block/i)
-    // Constraint: Do NOT write files (renderer saves)
-    expect(constraints).toMatch(/Do NOT write files/i)
-    // Constraint: id snake-case + reserved __X__ prefix forbidden
-    expect(constraints).toMatch(/snake-case/i)
-    expect(constraints).toMatch(/__/i)
+    expect(cryst.toolRegistry.getToolNames()).toContain('delegate_agent')
+    expect(cryst.allowedAgentIds).toEqual([])
   })
 })

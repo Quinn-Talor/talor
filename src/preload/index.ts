@@ -285,6 +285,26 @@ const talorAPI = {
         riskLevel?: string
       }>
     > => ipcRenderer.invoke('agents:list-tools', agentId),
+
+    // Schema 1.0: 编辑 / 预览 / 模板 / 复制 / 沙箱试跑
+    validate: (
+      profile: unknown,
+    ): Promise<{
+      valid: boolean
+      errors: Array<{ severity: 'error' | 'warn'; rule: number; path: string; message: string }>
+      warnings: Array<{ severity: 'error' | 'warn'; rule: number; path: string; message: string }>
+    }> => ipcRenderer.invoke('agents:validate', profile),
+
+    preview: (profile: unknown): Promise<unknown> => ipcRenderer.invoke('agents:preview', profile),
+
+    listTemplates: (): Promise<
+      Array<{ id: string; name: string; description: string; profile: unknown }>
+    > => ipcRenderer.invoke('agents:list-templates'),
+
+    duplicate: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:duplicate', id),
+
+    dryRun: (args: { profile: unknown; userMessage: string }): Promise<unknown> =>
+      ipcRenderer.invoke('agents:dry-run', args),
   },
 
   accounts: {

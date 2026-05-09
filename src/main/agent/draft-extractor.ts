@@ -133,11 +133,27 @@ export function parseAgentDraft(text: string): ParseDraftResult {
       lastError = parseErr instanceof Error ? parseErr.message : String(parseErr)
       continue
     }
-    const result = validateProfile(parsed)
+    // LLM 输出容错:常见 LLM 把 deliverable.id 当外层 wrapper key 包了一层
+    // (e.g. { "agent_profile_draft": { "schemaVersion": "1.0", ... } })
+    // 此处自动 unwrap;不影响 schema 1.0 严格性,validate 仍跑全 14 条规则
+    const candidate = unwrapIfWrapped(parsed) ?? parsed
+    const result = validateProfile(candidate)
     if (result.valid) {
       return { valid: true, profile: result.profile, raw: text }
     }
-    lastError = result.errors.join('; ')
+    lastError = result.errors.map((e) => `[rule ${e.rule}] ${e.path}: ${e.message}`).join('; ')
   }
   return { valid: false, error: lastError, raw: text }
+}
+
+function unwrapIfWrapped(parsed: unknown): unknown {
+  if (typeof parsed !== 'object' || parsed === null) return null
+  const obj = parsed as Record<string, unknown>
+  // 顶层已经是 schema 1.0 形态 → 不需要 unwrap
+  if (obj.schemaVersion === '1.0') return null
+  const keys = Object.keys(obj)
+  if (keys.length !== 1) return null
+  const inner = obj[keys[0]]
+  if (typeof inner !== 'object' || inner === null) return null
+  return (inner as Record<string, unknown>).schemaVersion === '1.0' ? inner : null
 }

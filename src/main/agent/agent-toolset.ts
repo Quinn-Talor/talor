@@ -80,6 +80,46 @@ export interface McpToolSource {
   ): Promise<{ output: unknown }>
 }
 
+/**
+ * 把多个 McpToolSource 合并为一个：
+ *   - listRegisteredTools: 按工具名去重 (先来源优先)
+ *   - execute(name, input, ctx): 找第一个声明了此工具的 source 执行;都没找到则抛错
+ *
+ * 用途: 业务 agent 同时使用平台全局 MCP (Playwright 等) + profile 自带 MCP server。
+ * 全部 null 输入 → 返回 null。
+ */
+export function composeMcpSources(
+  ...sources: Array<McpToolSource | null | undefined>
+): McpToolSource | null {
+  const real = sources.filter((s): s is McpToolSource => s !== null && s !== undefined)
+  if (real.length === 0) return null
+  if (real.length === 1) return real[0]
+
+  return {
+    listRegisteredTools(): ToolMetadata[] {
+      const seen = new Set<string>()
+      const out: ToolMetadata[] = []
+      for (const src of real) {
+        for (const t of src.listRegisteredTools()) {
+          if (!seen.has(t.name)) {
+            seen.add(t.name)
+            out.push(t)
+          }
+        }
+      }
+      return out
+    },
+
+    async execute(toolName, input, ctx) {
+      for (const src of real) {
+        const owns = src.listRegisteredTools().some((t) => t.name === toolName)
+        if (owns) return src.execute(toolName, input, ctx)
+      }
+      throw new Error(`composeMcpSources: tool "${toolName}" not found in any source`)
+    },
+  }
+}
+
 function toMetadata(t: ToolDefinition): ToolMetadata {
   return {
     name: t.name,

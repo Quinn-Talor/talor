@@ -110,7 +110,7 @@ function CodeBlock({ inline, className, children, ...props }: CodeProps) {
   )
 }
 
-export function MessageBubble({
+function MessageBubbleInner({
   message,
   isStreaming,
   variant = 'normal',
@@ -200,7 +200,11 @@ export function MessageBubble({
     >
       <div
         className={`max-w-[80%] rounded-lg px-4 py-3 ${
-          isUser ? 'bg-blue-600 text-white rounded-br-none' : assistantBubbleClass
+          isHistorySnapshot && snapshotExpanded
+            ? 'bg-purple-50 text-gray-800 border border-purple-200 rounded-br-none'
+            : isUser
+              ? 'bg-blue-600 text-white rounded-br-none'
+              : assistantBubbleClass
         }`}
       >
         {!isUser && isCrystallize && (
@@ -209,14 +213,16 @@ export function MessageBubble({
           </div>
         )}
         {isHistorySnapshot && snapshotExpanded && (
-          <button
-            type="button"
-            onClick={() => setSnapshotExpanded(false)}
-            className="flex items-center gap-1 text-[11px] mb-2 hover:underline"
-            style={{ color: 'rgba(255,255,255,0.85)' }}
-          >
-            ▲ 折起快照
-          </button>
+          <div className="flex justify-end mb-2">
+            <button
+              type="button"
+              onClick={() => setSnapshotExpanded(false)}
+              className="flex items-center gap-1 text-[11px] hover:underline"
+              style={{ color: '#7c3aed' }}
+            >
+              ▲ 折起快照
+            </button>
+          </div>
         )}
         {isUser ? (
           <div className="flex flex-col gap-2">
@@ -287,3 +293,9 @@ export function MessageBubble({
     </div>
   )
 }
+
+// React.memo 大幅缓解 Crystallizer workbench 输入卡顿:
+// 工作台 session 通常 40+ 消息(含长历史快照),输入 textarea 每按一键就让 Chat 父组件
+// re-render → 所有 MessageBubble 默认会跟着重渲染(含 markdown + 代码高亮)。
+// memoize 后 message reference 不变就跳过,输入响应立刻丝滑。
+export const MessageBubble = React.memo(MessageBubbleInner)

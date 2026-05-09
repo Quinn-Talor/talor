@@ -4,7 +4,17 @@
 // 禁止依赖：ipc/*
 
 import { execSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync, cpSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  cpSync,
+} from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import log from 'electron-log'
@@ -28,7 +38,11 @@ export function importAgent(zipBuffer: Buffer, agentsDir: string): ImportResult 
 
     const entries = readdirSync(tempDir).filter((name: string) => {
       if (name === 'agent.zip') return false
-      try { return statSync(join(tempDir, name)).isDirectory() } catch { return false }
+      try {
+        return statSync(join(tempDir, name)).isDirectory()
+      } catch {
+        return false
+      }
     })
 
     if (entries.length === 0) {
@@ -64,7 +78,13 @@ export function importAgent(zipBuffer: Buffer, agentsDir: string): ImportResult 
 
     cpSync(extractedDir, targetDir, { recursive: true })
 
-    log.info('[importer] Imported agent:', result.profile.id, 'to', targetDir, overwritten ? '(overwritten)' : '')
+    log.info(
+      '[importer] Imported agent:',
+      result.profile.identity.id,
+      'to',
+      targetDir,
+      overwritten ? '(overwritten)' : '',
+    )
 
     return {
       profile: result.profile,

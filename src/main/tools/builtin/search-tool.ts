@@ -39,14 +39,25 @@ export function createSearchTool(mcpSource: McpToolSource | null): ToolDefinitio
   return {
     name: 'search_tool',
     description:
-      'Discover available external (MCP) tools. ' +
-      'Call this when you need capabilities beyond the built-in tools ' +
-      '(read/write/edit/bash/glob/grep/ls), e.g., sending messages, querying APIs, ' +
-      'interacting with third-party services. ' +
-      'After calling, ALL MCP tools become directly callable in your next step. ' +
-      'Tools you actually invoke remain available for the rest of this turn ' +
-      '(no need to re-search to reuse them). ' +
-      'Re-call this tool when you need a different MCP tool you have not yet used.',
+      'GATEWAY to all external (MCP) tools — browser, web search, screenshots, ' +
+      'database queries, third-party APIs (GitHub, Slack, Notion, Linear, etc.), ' +
+      'fetching live data, navigating webpages, scraping, image generation. ' +
+      'You MUST call this tool FIRST whenever the user asks for any of: ' +
+      '【浏览器/browser/网页/网址/URL】, 【搜索/search/Google/百度】, ' +
+      '【截图/screenshot】, 【实时/股价/新闻/价格/天气/汇率】, ' +
+      '【GitHub/Slack/Notion/Linear/Jira/数据库/API】, or anything that requires ' +
+      'reaching outside the local file system / shell. ' +
+      'These external tools are NOT visible until you call this — your tool list ' +
+      'currently only shows local file/shell tools (read/write/edit/bash/glob/grep/ls/skill). ' +
+      'After you call this tool, ALL external (MCP) tools become directly callable ' +
+      'in your next step (e.g., browser_navigate, browser_screenshot, github_search, etc.). ' +
+      '⛔ NEVER respond with "I will use the browser" / "I will search" / "I will check X" ' +
+      'WITHOUT calling this tool first — those phrases are signals that you must call ' +
+      'this tool RIGHT NOW. Do not promise then stop; promise then call. ' +
+      '⛔ NEVER claim a capability is unavailable before calling this tool — the capability ' +
+      'is likely behind an MCP server you have not yet discovered. ' +
+      'Tools you actually invoke remain available for the rest of this turn. ' +
+      'Re-call this tool only when you need a different MCP tool you have not yet used.',
     parameters: {
       type: 'object',
       properties: {},

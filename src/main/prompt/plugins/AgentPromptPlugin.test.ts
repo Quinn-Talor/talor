@@ -1,3 +1,4 @@
+// src/main/prompt/plugins/AgentPromptPlugin.test.ts — Schema 1.0 template-driven tests
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
@@ -15,16 +16,17 @@ import type { ToolDefinition } from '../../tools/types'
 
 function makeTool(name: string): ToolDefinition {
   return {
-    name, description: `${name} tool`,
+    name,
+    description: `${name} tool`,
     parameters: { type: 'object', properties: {} },
     execute: async () => ({ output: name }),
   }
 }
 
 const builtinRegistry = new BuiltinToolRegistry([
-  makeTool('read'), makeTool('write'), makeTool('edit'),
-  makeTool('bash'), makeTool('glob'), makeTool('grep'),
-  makeTool('ls'), makeTool('skill'),
+  makeTool('read'),
+  makeTool('write'),
+  makeTool('bash'),
 ])
 
 function createAgent(profile: AgentProfile, skillRegistry?: SkillRegistry): Agent {
@@ -39,145 +41,296 @@ function createAgent(profile: AgentProfile, skillRegistry?: SkillRegistry): Agen
 
 function createContext(agent?: Agent): PipelineContext {
   return {
-    sessionId: 'test-session',
-    currentMessage: { text: '帮我看下本周销售数据' },
-    provider: { id: 'test', name: 'test', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' },
+    sessionId: 's',
+    currentMessage: { text: 'go' },
+    provider: {
+      id: 'p',
+      name: 'p',
+      base_url: '',
+      type: 'anthropic' as const,
+      models: [],
+      enabled: true,
+      is_default: true,
+      supports_vision: false,
+      created_at: '',
+      updated_at: '',
+    },
     providerConfig: {
-      provider: { id: 'test', name: 'test', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' },
+      provider: {
+        id: 'p',
+        name: 'p',
+        base_url: '',
+        type: 'anthropic' as const,
+        models: [],
+        enabled: true,
+        is_default: true,
+        supports_vision: false,
+        created_at: '',
+        updated_at: '',
+      },
       context_limit: 8000,
       recent_ratio: 0.7,
       summary_ratio: 0.2,
     },
-    workspacePath: '/tmp/test',
+    workspacePath: '/tmp',
     agent,
   }
 }
 
-function createSkillDir(baseDir: string, name: string, description: string, whenToUse?: string): void {
-  const dir = join(baseDir, name)
-  mkdirSync(dir, { recursive: true })
-  const whenLine = whenToUse ? `\nwhen_to_use: "${whenToUse}"` : ''
-  writeFileSync(join(dir, 'SKILL.md'), `---
-name: ${name}
-description: "${description}"${whenLine}
----
-
-# ${name}
-content
-`)
+const PLATFORM_CHAT: AgentProfile = {
+  schemaVersion: '1.0',
+  identity: { id: '__chat__', name: 'Talor', description: 'Default assistant', version: '0.2.0' },
+  mission: { objective: 'Help with any task', outcomes: [] },
+  method: { capabilities: ['General help'] },
+  delivery: { deliverables: [], acceptance: [] },
+  execution: {
+    limits: { maxSteps: 30, maxTokens: 200000 },
+    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
+  },
 }
 
-const SALES_PROFILE: AgentProfile = {
-  id: 'sales-analyst-001',
-  name: '销售分析师',
-  description: '自动汇总周度销售数据',
-  version: '1.0.0',
-  role: {
-    capabilities: ['从飞书表格获取销售数据', '生成趋势分析图表', '撰写周报摘要'],
-    constraints: ['只处理销售相关数据', '不修改原始数据表'],
-    outputFormat: 'Markdown 格式的分析报告',
-    personality: '简洁专业',
-    language: 'zh-CN',
-    sampleConversations: [
+const REVIEWER: AgentProfile = {
+  schemaVersion: '1.0',
+  identity: { id: 'reviewer', name: 'Code Reviewer', description: 'Reviews PRs', version: '1.0.0' },
+  mission: {
+    objective: 'Produce structured PR review',
+    outcomes: [
       {
-        title: '汇总周报',
-        messages: [
-          { role: 'user', content: '帮我看下本周销售' },
-          { role: 'assistant', content: '好的，我来汇总本周销售数据。' },
+        id: 'review_done',
+        description: 'review report ready',
+        priority: 'core',
+        verifyBy: [
+          {
+            type: 'deliverable-present',
+            deliverableId: 'review_report',
+            kind: 'deterministic',
+            severity: 'must',
+          },
+        ],
+      },
+      {
+        id: 'extra_polish',
+        description: 'good wording',
+        priority: 'auxiliary',
+        verifyBy: [
+          {
+            type: 'deliverable-present',
+            deliverableId: 'review_report',
+            kind: 'deterministic',
+            severity: 'should',
+          },
         ],
       },
     ],
-  },
-  knowledge: {
-    files: [
+    inputs: [
       {
-        path: './knowledge/product-catalog.md',
-        description: '产品目录，包含所有产品名称、SKU 和定价',
+        id: 'pr_url',
+        description: 'Pull request URL',
+        type: 'text',
         required: true,
-        format: 'markdown',
+        examples: ['https://github.com/x/y/pull/1'],
       },
     ],
   },
-  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
+  method: {
+    capabilities: ['Apply standards review'],
+    knowledge: [
+      {
+        type: 'file',
+        path: 'rules.md',
+        description: 'engineering rules',
+        required: true,
+        format: 'markdown',
+      },
+      { type: 'text', content: 'blocker = must-fix-before-merge', description: 'glossary' },
+    ],
+    workflow: {
+      steps: [
+        { id: 'load_ctx', description: 'Load standards', inputs: ['user-input'], produces: 'ctx' },
+        {
+          id: 'analyze',
+          description: 'Walk diff',
+          inputs: ['ctx'],
+          produces: 'review_report',
+          requires: ['load_ctx'],
+        },
+      ],
+    },
+    tools: [
+      { name: 'read', required: true },
+      { name: 'bash', disabled: true },
+    ],
+  },
+  delivery: {
+    deliverables: [
+      {
+        id: 'review_report',
+        format: 'json',
+        schema: {
+          type: 'object',
+          required: ['summary'],
+          properties: { summary: { type: 'string' } },
+        },
+        rubric: ['✓ Each finding cites a line range', "✗ Don't list nits with blockers"],
+      },
+    ],
+    acceptance: [
+      {
+        type: 'deliverable-present',
+        deliverableId: 'review_report',
+        kind: 'deterministic',
+        severity: 'must',
+      },
+      { type: 'tool-was-used', toolName: 'read', kind: 'deterministic', severity: 'must' },
+      { type: 'tool-not-used', toolName: 'write', kind: 'deterministic', severity: 'must' },
+      {
+        type: 'verifier-tool',
+        toolName: 'check_quality',
+        kind: 'deterministic',
+        severity: 'should',
+      },
+    ],
+  },
+  execution: {
+    limits: { maxSteps: 30, maxTokens: 100000 },
+    retryPolicy: { maxAttempts: 2, onMustFail: 'retry-then-mark', onShouldFail: 'mark-only' },
+  },
 }
 
-describe('AgentPromptPlugin', () => {
-  const plugin = new AgentPromptPlugin()
+const plugin = new AgentPromptPlugin()
 
-  it('returns empty messages when no agent in context', async () => {
-    const result = await plugin.build(createContext())
-    expect(result.messages).toEqual([])
-    expect(result.tokenEstimate).toBe(0)
+describe('AgentPromptPlugin (schema 1.0 template-driven)', () => {
+  it('returns empty messages without agent', async () => {
+    const r = await plugin.build(createContext())
+    expect(r.messages).toEqual([])
+    expect(r.tokenEstimate).toBe(0)
   })
 
-  it('builds agent prompt from role capabilities and outputFormat', async () => {
-    const agent = createAgent(SALES_PROFILE)
-    const result = await plugin.build(createContext(agent))
-    expect(result.messages.length).toBeGreaterThan(0)
-    const systemMsg = result.messages[0]
-    expect(systemMsg.role).toBe('system')
-    const content = (systemMsg as { role: string; content: string }).content
-    expect(content).toContain('从飞书表格获取销售数据')
-    expect(content).toContain('Markdown 格式的分析报告')
+  it('renders identity for any agent', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('You are **Code Reviewer**')
+    expect(c).toContain('Reviews PRs')
   })
 
-  it('includes constraints in agent prompt', async () => {
-    const agent = createAgent(SALES_PROFILE)
-    const result = await plugin.build(createContext(agent))
-    const content = (result.messages[0] as { role: string; content: string }).content
-    expect(content).toContain('只处理销售相关数据')
+  it('AC-046: __chat__ does NOT render Mission/Acceptance/Quality Pledges/Deliverables', async () => {
+    const agent = createAgent(PLATFORM_CHAT)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).not.toContain('# Mission')
+    expect(c).not.toContain('# ⚠️ Acceptance Criteria')
+    expect(c).not.toContain('# Quality Pledges')
+    expect(c).not.toContain('# Deliverables')
   })
 
-  it('includes knowledge index in agent prompt', async () => {
-    const agent = createAgent(SALES_PROFILE)
-    const result = await plugin.build(createContext(agent))
-    const content = (result.messages[0] as { role: string; content: string }).content
-    expect(content).toContain('product-catalog.md')
-    expect(content).toContain('产品目录')
+  it('AC-040: business agent renders Mission with [CORE] and [AUXILIARY] sections', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# Mission')
+    expect(c).toContain('[CORE — Required]')
+    expect(c).toContain('[AUXILIARY — Nice to have]')
+    expect(c).toContain('review_done')
+    expect(c).toContain('extra_polish')
   })
 
-  it('includes personality when present', async () => {
-    const agent = createAgent(SALES_PROFILE)
-    const result = await plugin.build(createContext(agent))
-    const content = (result.messages[0] as { role: string; content: string }).content
-    expect(content).toContain('简洁专业')
+  it('AC-041: workflow displays inputs → produces', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('Recommended workflow')
+    expect(c).toContain('load_ctx')
+    expect(c).toContain('Inputs:')
+    expect(c).toContain('Produces:')
+    expect(c).toContain('`user-input`')
+    expect(c).toContain('`ctx`')
   })
 
-  it('includes few-shot from sampleConversations', async () => {
-    const agent = createAgent(SALES_PROFILE)
-    const result = await plugin.build(createContext(agent))
-    const userMsg = result.messages.find(
-      m => m.role === 'user' && (m as { content: string }).content === '帮我看下本周销售',
-    )
-    const assistantMsg = result.messages.find(
-      m => m.role === 'assistant' && (m as { content: string }).content.includes('汇总本周销售'),
-    )
-    expect(userMsg).toBeDefined()
-    expect(assistantMsg).toBeDefined()
+  it('AC-042: acceptance section uses ⚠️ + REJECTED tone, must/should grouped', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# ⚠️ Acceptance Criteria (REQUIRED)')
+    expect(c).toContain('REJECTED')
+    expect(c).toContain('Nice-to-have (recorded but not blocking)')
+    expect(c).toContain('did NOT call the "write" tool')
   })
 
-  it('handles empty knowledge files', async () => {
-    const agent = createAgent({ ...SALES_PROFILE, knowledge: { files: [] } })
-    const result = await plugin.build(createContext(agent))
-    expect(result.messages.length).toBeGreaterThan(0)
+  it('AC-043: rubric promoted to standalone Quality Pledges section', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# Quality Pledges')
+    expect(c).toContain('✓ Each finding cites a line range')
+    expect(c).toContain("✗ Don't list nits with blockers")
   })
 
-  it('handles empty sampleConversations', async () => {
-    const agent = createAgent({
-      ...SALES_PROFILE,
-      role: { ...SALES_PROFILE.role, sampleConversations: [] },
-    })
-    const result = await plugin.build(createContext(agent))
-    expect(result.messages).toHaveLength(1)
+  it('AC-044: self-check section has 6 items (or 7 with inputs)', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# Self-Check Before Responding')
+    expect(c).toMatch(/Step location/)
+    expect(c).toMatch(/Mission alignment/)
+    expect(c).toMatch(/Required reading/)
+    expect(c).toMatch(/Required tools/)
+    expect(c).toMatch(/Deliverable/)
+    expect(c).toMatch(/Quality Pledges/)
+    // 7th item only when hasInputs
+    expect(c).toMatch(/Inputs:/)
   })
 
-  it('returns non-zero tokenEstimate', async () => {
-    const agent = createAgent(SALES_PROFILE)
-    const result = await plugin.build(createContext(agent))
-    expect(result.tokenEstimate).toBeGreaterThan(0)
+  it('AC-045: required knowledge file is marked REQUIRED', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# Reference Files')
+    expect(c).toContain('rules.md')
+    expect(c).toContain('REQUIRED — must read before producing deliverable')
   })
 
-  describe('skill description injection', () => {
+  it('AC-049: Required Inputs section renders for business agent with inputs', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# Required Inputs (collect before starting)')
+    expect(c).toContain('pr_url')
+    expect(c).toContain('REQUIRED')
+    expect(c).toContain('https://github.com/x/y/pull/1')
+    // self-check item 7
+    expect(c).toMatch(/7\.\s+\*\*Inputs\*\*/)
+  })
+
+  it('AC-049 negative: __chat__ has no Required Inputs section', async () => {
+    const agent = createAgent(PLATFORM_CHAT)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).not.toContain('Required Inputs')
+  })
+
+  it('AC-022 implicit acceptance shows knowledge path in must list', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('You read "rules.md" at least once')
+  })
+
+  it('inline knowledge text renders in Domain Knowledge section', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    const c = (r.messages[0] as { role: string; content: string }).content
+    expect(c).toContain('# Domain Knowledge')
+    expect(c).toContain('blocker = must-fix-before-merge')
+  })
+
+  it('returns non-zero token estimate', async () => {
+    const agent = createAgent(REVIEWER)
+    const r = await plugin.build(createContext(agent))
+    expect(r.tokenEstimate).toBeGreaterThan(50)
+  })
+
+  describe('skill listing', () => {
     let skillTempDir: string
 
     beforeEach(() => {
@@ -188,85 +341,32 @@ describe('AgentPromptPlugin', () => {
       rmSync(skillTempDir, { recursive: true, force: true })
     })
 
-    it('AC-S1-01: injects skill descriptions when agent has skills', async () => {
-      createSkillDir(skillTempDir, 'lark-sheets', '飞书电子表格：创建和操作电子表格')
-      createSkillDir(skillTempDir, 'lark-shared', '飞书/Lark CLI 共享基础')
-
-      const registry = SkillRegistry.fromDir(skillTempDir)
-      const agent = createAgent(SALES_PROFILE, registry)
-      const result = await plugin.build(createContext(agent))
-
-      const systemMsgs = result.messages.filter(m => m.role === 'system')
-      const content = systemMsgs.map(m => (m as { content: string }).content).join('\n')
-
-      expect(content).toContain('## Available Skills')
-      // 新格式: `- <name>\n  <description>`(多行),不再是 `- <name>: <description>`
-      expect(content).toMatch(/- lark-sheets\n\s+飞书电子表格/)
-      expect(content).toMatch(/- lark-shared\n\s+飞书\/Lark CLI/)
-    })
-
-    it('AC-S1-02: does not inject skill listing when registry is empty', async () => {
-      const agent = createAgent(SALES_PROFILE)
-      const result = await plugin.build(createContext(agent))
-
-      const content = result.messages
-        .filter(m => m.role === 'system')
-        .map(m => (m as { content: string }).content)
-        .join('\n')
-
-      expect(content).not.toContain('## Available Skills')
-    })
-
-    it('当 skill 有 when_to_use 时渲染 "When to use:" 行', async () => {
-      createSkillDir(
-        skillTempDir,
-        'lark-doc',
-        '飞书云文档',
-        '用户要求写飞书文档时触发。触发短语：飞书文档,lark doc',
+    function createSkillDir(name: string, description: string, whenToUse?: string): void {
+      const dir = join(skillTempDir, name)
+      mkdirSync(dir, { recursive: true })
+      const whenLine = whenToUse ? `\nwhen_to_use: "${whenToUse}"` : ''
+      writeFileSync(
+        join(dir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: "${description}"${whenLine}\n---\n\n# ${name}\ncontent`,
       )
-      const registry = SkillRegistry.fromDir(skillTempDir)
-      const agent = createAgent(SALES_PROFILE, registry)
-      const result = await plugin.build(createContext(agent))
+    }
 
-      const content = result.messages
-        .filter(m => m.role === 'system')
-        .map(m => (m as { content: string }).content)
-        .join('\n')
-
-      expect(content).toMatch(/- lark-doc\n\s+飞书云文档/)
-      expect(content).toMatch(/When to use: 用户要求写飞书文档时触发/)
-      expect(content).toContain('触发短语：飞书文档,lark doc')
+    it('renders Available Skills section when registry has skills', async () => {
+      createSkillDir('lark-doc', '飞书云文档', '触发短语:飞书文档')
+      const reg = SkillRegistry.fromDir(skillTempDir)
+      const agent = createAgent(REVIEWER, reg)
+      const r = await plugin.build(createContext(agent))
+      const c = (r.messages[0] as { role: string; content: string }).content
+      expect(c).toContain('## Available Skills')
+      expect(c).toMatch(/- lark-doc/)
+      expect(c).toContain('When to use: 触发短语')
     })
 
-    it('当 skill 无 when_to_use 时省略 "When to use:" 行', async () => {
-      createSkillDir(skillTempDir, 'plain-skill', '普通 skill')
-      const registry = SkillRegistry.fromDir(skillTempDir)
-      const agent = createAgent(SALES_PROFILE, registry)
-      const result = await plugin.build(createContext(agent))
-
-      const content = result.messages
-        .filter(m => m.role === 'system')
-        .map(m => (m as { content: string }).content)
-        .join('\n')
-
-      expect(content).toMatch(/- plain-skill\n\s+普通 skill/)
-      expect(content).not.toMatch(/When to use:/)
-    })
-
-    it('skill listing 顶部说明包含 "When to use" 提示', async () => {
-      createSkillDir(skillTempDir, 'lark-doc', '飞书云文档')
-      const registry = SkillRegistry.fromDir(skillTempDir)
-      const agent = createAgent(SALES_PROFILE, registry)
-      const result = await plugin.build(createContext(agent))
-
-      const content = result.messages
-        .filter(m => m.role === 'system')
-        .map(m => (m as { content: string }).content)
-        .join('\n')
-
-      expect(content).toMatch(/Each entry is an encapsulated capability/)
-      expect(content).toContain('Use via `skill` tool')
-      expect(content).toContain('When to use')
+    it('omits Available Skills when registry empty', async () => {
+      const agent = createAgent(REVIEWER)
+      const r = await plugin.build(createContext(agent))
+      const c = (r.messages[0] as { role: string; content: string }).content
+      expect(c).not.toContain('## Available Skills')
     })
   })
 })

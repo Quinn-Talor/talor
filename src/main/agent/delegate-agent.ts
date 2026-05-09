@@ -278,8 +278,8 @@ function buildDescription(
   for (const id of targetIds) {
     const a = agentManager.getAgent(id)
     if (!a) continue
-    const desc = (a.profile.description ?? '').slice(0, 80)
-    lines.push(`- ${id} — ${a.profile.name}${desc ? `: ${desc}` : ''}`)
+    const desc = (a.profile.identity.description ?? '').slice(0, 80)
+    lines.push(`- ${id} — ${a.profile.identity.name}${desc ? `: ${desc}` : ''}`)
   }
   const listing = lines.length > 0 ? lines.join('\n') : '  (no subagents available)'
 

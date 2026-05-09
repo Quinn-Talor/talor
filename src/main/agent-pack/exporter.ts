@@ -90,7 +90,7 @@ export async function exportAgentPack(
     const manifest: AgentPackManifest = {
       format_version: PACK_FORMAT_VERSION,
       pack_id: `${primaryAgentId}.pack`,
-      pack_name: `${primary.name} (${primary.profile.version})`,
+      pack_name: `${primary.name} (${primary.profile.identity.version})`,
       created_at: new Date().toISOString(),
       created_by: 'talor:0.1.0',
       primary_agent: primaryAgentId,
@@ -106,7 +106,7 @@ export async function exportAgentPack(
     // Zip
     mkdirSync(outputDir, { recursive: true })
     const safeName = primaryAgentId.replace(/[^a-zA-Z0-9_.-]+/g, '_')
-    const packPath = join(outputDir, `${safeName}-${primary.profile.version}.talor-pack`)
+    const packPath = join(outputDir, `${safeName}-${primary.profile.identity.version}.talor-pack`)
 
     await zipDir(tmpRoot, packPath)
 
@@ -152,14 +152,14 @@ function bfsCollectDependencies(primaryId: string, manager: AgentManager): Colle
     if (!entry) {
       entry = {
         id,
-        version: agent.profile.version,
+        version: agent.profile.identity.version,
         dirPath: agent.source,
         kind: id === primaryId ? 'primary' : 'dependency',
         dependedOnBy: new Set(),
       }
       visited.set(id, entry)
       // 探索其 subagent 依赖
-      const subDeps = agent.profile.dependencies.subagents ?? []
+      const subDeps = agent.profile.method.collaboration?.subagents ?? []
       for (const sub of subDeps) {
         queue.push({ id: sub.id, depth: depth + 1, from: id })
       }
@@ -175,17 +175,26 @@ function collectExternalDeps(agents: CollectedAgent[], manager: AgentManager): E
   for (const a of agents) {
     const profile = manager.getAgent(a.id)?.profile
     if (!profile) continue
-    for (const mcp of profile.dependencies.mcpServers) {
+    for (const mcp of profile.method.mcpServers ?? []) {
       const key = `mcp:${mcp.name}`
       if (seen.has(key)) continue
+      // 收集需要的 env var:http auth.envVar / stdio env keys
+      const envVars: string[] = []
+      if (mcp.transport.type === 'http' && mcp.transport.auth?.envVar) {
+        envVars.push(mcp.transport.auth.envVar)
+      }
+      if (mcp.transport.type === 'stdio' && mcp.transport.env) {
+        for (const k of Object.keys(mcp.transport.env)) envVars.push(k)
+      }
       seen.set(key, {
         kind: 'mcp_server',
         id: mcp.name,
         required: mcp.required,
         hint: mcp.transport.type === 'stdio' ? `command: ${mcp.transport.command}` : undefined,
+        required_env_vars: envVars.length > 0 ? envVars : undefined,
       })
     }
-    for (const cli of profile.dependencies.cli) {
+    for (const cli of profile.method.cli ?? []) {
       const key = `cli:${cli.command}`
       if (seen.has(key)) continue
       seen.set(key, {

@@ -22,13 +22,47 @@ function msg(
 }
 
 const VALID_PROFILE_JSON = {
-  id: 'love-letter-writer',
-  name: '情感挽回助手',
-  description: '基于对话生成挽回语录',
-  version: '1.0.0',
-  role: { capabilities: ['撰写挽回语录'], outputFormat: 'markdown' },
-  knowledge: { files: [] },
-  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
+  schemaVersion: '1.0',
+  identity: {
+    id: 'love_letter_writer',
+    name: '情感挽回助手',
+    description: '基于对话生成挽回语录',
+    version: '1.0.0',
+  },
+  mission: {
+    objective: '基于对话生成挽回语录',
+    outcomes: [
+      {
+        id: 'letter_done',
+        description: '用户收到结构化的挽回语录',
+        priority: 'core',
+        verifyBy: [
+          {
+            type: 'deliverable-present',
+            deliverableId: 'letter',
+            kind: 'deterministic',
+            severity: 'must',
+          },
+        ],
+      },
+    ],
+  },
+  method: { capabilities: ['撰写挽回语录'] },
+  delivery: {
+    deliverables: [{ id: 'letter', format: 'markdown', mustContain: ['# 挽回'] }],
+    acceptance: [
+      {
+        type: 'deliverable-present',
+        deliverableId: 'letter',
+        kind: 'deterministic',
+        severity: 'must',
+      },
+    ],
+  },
+  execution: {
+    limits: { maxSteps: 10, maxTokens: 10000 },
+    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
+  },
 }
 
 describe('serializeS1History (TASK-1, AC-004)', () => {

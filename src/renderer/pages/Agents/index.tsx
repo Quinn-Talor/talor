@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { talorAPI } from '../../api/talorAPI'
 import { AgentCard, NewAgentCard } from '../../components/AgentCard'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { AgentPreviewModal } from '../../components/AgentPreviewModal'
+import { AgentEditPage } from './AgentEditPage'
+import { AgentDetailPage } from './AgentDetailPage'
 import type { AgentCardData } from '../../components/AgentCard'
 
 interface AgentsPageProps {
@@ -13,8 +14,11 @@ interface AgentsPageProps {
 export function AgentsPage({ onNavigateChat, importTrigger }: AgentsPageProps) {
   const [agents, setAgents] = useState<AgentCardData[]>([])
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [previewAgentId, setPreviewAgentId] = useState<string | null>(null)
+  // 详情页(原 Modal): 非 null 时替换列表显示
+  const [detailAgentId, setDetailAgentId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Schema 1.0 编辑页:editTarget=undefined 关闭,null 新建,string 编辑
+  const [editTarget, setEditTarget] = useState<string | null | undefined>(undefined)
 
   const loadAgents = useCallback(async () => {
     try {
@@ -104,6 +108,29 @@ export function AgentsPage({ onNavigateChat, importTrigger }: AgentsPageProps) {
     )
   }
 
+  // 详情页:替换列表 (内嵌工作区,非弹窗)
+  if (detailAgentId) {
+    return (
+      <AgentDetailPage
+        agentId={detailAgentId}
+        onBack={() => setDetailAgentId(null)}
+        onStart={async (id) => {
+          try {
+            const { session_id } = await talorAPI.agents.createSession(id)
+            setDetailAgentId(null)
+            onNavigateChat(session_id)
+          } catch (err) {
+            console.error('Failed to start agent session:', err)
+          }
+        }}
+        onEdit={(id) => {
+          setDetailAgentId(null)
+          setEditTarget(id)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
       {agents.length === 0 ? (
@@ -120,10 +147,10 @@ export function AgentsPage({ onNavigateChat, importTrigger }: AgentsPageProps) {
               onStartChat={handleStartChat}
               onEnable={handleEnable}
               onDelete={setDeleteTarget}
-              onPreview={setPreviewAgentId}
+              onPreview={setDetailAgentId}
             />
           ))}
-          <NewAgentCard onClick={() => {}} />
+          <NewAgentCard onClick={() => setEditTarget(null)} />
         </div>
       )}
 
@@ -137,19 +164,12 @@ export function AgentsPage({ onNavigateChat, importTrigger }: AgentsPageProps) {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-      {previewAgentId && (
-        <AgentPreviewModal
-          open
-          agentId={previewAgentId}
-          onClose={() => setPreviewAgentId(null)}
-          onStart={async (id) => {
-            try {
-              const { session_id } = await talorAPI.agents.createSession(id)
-              setPreviewAgentId(null)
-              onNavigateChat(session_id)
-            } catch (err) {
-              console.error('Failed to start agent session:', err)
-            }
+      {editTarget !== undefined && (
+        <AgentEditPage
+          agentId={editTarget ?? undefined}
+          onClose={async () => {
+            setEditTarget(undefined)
+            await loadAgents()
           }}
         />
       )}
