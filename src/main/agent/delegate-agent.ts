@@ -13,6 +13,14 @@
 //   4. AbortController 链 + setTimeout(.unref()) + finally clearTimeout 三件套
 //      防止用户 stop 后子 loop 跑不停 / 进程退不掉
 //
+// 委托质量保护层（v2，本次新增）：
+//   A1 capability listing — buildDescription 暴露 tools/mcp/scope metadata
+//   A2 instruction-scope check — 入口前置兼容性校验
+//   A3 per-agent budget — 同 session 同 agent_id 调用上限
+//   B1 auto-context — 自动注入父最近 user message + tool errors
+//   B2 entity binding — 子 agent 输出必须提及 instruction 实体之一
+//   C1 recovery envelope — failure-recovery 文本转结构化错误
+//
 // 允许依赖：agent/* / repos/* / chat/events / loop/* / skills/* / prompt/* / shared/*
 // 禁止依赖：ipc/*
 
@@ -29,6 +37,7 @@ import { messageRepo } from '../repos/session-repo'
 import type { ChatMessage, sessionRepo as SessionRepoT } from '../repos/session-repo'
 import { ExecutionEventBus } from '../chat/events'
 import { SkillActivationTracker } from '../skills/registry'
+import { extractEntities, extractEntitySet } from './entity-extractor'
 
 import type { LanguageModel } from 'ai'
 import type { Provider } from '../store/config-store'
@@ -43,6 +52,8 @@ export interface DelegationConfig {
   queueTimeoutMs: number
   /** 单次委托执行超时（ms）。默认 30min。 */
   executionTimeoutMs: number
+  /** A3: 同 session 同 agent_id 委托总次数上限。默认 3。 */
+  maxInvocationsPerAgentPerSession: number
 }
 
 export interface ProviderContext {
@@ -78,13 +89,27 @@ function getLimiter(sessionId: string, K: number): LimitFunction {
   return l
 }
 
-/** Session 删除路径调用，防止 limiter Map 泄漏。 */
+/** A3: per-session × per-agent 调用计数（仅本进程内存,session 关闭即清理）。 */
+const invocationCounts = new Map<string, Map<string, number>>()
+function bumpInvocation(sessionId: string, agentId: string): number {
+  let inner = invocationCounts.get(sessionId)
+  if (!inner) {
+    inner = new Map()
+    invocationCounts.set(sessionId, inner)
+  }
+  const next = (inner.get(agentId) ?? 0) + 1
+  inner.set(agentId, next)
+  return next
+}
+
+/** Session 删除路径调用，防止 limiter Map / invocation Map 泄漏。 */
 export function clearLimiter(sessionId: string): void {
   limiterPerSession.delete(sessionId)
+  invocationCounts.delete(sessionId)
 }
 
 // 仅供测试访问
-export const __TEST__ = { limiterPerSession }
+export const __TEST__ = { limiterPerSession, invocationCounts }
 
 // ─── 错误信封 ─────────────────────────────────────────────────────────
 
@@ -102,6 +127,14 @@ const HINTS: Record<string, string> = {
     'Subagent profile depends on an MCP server that failed to start. Check MCP server config.',
   SUBAGENT_MAX_STEPS:
     'Subagent reached maxSteps without producing a final answer. Increase maxSteps or simplify the task.',
+  INSTRUCTION_OUT_OF_SCOPE:
+    'The instruction references entities the subagent profile does not cover. Pick a different agent or rephrase.',
+  DELEGATION_BUDGET_EXHAUSTED:
+    'This subagent has already been invoked the maximum number of times in this session. Try a different approach or agent.',
+  SUBAGENT_RECOVERY:
+    'Subagent entered failure-recovery mode (3+ consecutive tool failures). Treat as failure; investigate sub-session for details.',
+  SUBAGENT_OFF_TARGET:
+    'Subagent output does not mention any entity from the instruction. Output likely drifted to an unrelated subject.',
 }
 
 function makeEnvelope(
@@ -207,6 +240,38 @@ export function createDelegateAgentTool(
         }
       }
 
+      // ─ Step 1c (A3): per-agent budget 检查 ─
+      // 注意:在实际 launch 之前 bump,即"尝试委托即计数"。budget 用尽即拒绝,
+      // 避免父 agent 在子失败后无脑重试同一 agent_id。
+      const budgetMax = runtime.config.maxInvocationsPerAgentPerSession
+      const used = bumpInvocation(ctx.sessionId, agent_id)
+      if (used > budgetMax) {
+        log.info(
+          `[DelegateAgent] budget exhausted: session=${ctx.sessionId} agent=${agent_id} used=${used} max=${budgetMax}`,
+        )
+        return {
+          output: makeEnvelope('DELEGATION_BUDGET_EXHAUSTED', {
+            message: `Agent "${agent_id}" has been delegated ${used - 1} times in this session (max ${budgetMax}).`,
+            agent_id,
+            invocations_used: used - 1,
+            budget_max: budgetMax,
+          }),
+        }
+      }
+
+      // ─ Step 1d (A2): 兼容性前置检查 ─
+      const compat = checkInstructionCompatibility(instruction, agent.profile)
+      if (!compat.compatible) {
+        log.info(`[DelegateAgent] scope-mismatch: agent=${agent_id} reason=${compat.reason}`)
+        return {
+          output: makeEnvelope('INSTRUCTION_OUT_OF_SCOPE', {
+            message: compat.reason,
+            instruction_entities: compat.instructionEntities,
+            profile_entities: compat.profileEntities,
+          }),
+        }
+      }
+
       // ─ Step 2: limiter + 排队超时 race ─
       const limit = getLimiter(ctx.sessionId, runtime.config.maxConcurrencyPerSession)
       const queueLen = limit.pendingCount
@@ -216,7 +281,6 @@ export function createDelegateAgentTool(
         )
       }
 
-      // 排队超时 timer。如果 limit 在 queueTimeoutMs 内没把任务调度起来，整体 race 失败。
       let queueTimer: NodeJS.Timeout | undefined
       const queueTimeoutPromise = new Promise<never>((_, reject) => {
         queueTimer = setTimeout(
@@ -235,8 +299,6 @@ export function createDelegateAgentTool(
         if (err instanceof QueueTimeoutError) {
           return { output: makeEnvelope('DELEGATION_QUEUE_TIMEOUT') }
         }
-        // 任何 limit() 内部抛出的异常应已被 runDelegation 内部 catch 并转 envelope。
-        // 走到这里说明有意外路径——保守降级 SUBAGENT_FAILED。
         log.error('[DelegateAgent] unexpected outer error:', err)
         return {
           output: makeEnvelope('SUBAGENT_FAILED', {
@@ -251,7 +313,10 @@ export function createDelegateAgentTool(
 }
 
 /**
- * 生成 delegate_agent 工具的 description（含 listing）。
+ * 生成 delegate_agent 工具的 description。
+ *
+ * A1: 每个候选 agent 的 listing 行包含能力 metadata（tools / mcp / internet / scope）,
+ * 让父 agent 在 LLM 推理阶段就能判断"这个 agent 能不能干"。
  *
  * 注意：本函数在 createDelegateAgentTool 时计算一次，**不会**在 agentManager
  * 业务 agent 列表变化时自动更新。AgentLoader 加载新 agent 后，相关 Agent 实例
@@ -278,10 +343,10 @@ function buildDescription(
   for (const id of targetIds) {
     const a = agentManager.getAgent(id)
     if (!a) continue
-    const desc = (a.profile.identity.description ?? '').slice(0, 80)
-    lines.push(`- ${id} — ${a.profile.identity.name}${desc ? `: ${desc}` : ''}`)
+    const meta = formatAgentMetadata(a)
+    lines.push(meta)
   }
-  const listing = lines.length > 0 ? lines.join('\n') : '  (no subagents available)'
+  const listing = lines.length > 0 ? lines.join('\n\n') : '  (no subagents available)'
 
   return (
     'Delegate a sub-task to a registered business agent. The subagent runs in an isolated\n' +
@@ -294,6 +359,247 @@ function buildDescription(
     'in the same step. The subagent CANNOT see this conversation; provide all needed\n' +
     'background in the `context` field.'
   )
+}
+
+/**
+ * A1: 渲染单个 agent 的 listing —— 委托契约骨架（自适应契约型）。
+ *
+ * 父 LLM 决定"该不该委托"的最小信息要素：
+ *   does     — 这个 agent 能做什么 (路由决策核心)
+ *   won't    — 它声明不做什么 (可选,辅助)
+ *   needs    — 委托前必须收齐的 input
+ *   returns  — 它会回来的产物形式
+ *
+ * 鲁棒性：四字段都按需渲染（缺则跳过），且 `does` 有降级链：
+ *   scope.in[] → capabilities[] → objective → description
+ *   保证 valid profile 一定能渲染出非空 does。
+ *
+ * 自适应 inline vs list（避免短数组占多行）：
+ *   1 条 → inline 与字段名同行
+ *   2-3 条且每条 ≤30 字 → inline 以 " / " 分隔
+ *   其它 → 展开为列表
+ *
+ * 故意不暴露：
+ *   - description / objective / outcomes / capabilities（仅作 does fallback,不重复渲染）
+ *   - 可选 inputs (required=false) / inputs.examples
+ *   - tools / mcpServers / skills / cli（实现细节）
+ *   - outcomes.priority / deliverables.trigger/template/schema（决策无关）
+ */
+function formatAgentMetadata(a: NonNullable<ReturnType<AgentManager['getAgent']>>): string {
+  const profile = a.profile ?? ({} as import('@shared/types/agent').AgentProfile)
+  const identity = profile.identity ?? ({} as { name?: string; description?: string })
+  const method = profile.method ?? ({} as import('@shared/types/agent').AgentMethod)
+  const mission = profile.mission ?? ({} as import('@shared/types/agent').AgentMission)
+  const delivery = profile.delivery ?? ({} as import('@shared/types/agent').AgentDelivery)
+
+  const lines: string[] = []
+  const displayName = identity.name ?? a.name ?? a.id
+  lines.push(`- ${a.id} — ${displayName}`)
+
+  // ─ does: 降级链 scope.in → capabilities → objective → description ─
+  const scopeIn = mission.scope?.in ?? []
+  const capabilities = method.capabilities ?? []
+  if (scopeIn.length > 0) {
+    appendField(lines, 'does', scopeIn)
+  } else if (capabilities.length > 0) {
+    appendField(lines, 'does', capabilities)
+  } else if (mission.objective?.trim()) {
+    lines.push(`    does: ${mission.objective.trim()}`)
+  } else if (identity.description?.trim()) {
+    lines.push(`    does: ${identity.description.trim()}`)
+  }
+
+  // ─ won't: 仅 scope.out 存在时 ─
+  const scopeOut = mission.scope?.out ?? []
+  if (scopeOut.length > 0) {
+    appendField(lines, "won't", scopeOut)
+  }
+
+  // ─ needs: 仅 required inputs ─
+  const requiredInputs = (mission.inputs ?? []).filter((i) => i.required)
+  if (requiredInputs.length > 0) {
+    const formatted = requiredInputs.map((i) => `${i.id} (${i.type}) — ${i.description}`)
+    appendField(lines, 'needs', formatted)
+  }
+
+  // ─ returns: deliverables 形式（id + format） ─
+  const deliverables = delivery.deliverables ?? []
+  if (deliverables.length > 0) {
+    const formatted = deliverables.map((d) => `${d.id} (${d.format})`)
+    appendField(lines, 'returns', formatted)
+  }
+
+  return lines.join('\n')
+}
+
+/**
+ * Helper: 把 items 渲染到 lines，自适应 inline vs list。
+ *
+ * 规则:
+ *   1 条                                  → "    {field}: {item}"
+ *   2-3 条 且 每条 ≤30 字                  → "    {field}: a / b / c"
+ *   其它（≥4 条 OR 含长项 OR 含换行）      → 展开列表
+ */
+function appendField(lines: string[], field: string, items: string[]): void {
+  if (items.length === 0) return
+  if (items.length === 1) {
+    lines.push(`    ${field}: ${items[0]}`)
+    return
+  }
+  const allShort = items.every((s) => s.length <= 30 && !s.includes('\n'))
+  if (items.length <= 3 && allShort) {
+    lines.push(`    ${field}: ${items.join(' / ')}`)
+    return
+  }
+  lines.push(`    ${field}:`)
+  for (const s of items) lines.push(`      - ${s}`)
+}
+
+// ─── A2: 兼容性检查 ─────────────────────────────────────────────────
+
+interface CompatibilityResult {
+  compatible: boolean
+  reason: string
+  instructionEntities: string[]
+  profileEntities: string[]
+}
+
+/**
+ * 判断一个抽取出的实体字符串是否"高置信具体"。
+ *
+ * 设计动机（specificity filter）：实体抽取器重叠滑窗会产出大量低置信短候选
+ * （"股写" / "为百" / 单个 2 字中文等）。如果直接拿这些候选做 A2 拒绝判定,
+ * 会把通用 agent（如 "为A股写诗"）误判为有"具体实体绑定",导致与
+ * "为TSLA写诗" 这类 instruction 不匹配 → REJECT,父 agent 退缩。
+ *
+ * 高置信具体实体定义：
+ *   - 中文 ≥ 3 字（"中际旭创" / "百度公司" 等真实命名实体长度区间）
+ *   - 拉丁字母 ≥ 4 位 ticker（"BIDU" / "TSLA" / "NVDA"；2-3 位太多缩写假阳）
+ *   - 任意 stock-code（6 位数字 + 交易所后缀,几乎不会假阳）
+ *   - 任意 path（/x/y/z）
+ */
+function isSpecificEntity(text: string): boolean {
+  if (!text) return false
+  // 中文 ≥3 字
+  if (/^[一-龥]{3,}$/.test(text)) return true
+  // 含拉丁: ticker (≥4 字) 或 stock-code 或 path
+  if (/^[A-Z]{4,}(?:\.[A-Z]{2})?$/.test(text)) return true
+  if (/^\d{6}\.[A-Z]{2}$/.test(text)) return true
+  if (/^\//.test(text)) return true
+  return false
+}
+
+/**
+ * 检查 instruction 中的实体与 agent profile 是否有交集。
+ *
+ * 判定逻辑（保守 — 倾向放行）：
+ *   1. instruction **高置信具体实体** 集合为空 → PASS（不强制要求）
+ *   2. profile **高置信具体实体** 集合为空（通用 agent）→ PASS（无具体偏向,可处理任何输入）
+ *   3. 双方均有具体实体, 且 instruction 实体在 profile 文本中无子串
+ *      AND profile 实体在 instruction 文本中也无子串 → REJECT
+ *   4. 否则 → PASS
+ *
+ * specificity filter（缺环 2）：仅"高置信具体"实体参与拒绝判定。
+ * 抽取器返回的低置信短碎片（2 字中文 / 2-3 字 ticker / 滑窗内部纯字符组合）
+ * 不参与, 否则会让通用 agent 被错误标记为"具有 specific 绑定"。
+ */
+export function checkInstructionCompatibility(
+  instruction: string,
+  profile: import('@shared/types/agent').AgentProfile,
+): CompatibilityResult {
+  const profileText = collectProfileEntityText(profile)
+  const allIEntities = extractEntitySet(instruction)
+  const allPEntities = extractEntitySet(profileText)
+
+  // specificity filter: 仅高置信具体实体参与拒绝判定
+  const iSpecific = [...allIEntities].filter(isSpecificEntity)
+  const pSpecific = [...allPEntities].filter(isSpecificEntity)
+
+  if (iSpecific.length === 0 || pSpecific.length === 0) {
+    return {
+      compatible: true,
+      reason:
+        iSpecific.length === 0
+          ? 'instruction has no high-confidence specific entity'
+          : 'profile has no high-confidence specific entity (treated as generic)',
+      instructionEntities: iSpecific,
+      profileEntities: pSpecific,
+    }
+  }
+
+  // 双向 ALL-entity 子串匹配：
+  //   - 拒绝判定基于 specific 集合 (避免低置信噪声触发误判)
+  //   - 但 PASS 通道使用 ALL 实体集合做反向子串覆盖, 让 2 字 profile entity 能"接住"
+  //     3 字 instruction entity (如 instruction 含 "搜索百度"<=specific>, profile 提及
+  //     "百度"<=2字 in allPEntities>; "搜索百度".includes("百度") 应触发 PASS)。
+  for (const ie of iSpecific) {
+    if (profileText.includes(ie)) {
+      return {
+        compatible: true,
+        reason: `instruction entity "${ie}" found in profile text`,
+        instructionEntities: iSpecific,
+        profileEntities: pSpecific,
+      }
+    }
+    for (const pe of allPEntities) {
+      if (ie.includes(pe) && pe.length >= 2) {
+        return {
+          compatible: true,
+          reason: `profile entity "${pe}" is substring of instruction entity "${ie}"`,
+          instructionEntities: iSpecific,
+          profileEntities: pSpecific,
+        }
+      }
+    }
+  }
+  for (const pe of pSpecific) {
+    if (instruction.includes(pe)) {
+      return {
+        compatible: true,
+        reason: `profile entity "${pe}" found in instruction`,
+        instructionEntities: iSpecific,
+        profileEntities: pSpecific,
+      }
+    }
+    for (const ie of allIEntities) {
+      if (pe.includes(ie) && ie.length >= 2) {
+        return {
+          compatible: true,
+          reason: `instruction entity "${ie}" is substring of profile entity "${pe}"`,
+          instructionEntities: iSpecific,
+          profileEntities: pSpecific,
+        }
+      }
+    }
+  }
+
+  return {
+    compatible: false,
+    reason: `instruction references entities [${iSpecific.join(', ')}] but profile is bound to entities [${pSpecific.join(', ')}]; no overlap.`,
+    instructionEntities: iSpecific,
+    profileEntities: pSpecific,
+  }
+}
+
+function collectProfileEntityText(profile: import('@shared/types/agent').AgentProfile): string {
+  const identity = profile?.identity ?? ({} as { name?: string; description?: string })
+  const mission = profile?.mission ?? ({} as import('@shared/types/agent').AgentMission)
+  const method = profile?.method ?? ({} as import('@shared/types/agent').AgentMethod)
+
+  const parts: string[] = [identity.name ?? '', identity.description ?? '', mission.objective ?? '']
+  for (const o of mission.outcomes ?? []) {
+    if (o?.description) parts.push(o.description)
+  }
+  if (mission.scope?.in) parts.push(...mission.scope.in)
+  if (mission.scope?.out) parts.push(...mission.scope.out)
+  for (const cap of method.capabilities ?? []) parts.push(cap)
+  for (const k of method.knowledge ?? []) {
+    if (k?.description) parts.push(k.description)
+    if (k?.type === 'text' && (k as { content?: string }).content) {
+      parts.push((k as { content: string }).content)
+    }
+  }
+  return parts.filter(Boolean).join('\n')
 }
 
 // ─── 单次委托执行（限流后） ───────────────────────────────────────────
@@ -348,8 +654,9 @@ async function runDelegation(
   if (execTimer.unref) execTimer.unref()
   cleanups.push(() => clearTimeout(execTimer))
 
-  // ─ Step 5: 子 ReAct loop ─
-  const userContent = contextStr ? `${contextStr}\n\n${instruction}` : instruction
+  // ─ Step 5: 子 ReAct loop (B1: 自动注入父侧 metadata) ─
+  const autoCtx = buildAutoContext(parentCtx)
+  const userContent = [autoCtx, contextStr, instruction].filter(Boolean).join('\n\n')
 
   try {
     await runtime.runReactLoop({
@@ -370,7 +677,6 @@ async function runDelegation(
       },
       agent,
       // 父的 confirmTool 透传到子。子高风险工具（bash/write/edit）的弹窗仍可达 UI。
-      // 缺失时退化为永远 deny（noop 已在 build-tools 现有 confirmTool 缺失逻辑覆盖）。
       confirmTool: parentCtx.confirmTool ?? noopConfirmTool,
       requestPermission: parentCtx.requestPermission,
       skillTracker: new SkillActivationTracker(),
@@ -383,6 +689,41 @@ async function runDelegation(
     const lastAssistant = findLastAssistantWithText(messages)
 
     if (lastAssistant) {
+      // C1: failure-recovery / auto-summary 文本回流为 ToolErrorEnvelope
+      const recoveryCheck = detectRecoveryMarker(lastAssistant.text)
+      if (recoveryCheck) {
+        runtime.sessionRepo.updateStatus(childSession.id, 'completed')
+        log.warn(
+          `[DelegateAgent] recovery-mode detected agent=${agent.id} session=${childSession.id} ` +
+            `marker="${recoveryCheck.marker}" duration=${Date.now() - start}ms`,
+        )
+        return {
+          output: makeEnvelope('SUBAGENT_RECOVERY', {
+            message: `Subagent reported failure-recovery: ${recoveryCheck.marker}`,
+            last_text: recoveryCheck.cleanedText,
+            child_session_id: childSession.id,
+          }),
+        }
+      }
+
+      // B2: instruction 实体硬绑定 — 子最终输出必须提及任一实体
+      const offTarget = checkOffTarget(instruction, lastAssistant.text)
+      if (offTarget) {
+        runtime.sessionRepo.updateStatus(childSession.id, 'completed')
+        log.warn(
+          `[DelegateAgent] off-target detected agent=${agent.id} session=${childSession.id} ` +
+            `expected=[${offTarget.expected.join(',')}]`,
+        )
+        return {
+          output: makeEnvelope('SUBAGENT_OFF_TARGET', {
+            message: `Subagent output does not mention any instruction entity (expected one of: ${offTarget.expected.join(', ')}).`,
+            expected_entities: offTarget.expected,
+            last_text: lastAssistant.text,
+            child_session_id: childSession.id,
+          }),
+        }
+      }
+
       runtime.sessionRepo.updateStatus(childSession.id, 'completed')
       log.info(
         `[DelegateAgent] done code=COMPLETED session=${childSession.id} ` +
@@ -416,6 +757,179 @@ async function runDelegation(
   }
 }
 
+// ─── B1: 父侧 context 自动注入 ─────────────────────────────────────
+
+/**
+ * 从父 session 抽取最近 1 条 user message + 最近 3 条工具错误 → 结构化文本。
+ *
+ * 全部为事实 metadata，不含任何指令性话术（"请尽量"、"避免"等）。
+ * 子 agent 自行从这段事实推断该如何工作。
+ *
+ * 故意不读 system 消息：父侧 system prompt 是父 agent 的私有约束，与子无关。
+ */
+export function buildAutoContext(parentCtx: ToolExecuteContext): string {
+  if (!parentCtx.sessionId) return ''
+  let messages: ChatMessage[]
+  try {
+    messages = messageRepo.listBySession(parentCtx.sessionId)
+  } catch {
+    return ''
+  }
+  if (messages.length === 0) return ''
+
+  // 找最近一条 user message
+  let lastUserText: string | null = null
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role !== 'user') continue
+    const t = extractTextFromContent(messages[i].content)
+    if (t.trim()) {
+      lastUserText = t.trim().slice(0, 1500)
+      break
+    }
+  }
+
+  // 收集最近 3 条 tool error
+  const toolErrors: string[] = []
+  for (let i = messages.length - 1; i >= 0 && toolErrors.length < 3; i--) {
+    if (messages[i].role !== 'tool') continue
+    const errs = extractToolErrors(messages[i].content)
+    for (const e of errs) {
+      toolErrors.push(e)
+      if (toolErrors.length >= 3) break
+    }
+  }
+
+  if (!lastUserText && toolErrors.length === 0) return ''
+
+  const lines: string[] = ['<parent-context auto-injected>']
+  if (lastUserText) {
+    lines.push(`origin-user-message: ${JSON.stringify(lastUserText)}`)
+  }
+  if (toolErrors.length > 0) {
+    lines.push('recent-tool-failures:')
+    for (const e of toolErrors) {
+      lines.push(`  - ${e}`)
+    }
+  }
+  lines.push('</parent-context>')
+  return lines.join('\n')
+}
+
+function extractTextFromContent(rawContent: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawContent)
+  } catch {
+    return rawContent
+  }
+  if (typeof parsed === 'string') return parsed
+  if (!Array.isArray(parsed)) return ''
+  const out: string[] = []
+  for (const block of parsed) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    if (b.type === 'text' && typeof b.text === 'string') {
+      out.push(b.text)
+    }
+  }
+  return out.join('\n')
+}
+
+/** 从 tool 角色 message 解析含 isError 的 tool-result block，返回 errMsg 数组。 */
+function extractToolErrors(rawContent: string): string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawContent)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const out: string[] = []
+  for (const block of parsed) {
+    if (!block || typeof block !== 'object') continue
+    const b = block as Record<string, unknown>
+    if (b.type !== 'tool-result' && b.type !== 'tool_result') continue
+    if (b.isError !== true) continue
+    const toolName = typeof b.toolName === 'string' ? b.toolName : 'unknown'
+    const outVal = b.output
+    let outText: string
+    if (typeof outVal === 'string') outText = outVal
+    else if (
+      outVal &&
+      typeof outVal === 'object' &&
+      typeof (outVal as Record<string, unknown>).value === 'string'
+    ) {
+      outText = (outVal as { value: string }).value
+    } else {
+      outText = JSON.stringify(outVal ?? {})
+    }
+    out.push(`${toolName}: ${outText.slice(0, 200).replace(/\s+/g, ' ').trim()}`)
+  }
+  return out
+}
+
+// ─── C1: failure-recovery 标识检测 ─────────────────────────────────
+
+const RECOVERY_MARKERS = [
+  /^\s*\[failure-recovery[^\]]*\]/,
+  /^\s*\[auto-summary[^\]]*\]/,
+  /^\s*\[auto-halt\]/,
+]
+
+function detectRecoveryMarker(text: string): { marker: string; cleanedText: string } | null {
+  for (const re of RECOVERY_MARKERS) {
+    const m = text.match(re)
+    if (m) {
+      // 把 marker 行剥掉，剩余正文返回
+      const cleaned = text
+        .slice(m[0].length)
+        .replace(/^\s*\n/, '')
+        .trim()
+      return { marker: m[0].trim(), cleanedText: cleaned }
+    }
+  }
+  return null
+}
+
+// ─── B2: 实体偏离检测 ─────────────────────────────────────────────
+
+/**
+ * 判断子 agent 输出是否漂离了 instruction 指向的实体。
+ *
+ * 仅在"高置信实体存在"时启用,避免对 translation 等跨语言任务误伤：
+ *   - ticker / stock-code / path：始终视为锚点
+ *   - cn-name：仅当长度 ≥ 3 AND 输出含中文字符时视为锚点
+ *     (输出为纯外语时可能是 translation 任务,跳过 cn-name 检查)
+ *
+ * 命中任一锚点的子串即 PASS；全部不命中才返回 expected 列表用于失败信封。
+ */
+function checkOffTarget(instruction: string, finalText: string): { expected: string[] } | null {
+  const iEntities = extractEntities(instruction)
+  if (iEntities.length === 0) return null
+
+  const outputHasChinese = /[一-龥]/.test(finalText)
+  const anchors: string[] = []
+  for (const e of iEntities) {
+    if (e.category === 'ticker' || e.category === 'stock-code' || e.category === 'path') {
+      anchors.push(e.text)
+    } else if (e.category === 'cn-name' && e.text.length >= 3 && outputHasChinese) {
+      anchors.push(e.text)
+    }
+  }
+  if (anchors.length === 0) return null
+
+  // 双向子串匹配：anchor 出现在输出，或输出的任一实体是 anchor 的子串。
+  // 后者覆盖 instruction 抽取出 3-char "为百度" 但输出含 2-char "百度" 的场景。
+  const outputEntityTexts = extractEntities(finalText).map((e) => e.text)
+  const hit = anchors.some((a) => {
+    if (finalText.includes(a)) return true
+    if (outputEntityTexts.some((o) => a.includes(o))) return true
+    return false
+  })
+  if (hit) return null
+  return { expected: anchors }
+}
+
 // ─── 错误分类 ─────────────────────────────────────────────────────────
 
 function handleDelegationError(
@@ -428,14 +942,8 @@ function handleDelegationError(
   let code = 'SUBAGENT_FAILED'
   const message = err instanceof Error ? err.message : String(err)
 
-  // AbortError 来自 abortSignal 触发；用 cause 区分超时 vs 用户停止
   if (err instanceof Error && err.name === 'AbortError') {
-    // childAbort.abort(reason) 在 cause 字段或 signal.reason 体现
-    const reason =
-      (err as Error & { cause?: unknown }).cause ??
-      // childAbort 的 reason 最可靠的来源不在 err 上，需要从外部捕获，
-      // 但通常 err.message 含 reason 字符串
-      message
+    const reason = (err as Error & { cause?: unknown }).cause ?? message
     if (String(reason).includes('execution_timeout')) {
       code = 'SUBAGENT_TIMEOUT'
     } else {
@@ -473,7 +981,6 @@ function makeTitle(agentName: string, instruction: string): string {
 }
 
 function extractModelId(providerCtx: ProviderContext): string | undefined {
-  // LanguageModel 的 modelId 字段；不同 SDK 版本字段位置不同，保守取
   const m = providerCtx.model as unknown as { modelId?: string }
   return typeof m?.modelId === 'string' ? m.modelId : undefined
 }
@@ -490,7 +997,6 @@ function findLastAssistantWithText(messages: ChatMessage[]): AssistantText | nul
     try {
       parsed = JSON.parse(m.content)
     } catch {
-      // content 是纯字符串
       const s = m.content?.toString?.() ?? ''
       if (s.trim().length > 0) return { text: s }
       continue

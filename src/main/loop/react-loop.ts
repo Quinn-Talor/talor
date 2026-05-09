@@ -28,7 +28,7 @@ import {
   truncateOutput,
   wrapToolOutput,
 } from './stream-utils'
-import { verifyQuotedFacts } from './quote-verifier'
+import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
 import { buildTools } from '../tools/build-tools'
 import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks } from './types'
@@ -106,6 +106,12 @@ interface StepOutcome {
    * 顶层用滑窗统计连续错误率,阻止"模型换参数重试→依然失败"的隐式死循环。
    */
   allToolsFailed: boolean | null
+  /**
+   * 本步是否含至少一个 delegate_agent 返回的 SUBAGENT_* envelope。
+   * 委托失败比普通工具失败成本高（消耗了一整个子 loop）, 顶层在 streak 计数器
+   * 上加权（+2 而非 +1）, 让父 loop 更早进入 failure-recovery 模式。
+   */
+  containsSubagentFailure: boolean
 }
 
 /** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
@@ -121,6 +127,43 @@ type LoopExitReason =
 
 function sha8(s: string): string {
   return createHash('sha1').update(s).digest('hex').slice(0, 8)
+}
+
+/**
+ * E1: 检测 tool result 是否是 delegate_agent 返回的 SUBAGENT_ 或 DELEGATION_
+ * 类失败 envelope。这些信号的"成本"比普通 tool 错误更高,父 loop 应加权计入 streak。
+ */
+function isSubagentFailureOutput(output: unknown): boolean {
+  if (typeof output !== 'object' || output === null) return false
+  const env = output as Record<string, unknown>
+  if (env.__talor_error !== true) return false
+  if (typeof env.code !== 'string') return false
+  const code = env.code
+  return (
+    code.startsWith('SUBAGENT_') ||
+    code === 'DELEGATION_BUDGET_EXHAUSTED' ||
+    code === 'INSTRUCTION_OUT_OF_SCOPE' ||
+    code === 'DELEGATION_QUEUE_TIMEOUT'
+  )
+}
+
+/**
+ * C3: 清洗 fallback / failure-recovery 输出中泄漏的工具调用 markup。
+ * Failure-recovery 模式下工具被禁用,但模型仍可能把 tool_use 风格 markup 当文本输出
+ * (DSML / invoke / parameter / tool_calls)。直接显示给用户混乱。
+ *
+ * 替换策略:把符合常见 tool-call 模式的标签替换为 ⟨tool-call-attempt⟩ 占位,
+ * 不直接删除以保留"曾尝试调工具"的事实信号。
+ */
+function stripToolCallMarkup(text: string): string {
+  if (!text) return text
+  // 先把 || 风格的 DSML 分隔符标签替换 (如 <||DSML||tool_calls> 等)
+  let out = text.replace(/<\|\|[^>]*>/g, '⟨tool-call-attempt⟩')
+  // 再把常见 tool_use XML 标签 (含可选属性 / 闭合斜杠)
+  out = out.replace(/<\/?(?:invoke|parameter|tool_call|tool_calls|tool_use)\b[^>]*>/gi, '')
+  // 连续多个占位符合并为一个,降低噪声
+  out = out.replace(/(?:⟨tool-call-attempt⟩\s*){2,}/g, '⟨tool-call-attempt⟩ ')
+  return out
 }
 
 /**
@@ -269,6 +312,7 @@ async function runReactStep(
         exitReason: 'context_overflow',
         signature: '',
         allToolsFailed: null,
+        containsSubagentFailure: false,
       }
     }
 
@@ -446,6 +490,7 @@ async function runReactStep(
           exitReason: 'no_tool_calls',
           signature: '',
           allToolsFailed: null,
+          containsSubagentFailure: false,
         }
       }
       log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
@@ -459,6 +504,7 @@ async function runReactStep(
         exitReason: 'empty_text',
         signature: '',
         allToolsFailed: null,
+        containsSubagentFailure: false,
       }
     }
 
@@ -564,6 +610,8 @@ async function runReactStep(
       toolParts.every(
         (p) => p.type === 'tool-result' && (p as unknown as { isError?: boolean }).isError === true,
       )
+    // E1: 任一 tool result 是 SUBAGENT_*/DELEGATION_* envelope 即标记
+    const containsSubagentFailure = toolResults.some((tr) => isSubagentFailureOutput(tr.output))
     return {
       stepText,
       wroteAssistantFinal: false,
@@ -572,6 +620,7 @@ async function runReactStep(
       toolNames,
       signature,
       allToolsFailed,
+      containsSubagentFailure,
     }
   } catch (streamErr) {
     const durationMs = Date.now() - stepStart
@@ -736,14 +785,35 @@ async function runFailureStreakSummary(
       summaryText.trim() ||
       `I was unable to complete the task after ${failureCount} consecutive tool failures. Please advise.`
     const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)
-    const { cleaned, unverifiedCount } = verifyQuotedFacts(baseText, toolOutputs)
+    // 1) verifyQuotedFacts: 长引用兜底
+    const { cleaned: q1, unverifiedCount } = verifyQuotedFacts(baseText, toolOutputs)
+    // 2) C2 entity grounding: 实体接地兜底
+    const { cleaned: q2, ungroundedCount } = verifyEntityGrounding(q1, {
+      instruction: ctx.userContent,
+      toolOutputs,
+    })
+    // 3) C3 strip tool-call markup: 清掉模型在 tool 禁用模式下泄漏的 DSML / invoke 标签
+    const cleaned = stripToolCallMarkup(q2)
+
     if (unverifiedCount > 0) {
       log.warn(`[ReactLoop]   failure-streak: masked ${unverifiedCount} unverifiable quote(s)`)
     }
+    if (ungroundedCount > 0) {
+      log.warn(
+        `[ReactLoop]   failure-streak: masked ${ungroundedCount} ungrounded entity reference(s)`,
+      )
+    }
+    const labelTags: string[] = []
+    if (unverifiedCount > 0)
+      labelTags.push(
+        `${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked`,
+      )
+    if (ungroundedCount > 0)
+      labelTags.push(
+        `${ungroundedCount} ungrounded entit${ungroundedCount > 1 ? 'ies' : 'y'} masked`,
+      )
     const label =
-      unverifiedCount > 0
-        ? `[failure-recovery • ${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked]`
-        : '[failure-recovery]'
+      labelTags.length > 0 ? `[failure-recovery • ${labelTags.join('; ')}]` : '[failure-recovery]'
     const markedText = `${label}\n${cleaned}`
     messageRepo.create({
       id: uuidv4(),
@@ -805,18 +875,35 @@ async function runFallbackSummary(ctx: StepContext, stepIndex: number): Promise<
     const durationMs = Date.now() - summaryStart
     if (summaryText.trim()) {
       // 代码前置约束:摘要靠 prompt 指示"逐字引用",但无法保证模型不编造。
-      // 这里把最近 10 条 tool_output 当证据集,扫描摘要里所有 >= 20 字节的
-      // "..." / `...` 引用,未命中的替换为 ⟨unverifiable⟩——让用户一眼看到
-      // 被 AI 编造的片段,而不是按引号相信却查不到出处。
+      // 三层兜底叠加（同 runFailureStreakSummary）:
+      //   1) verifyQuotedFacts: 长引用核对
+      //   2) verifyEntityGrounding: 高置信度实体必须接地于 instruction/tool_output
+      //   3) stripToolCallMarkup: 清掉模型在 tool 禁用模式下泄漏的工具调用 markup
       const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)
-      const { cleaned, unverifiedCount } = verifyQuotedFacts(summaryText, toolOutputs)
+      const { cleaned: q1, unverifiedCount } = verifyQuotedFacts(summaryText, toolOutputs)
+      const { cleaned: q2, ungroundedCount } = verifyEntityGrounding(q1, {
+        instruction: ctx.userContent,
+        toolOutputs,
+      })
+      const cleaned = stripToolCallMarkup(q2)
+
       if (unverifiedCount > 0) {
         log.warn(`[ReactLoop]   fallback: masked ${unverifiedCount} unverifiable quote(s)`)
       }
+      if (ungroundedCount > 0) {
+        log.warn(`[ReactLoop]   fallback: masked ${ungroundedCount} ungrounded entity reference(s)`)
+      }
+      const labelTags: string[] = []
+      if (unverifiedCount > 0)
+        labelTags.push(
+          `${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked`,
+        )
+      if (ungroundedCount > 0)
+        labelTags.push(
+          `${ungroundedCount} ungrounded entit${ungroundedCount > 1 ? 'ies' : 'y'} masked`,
+        )
       const label =
-        unverifiedCount > 0
-          ? `[auto-summary • ${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked]`
-          : '[auto-summary]'
+        labelTags.length > 0 ? `[auto-summary • ${labelTags.join('; ')}]` : '[auto-summary]'
       const markedText = `${label}\n${cleaned}`
       messageRepo.create({
         id: uuidv4(),
@@ -916,11 +1003,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   let consecutiveFailureCount = 0
   let consecutiveToolOnlySteps = 0
   // 累积可见策略（方案 C）：
-  //   - mcpExpandThisStep: 一次性"全集"展示——仅在刚调完 search_tool 的下一步置 true
+  //   - mcpExpandThisStep: 一次性"全集"展示——
+  //       · turn 第一步默认 true（若已连接任何 MCP server），让模型直接看到
+  //         全部 MCP 工具，省掉 "search_tool → 下一步" 的强制双跳。
+  //       · 之后默认 false；如果某步调过 search_tool，下一步再置 true。
   //   - usedMcpToolNames:  累积已使用过的 MCP 工具名（本轮内只增不减）
   // 平衡 token 开销（不暴露未用过的 MCP schema）与上下文稳定（已用过的工具
   // 一直可见，避免反复 search 浪费）。
-  let mcpExpandThisStep = false
+  let mcpExpandThisStep = (ctx.agent.toolRegistry?.listMcpTools?.().length ?? 0) > 0
   const usedMcpToolNames = new Set<string>()
   // 缓存 MCP 工具名集合用于判断 outcome.toolNames 中哪些是 MCP（仅在首次需要时取）
   let mcpNameSet: Set<string> | null = null
@@ -993,7 +1083,15 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     // 避免模型在死循环中穿插一步纯思考就逃脱侦测。
 
     if (outcome.allToolsFailed === true) {
-      consecutiveFailureCount++
+      // E1: SUBAGENT_*/DELEGATION_* failure 加权 +2,普通 tool 失败 +1。
+      // 子 loop 已经烧掉一整轮推理,代价更高,触发 failure-recovery 应该更早。
+      const weight = outcome.containsSubagentFailure ? 2 : 1
+      consecutiveFailureCount += weight
+      if (outcome.containsSubagentFailure) {
+        log.warn(
+          `[ReactLoop] SUBAGENT_* failure detected, streak +2 (now ${consecutiveFailureCount})`,
+        )
+      }
       if (consecutiveFailureCount >= CONSECUTIVE_FAILURE_LIMIT) {
         // Strategy B — 优雅退出：到达失败链阈值时不立即 halt，而是禁用工具、
         // 强制模型用文本向用户解释发生了什么。比"[auto-halt]"冷消息友好得多。

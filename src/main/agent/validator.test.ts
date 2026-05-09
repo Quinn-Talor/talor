@@ -757,3 +757,60 @@ describe('validateProfile RULE 18: mission.scope (optional)', () => {
       expect(r.errors.some((e) => e.rule === 18 && e.path === 'mission.scope.out')).toBe(true)
   })
 })
+
+describe('validateProfile RULE 19: no specific entities (D2)', () => {
+  it('warns when identity.description contains specific Chinese entity (≥4 chars)', () => {
+    const p: any = clone(VALID_BUSINESS_PROFILE)
+    p.identity.description = '为中际旭创等股票写七言绝句'
+    const r = validateProfile(p)
+    expect(r.valid).toBe(true)
+    expect(
+      r.warnings.some(
+        (w) => w.rule === 19 && w.path === 'identity.description' && w.message.includes('中际旭创'),
+      ),
+    ).toBe(true)
+  })
+
+  it('warns when mission.outcomes contains ticker code', () => {
+    const p: any = clone(VALID_BUSINESS_PROFILE)
+    p.mission.outcomes[0].description = 'Trade BIDU and TSLA based on signals'
+    const r = validateProfile(p)
+    expect(r.valid).toBe(true)
+    expect(
+      r.warnings.some(
+        (w) =>
+          w.rule === 19 &&
+          w.path === 'mission.outcomes[0].description' &&
+          (w.message.includes('BIDU') || w.message.includes('TSLA')),
+      ),
+    ).toBe(true)
+  })
+
+  it('warns when scope.in contains absolute path', () => {
+    const p: any = clone(VALID_BUSINESS_PROFILE)
+    p.mission.scope = {
+      in: ['Read /var/log/app/error.log'],
+      out: ['Modify production data'],
+    }
+    const r = validateProfile(p)
+    expect(r.valid).toBe(true)
+    expect(r.warnings.some((w) => w.rule === 19 && w.path === 'mission.scope.in[0]')).toBe(true)
+  })
+
+  it('does not warn when fields use generic language', () => {
+    const p: any = clone(VALID_BUSINESS_PROFILE)
+    p.identity.description = 'Reviews PRs against team standards'
+    p.mission.outcomes[0].description = 'User receives a structured review report'
+    const r = validateProfile(p)
+    expect(r.valid).toBe(true)
+    expect(r.warnings.some((w) => w.rule === 19)).toBe(false)
+  })
+
+  it('does not warn on common 2-3 char Chinese words (below threshold)', () => {
+    const p: any = clone(VALID_BUSINESS_PROFILE)
+    p.identity.description = '基于股价数据写诗' // 全部 2-char,不应触发
+    const r = validateProfile(p)
+    expect(r.valid).toBe(true)
+    expect(r.warnings.some((w) => w.rule === 19)).toBe(false)
+  })
+})

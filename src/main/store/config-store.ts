@@ -27,6 +27,11 @@ export interface DelegationConfig {
   queueTimeoutMs: number
   /** 单次 delegation 实际执行的最长时间（ms）。默认 1_800_000 (30min)。 */
   executionTimeoutMs: number
+  /**
+   * A3: 同 session × 同 agent_id 的委托总次数上限。默认 3。
+   * 防止父 agent 在子失败后无脑重试同一委托对象,加速链路收敛。
+   */
+  maxInvocationsPerAgentPerSession: number
 }
 
 interface AppConfig {
@@ -78,6 +83,7 @@ export const DEFAULT_DELEGATION_CONFIG: DelegationConfig = {
   maxConcurrencyPerSession: 10,
   queueTimeoutMs: 300_000, // 5 min
   executionTimeoutMs: 1_800_000, // 30 min
+  maxInvocationsPerAgentPerSession: 3,
 }
 
 const DEFAULT_CONFIG: AppConfig = {

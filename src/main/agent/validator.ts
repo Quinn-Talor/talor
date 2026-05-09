@@ -20,6 +20,7 @@ import type {
   KnowledgeRef,
 } from '@shared/types/agent'
 import { BUILTIN_TOOL_NAMES } from '@shared/types/agent'
+import { extractEntities } from './entity-extractor'
 
 export interface ValidatorContext {
   /** 已注册工具名集合(builtin + mcp 工具)。不传时跳过 rule 7 */
@@ -107,6 +108,11 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
 
   // RULE 17: capabilities 反向完整性 (warn)
   validateCapabilityDependencyDeclared(profile, warnings)
+
+  // RULE 19 (D2): identity / mission / scope / knowledge 文本字段不得含具体实体
+  // (公司名 / 股票代号 / 文件路径)。会话沉淀的 agent 容易把会话特定锚点固化进 profile,
+  // 让所有委托都受历史偏见影响。
+  validateNoSpecificEntities(profile, warnings)
 
   if (errors.length > 0) {
     return { valid: false, errors, warnings }
@@ -1070,6 +1076,70 @@ const SKILL_TOKEN_RE =
 
 const CLI_TOKEN_RE =
   /\b(git|npm|yarn|pnpm|docker|kubectl|gh|curl|wget|go|cargo|python3?|pip3?|node|bun|deno|aws|gcloud|terraform|ansible|make|sed|awk|jq|ffmpeg|psql|mysql|redis-cli)\b/g
+
+// ─── 实体污染检测 (rule 19, D2) ─────────────────────────────────
+//
+// 设计原则:
+//   - warn 而不是 error。crystallizer 偶尔会留 "百度" 等通用品牌做示例,error 太严
+//   - 仅扫描 prompt 渲染面 (identity / mission / scope / knowledge.description),
+//     workflow / acceptance 内的 tool/path 引用是合法实体,不在此检查
+//   - 通用拉丁缩写 (BIDU/AAPL 这类 ticker) 也算具体实体 — 实践中真实的 agent
+//     描述应该用通用语言 ("中国互联网股票" 而不是 "BIDU 等公司")
+
+function validateNoSpecificEntities(profile: AgentProfile, warnings: ValidatorIssue[]): void {
+  const checks: Array<{ path: string; text: string }> = [
+    { path: 'identity.name', text: profile.identity?.name ?? '' },
+    { path: 'identity.description', text: profile.identity?.description ?? '' },
+    { path: 'mission.objective', text: profile.mission?.objective ?? '' },
+  ]
+  ;(profile.mission?.outcomes ?? []).forEach((o, i) => {
+    checks.push({ path: `mission.outcomes[${i}].description`, text: o.description ?? '' })
+  })
+  ;(profile.mission?.scope?.in ?? []).forEach((s, i) => {
+    checks.push({ path: `mission.scope.in[${i}]`, text: s })
+  })
+  ;(profile.mission?.scope?.out ?? []).forEach((s, i) => {
+    checks.push({ path: `mission.scope.out[${i}]`, text: s })
+  })
+  ;(profile.method?.knowledge ?? []).forEach((k, i) => {
+    checks.push({ path: `method.knowledge[${i}].description`, text: k.description ?? '' })
+    if (k.type === 'text' && (k as { content?: string }).content) {
+      checks.push({
+        path: `method.knowledge[${i}].content`,
+        text: (k as { content: string }).content,
+      })
+    }
+  })
+  ;(profile.method?.capabilities ?? []).forEach((cap, i) => {
+    checks.push({ path: `method.capabilities[${i}]`, text: cap })
+  })
+
+  for (const { path, text } of checks) {
+    if (!text) continue
+    const entities = extractEntities(text)
+    // 仅 flag 高置信度类: ticker / stock-code / path / cn-name >= 4
+    const flagged = entities.filter((e) => {
+      if (e.category === 'ticker' || e.category === 'stock-code' || e.category === 'path')
+        return true
+      if (e.category === 'cn-name' && e.text.length >= 4) return true
+      return false
+    })
+    if (flagged.length === 0) continue
+    const sample = flagged
+      .slice(0, 3)
+      .map((e) => e.text)
+      .join(', ')
+    warnings.push({
+      severity: 'warn',
+      rule: 19,
+      path,
+      message:
+        `contains specific entities [${sample}${flagged.length > 3 ? ', ...' : ''}] — ` +
+        `prompt-rendered fields should use generic language (e.g., "中国互联网股票" not "BIDU/百度"). ` +
+        `Specific entities bias all delegations regardless of user intent.`,
+    })
+  }
+}
 
 function validateCapabilityDependencyDeclared(
   profile: AgentProfile,

@@ -8,8 +8,13 @@ vi.mock('electron-log', () => ({
 vi.mock('./stream-utils', () => ({
   buildStreamSignal: vi.fn((signal: AbortSignal) => signal),
   toolResultPartsToBlocks: vi.fn(() => []),
-  extractOutputText: vi.fn((output: unknown) => (typeof output === 'string' ? output : '')),
+  extractOutputText: vi.fn((output: unknown) =>
+    typeof output === 'string' ? output : JSON.stringify(output ?? ''),
+  ),
   isErrorOutput: vi.fn((output: unknown) => {
+    if (typeof output === 'object' && output !== null) {
+      if ((output as Record<string, unknown>).__talor_error === true) return true
+    }
     const s = String(output ?? '')
     return (
       s.startsWith('Tool execution failed:') ||
@@ -501,6 +506,80 @@ describe('runReactLoop — dead-loop detection', () => {
     expect(hintPresentPerStep).toEqual([false, false, true])
   })
 
+  it('E1: SUBAGENT_* envelope 加权 +2,2 步达到 streak 阈值即触发 failure-recovery', async () => {
+    let stepIdx = 0
+    let summaryStarted = false
+    mockStreamText.mockImplementation((params: StreamTextParams & { messages?: unknown[] }) => {
+      if (!params.onChunk) {
+        // failure-streak summary 路径（无 onChunk）
+        summaryStarted = true
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          textStream: (async function* () {
+            yield 'sub-failed'
+          })(),
+        }
+      }
+      stepIdx++
+      const subagentEnvelope = {
+        __talor_error: true,
+        code: 'SUBAGENT_RECOVERY',
+        message: `subagent recovery on step ${stepIdx}`,
+        hint: 'inspect logs',
+      }
+      fireToolCall(
+        params,
+        `tc${stepIdx}`,
+        'delegate_agent',
+        { agent_id: 'x', instruction: 'go' },
+        subagentEnvelope,
+      )
+      return {
+        consumeStream: vi.fn().mockResolvedValue(undefined),
+        toolResults: Promise.resolve([
+          { toolCallId: `tc${stepIdx}`, toolName: 'delegate_agent', output: subagentEnvelope },
+        ]),
+      }
+    })
+    const opts = makeOpts({ maxSteps: 10, agent: agent() })
+    await runReactLoop(opts)
+
+    // E1 weight=2: 步 1 streak=2, 步 2 streak=4 >= 3 → 触发 failure-streak summary
+    // 不带 E1 加权时,需要 3 步才到 streak=3
+    expect(stepIdx).toBe(2)
+    expect(summaryStarted).toBe(true)
+  })
+
+  it('E1: 普通 tool 错误仍按 +1 计数,需要 3 步才触发', async () => {
+    let stepIdx = 0
+    let summaryStarted = false
+    mockStreamText.mockImplementation((params: StreamTextParams & { messages?: unknown[] }) => {
+      if (!params.onChunk) {
+        summaryStarted = true
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          textStream: (async function* () {
+            yield 'recovered'
+          })(),
+        }
+      }
+      stepIdx++
+      fireToolCall(params, `tc${stepIdx}`, 'bash', { cmd: `cmd${stepIdx}` }, `Error: err${stepIdx}`)
+      return {
+        consumeStream: vi.fn().mockResolvedValue(undefined),
+        toolResults: Promise.resolve([
+          { toolCallId: `tc${stepIdx}`, toolName: 'bash', output: `Error: err${stepIdx}` },
+        ]),
+      }
+    })
+    const opts = makeOpts({ maxSteps: 10, agent: agent() })
+    await runReactLoop(opts)
+
+    // streak=1, 2, 3 → 第 3 步触发
+    expect(stepIdx).toBe(3)
+    expect(summaryStarted).toBe(true)
+  })
+
   it('同命令但字段顺序不同时 signature 相同,触发重复侦测', async () => {
     let stepIdx = 0
     mockStreamText.mockImplementation((params: StreamTextParams) => {
@@ -984,7 +1063,8 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
 
     expect(buildFn).toHaveBeenCalledTimes(3)
     const flags = captureFlags(buildFn)
-    expect(flags[0]).toEqual({ expand: false, used: [] })
+    // step 0 默认 expand=true（已注册 MCP 工具时的初始状态，避免强制双跳）
+    expect(flags[0]).toEqual({ expand: true, used: [] })
     expect(flags[1]).toEqual({ expand: true, used: [] }) // post-search_tool expansion
     expect(flags[2]).toEqual({ expand: false, used: ['m1'] }) // m1 added to used set
   })
@@ -1009,7 +1089,8 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
     await runReactLoop(opts)
 
     const flags = captureFlags(buildFn)
-    expect(flags[0]).toEqual({ expand: false, used: [] })
+    // step 0 默认 expand=true（已注册 MCP 工具时的初始状态）
+    expect(flags[0]).toEqual({ expand: true, used: [] })
     expect(flags[1]).toEqual({ expand: true, used: [] })
     expect(flags[2]).toEqual({ expand: false, used: ['m1'] })
     expect(flags[3]).toEqual({ expand: false, used: ['m1'] })

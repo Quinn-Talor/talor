@@ -87,6 +87,7 @@ function makeRuntime(opts: {
       maxConcurrencyPerSession: 10,
       queueTimeoutMs: 5_000,
       executionTimeoutMs: 10_000,
+      maxInvocationsPerAgentPerSession: 100, // 测试默认大值,避免 budget 干扰其他用例
       ...opts.config,
     },
     providerContextProvider: () =>
@@ -589,6 +590,726 @@ describe('delegate_agent (TASK-3)', () => {
       expect(description).toContain('translator-001')
       expect(description).toContain('other-agent')
       expect(description).toContain('any registered business agent')
+    })
+  })
+
+  // ─────────────────────────────────────────────────────────────────
+  // V2 quality gates: A1 / A2 / A3 / B1 / B2 / C1
+  // ─────────────────────────────────────────────────────────────────
+
+  function makeFullProfileAgent(opts: {
+    id: string
+    name: string
+    description?: string
+    tools?: Array<{ name: string; disabled?: boolean }>
+    mcpServers?: string[]
+    scope?: { in?: string[]; out?: string[] }
+    objective?: string
+    outcomes?: Array<{ id?: string; description: string; priority?: 'core' | 'auxiliary' }>
+    capabilities?: string[]
+    inputs?: Array<{
+      id: string
+      type: string
+      required: boolean
+      description: string
+      examples?: string[]
+    }>
+    deliverables?: Array<{ id: string; format: string; trigger?: string }>
+  }): Agent {
+    const profile = {
+      schemaVersion: '1.0',
+      identity: {
+        id: opts.id,
+        name: opts.name,
+        description: opts.description ?? '',
+        version: '1.0.0',
+      },
+      mission: {
+        objective: opts.objective ?? '',
+        outcomes: (opts.outcomes ?? []).map((o, i) => ({
+          id: o.id ?? `o${i}`,
+          description: o.description,
+          priority: o.priority,
+          verifyBy: [],
+        })),
+        scope: opts.scope,
+        inputs: opts.inputs,
+      },
+      method: {
+        capabilities: opts.capabilities ?? [],
+        tools: opts.tools ?? [],
+        mcpServers: (opts.mcpServers ?? []).map((name) => ({
+          name,
+          transport: { type: 'stdio', command: 'noop' },
+          tools: [],
+          required: false,
+        })),
+        skills: [],
+      },
+      delivery: { deliverables: opts.deliverables ?? [] },
+      execution: {
+        limits: { maxSteps: 50, maxTokens: 1000 },
+        retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
+      },
+    } as unknown as Agent['profile']
+    return {
+      id: opts.id,
+      name: opts.name,
+      profile,
+      source: null,
+      toolRegistry: {} as Agent['toolRegistry'],
+      mcpRegistry: null,
+      skillRegistry: {} as Agent['skillRegistry'],
+      skillsDir: null,
+      knowledgeDir: null,
+    } as unknown as Agent
+  }
+
+  describe("A1: contract-skeleton listing (does/won't/needs/returns)", () => {
+    function getDesc(agent: Agent): string {
+      const agents = new Map([[agent.id, agent]])
+      const runtime = makeRuntime({ runReactLoop: mockSuccessReactLoop('x'), agents })
+      const tool = createDelegateAgentTool({ runtime, allowedAgentIds: null })
+      return typeof tool.description === 'function' ? tool.description() : tool.description
+    }
+
+    it('renders all four contract fields when fully populated', () => {
+      const agent = makeFullProfileAgent({
+        id: 'stock-poet',
+        name: '股票悲情诗人',
+        description: 'should not appear (scope.in present)',
+        objective: 'should not appear (scope.in present)',
+        outcomes: [{ id: 'poem_done', description: '用户收到完整诗作', priority: 'core' }],
+        inputs: [
+          {
+            id: 'ticker',
+            type: 'text',
+            required: true,
+            description: '股票代码',
+            examples: ['BIDU'],
+          },
+          { id: 'mood', type: 'text', required: false, description: '情绪基调' },
+        ],
+        scope: {
+          in: ['为指定股票写七言绝句', '按情绪基调调整风格'],
+          out: ['实时报价获取'],
+        },
+        deliverables: [{ id: 'poem', format: 'markdown' }],
+        capabilities: ['should not appear (scope.in present)'],
+        tools: [{ name: 'bash' }],
+      })
+      const desc = getDesc(agent)
+      expect(desc).toContain('- stock-poet — 股票悲情诗人')
+      // does = scope.in inline (2 短项 → ` / ` 分隔)
+      expect(desc).toContain('does: 为指定股票写七言绝句 / 按情绪基调调整风格')
+      // won't inline 单条
+      expect(desc).toContain("won't: 实时报价获取")
+      // needs inline 单条 required（mood optional 不渲染）
+      expect(desc).toContain('needs: ticker (text) — 股票代码')
+      expect(desc).not.toContain('mood')
+      // returns inline 单条
+      expect(desc).toContain('returns: poem (markdown)')
+      // 永不渲染字段
+      expect(desc).not.toContain('description:')
+      expect(desc).not.toContain('objective:')
+      expect(desc).not.toContain('outcomes:')
+      expect(desc).not.toContain('capabilities:')
+      expect(desc).not.toContain('examples:')
+      expect(desc).not.toContain('tools:')
+      expect(desc).not.toContain('internet:')
+    })
+
+    describe('does: fallback chain', () => {
+      it('falls back to capabilities when scope.in missing', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          objective: 'should not appear',
+          capabilities: ['cap-a', 'cap-b'],
+        })
+        const desc = getDesc(agent)
+        expect(desc).toContain('does: cap-a / cap-b')
+        expect(desc).not.toContain('objective')
+      })
+
+      it('falls back to objective when scope.in & capabilities missing', () => {
+        const agent = makeFullProfileAgent({
+          id: 'b',
+          name: 'B',
+          objective: 'do something useful',
+          capabilities: [],
+        })
+        const desc = getDesc(agent)
+        expect(desc).toContain('does: do something useful')
+      })
+
+      it('falls back to description when only description present', () => {
+        const agent = makeFullProfileAgent({
+          id: 'c',
+          name: 'C',
+          description: 'just a description',
+          capabilities: [],
+        })
+        const desc = getDesc(agent)
+        expect(desc).toContain('does: just a description')
+      })
+
+      it('renders only `- id — name` when nothing available (defensive)', () => {
+        const agent = makeAgent('bare', 'Bare')
+        const desc = getDesc(agent)
+        expect(desc).toContain('- bare — Bare')
+        // 半 mock 场景: 不能崩溃,字段缺失就不渲染
+      })
+    })
+
+    describe('inline vs list adaptive rendering', () => {
+      it('inline for 1 item', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['只做一件事'], out: [] },
+        })
+        expect(getDesc(agent)).toContain('does: 只做一件事')
+      })
+
+      it('inline with " / " for 2-3 short items', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['事 A', '事 B', '事 C'], out: [] },
+        })
+        expect(getDesc(agent)).toContain('does: 事 A / 事 B / 事 C')
+      })
+
+      it('expands to list for 4+ items', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['一', '二', '三', '四'], out: [] },
+        })
+        const desc = getDesc(agent)
+        expect(desc).toContain('does:\n      - 一\n      - 二\n      - 三\n      - 四')
+      })
+
+      it('expands to list when any item is long (>30 chars)', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: {
+            in: [
+              '短的',
+              'this item is intentionally longer than thirty characters to force list expansion',
+            ],
+            out: [],
+          },
+        })
+        const desc = getDesc(agent)
+        expect(desc).toMatch(/does:\n {6}- 短的/)
+      })
+    })
+
+    describe("won't / needs / returns: skip empty", () => {
+      it("omits won't when scope.out empty", () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['x'], out: [] },
+        })
+        expect(getDesc(agent)).not.toContain("won't")
+      })
+
+      it('omits needs when no required inputs', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['x'], out: [] },
+          inputs: [{ id: 'opt', type: 'text', required: false, description: '可选' }],
+        })
+        expect(getDesc(agent)).not.toContain('needs')
+      })
+
+      it('omits returns when no deliverables', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['x'], out: [] },
+          deliverables: [],
+        })
+        // 用 'returns:' (含冒号) 匹配字段而非 prologue 文案中的 "returns" 单词
+        expect(getDesc(agent)).not.toContain('returns:')
+      })
+
+      it('expands needs to list for multiple required inputs', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['x'], out: [] },
+          inputs: [
+            { id: 'i1', type: 'text', required: true, description: 'first input description here' },
+            {
+              id: 'i2',
+              type: 'text',
+              required: true,
+              description: 'second input description here',
+            },
+          ],
+        })
+        const desc = getDesc(agent)
+        expect(desc).toMatch(/needs:\n {6}- i1 \(text\) —/)
+        expect(desc).toMatch(/ {6}- i2 \(text\) —/)
+      })
+
+      it('returns inline for 1 deliverable', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['x'], out: [] },
+          deliverables: [{ id: 'report', format: 'markdown' }],
+        })
+        expect(getDesc(agent)).toContain('returns: report (markdown)')
+      })
+
+      it('returns inline " / " for 2 deliverables when short', () => {
+        const agent = makeFullProfileAgent({
+          id: 'a',
+          name: 'A',
+          scope: { in: ['x'], out: [] },
+          deliverables: [
+            { id: 'a', format: 'markdown' },
+            { id: 'b', format: 'json' },
+          ],
+        })
+        expect(getDesc(agent)).toContain('returns: a (markdown) / b (json)')
+      })
+    })
+
+    it('never exposes tooling fields (tools / mcp / skills / cli / internet)', () => {
+      const agent = makeFullProfileAgent({
+        id: 'tool-heavy',
+        name: 'Tool Heavy',
+        scope: { in: ['x'], out: [] },
+        tools: [{ name: 'bash' }, { name: 'edit' }, { name: 'write' }],
+        mcpServers: ['playwright', 'mysql'],
+      })
+      const desc = getDesc(agent)
+      expect(desc).not.toContain('tools:')
+      expect(desc).not.toContain('mcp:')
+      expect(desc).not.toContain('skills:')
+      expect(desc).not.toContain('cli:')
+      expect(desc).not.toContain('internet:')
+    })
+  })
+
+  describe('A2: instruction-scope compatibility check', () => {
+    it('rejects when profile entities and instruction entities have no overlap', async () => {
+      const agent = makeFullProfileAgent({
+        id: 'stock-poet-zj',
+        name: '中际旭创悲情诗',
+        description: '为中际旭创写七言绝句',
+        tools: [{ name: 'bash' }],
+        outcomes: [{ description: '为中际旭创等股票写诗' }],
+      })
+      const agents = new Map([['stock-poet-zj', agent]])
+      const runtime = makeRuntime({ runReactLoop: mockSuccessReactLoop('hello'), agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const result = await tool.execute(
+        { agent_id: 'stock-poet-zj', instruction: '搜索百度股价并写诗' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      const env = result.output as ToolErrorEnvelope & { instruction_entities?: string[] }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('INSTRUCTION_OUT_OF_SCOPE')
+      // specificity filter: instruction_entities 仅含 ≥3 字中文等高置信集合
+      expect(env.instruction_entities!.some((e: string) => e.includes('百度'))).toBe(true)
+    })
+
+    it('passes when instruction entity exists in profile text', async () => {
+      const agent = makeFullProfileAgent({
+        id: 'stock-poet-baidu',
+        name: '百度悲情诗',
+        description: '为百度等中国互联网股票写七言绝句',
+        tools: [{ name: 'bash' }],
+      })
+      const agents = new Map([['stock-poet-baidu', agent]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('百度股价低迷'),
+        agents,
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const result = await tool.execute(
+        { agent_id: 'stock-poet-baidu', instruction: '搜索百度股价并写诗' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      // 应进入正常委托流程并返回子文本
+      expect(result.output).toBe('百度股价低迷')
+    })
+
+    it('passes when profile has only low-confidence fragments (generic poetry agent vs specific stock)', async () => {
+      // 缺环 2 specificity filter: profile "为A股写诗" 抽取出的 "股写"
+      // 等碎片不算高置信; instruction "为TSLA写诗" 含 specific TSLA 但 profile
+      // 无 specific → 视 profile 为通用 → PASS, 不能因 entity 噪声误拒。
+      const agent = makeFullProfileAgent({
+        id: 'generic-poet',
+        name: '诗人',
+        description: '为A股写诗',
+        tools: [{ name: 'read' }],
+        outcomes: [{ description: '产出七言绝句' }],
+      })
+      const agents = new Map([['generic-poet', agent]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('TSLA 股价飘摇'),
+        agents,
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'generic-poet', instruction: '为TSLA写七言绝句' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect(r.output).toBe('TSLA 股价飘摇')
+    })
+
+    it('passes when no specific entities in either side (generic agent)', async () => {
+      const agent = makeFullProfileAgent({
+        id: 'general-helper',
+        name: 'General Helper',
+        description: 'Help with any task',
+        tools: [{ name: 'bash' }],
+      })
+      const agents = new Map([['general-helper', agent]])
+      const runtime = makeRuntime({ runReactLoop: mockSuccessReactLoop('done'), agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const result = await tool.execute(
+        { agent_id: 'general-helper', instruction: 'do something' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect(result.output).toBe('done')
+    })
+  })
+
+  describe('A3: per-agent delegation budget', () => {
+    it('returns DELEGATION_BUDGET_EXHAUSTED on (max+1)th invocation', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('Hello (translated)'),
+        agents,
+        config: { maxInvocationsPerAgentPerSession: 2 },
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+
+      const r1 = await tool.execute(
+        { agent_id: 'translator-001', instruction: '翻成英文' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      const r2 = await tool.execute(
+        { agent_id: 'translator-001', instruction: '翻成英文' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      const r3 = await tool.execute(
+        { agent_id: 'translator-001', instruction: '翻成英文' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect(r1.output).toBe('Hello (translated)')
+      expect(r2.output).toBe('Hello (translated)')
+      const env = r3.output as ToolErrorEnvelope & {
+        invocations_used?: number
+        budget_max?: number
+      }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('DELEGATION_BUDGET_EXHAUSTED')
+      expect(env.budget_max).toBe(2)
+    })
+
+    it('budget is per-agent (different agent_id has own counter)', async () => {
+      const a = makeAgent('agent-a', 'A')
+      const b = makeAgent('agent-b', 'B')
+      const agents = new Map([
+        ['agent-a', a],
+        ['agent-b', b],
+      ])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('ok'),
+        agents,
+        config: { maxInvocationsPerAgentPerSession: 1 },
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      // 各自第 1 次 → 都成功
+      expect(
+        (
+          await tool.execute(
+            { agent_id: 'agent-a', instruction: 'x' },
+            makeCtx({ sessionId: parentSessions[0].id }),
+          )
+        ).output,
+      ).toBe('ok')
+      expect(
+        (
+          await tool.execute(
+            { agent_id: 'agent-b', instruction: 'x' },
+            makeCtx({ sessionId: parentSessions[0].id }),
+          )
+        ).output,
+      ).toBe('ok')
+      // a 第 2 次 → exhausted
+      const r = await tool.execute(
+        { agent_id: 'agent-a', instruction: 'x' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect((r.output as ToolErrorEnvelope).code).toBe('DELEGATION_BUDGET_EXHAUSTED')
+    })
+  })
+
+  describe('B1: auto parent-context injection', () => {
+    it('prepends parent recent user message to child userContent', async () => {
+      const agents = new Map([['translator-001', translator]])
+      let capturedUserContent = ''
+      const captureLoop: RunReactLoopFn = async (opts) => {
+        capturedUserContent = opts.userContent
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({ runReactLoop: captureLoop, agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      // 父 session 写一条 user message,模拟真实场景
+      messageRepo.create({
+        id: uuidv4(),
+        session_id: parentSessions[0].id,
+        role: 'user',
+        content: [{ type: 'text', text: '请帮我搜索百度股价' }],
+        agent_id: '__chat__',
+      })
+
+      await tool.execute(
+        { agent_id: 'translator-001', instruction: '翻译这段' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+
+      expect(capturedUserContent).toContain('<parent-context auto-injected>')
+      expect(capturedUserContent).toContain('请帮我搜索百度股价')
+      expect(capturedUserContent).toContain('翻译这段')
+    })
+
+    it('includes recent tool failures', async () => {
+      const agents = new Map([['translator-001', translator]])
+      let capturedUserContent = ''
+      const captureLoop: RunReactLoopFn = async (opts) => {
+        capturedUserContent = opts.userContent
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({ runReactLoop: captureLoop, agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      // 父 session 含失败的 tool result
+      messageRepo.create({
+        id: uuidv4(),
+        session_id: parentSessions[0].id,
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'tc1',
+            toolName: 'browse',
+            output: { type: 'text', value: 'ENOENT: tool not installed' },
+            isError: true,
+          },
+        ],
+        agent_id: '__chat__',
+      })
+
+      await tool.execute(
+        { agent_id: 'translator-001', instruction: 'x' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+
+      expect(capturedUserContent).toContain('recent-tool-failures')
+      expect(capturedUserContent).toContain('browse')
+      expect(capturedUserContent).toContain('ENOENT')
+    })
+
+    it('emits empty auto-context when parent has no relevant messages', async () => {
+      const agents = new Map([['translator-001', translator]])
+      let capturedUserContent = ''
+      const captureLoop: RunReactLoopFn = async (opts) => {
+        capturedUserContent = opts.userContent
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: 'ok' }],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({ runReactLoop: captureLoop, agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      await tool.execute(
+        { agent_id: 'translator-001', instruction: 'standalone' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      // 没父 user message / tool error → autoCtx 为空
+      expect(capturedUserContent).toBe('standalone')
+    })
+  })
+
+  describe('B2: entity binding (subagent must mention instruction entity)', () => {
+    it('returns SUBAGENT_OFF_TARGET when output drifted to unrelated entity', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('为中际旭创写一首悲情绝句'),
+        agents,
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: '为百度股票写诗' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      const env = r.output as ToolErrorEnvelope & { expected_entities?: string[] }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('SUBAGENT_OFF_TARGET')
+      expect(env.expected_entities).toEqual(
+        expect.arrayContaining([expect.stringContaining('百度')]),
+      )
+    })
+
+    it('passes when output mentions instruction entity', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('百度股价飘摇,无人问津'),
+        agents,
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: '为百度写七言绝句' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect(r.output).toBe('百度股价飘摇,无人问津')
+    })
+
+    it('does not flag when output is in different language (translation case)', async () => {
+      // instruction 中文,output 纯英文 → 跳过 cn-name 检查
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('Hello world from English text'),
+        agents,
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: '翻成英文' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect(r.output).toBe('Hello world from English text')
+    })
+
+    it('flags when ticker entity not in output', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('Tencent had a great quarter'),
+        agents,
+      })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'Search BIDU stock price' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      const env = r.output as ToolErrorEnvelope & { expected_entities?: string[] }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('SUBAGENT_OFF_TARGET')
+      expect(env.expected_entities).toContain('BIDU')
+    })
+  })
+
+  describe('C1: failure-recovery → ToolErrorEnvelope', () => {
+    it('converts [failure-recovery] text to SUBAGENT_RECOVERY envelope', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const recoveryLoop: RunReactLoopFn = async (opts) => {
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [
+            {
+              type: 'text',
+              text: '[failure-recovery • 1 unverifiable quote masked]\nI was unable to complete the task because curl returned 404. Please advise.',
+            },
+          ],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({ runReactLoop: recoveryLoop, agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'standalone' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      const env = r.output as ToolErrorEnvelope & { last_text?: string; child_session_id?: string }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('SUBAGENT_RECOVERY')
+      expect(env.last_text).toContain('curl returned 404')
+      expect(env.child_session_id).toBeDefined()
+    })
+
+    it('also flags [auto-summary] marker', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const recoveryLoop: RunReactLoopFn = async (opts) => {
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: '[auto-summary]\nNothing to report.' }],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({ runReactLoop: recoveryLoop, agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'standalone' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect((r.output as ToolErrorEnvelope).code).toBe('SUBAGENT_RECOVERY')
+    })
+
+    it('does not flag normal output starting with bracketed but non-recovery text', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const normalLoop: RunReactLoopFn = async (opts) => {
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: '[Note] standalone task completed.' }],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({ runReactLoop: normalLoop, agents })
+      const tool = createDelegateAgentTool(runtime)
+      const parentSessions = sessionRepo.list()
+      const r = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'standalone' },
+        makeCtx({ sessionId: parentSessions[0].id }),
+      )
+      expect(r.output).toContain('standalone task completed')
     })
   })
 })
