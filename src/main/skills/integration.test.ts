@@ -25,34 +25,41 @@ import type { ToolDefinition } from '../tools/types'
 import type { ContentBlock } from '@shared/types/message'
 
 function makeTool(name: string): ToolDefinition {
-  return { name, description: `${name} tool`, parameters: {}, execute: async () => ({ output: name }) }
+  return {
+    name,
+    description: `${name} tool`,
+    parameters: {},
+    execute: async () => ({ output: name }),
+  }
 }
 const builtinReg = new BuiltinToolRegistry([
-  makeTool('read'), makeTool('write'), makeTool('edit'),
-  makeTool('bash'), makeTool('glob'), makeTool('grep'),
-  makeTool('ls'), makeTool('skill'),
+  makeTool('read'),
+  makeTool('write'),
+  makeTool('edit'),
+  makeTool('bash'),
+  makeTool('glob'),
+  makeTool('grep'),
+  makeTool('ls'),
+  makeTool('skill'),
 ])
 
 let tempDir: string
 
 const AGENT_PROFILE: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'test-agent',
   name: '测试Agent',
   description: '集成测试用',
   version: '1.0.0',
-  role: {
-    capabilities: ['测试能力'],
-    outputFormat: '文本',
-    sampleConversations: [],
-  },
-  knowledge: { files: [] },
-  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
+  agentPrompt: '## Workflow\n1. 执行测试能力。\n\n## Output\n- 输出文本格式。',
 }
 
 function createSkillDir(name: string, description: string, content: string): void {
   const dir = join(tempDir, name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'SKILL.md'), `---
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---
 name: ${name}
 description: "${description}"
 metadata:
@@ -62,7 +69,8 @@ metadata:
 ---
 
 ${content}
-`)
+`,
+  )
 }
 
 beforeEach(() => {
@@ -75,10 +83,12 @@ afterEach(() => {
 })
 
 describe('Skill 双阶段加载集成测试', () => {
-
   it('三阶段完整流程：description → 加载详情 → 真正使用', async () => {
     // ── Setup: 创建 2 个 Skill ──
-    createSkillDir('lark-sheets', '飞书电子表格操作', `# sheets (v3)
+    createSkillDir(
+      'lark-sheets',
+      '飞书电子表格操作',
+      `# sheets (v3)
 
 ## 可用命令
 - \`lark-cli sheets +read --url URL\` — 读取表格数据
@@ -88,12 +98,17 @@ describe('Skill 双阶段加载集成测试', () => {
 ## 使用流程
 1. 先用 +info 查看表格结构
 2. 再用 +read 读取数据
-3. 分析后用 +write 写回`)
+3. 分析后用 +write 写回`,
+    )
 
-    createSkillDir('lark-im', '飞书即时通讯', `# im
+    createSkillDir(
+      'lark-im',
+      '飞书即时通讯',
+      `# im
 
 ## 可用命令
-- \`lark-cli im +send --chat-id ID --text MSG\` — 发送消息`)
+- \`lark-cli im +send --chat-id ID --text MSG\` — 发送消息`,
+    )
 
     const registry = SkillRegistry.fromDir(tempDir)
     const plugin = new AgentPromptPlugin()
@@ -110,8 +125,35 @@ describe('Skill 双阶段加载集成测试', () => {
     const ctx: PipelineContext = {
       sessionId: 'test-session',
       currentMessage: { text: '帮我查表格数据' },
-      provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' },
-      providerConfig: { provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' }, context_limit: 8000, recent_ratio: 0.7, summary_ratio: 0.2 },
+      provider: {
+        id: 'p',
+        name: 'p',
+        base_url: '',
+        type: 'openai' as const,
+        models: [],
+        enabled: true,
+        is_default: true,
+        supports_vision: false,
+        created_at: '',
+        updated_at: '',
+      },
+      providerConfig: {
+        provider: {
+          id: 'p',
+          name: 'p',
+          base_url: '',
+          type: 'openai' as const,
+          models: [],
+          enabled: true,
+          is_default: true,
+          supports_vision: false,
+          created_at: '',
+          updated_at: '',
+        },
+        context_limit: 8000,
+        recent_ratio: 0.7,
+        summary_ratio: 0.2,
+      },
       workspacePath: '/tmp',
       agent,
     }
@@ -121,8 +163,8 @@ describe('Skill 双阶段加载集成测试', () => {
     // ════════════════════════════════════════════════════════
     const promptResult = await plugin.build(ctx)
     const systemContent = promptResult.messages
-      .filter(m => m.role === 'system')
-      .map(m => (m as { content: string }).content)
+      .filter((m) => m.role === 'system')
+      .map((m) => (m as { content: string }).content)
       .join('\n')
 
     expect(systemContent).toContain('## Available Skills')
@@ -178,55 +220,106 @@ describe('Skill 双阶段加载集成测试', () => {
     // ════════════════════════════════════════════════════════
     const messageHistory: Array<{ role: string; content: ContentBlock[] }> = [
       // 用户输入
-      { role: 'user', content: [
-        { type: 'text', text: '帮我查表格数据' },
-      ]},
+      { role: 'user', content: [{ type: 'text', text: '帮我查表格数据' }] },
 
       // ReAct Step 1: LLM 请求加载 Skill（阶段 2）
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-1', toolName: 'skill', input: { name: 'lark-sheets' } },
-      ]},
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            toolCallId: 'tc-1',
+            toolName: 'skill',
+            input: { name: 'lark-sheets' },
+          },
+        ],
+      },
 
       // 平台返回 Skill 完整内容
-      { role: 'assistant', content: [
-        { type: 'tool_result', toolCallId: 'tc-1', toolName: 'skill',
-          output: loadResult.output as string, isError: false },
-      ]},
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_result',
+            toolCallId: 'tc-1',
+            toolName: 'skill',
+            output: loadResult.output as string,
+            isError: false,
+          },
+        ],
+      },
 
       // ReAct Step 2: LLM 读完 Skill 内容后，按指令调用 bash（阶段 3）
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-2', toolName: 'bash',
-          input: { command: 'lark-cli sheets +info --url https://xxx.feishu.cn/sheets/abc' } },
-      ]},
-      { role: 'assistant', content: [
-        { type: 'tool_result', toolCallId: 'tc-2', toolName: 'bash',
-          output: '{"title":"销售周报","sheets":[{"id":"sheet1","title":"Sheet1"}]}', isError: false },
-      ]},
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            toolCallId: 'tc-2',
+            toolName: 'bash',
+            input: { command: 'lark-cli sheets +info --url https://xxx.feishu.cn/sheets/abc' },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_result',
+            toolCallId: 'tc-2',
+            toolName: 'bash',
+            output: '{"title":"销售周报","sheets":[{"id":"sheet1","title":"Sheet1"}]}',
+            isError: false,
+          },
+        ],
+      },
 
       // ReAct Step 3: LLM 继续按 Skill 指令读取数据
-      { role: 'assistant', content: [
-        { type: 'tool_use', toolCallId: 'tc-3', toolName: 'bash',
-          input: { command: 'lark-cli sheets +read --url https://xxx.feishu.cn/sheets/abc --sheet-id sheet1' } },
-      ]},
-      { role: 'assistant', content: [
-        { type: 'tool_result', toolCallId: 'tc-3', toolName: 'bash',
-          output: '[["日期","销售额"],["2026-04-21","12000"],["2026-04-22","15000"]]', isError: false },
-      ]},
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            toolCallId: 'tc-3',
+            toolName: 'bash',
+            input: {
+              command:
+                'lark-cli sheets +read --url https://xxx.feishu.cn/sheets/abc --sheet-id sheet1',
+            },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_result',
+            toolCallId: 'tc-3',
+            toolName: 'bash',
+            output: '[["日期","销售额"],["2026-04-21","12000"],["2026-04-22","15000"]]',
+            isError: false,
+          },
+        ],
+      },
 
       // ReAct Step 4: LLM 生成分析报告（纯文本，无 tool_use）
-      { role: 'assistant', content: [
-        { type: 'text', text: '## 本周销售分析\n\n| 日期 | 销售额 |\n|------|--------|\n| 04-21 | 12,000 |\n| 04-22 | 15,000 |\n\n趋势：环比增长 25%' },
-      ]},
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'text',
+            text: '## 本周销售分析\n\n| 日期 | 销售额 |\n|------|--------|\n| 04-21 | 12,000 |\n| 04-22 | 15,000 |\n\n趋势：环比增长 25%',
+          },
+        ],
+      },
     ]
 
     console.log('\n╔══════════════════════════════════════════════╗')
     console.log('║     完整消息历史（ReAct Loop 产出）           ║')
     console.log('╚══════════════════════════════════════════════╝')
     for (const [i, msg] of messageHistory.entries()) {
-      const stepLabel = i === 0 ? '用户输入'
-        : i <= 2 ? '阶段2 加载Skill'
-        : i <= 6 ? '阶段3 使用Skill'
-        : '最终输出'
+      const stepLabel =
+        i === 0 ? '用户输入' : i <= 2 ? '阶段2 加载Skill' : i <= 6 ? '阶段3 使用Skill' : '最终输出'
       console.log(`\n[${stepLabel}] Message ${i} [${msg.role}]`)
       for (const block of msg.content) {
         if (block.type === 'text') {
@@ -270,14 +363,41 @@ describe('Skill 双阶段加载集成测试', () => {
     const ctx: PipelineContext = {
       sessionId: 'test',
       currentMessage: { text: 'hello' },
-      provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' },
-      providerConfig: { provider: { id: 'p', name: 'p', base_url: '', type: 'openai' as const, models: [], enabled: true, is_default: true, supports_vision: false, created_at: '', updated_at: '' }, context_limit: 8000, recent_ratio: 0.7, summary_ratio: 0.2 },
+      provider: {
+        id: 'p',
+        name: 'p',
+        base_url: '',
+        type: 'openai' as const,
+        models: [],
+        enabled: true,
+        is_default: true,
+        supports_vision: false,
+        created_at: '',
+        updated_at: '',
+      },
+      providerConfig: {
+        provider: {
+          id: 'p',
+          name: 'p',
+          base_url: '',
+          type: 'openai' as const,
+          models: [],
+          enabled: true,
+          is_default: true,
+          supports_vision: false,
+          created_at: '',
+          updated_at: '',
+        },
+        context_limit: 8000,
+        recent_ratio: 0.7,
+        summary_ratio: 0.2,
+      },
       workspacePath: '/tmp',
       agent,
     }
 
     const result = await plugin.build(ctx)
-    const content = result.messages.map(m => (m as { content: string }).content).join('\n')
+    const content = result.messages.map((m) => (m as { content: string }).content).join('\n')
 
     expect(content).not.toContain('## 可用技能')
     expect(emptyRegistry.isEmpty()).toBe(true)

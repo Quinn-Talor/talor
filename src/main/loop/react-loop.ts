@@ -940,13 +940,8 @@ async function runFallbackSummary(ctx: StepContext, stepIndex: number): Promise<
  */
 export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const loopStart = Date.now()
-  // Schema 1.0: profile.execution.limits.maxSteps override 默认/opts
-  const profileLimits = opts.agent?.profile?.execution?.limits as { maxSteps?: number } | undefined
-  const maxSteps =
-    opts.maxSteps ??
-    (profileLimits && typeof profileLimits.maxSteps === 'number'
-      ? profileLimits.maxSteps
-      : DEFAULT_MAX_STEPS)
+  // Schema 2.0: no per-profile execution limits; always use DEFAULT_MAX_STEPS.
+  const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS
 
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
   log.info(`[ReactLoop] start | session: ${opts.sessionId} | maxSteps: ${maxSteps}`)

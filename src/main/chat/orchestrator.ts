@@ -133,7 +133,7 @@ export async function sendChat(
     const agent = ports.agentManager.getAgent(agentId) ?? ports.agentManager.getChatAgent()
 
     // Step 4: provider + model；预热 API key；视觉能力校验
-    // Schema 1.0: agent.profile.preferences 优先于 session 选型(profile lock)。
+    // agent.profile.preferences 优先于 session 选型(profile lock)。
     // 关键: provider 和 model 必须**配对校验** — profile 锁定的 model 必须在某个
     // 已配置 provider 的 models 列表里。否则放弃整个 profile lock,fallback 到
     // session(避免 deepseek provider + claude model 这种错配)。
@@ -167,7 +167,7 @@ export async function sendChat(
     if (validated.length > 0) checkVisionSupport(provider, validated)
 
     const adapter = getAdapter(provider.type)
-    // Schema 1.0 fallback 链:
+    // model fallback 链:
     //   1. profile.preferences.modelId (锁定且匹配)
     //   2. session.model_id (用户上次选的)
     //   3. provider.models[0].id (provider 第一个可用 model 兜底,不再用 'default' 占位)

@@ -10,7 +10,7 @@ interface AgentPreviewModalProps {
   onClose: () => void
   /** 点击"开始" → 父组件用 agentId 创建新 session 并切过去。 */
   onStart?: (agentId: string) => void | Promise<void>
-  /** 点击"编辑" → 父组件打开 AgentEditPage(Schema 1.0) */
+  /** 点击"编辑" → 父组件打开 AgentEditPage(Schema 2.0) */
   onEdit?: (agentId: string) => void
 }
 
@@ -72,94 +72,34 @@ export function AgentPreviewModal({
   if (!open) return null
 
   const profile = detail?.profile ?? {}
-  // Schema 1.0: 字段路径
-  const identity = (profile.identity as Record<string, unknown> | undefined) ?? {}
-  const mission = (profile.mission as Record<string, unknown> | undefined) ?? {}
-  const method = (profile.method as Record<string, unknown> | undefined) ?? {}
-  const delivery = (profile.delivery as Record<string, unknown> | undefined) ?? {}
-  const execution = (profile.execution as Record<string, unknown> | undefined) ?? {}
-  const preferences = (profile.preferences as Record<string, unknown> | undefined) ?? {}
-
-  const objective = typeof mission.objective === 'string' ? mission.objective : ''
-  const outcomes = Array.isArray(mission.outcomes)
-    ? (mission.outcomes as Array<{ id?: string; description?: string; priority?: string }>)
+  // Schema 2.0: 扁平结构直接读顶层字段
+  const agentPrompt = typeof profile.agentPrompt === 'string' ? profile.agentPrompt : ''
+  const tools = Array.isArray(profile.tools)
+    ? (profile.tools as unknown[]).filter((t): t is string => typeof t === 'string')
     : []
-  const inputs = Array.isArray(mission.inputs)
-    ? (mission.inputs as Array<{
-        id?: string
-        description?: string
-        required?: boolean
-        type?: string
-      }>)
+  const skills = Array.isArray(profile.skills)
+    ? (profile.skills as Array<{ name?: string; required?: boolean; purpose?: string }>)
     : []
-
-  const capabilities = Array.isArray(method.capabilities)
-    ? (method.capabilities as unknown[]).filter((c): c is string => typeof c === 'string')
+  const mcpServers = Array.isArray(profile.mcpServers)
+    ? (profile.mcpServers as Array<{ name?: string }>)
     : []
-  const knowledge = Array.isArray(method.knowledge)
-    ? (method.knowledge as Array<{
-        type?: string
-        path?: string
-        url?: string
-        description?: string
-        required?: boolean
-      }>)
+  const cli = Array.isArray(profile.cli)
+    ? (profile.cli as Array<{ command?: string; version?: string }>)
     : []
-  const tools = Array.isArray(method.tools)
-    ? (method.tools as Array<{
-        name?: string
-        required?: boolean
-        disabled?: boolean
-        purpose?: string
-      }>)
+  const references = Array.isArray(profile.references)
+    ? (profile.references as Array<{ id?: string; path?: string; description?: string }>)
     : []
-  const skills = Array.isArray(method.skills)
-    ? (method.skills as Array<{ items?: Array<{ name?: string; required?: boolean }> }>).flatMap(
-        (g) => g.items ?? [],
-      )
-    : []
-  const cli = Array.isArray(method.cli)
-    ? (method.cli as Array<{ command?: string; version?: string }>)
-    : []
-  const collab =
-    (method.collaboration as
-      | {
-          subagents?: Array<{ id?: string; required?: boolean; purpose?: string }>
-          allowAnyBusinessSubagent?: boolean
-        }
-      | undefined) ?? {}
-  const subagents = collab.subagents ?? []
-  const allowAnyBusiness = collab.allowAnyBusinessSubagent === true
-
-  const deliverables = Array.isArray(delivery.deliverables)
-    ? (delivery.deliverables as Array<{
-        id?: string
-        format?: string
-        trigger?: string
-        required?: boolean
-      }>)
-    : []
-
-  const limits = (execution.limits as { maxSteps?: number; maxTokens?: number } | undefined) ?? {}
-  const retryPolicy =
-    (execution.retryPolicy as
-      | { maxAttempts?: number; onMustFail?: string; onShouldFail?: string }
-      | undefined) ?? {}
-
-  const lockedModel = typeof preferences.modelId === 'string' ? preferences.modelId : ''
-  const lockedProvider = typeof preferences.providerId === 'string' ? preferences.providerId : ''
-
-  const workflow = method.workflow as
+  const subagentsRaw = profile.subagents as
     | {
-        steps?: Array<{
-          id?: string
-          description?: string
-          produces?: string
-          requires?: string[]
-          inputs?: string[]
-        }>
+        ids?: Array<{ id?: string; required?: boolean; purpose?: string }>
+        allowAny?: boolean
       }
     | undefined
+  const subagents = subagentsRaw?.ids ?? []
+  const allowAnyBusiness = subagentsRaw?.allowAny === true
+  const preferences = (profile.preferences as Record<string, unknown> | undefined) ?? {}
+  const lockedModel = typeof preferences.modelId === 'string' ? preferences.modelId : ''
+  const lockedProvider = typeof preferences.providerId === 'string' ? preferences.providerId : ''
 
   return (
     <div
@@ -210,138 +150,79 @@ export function AgentPreviewModal({
 
           {detail && (
             <>
-              {/* identity */}
-              <ReadField label="Agent ID" value={(identity.id as string) ?? detail.id} mono />
-              <ReadField label="名称" value={(identity.name as string) ?? detail.name} />
-              {(identity.description || detail.description) && (
-                <ReadField
-                  label="描述"
-                  value={(identity.description as string) ?? detail.description ?? ''}
-                />
-              )}
-              <ReadField
-                label="版本"
-                value={(identity.version as string) ?? detail.version ?? '—'}
-                mono
-              />
+              {/* identity — v2.0 flat */}
+              <ReadField label="Agent ID" value={detail.id} mono />
+              <ReadField label="名称" value={detail.name} />
+              {detail.description && <ReadField label="描述" value={detail.description} />}
+              <ReadField label="版本" value={detail.version ?? '—'} mono />
               {detail.status && <ReadField label="状态" value={detail.status} mono />}
               {detail.dirPath && <ReadField label="文件路径" value={detail.dirPath} mono />}
 
-              {/* mission */}
-              {objective && <ReadField label="使命 (objective)" value={objective} />}
-
-              {outcomes.length > 0 && (
-                <ReadList
-                  label="预期成果 (mission.outcomes)"
-                  items={outcomes.map(
-                    (o) =>
-                      `[${o.priority ?? 'core'}] ${o.id ?? '(unknown)'}: ${o.description ?? ''}`,
-                  )}
-                />
+              {/* agentPrompt preview */}
+              {agentPrompt && (
+                <details className="text-[12px]">
+                  <summary className="cursor-pointer font-medium" style={{ color: '#7c3aed' }}>
+                    Agent Prompt（点击展开）
+                  </summary>
+                  <pre
+                    className="mt-2 rounded-md border px-3 py-2 text-[11px] font-mono overflow-auto whitespace-pre-wrap break-words"
+                    style={{
+                      borderColor: '#e2e8f0',
+                      background: '#f8fafc',
+                      color: '#334155',
+                      maxHeight: 300,
+                    }}
+                  >
+                    {agentPrompt}
+                  </pre>
+                </details>
               )}
 
-              {inputs.length > 0 && (
-                <ReadList
-                  label="必需输入 (mission.inputs)"
-                  items={inputs.map(
-                    (i) =>
-                      `${i.id ?? '?'} (${i.type ?? 'text'}${i.required ? ', REQUIRED' : ''})${i.description ? ' — ' + i.description : ''}`,
-                  )}
-                />
-              )}
-
-              {/* method */}
-              <ReadList
-                label="能力 (method.capabilities)"
-                items={capabilities}
-                fallback="（未声明）"
-              />
-
-              {tools.length > 0 && (
-                <ReadList
-                  label="工具 (method.tools)"
-                  items={tools.map((t) => {
-                    const flags: string[] = []
-                    if (t.required) flags.push('required')
-                    if (t.disabled) flags.push('⛔ disabled')
-                    return `${t.name ?? '(unknown)'}${flags.length ? ' · ' + flags.join(' · ') : ''}${t.purpose ? ' — ' + t.purpose : ''}`
-                  })}
-                />
-              )}
-              {knowledge.length > 0 && (
-                <ReadList
-                  label="知识 (method.knowledge)"
-                  items={knowledge.map((k) =>
-                    k.type === 'file'
-                      ? `📄 ${k.path ?? '?'}${k.required ? ' · REQUIRED' : ''} — ${k.description ?? ''}`
-                      : k.type === 'url'
-                        ? `🔗 ${k.url ?? '?'} — ${k.description ?? ''}`
-                        : `📝 (内嵌文本) — ${k.description ?? ''}`,
-                  )}
-                />
-              )}
+              {/* dependency manifests */}
+              {tools.length > 0 && <ReadList label="工具 (tools)" items={tools} />}
               {skills.length > 0 && (
                 <ReadList
-                  label="Skill 依赖 (method.skills)"
+                  label="Skill 依赖 (skills)"
                   items={skills.map(
-                    (s) => `${s.name ?? '(unknown)'}${s.required ? ' · required' : ' · optional'}`,
+                    (s) =>
+                      `${s.name ?? '(unknown)'}${s.required ? ' · required' : ' · optional'}${s.purpose ? ' — ' + s.purpose : ''}`,
                   )}
+                />
+              )}
+              {mcpServers.length > 0 && (
+                <ReadList
+                  label="外部服务 (mcpServers)"
+                  items={mcpServers.map((m) => m.name ?? '(unknown)')}
                 />
               )}
               {cli.length > 0 && (
                 <ReadList
-                  label="CLI 依赖 (method.cli)"
+                  label="CLI 依赖 (cli)"
                   items={cli.map(
                     (c) => `${c.command ?? '(unknown)'}${c.version ? ' (' + c.version + ')' : ''}`,
                   )}
                 />
               )}
+              {references.length > 0 && (
+                <ReadList
+                  label="参考资料 (references)"
+                  items={references.map(
+                    (r) =>
+                      `${r.id ?? '?'}: ${r.path ?? '?'}${r.description ? ' — ' + r.description : ''}`,
+                  )}
+                />
+              )}
               {(subagents.length > 0 || allowAnyBusiness) && (
                 <ReadList
-                  label="协作 (method.collaboration)"
+                  label="子 agent (subagents)"
                   items={
                     allowAnyBusiness
-                      ? ['可委托给所有业务 agent (allowAnyBusinessSubagent=true)']
+                      ? ['可委托给所有业务 agent (allowAny=true)']
                       : subagents.map(
                           (s) =>
                             `${s.id ?? '(unknown)'}${s.required ? ' · required' : ' · optional'}${s.purpose ? ' — ' + s.purpose : ''}`,
                         )
                   }
-                />
-              )}
-              {workflow?.steps && workflow.steps.length > 0 && (
-                <ReadList
-                  label="工作流 (method.workflow)"
-                  items={workflow.steps.map(
-                    (s, idx) =>
-                      `${idx + 1}. ${s.id ?? '?'}: ${s.description ?? ''}${s.produces ? ' → produces ' + s.produces : ''}`,
-                  )}
-                />
-              )}
-
-              {/* delivery */}
-              {deliverables.length > 0 && (
-                <ReadList
-                  label="交付物 (delivery.deliverables)"
-                  items={deliverables.map(
-                    (d) =>
-                      `${d.id ?? '?'} (${d.format ?? 'text'})${d.required === false ? ' · optional' : ''}${d.trigger ? ' — ' + d.trigger : ''}`,
-                  )}
-                />
-              )}
-              {/* execution */}
-              {(limits.maxSteps !== undefined || limits.maxTokens !== undefined) && (
-                <ReadField
-                  label="资源上限 (execution.limits)"
-                  value={`maxSteps=${limits.maxSteps ?? '—'} · maxTokens=${limits.maxTokens ?? '—'}`}
-                  mono
-                />
-              )}
-              {retryPolicy.onMustFail && (
-                <ReadField
-                  label="重试策略 (execution.retryPolicy)"
-                  value={`maxAttempts=${retryPolicy.maxAttempts ?? '—'} · onMustFail=${retryPolicy.onMustFail} · onShouldFail=${retryPolicy.onShouldFail ?? '—'}`}
-                  mono
                 />
               )}
 
@@ -411,7 +292,7 @@ export function AgentPreviewModal({
               onClick={() => onEdit(detail.id)}
               className="rounded-md px-3 py-1.5 text-[13px] font-medium border"
               style={{ color: '#475569', borderColor: '#cbd5e1' }}
-              title="Schema 1.0 编辑器"
+              title="Schema 2.0 编辑器"
             >
               编辑
             </button>

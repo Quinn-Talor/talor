@@ -51,50 +51,32 @@ function makeMockManager(agents: Map<string, Agent>): AgentManager {
 }
 
 const PROFILE_A: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'agent-a',
   name: 'Agent A',
   description: 'A',
   version: '1.0.0',
-  role: { capabilities: ['cap-A'], outputFormat: 'text' },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [],
-    mcpServers: [],
-    skills: [],
-    cli: [],
-    subagents: [{ id: 'agent-b', required: true }],
-  },
+  agentPrompt: '## Workflow\n1. Do A.',
+  subagents: { ids: [{ id: 'agent-b', required: true }] },
 }
 
 const PROFILE_B: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'agent-b',
   name: 'Agent B',
   description: 'B',
   version: '0.5.0',
-  role: { capabilities: ['cap-B'], outputFormat: 'text' },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [],
-    mcpServers: [],
-    skills: [],
-    cli: [],
-    subagents: [{ id: 'agent-c', required: true }],
-  },
+  agentPrompt: '## Workflow\n1. Do B.',
+  subagents: { ids: [{ id: 'agent-c', required: true }] },
 }
 
 const PROFILE_C: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'agent-c',
   name: 'Agent C',
   description: 'C',
   version: '0.3.0',
-  role: { capabilities: ['cap-C'], outputFormat: 'text' },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [],
-    mcpServers: [],
-    skills: [],
-    cli: [],
-  },
+  agentPrompt: '## Workflow\n1. Do C.',
 }
 
 describe('exportAgentPack (TASK-5, AC-032)', () => {
@@ -128,7 +110,7 @@ describe('exportAgentPack (TASK-5, AC-032)', () => {
   it('throws PackExportError when primary agent has no source', async () => {
     const profileNoSrc: AgentProfile = {
       ...PROFILE_A,
-      dependencies: { ...PROFILE_A.dependencies, subagents: undefined },
+      subagents: undefined,
     }
     const noSrcAgent = {
       id: profileNoSrc.id,
@@ -145,17 +127,11 @@ describe('exportAgentPack (TASK-5, AC-032)', () => {
   it('handles circular dependency (A→B→A) without infinite loop', async () => {
     const profileACirc: AgentProfile = {
       ...PROFILE_A,
-      dependencies: {
-        ...PROFILE_A.dependencies,
-        subagents: [{ id: 'agent-b', required: true }],
-      },
+      subagents: { ids: [{ id: 'agent-b', required: true }] },
     }
     const profileBCirc: AgentProfile = {
       ...PROFILE_B,
-      dependencies: {
-        ...PROFILE_B.dependencies,
-        subagents: [{ id: 'agent-a', required: true }],
-      },
+      subagents: { ids: [{ id: 'agent-a', required: true }] },
     }
     const dirA = makeAgentDir(workspaceTmp, profileACirc)
     const dirB = makeAgentDir(workspaceTmp, profileBCirc)

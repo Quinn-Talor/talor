@@ -1,4 +1,4 @@
-// src/main/agent/agent-manager.test.ts — Schema 1.0 AgentManager tests
+// src/main/agent/agent-manager.test.ts — Schema 2.0 AgentManager tests
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
@@ -30,37 +30,24 @@ const builtinRegistry = new BuiltinToolRegistry([
 ])
 
 const BUSINESS_PROFILE: AgentProfile = {
-  schemaVersion: '1.0',
-  identity: { id: 'sales_001', name: '销售分析师', description: '汇总销售', version: '1.0.0' },
-  mission: {
-    objective: 'Generate sales summary',
-    outcomes: [
-      {
-        id: 'sales_done',
-        description: 'sales summary done',
-        priority: 'core',
-        verifyBy: [
-          {
-            type: 'deliverable-present',
-            deliverableId: 's',
-            kind: 'deterministic',
-            severity: 'must',
-          },
-        ],
-      },
-    ],
-  },
-  method: { capabilities: ['Generate sales summary'], tools: [{ name: 'bash', required: true }] },
-  delivery: {
-    deliverables: [{ id: 's', format: 'markdown', mustContain: ['# S'] }],
-  },
-  execution: {
-    limits: { maxSteps: 10, maxTokens: 10000 },
-    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
-  },
+  schemaVersion: '2.0',
+  id: 'sales_001',
+  name: '销售分析师',
+  description: '汇总销售数据并生成报告。',
+  version: '1.0.0',
+  agentPrompt: `## Workflow
+1. Read sales data files.
+2. Generate summary report.
+
+## Principles
+- Always cite data sources.
+
+## Output
+Markdown report with # Summary header.`,
+  tools: ['bash'],
 }
 
-describe('AgentManager (schema 1.0)', () => {
+describe('AgentManager (schema 2.0)', () => {
   let manager: AgentManager
 
   beforeEach(() => {
@@ -78,20 +65,14 @@ describe('AgentManager (schema 1.0)', () => {
     expect(manager.getAgent('__crystallizer__')).not.toBeNull()
   })
 
-  it('AC-046: __chat__ profile mission.outcomes/delivery is empty (platform exception)', () => {
-    const chat = manager.getAgent('__chat__')!
-    expect(chat.profile.mission.outcomes).toEqual([])
-    expect(chat.profile.delivery.deliverables).toEqual([])
-  })
-
-  it('AC-021: __chat__ has correct identity', () => {
+  it('AC-021: __chat__ has correct identity (v2.0 flat fields)', () => {
     const chat = manager.getChatAgent()
     expect(chat.id).toBe('__chat__')
     expect(chat.name).toBe('Talor')
-    expect(chat.profile.schemaVersion).toBe('1.0')
+    expect(chat.profile.schemaVersion).toBe('2.0')
   })
 
-  it('platform __chat__ has all tools (empty whitelist)', () => {
+  it('platform __chat__ has all tools (empty whitelist means all)', () => {
     const chat = manager.getAgent('__chat__')!
     const tools = chat.toolRegistry.getToolNames()
     expect(tools.length).toBeGreaterThanOrEqual(8)
@@ -107,12 +88,12 @@ describe('AgentManager (schema 1.0)', () => {
     expect(tools).not.toContain('write')
   })
 
-  it('Crystallizer profile has full schema 1.0 structure', () => {
+  it('Crystallizer profile has v2.0 flat fields and agentPrompt with SCHEMA_DESCRIPTION', () => {
     const cryst = manager.getAgent('__crystallizer__')!
-    expect(cryst.profile.mission.outcomes.length).toBeGreaterThanOrEqual(1)
-    expect(cryst.profile.delivery.deliverables.length).toBeGreaterThanOrEqual(1)
-    expect(cryst.profile.delivery.deliverables[0].id).toBe('agent_profile_draft')
-    expect(cryst.profile.delivery.deliverables[0].rubric).toBeDefined()
+    expect(cryst.profile.schemaVersion).toBe('2.0')
+    expect(cryst.profile.id).toBe('__crystallizer__')
+    expect(cryst.profile.agentPrompt).toContain('Schema 2.0')
+    expect(cryst.profile.agentPrompt).toContain('## Workflow')
   })
 
   it('getAgent returns null for unknown id', () => {

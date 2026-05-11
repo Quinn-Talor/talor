@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { extractActivatedSkills } from './extractor'
 
 function makeToolCall(toolName: string, input: unknown) {
-  return { type: 'tool-call', toolCallId: `tc-${toolName}`, toolName, input }
+  return { type: 'tool_use', toolCallId: `tc-${toolName}`, toolName, input }
 }
 
 describe('extractActivatedSkills', () => {

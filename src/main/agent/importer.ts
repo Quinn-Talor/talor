@@ -59,10 +59,11 @@ export function importAgent(zipBuffer: Buffer, agentsDir: string): ImportResult 
 
     const raw = readFileSync(agentJsonPath, 'utf-8')
     const json = JSON.parse(raw)
-    const result = validateProfile(json)
+    const result = validateProfile(json, { agentRoot: extractedDir })
 
     if (!result.valid) {
-      throw new Error(`Invalid agent.json: ${result.errors.join(', ')}`)
+      const errMsg = result.errors.map((e) => `[rule ${e.rule}] ${e.path}: ${e.message}`).join('; ')
+      throw new Error(`Invalid agent.json: ${errMsg}`)
     }
 
     const targetDir = join(agentsDir, agentDirName)
@@ -80,7 +81,7 @@ export function importAgent(zipBuffer: Buffer, agentsDir: string): ImportResult 
 
     log.info(
       '[importer] Imported agent:',
-      result.profile.identity.id,
+      result.profile.id,
       'to',
       targetDir,
       overwritten ? '(overwritten)' : '',

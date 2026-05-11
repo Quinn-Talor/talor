@@ -362,97 +362,48 @@ function buildDescription(
 }
 
 /**
- * A1: 渲染单个 agent 的 listing —— 委托契约骨架（自适应契约型）。
+ * A1: 渲染单个 agent 的 listing —— v2.0 契约骨架。
  *
  * 父 LLM 决定"该不该委托"的最小信息要素：
- *   does     — 这个 agent 能做什么 (路由决策核心)
- *   won't    — 它声明不做什么 (可选,辅助)
- *   needs    — 委托前必须收齐的 input
- *   returns  — 它会回来的产物形式
+ *   name + id  — agent 标识
+ *   description — 身份 + 会做 + 不会做
+ *   first H2 section of agentPrompt — "When invoked" / "Workflow" 等
  *
- * 鲁棒性：四字段都按需渲染（缺则跳过），且 `does` 有降级链：
- *   scope.in[] → capabilities[] → objective → description
- *   保证 valid profile 一定能渲染出非空 does。
- *
- * 自适应 inline vs list（避免短数组占多行）：
- *   1 条 → inline 与字段名同行
- *   2-3 条且每条 ≤30 字 → inline 以 " / " 分隔
- *   其它 → 展开为列表
- *
- * 故意不暴露：
- *   - description / objective / outcomes / capabilities（仅作 does fallback,不重复渲染）
- *   - 可选 inputs (required=false) / inputs.examples
- *   - tools / mcpServers / skills / cli（实现细节）
- *   - outcomes.priority / deliverables.trigger/template/schema（决策无关）
+ * v2.0 schema: flat fields — profile.name / profile.description / profile.agentPrompt
  */
 function formatAgentMetadata(a: NonNullable<ReturnType<AgentManager['getAgent']>>): string {
-  const profile = a.profile ?? ({} as import('@shared/types/agent').AgentProfile)
-  const identity = profile.identity ?? ({} as { name?: string; description?: string })
-  const method = profile.method ?? ({} as import('@shared/types/agent').AgentMethod)
-  const mission = profile.mission ?? ({} as import('@shared/types/agent').AgentMission)
-  const delivery = profile.delivery ?? ({} as import('@shared/types/agent').AgentDelivery)
-
+  const profile = a.profile
   const lines: string[] = []
-  const displayName = identity.name ?? a.name ?? a.id
-  lines.push(`- ${a.id} — ${displayName}`)
+  lines.push(`### ${a.name} (id: ${a.id})`)
 
-  // ─ does: 降级链 scope.in → capabilities → objective → description ─
-  const scopeIn = mission.scope?.in ?? []
-  const capabilities = method.capabilities ?? []
-  if (scopeIn.length > 0) {
-    appendField(lines, 'does', scopeIn)
-  } else if (capabilities.length > 0) {
-    appendField(lines, 'does', capabilities)
-  } else if (mission.objective?.trim()) {
-    lines.push(`    does: ${mission.objective.trim()}`)
-  } else if (identity.description?.trim()) {
-    lines.push(`    does: ${identity.description.trim()}`)
+  const desc = profile?.description?.trim() ?? ''
+  if (desc) {
+    lines.push(desc)
   }
 
-  // ─ won't: 仅 scope.out 存在时 ─
-  const scopeOut = mission.scope?.out ?? []
-  if (scopeOut.length > 0) {
-    appendField(lines, "won't", scopeOut)
-  }
-
-  // ─ needs: 仅 required inputs ─
-  const requiredInputs = (mission.inputs ?? []).filter((i) => i.required)
-  if (requiredInputs.length > 0) {
-    const formatted = requiredInputs.map((i) => `${i.id} (${i.type}) — ${i.description}`)
-    appendField(lines, 'needs', formatted)
-  }
-
-  // ─ returns: deliverables 形式（id + format） ─
-  const deliverables = delivery.deliverables ?? []
-  if (deliverables.length > 0) {
-    const formatted = deliverables.map((d) => `${d.id} (${d.format})`)
-    appendField(lines, 'returns', formatted)
+  // First H2 section of agentPrompt — gives delegating LLM enough context
+  const firstSection = extractFirstSection(profile?.agentPrompt ?? '')
+  if (firstSection) {
+    lines.push('')
+    lines.push(firstSection)
   }
 
   return lines.join('\n')
 }
 
 /**
- * Helper: 把 items 渲染到 lines，自适应 inline vs list。
- *
- * 规则:
- *   1 条                                  → "    {field}: {item}"
- *   2-3 条 且 每条 ≤30 字                  → "    {field}: a / b / c"
- *   其它（≥4 条 OR 含长项 OR 含换行）      → 展开列表
+ * Extract first H2 section from agentPrompt markdown.
+ * Returns the section (from ## heading through next ## heading, exclusive).
  */
-function appendField(lines: string[], field: string, items: string[]): void {
-  if (items.length === 0) return
-  if (items.length === 1) {
-    lines.push(`    ${field}: ${items[0]}`)
-    return
-  }
-  const allShort = items.every((s) => s.length <= 30 && !s.includes('\n'))
-  if (items.length <= 3 && allShort) {
-    lines.push(`    ${field}: ${items.join(' / ')}`)
-    return
-  }
-  lines.push(`    ${field}:`)
-  for (const s of items) lines.push(`      - ${s}`)
+function extractFirstSection(agentPrompt: string): string {
+  const lines = agentPrompt.split('\n')
+  const start = lines.findIndex((l) => /^## /.test(l))
+  if (start < 0) return ''
+  const end = lines.findIndex((l, i) => i > start && /^## /.test(l))
+  return lines
+    .slice(start, end < 0 ? undefined : end)
+    .join('\n')
+    .trim()
 }
 
 // ─── A2: 兼容性检查 ─────────────────────────────────────────────────
@@ -582,22 +533,15 @@ export function checkInstructionCompatibility(
 }
 
 function collectProfileEntityText(profile: import('@shared/types/agent').AgentProfile): string {
-  const identity = profile?.identity ?? ({} as { name?: string; description?: string })
-  const mission = profile?.mission ?? ({} as import('@shared/types/agent').AgentMission)
-  const method = profile?.method ?? ({} as import('@shared/types/agent').AgentMethod)
-
-  const parts: string[] = [identity.name ?? '', identity.description ?? '', mission.objective ?? '']
-  for (const o of mission.outcomes ?? []) {
-    if (o?.description) parts.push(o.description)
-  }
-  if (mission.scope?.in) parts.push(...mission.scope.in)
-  if (mission.scope?.out) parts.push(...mission.scope.out)
-  for (const cap of method.capabilities ?? []) parts.push(cap)
-  for (const k of method.knowledge ?? []) {
-    if (k?.description) parts.push(k.description)
-    if (k?.type === 'text' && (k as { content?: string }).content) {
-      parts.push((k as { content: string }).content)
-    }
+  // v2.0: flat fields — name, description, agentPrompt
+  const parts: string[] = [
+    profile?.name ?? '',
+    profile?.description ?? '',
+    profile?.agentPrompt ?? '',
+  ]
+  // references may contain descriptions
+  for (const r of profile?.references ?? []) {
+    if (r?.description) parts.push(r.description)
   }
   return parts.filter(Boolean).join('\n')
 }

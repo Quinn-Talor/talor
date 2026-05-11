@@ -1,4 +1,4 @@
-// src/main/agent/dependency-checker.test.ts — Schema 1.0 tests
+// src/main/agent/dependency-checker.test.ts — Schema 2.0 tests
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
@@ -12,43 +12,12 @@ import type { AgentProfile } from '@shared/types/agent'
 let tempDir: string
 
 const BASE_PROFILE: AgentProfile = {
-  schemaVersion: '1.0',
-  identity: {
-    id: 'test_agent',
-    name: 'Test',
-    description: 'Test agent',
-    version: '1.0.0',
-  },
-  mission: {
-    objective: 'Test',
-    outcomes: [
-      {
-        id: 'done',
-        description: 'work',
-        priority: 'core',
-        verifyBy: [
-          {
-            type: 'deliverable-present',
-            deliverableId: 'r',
-            kind: 'deterministic',
-            severity: 'must',
-          },
-        ],
-      },
-    ],
-  },
-  method: { capabilities: ['test'] },
-  delivery: {
-    deliverables: [{ id: 'r', format: 'markdown', mustContain: ['x'] }],
-  },
-  execution: {
-    limits: { maxSteps: 10, maxTokens: 10000 },
-    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
-  },
-}
-
-function withMethod(extra: Partial<AgentProfile['method']>): AgentProfile {
-  return { ...BASE_PROFILE, method: { ...BASE_PROFILE.method, ...extra } }
+  schemaVersion: '2.0',
+  id: 'test_agent',
+  name: 'Test',
+  description: 'Test agent.',
+  version: '1.0.0',
+  agentPrompt: '## Workflow\n1. Do the thing.',
 }
 
 beforeEach(() => {
@@ -59,7 +28,7 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true })
 })
 
-describe('checkDependencies (schema 1.0)', () => {
+describe('checkDependencies (schema 2.0)', () => {
   it('all pass for minimal profile', () => {
     const result = checkDependencies(BASE_PROFILE, tempDir, { appVersion: '1.0.0' })
     expect(result.passed).toBe(true)
@@ -69,7 +38,7 @@ describe('checkDependencies (schema 1.0)', () => {
   it('minAppVersion fail', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      identity: { ...BASE_PROFILE.identity, minAppVersion: '99.0.0' },
+      minAppVersion: '99.0.0',
     }
     const result = checkDependencies(profile, tempDir, { appVersion: '0.2.0' })
     expect(result.passed).toBe(false)
@@ -81,64 +50,54 @@ describe('checkDependencies (schema 1.0)', () => {
   it('minAppVersion pass', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      identity: { ...BASE_PROFILE.identity, minAppVersion: '0.1.0' },
+      minAppVersion: '0.1.0',
     }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
     const step = result.steps.find((s) => s.step === 'minAppVersion')!
     expect(step.status).toBe('pass')
   })
 
-  it('missing required knowledge file', () => {
-    const profile = withMethod({
-      knowledge: [
+  it('missing reference file → missing status', () => {
+    const profile: AgentProfile = {
+      ...BASE_PROFILE,
+      references: [
         {
-          type: 'file',
+          id: 'manual',
           path: './knowledge/manual.md',
           description: 'Manual',
-          required: true,
-          format: 'markdown',
         },
       ],
-    })
+    }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
     expect(result.passed).toBe(false)
-    const step = result.steps.find((s) => s.step === 'knowledge')!
+    const step = result.steps.find((s) => s.step === 'references')!
     expect(step.status).toBe('missing')
     expect(step.message).toContain('manual.md')
   })
 
-  it('knowledge file exists → pass', () => {
+  it('reference file exists → pass', () => {
     mkdirSync(join(tempDir, 'knowledge'), { recursive: true })
     writeFileSync(join(tempDir, 'knowledge', 'manual.md'), '# Manual')
-    const profile = withMethod({
-      knowledge: [
+    const profile: AgentProfile = {
+      ...BASE_PROFILE,
+      references: [
         {
-          type: 'file',
+          id: 'manual',
           path: './knowledge/manual.md',
           description: 'Manual',
-          required: true,
-          format: 'markdown',
         },
       ],
-    })
+    }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find((s) => s.step === 'knowledge')!
-    expect(step.status).toBe('pass')
-  })
-
-  it('text knowledge ignored (no path check)', () => {
-    const profile = withMethod({
-      knowledge: [{ type: 'text', content: 'inline glossary', description: 'g' }],
-    })
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find((s) => s.step === 'knowledge')!
+    const step = result.steps.find((s) => s.step === 'references')!
     expect(step.status).toBe('pass')
   })
 
   it('missing skill → missing status', () => {
-    const profile = withMethod({
+    const profile: AgentProfile = {
+      ...BASE_PROFILE,
       skills: [{ name: 'missing-skill', required: true }],
-    })
+    }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
     const step = result.steps.find((s) => s.step === 'skill')!
     expect(step.status).toBe('missing')
@@ -149,16 +108,18 @@ describe('checkDependencies (schema 1.0)', () => {
     const skillDir = join(tempDir, 'skills', 'my-skill')
     mkdirSync(skillDir, { recursive: true })
     writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: my-skill\n---\n# content')
-    const profile = withMethod({
+    const profile: AgentProfile = {
+      ...BASE_PROFILE,
       skills: [{ name: 'my-skill', required: true }],
-    })
+    }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
     const step = result.steps.find((s) => s.step === 'skill')!
     expect(step.status).toBe('pass')
   })
 
   it('MCP Server auth missing → missing', () => {
-    const profile = withMethod({
+    const profile: AgentProfile = {
+      ...BASE_PROFILE,
       mcpServers: [
         {
           name: 'company-api',
@@ -171,7 +132,7 @@ describe('checkDependencies (schema 1.0)', () => {
           required: true,
         },
       ],
-    })
+    }
     const result = checkDependencies(profile, tempDir, {
       appVersion: '1.0.0',
       accountValues: new Map(),
@@ -182,7 +143,8 @@ describe('checkDependencies (schema 1.0)', () => {
   })
 
   it('MCP Server auth configured → pass', () => {
-    const profile = withMethod({
+    const profile: AgentProfile = {
+      ...BASE_PROFILE,
       mcpServers: [
         {
           name: 'company-api',
@@ -195,7 +157,7 @@ describe('checkDependencies (schema 1.0)', () => {
           required: true,
         },
       ],
-    })
+    }
     const result = checkDependencies(profile, tempDir, {
       appVersion: '1.0.0',
       accountValues: new Map([['COMPANY_API_TOKEN', 'tok_xxx']]),
@@ -204,29 +166,20 @@ describe('checkDependencies (schema 1.0)', () => {
     expect(step.status).toBe('pass')
   })
 
-  // v8.1: ToolDependency.name 已 narrow 到 BuiltinToolName,非内置工具在编译期拒绝。
-  // dependency-checker 仅校验声明的内置工具是否存在(永远 pass)。
+  // v2.0: tools is BuiltinToolName[] whitelist (positive list)
   it('builtin tool in whitelist → pass', () => {
-    const profile = withMethod({ tools: [{ name: 'bash', required: true }] })
+    const profile: AgentProfile = { ...BASE_PROFILE, tools: ['bash'] }
     const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
     const step = result.steps.find((s) => s.step === 'tool')!
     expect(step.status).toBe('pass')
   })
 
-  it('disabled tool does not trigger missing', () => {
-    const profile = withMethod({
-      tools: [{ name: 'bash', required: true, disabled: true }],
-    })
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find((s) => s.step === 'tool')!
-    expect(step.status).toBe('pass')
-  })
-
-  describe('subagent dependency check (collaboration field path)', () => {
+  describe('subagent dependency check (v2.0: profile.subagents.ids)', () => {
     it('missing required subagent', () => {
-      const profile = withMethod({
-        collaboration: { subagents: [{ id: 'B', required: true }] },
-      })
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        subagents: { ids: [{ id: 'B', required: true }] },
+      }
       const result = checkDependencies(profile, tempDir, {
         appVersion: '1.0.0',
         registeredBusinessAgents: new Set(['A', 'C']),
@@ -237,14 +190,15 @@ describe('checkDependencies (schema 1.0)', () => {
     })
 
     it('all required subagents are registered', () => {
-      const profile = withMethod({
-        collaboration: {
-          subagents: [
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        subagents: {
+          ids: [
             { id: 'A', required: true },
             { id: 'B', required: true },
           ],
         },
-      })
+      }
       const result = checkDependencies(profile, tempDir, {
         appVersion: '1.0.0',
         registeredBusinessAgents: new Set(['A', 'B', 'C']),
@@ -253,22 +207,11 @@ describe('checkDependencies (schema 1.0)', () => {
       expect(step.status).toBe('pass')
     })
 
-    it('non-required subagent missing → still pass', () => {
-      const profile = withMethod({
-        collaboration: { subagents: [{ id: 'optional-helper', required: false }] },
-      })
-      const result = checkDependencies(profile, tempDir, {
-        appVersion: '1.0.0',
-        registeredBusinessAgents: new Set(),
-      })
-      const step = result.steps.find((s) => s.step === 'subagent')!
-      expect(step.status).toBe('pass')
-    })
-
     it('skip subagent check when registeredBusinessAgents not provided', () => {
-      const profile = withMethod({
-        collaboration: { subagents: [{ id: 'B', required: true }] },
-      })
+      const profile: AgentProfile = {
+        ...BASE_PROFILE,
+        subagents: { ids: [{ id: 'B', required: true }] },
+      }
       const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
       const step = result.steps.find((s) => s.step === 'subagent')!
       expect(step.status).toBe('pass')

@@ -13,6 +13,7 @@ Talor 是 **Electron + TypeScript 桌面 AI Agent 应用**（v0.1.0，Apache 2.0
 - 模型层：Vercel AI SDK（Anthropic / OpenAI / Google / Ollama）
 - 工具：7 个内置工具（bash / read / write / edit / glob / grep / ls）+ MCP 外部工具
 - 持久化：better-sqlite3 (sessions, messages, mcp_servers, session_summaries)
+- Agent Profile：**Schema 2.0 扁平 15 字段**，行为定义统一在 `agentPrompt` 自由 markdown
 
 ---
 
@@ -23,8 +24,9 @@ src/
 ├── main/                   Electron 主进程(Node 环境)
 │   ├── ipc/               入口层:IPC handlers(不得被业务层依赖)
 │   ├── chat/              业务层:chat:send 用例编排、事件总线
-│   ├── agent/             业务层:Agent 运行时 / Profile 加载 / 打包分发 / 解析器 / Crystallizer
+│   ├── agent/             业务层:Agent 运行时 / Profile 加载(Schema 2.0) / 打包分发 / Crystallizer
 │   │   └── (含 agent-toolset.ts:Agent 视角的工具集组合,区别于 tools/registry.ts)
+│   │   └── (contract-guard.ts + naturalize.ts 已在 Schema 2.0 迁移中删除)
 │   ├── accounts/          业务层:第三方账户凭据(account-store)
 │   ├── tools/             业务层:内置工具仓库(registry) + path-guard
 │   │   └── builtin/      bash / read / write / edit / glob / grep / ls
@@ -65,6 +67,7 @@ src/
 1. **[vibe/project/standards.md](vibe/project/standards.md)** — 规则清单（MUST / SHOULD / NEVER）。动手前至少扫一遍章节标题。
 2. **[vibe/project/patterns.md](vibe/project/patterns.md)** — 通用模式 + 参考实现索引。遇到问题先查这里有没有对应模式。
 3. **[vibe/project/overview.md](vibe/project/overview.md)** — 项目架构总览。
+4. **[docs/superpowers/plans/2026-05-11-agent-schema-2-0.md](docs/superpowers/plans/2026-05-11-agent-schema-2-0.md)** — Schema 2.0 规格文档（含迁移历史 + 字段逐条说明）。
 
 做对应任务时读：
 
@@ -96,7 +99,11 @@ bash 危险命令、敏感路径在 validate/path-guard 层就拦住。详见 `s
 
 ### 4.5 "模型应该怎么做"的硬规则必须代码强制
 
-Prompt 是软引导。任何"必须"级规则要有代码实现（`⟨unverifiable⟩`、`EDIT_AMBIGUOUS_MATCH`、context halt 都是这样来的）。详见 `standards.md §J-SHOULD-1` + `patterns.md §P4`。
+Prompt 是软引导。任何"必须"级规则要有代码实现（`⟨unverifiable⟩`、`EDIT_AMBIGUOUS_MATCH`、context halt 都是这样来的）。
+
+Schema 2.0 下：`agentPrompt` 是 LLM 行为定义的唯一 prompt 层载体；`validateProfile` 强制执行结构规则（rules 1~9）；运行时不再有 `delivery.acceptance` 钩子。LLM 硬约束在代码层（validator + path-guard + quote-verifier），`agentPrompt` 只做软引导。
+
+详见 `standards.md §J-SHOULD-1` + `patterns.md §P4`。
 
 ### 4.6 Zod 已校验过的规则不要在 `execute` 里再写一遍
 
@@ -172,6 +179,7 @@ npm run build         # electron-vite build + electron-builder 打包
 
 **最近重要变更**（详见 `git log`）：
 
+- `feat(agent)`: **Schema 2.0** — 扁平 15 字段 profile；`agentPrompt` 自由 markdown 承载全部 LLM 行为定义；deliverables / acceptance / workflow DAG 全部移除
 - `feat(tools,loop)`: 结构化错误信封、Zod 工具校验、fallback 引用校验
 - `refactor(prompt,tools)`: 分层 prompt 架构 + 鲁棒性升级
 - `fix(prompt)`: RULE 0 anti-self-refuse
@@ -186,10 +194,11 @@ npm run build         # electron-vite build + electron-builder 打包
 
 ## 9. 相关文档导航
 
-| 文档                                                   | 对象             | 内容                              |
-| ------------------------------------------------------ | ---------------- | --------------------------------- |
-| [vibe/project/standards.md](vibe/project/standards.md) | 工程师 / AI      | 规则清单（MUST / SHOULD / NEVER） |
-| [vibe/project/patterns.md](vibe/project/patterns.md)   | 工程师 / AI      | 模式 + 参考实现索引               |
-| [vibe/project/overview.md](vibe/project/overview.md)   | 工程师 / AI      | 项目架构总览                      |
-| [docs/superpowers/](docs/superpowers/)                 | Claude Code 插件 | superpowers 体系的 plans/specs    |
-| README.md                                              | 用户 / 贡献者    | 项目简介、安装、License           |
+| 文档                                                                                                           | 对象             | 内容                                 |
+| -------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------ |
+| [vibe/project/standards.md](vibe/project/standards.md)                                                         | 工程师 / AI      | 规则清单（MUST / SHOULD / NEVER）    |
+| [vibe/project/patterns.md](vibe/project/patterns.md)                                                           | 工程师 / AI      | 模式 + 参考实现索引                  |
+| [vibe/project/overview.md](vibe/project/overview.md)                                                           | 工程师 / AI      | 项目架构总览                         |
+| [docs/superpowers/plans/2026-05-11-agent-schema-2-0.md](docs/superpowers/plans/2026-05-11-agent-schema-2-0.md) | 工程师 / AI      | Schema 2.0 规格：字段说明 + 迁移历史 |
+| [docs/superpowers/](docs/superpowers/)                                                                         | Claude Code 插件 | superpowers 体系的 plans/specs       |
+| README.md                                                                                                      | 用户 / 贡献者    | 项目简介、安装、License              |

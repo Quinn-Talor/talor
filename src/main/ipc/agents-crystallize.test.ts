@@ -232,13 +232,12 @@ function createFromDraft(
 }
 
 const VALID_PROFILE: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'love-letter-writer',
   name: '挽回助手',
   description: '基于对话生成挽回语录',
   version: '1.0.0',
-  role: { capabilities: ['撰写挽回语录'], outputFormat: 'markdown' },
-  knowledge: { files: [] },
-  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
+  agentPrompt: '## Workflow\n1. 撰写挽回语录。\n\n## Output\n- 输出 Markdown 格式。',
 }
 
 // 镜像 ipc/agents.ts 的 reconcileCreatedAgents:

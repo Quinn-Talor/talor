@@ -30,7 +30,7 @@ export function getProviderById(id: string): Provider | null {
 }
 
 /**
- * Schema 1.0: profile.preferences.providerId 既可能是 UUID(从 UI 锁定具体 provider),
+ * profile.preferences.providerId 既可能是 UUID(从 UI 锁定具体 provider),
  * 也可能是 type 字符串(如 'anthropic',从模板/Crystallizer 内置 profile)。
  * 此函数同时支持两种查找方式 + model 配对校验:返回的 provider 必须已配置且
  * model 列表包含 modelId(若提供 modelId)。

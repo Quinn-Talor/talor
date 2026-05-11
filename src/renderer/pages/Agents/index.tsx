@@ -17,7 +17,7 @@ export function AgentsPage({ onNavigateChat, importTrigger }: AgentsPageProps) {
   // 详情页(原 Modal): 非 null 时替换列表显示
   const [detailAgentId, setDetailAgentId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  // Schema 1.0 编辑页:editTarget=undefined 关闭,null 新建,string 编辑
+  // 编辑页:editTarget=undefined 关闭,null 新建,string 编辑
   const [editTarget, setEditTarget] = useState<string | null | undefined>(undefined)
 
   const loadAgents = useCallback(async () => {

@@ -41,34 +41,22 @@ function makeAgentDir(parentDir: string, profile: AgentProfile): string {
 }
 
 const PROFILE_PRIMARY: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'sales-trend-analyzer',
   name: 'Sales Trend Analyzer',
   description: '分析销售趋势',
   version: '1.0.0',
-  role: { capabilities: ['analyze sales'], outputFormat: 'markdown' },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [],
-    mcpServers: [],
-    skills: [],
-    cli: [],
-    subagents: [{ id: 'sales-analyst-001', required: true }],
-  },
+  agentPrompt: '## Workflow\n1. Analyze sales trends.',
+  subagents: { ids: [{ id: 'sales-analyst-001', required: true }] },
 }
 
 const PROFILE_DEP: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'sales-analyst-001',
   name: 'Sales Analyst',
   description: '销售数据分析',
   version: '0.5.0',
-  role: { capabilities: ['parse csv'], outputFormat: 'text' },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [],
-    mcpServers: [],
-    skills: [],
-    cli: [],
-  },
+  agentPrompt: '## Workflow\n1. Parse CSV data.',
 }
 
 function makeMockAgent(profile: AgentProfile, dirPath: string): Agent {
@@ -203,13 +191,11 @@ describe('commitPack (TASK-5, AC-034/035)', () => {
     expect(result.imported).toContain('sales-analyst-001-v2')
     expect(result.imported).toContain('sales-trend-analyzer')
 
-    // primary 的 subagents.id 引用应已 rewrite 为新 id
+    // primary 的 subagents.ids 引用应已 rewrite 为新 id
     const primaryProfile = JSON.parse(
       readFileSync(join(agentsDirRoot, 'sales-trend-analyzer/agent.json'), 'utf-8'),
     )
-    expect(primaryProfile.dependencies.subagents).toEqual([
-      { id: 'sales-analyst-001-v2', required: true },
-    ])
+    expect(primaryProfile.subagents.ids).toEqual([{ id: 'sales-analyst-001-v2', required: true }])
 
     // 重命名后的 dep 落在新名字下
     expect(existsSync(join(agentsDirRoot, 'sales-analyst-001-v2/agent.json'))).toBe(true)

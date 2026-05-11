@@ -905,6 +905,28 @@ K-MUST-4 / K-MUST-5 / K-MUST-6 / K-MUST-7 / K-MUST-8 / K-MUST-9、K-NEVER-3 / K-
 | [P9. Fail-Loud vs Silent](#p9-fail-loud-vs-silent-fallback)   | F-MUST-4, J-MUST-2/3                | `tools/registry.ts`（verify）、`loop/react-loop.ts`（context halt）      |
 | [P10. 测试风格](#p10-测试风格与隔离)                          | L-MUST-_, L-SHOULD-2, L-NEVER-_     | 各 `*.test.ts`                                                           |
 | [P11. Electron 渲染端安全边界](#p11-electron-渲染端安全边界)  | K-MUST-4/5/6/7/8/9, K-NEVER-3/4/5   | `main/index.ts`、`preload/index.ts`、`index.html`、`agent/accounts.ts`   |
+| [P12. 领域知识加载策略](#p12--领域知识加载策略)               | —                                   | `src/main/agent/templates.ts`、`vibe/` 目录                              |
+
+---
+
+## P12 — 领域知识加载策略
+
+Agent 需要的领域知识有 4 条加载通道,按规模与共享需求选:
+
+| 规模                          | 范围          | 推荐通道                                                       |
+| ----------------------------- | ------------- | -------------------------------------------------------------- |
+| 小 (< 50 行)                  | 单 agent 专属 | 直接写在 agentPrompt 的 `## Domain Knowledge` 段               |
+| 中 (50-500 行)                | 单 agent 专属 | 放 `<agent_dir>/references/*.md`,声明在 `profile.references[]` |
+| 大 (> 500 行) 或跨 agent 共享 | 多 agent 复用 | 提升为 Skill,声明 `profile.skills[]`                           |
+| 实时变化的外部源              | 任意          | MCP server 暴露查询工具,声明 `profile.mcpServers[]`            |
+
+判断准则: **这份资料有没有第二个 agent 会用?**
+
+- 有 → Skill
+- 没有 → references
+- 介于之间 → 先 references,复用时升级为 Skill
+
+参考实现: `src/main/agent/templates.ts` 的内置模板演示了 references 用法;`vibe/` 目录自身是 Skill 思想的项目级体现。
 
 ---
 

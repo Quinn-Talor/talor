@@ -9,7 +9,7 @@ export function extractActivatedSkills(messages: MessageWithParts[]): string[] {
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue
     for (const block of msg.content) {
-      if (block.type === 'tool-call' && block.toolName === 'skill') {
+      if (block.type === 'tool_use' && block.toolName === 'skill') {
         const inputObj = block.input as Record<string, unknown> | null
         const skillName = typeof inputObj?.name === 'string' ? inputObj.name : ''
         if (skillName && !names.includes(skillName)) {

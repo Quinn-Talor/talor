@@ -121,7 +121,7 @@ export async function previewPack(
           resolution: 'replace', // 新增视作 replace（无现有可备份）
         }
       }
-      const existingVersion = existing.profile.identity.version
+      const existingVersion = existing.profile.version
       // 简化版本比较：相同 → skip；不同 → replace
       const resolution: 'replace' | 'skip' = existingVersion === entry.version ? 'skip' : 'replace'
       return {
@@ -202,7 +202,7 @@ export async function commitPack(
     for (const entry of manifest.agents) {
       const agentJsonPath = join(staging_dir, 'agents', entry.id, 'agent.json')
       const profile: AgentProfile = JSON.parse(readFileSync(agentJsonPath, 'utf-8'))
-      const subs = profile.method.collaboration?.subagents
+      const subs = profile.subagents?.ids
       if (subs && subs.length > 0) {
         let mutated = false
         for (const sub of subs) {

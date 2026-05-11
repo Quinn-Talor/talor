@@ -47,7 +47,7 @@ export class AgentLoader {
       try {
         const raw = readFileSync(jsonPath, 'utf-8')
         const json = JSON.parse(raw)
-        // Schema 1.0: 不做向后兼容,旧格式 profile 直接 reject
+        // Schema 2.0: 不做向后兼容,1.0 格式 profile 直接 reject
         const result = validateProfile(json, { agentRoot: dirPath })
 
         if (!result.valid) {
@@ -64,16 +64,12 @@ export class AgentLoader {
           continue
         }
 
-        this.entries.set(result.profile.identity.id, {
+        this.entries.set(result.profile.id, {
           profile: result.profile,
           dirPath,
           status: 'disabled',
         })
-        log.info(
-          '[AgentLoader] Loaded agent:',
-          result.profile.identity.id,
-          result.profile.identity.name,
-        )
+        log.info('[AgentLoader] Loaded agent:', result.profile.id, result.profile.name)
       } catch (err) {
         log.warn('[AgentLoader] Failed to parse agent.json in', name, ':', err)
       }
@@ -88,7 +84,7 @@ export class AgentLoader {
 
   getByName(name: string): AgentEntry | undefined {
     for (const entry of this.entries.values()) {
-      if (entry.profile.identity.name === name) return entry
+      if (entry.profile.name === name) return entry
     }
     return undefined
   }

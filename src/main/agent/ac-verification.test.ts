@@ -23,7 +23,6 @@ import { AgentLoader } from './loader'
 import { Agent } from './agent'
 import { AgentManager } from './agent-manager'
 import { BuiltinToolRegistry } from './builtin-registry'
-import { ToolRegistry, ALWAYS_AVAILABLE_TOOLS } from './agent-toolset'
 import { AccountStore } from '../accounts/account-store'
 import { resolveVariables } from './variable-resolver'
 import { checkDependencies } from './dependency-checker'
@@ -35,7 +34,6 @@ import { extractSkillCliBins } from '../skills/metadata-extractor'
 import { SkillRegistry } from '../skills/registry'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ToolDefinition } from '../tools/types'
-import type { ContentBlock } from '@shared/types/message'
 
 // ── 公用 fixtures ────────────────────────────────────
 
@@ -63,23 +61,14 @@ const BUILTIN_TOOLS = [
 const builtinRegistry = new BuiltinToolRegistry(BUILTIN_TOOLS)
 
 const VALID_PROFILE: AgentProfile = {
+  schemaVersion: '2.0',
   id: 'sales-analyst-001',
   name: '销售分析师',
   description: '自动汇总周度销售数据并生成趋势分析报告',
   version: '1.0.0',
-  role: {
-    capabilities: ['从飞书表格获取销售数据', '生成趋势分析图表'],
-    constraints: ['只处理销售相关数据'],
-    outputFormat: 'Markdown 格式的分析报告',
-    sampleConversations: [],
-  },
-  knowledge: { files: [] },
-  dependencies: {
-    tools: [{ name: 'bash', required: true }],
-    mcpServers: [],
-    skills: [],
-    cli: [],
-  },
+  agentPrompt:
+    '## Workflow\n1. 从飞书表格获取销售数据。\n2. 生成趋势分析图表。\n\n## Principles\n- 只处理销售相关数据。\n- 输出 Markdown 格式的分析报告。',
+  tools: ['bash'],
 }
 
 let tempDir: string
@@ -127,12 +116,12 @@ describe('Block A: Agent 基础框架', () => {
   })
 
   describe('AC-A1-02: 缺少必填字段拒绝', () => {
-    it('缺少 name → errors 含特定文案', () => {
+    it('缺少 name → errors 含 name path', () => {
       const { name: _, ...noName } = VALID_PROFILE
       const result = validateProfile(noName)
       expect(result.valid).toBe(false)
       if (!result.valid) {
-        expect(result.errors).toContain('"name" must be a non-empty string')
+        expect(result.errors.some((e) => e.path === 'name')).toBe(true)
       }
     })
   })
@@ -142,7 +131,9 @@ describe('Block A: Agent 基础框架', () => {
       const result = validateProfile({ ...VALID_PROFILE, version: 'abc' })
       expect(result.valid).toBe(false)
       if (!result.valid) {
-        expect(result.errors).toContain('"version" must be a valid semver')
+        expect(
+          result.errors.some((e) => e.path === 'version' && e.message.includes('semver')),
+        ).toBe(true)
       }
     })
   })
@@ -180,14 +171,11 @@ describe('Block A: Agent 基础框架', () => {
       const agent = new Agent({
         profile: {
           ...VALID_PROFILE,
-          dependencies: {
-            ...VALID_PROFILE.dependencies,
-            tools: [{ name: 'bash', required: true }],
-          },
+          tools: ['bash'],
         },
         source: null,
         builtinRegistry,
-        mcpSource: null,
+        mcpRegistry: null,
         skillRegistry: SkillRegistry.fromDir(null),
       })
       const names = agent.toolRegistry.getToolNames()
@@ -198,10 +186,10 @@ describe('Block A: Agent 基础框架', () => {
   describe('AC-A3-02: agent 声明空工具 → 仅基础工具', () => {
     it('工具集 = ALWAYS_AVAILABLE (read, ls, glob, grep, skill)', () => {
       const agent = new Agent({
-        profile: { ...VALID_PROFILE, dependencies: { ...VALID_PROFILE.dependencies, tools: [] } },
+        profile: { ...VALID_PROFILE, tools: [] },
         source: null,
         builtinRegistry,
-        mcpSource: null,
+        mcpRegistry: null,
         skillRegistry: SkillRegistry.fromDir(null),
       })
       const names = agent.toolRegistry.getToolNames()
@@ -213,7 +201,11 @@ describe('Block A: Agent 基础框架', () => {
   describe('AC-A3-03: 平台 Agent 不过滤', () => {
     it('__chat__ 返回全部工具', () => {
       const manager = new AgentManager()
-      manager.init({ builtinRegistry, mcpSource: null, skillRegistry: SkillRegistry.fromDir(null) })
+      manager.init({
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+      } as unknown as Parameters<AgentManager['init']>[0])
       const chat = manager.getChatAgent()
       const names = chat.toolRegistry.getToolNames()
       expect(names).toHaveLength(8)
@@ -292,21 +284,18 @@ describe('Block B: Agent 存储与导入导出', () => {
     it('缺少 COMPANY_API_TOKEN → missing + 含 envVar 名', () => {
       const profile: AgentProfile = {
         ...VALID_PROFILE,
-        dependencies: {
-          ...VALID_PROFILE.dependencies,
-          mcpServers: [
-            {
-              name: 'company-api',
-              transport: {
-                type: 'http',
-                url: 'https://mcp.company.com',
-                auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
-              },
-              tools: ['search_orders'],
-              required: true,
+        mcpServers: [
+          {
+            name: 'company-api',
+            transport: {
+              type: 'http',
+              url: 'https://mcp.company.com',
+              auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
             },
-          ],
-        },
+            tools: ['search_orders'],
+            required: true,
+          },
+        ],
       }
       const result = checkDependencies(profile, tempDir, {
         appVersion: '1.0.0',
@@ -393,7 +382,11 @@ describe('Block D: Agent 运行时', () => {
   describe('AC-D3-01: session 切换 agent（逻辑层）', () => {
     it('AgentManager 可获取不同 agent', () => {
       const manager = new AgentManager()
-      manager.init({ builtinRegistry, mcpSource: null, skillRegistry: SkillRegistry.fromDir(null) })
+      manager.init({
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+      } as unknown as Parameters<AgentManager['init']>[0])
 
       const chat = manager.getAgent('__chat__')
       expect(chat).not.toBeNull()
@@ -402,9 +395,9 @@ describe('Block D: Agent 运行时', () => {
       manager.registerBusinessAgent('sales-analyst-001', {
         profile: VALID_PROFILE,
         source: null,
-        mcpSource: null,
+        mcpRegistry: null,
         skillRegistry: SkillRegistry.fromDir(null),
-      })
+      } as unknown as Parameters<AgentManager['registerBusinessAgent']>[1])
 
       const sales = manager.getAgent('sales-analyst-001')
       expect(sales).not.toBeNull()
@@ -443,28 +436,32 @@ describe('Block E: 沉淀流程', () => {
   describe('AC-E1-01: 沉淀切换到 crystallizer（逻辑层）', () => {
     it('AgentManager 有 __crystallizer__ agent', () => {
       const manager = new AgentManager()
-      manager.init({ builtinRegistry, mcpSource: null, skillRegistry: SkillRegistry.fromDir(null) })
+      manager.init({
+        builtinRegistry,
+        mcpRegistry: null,
+        skillRegistry: SkillRegistry.fromDir(null),
+      } as unknown as Parameters<AgentManager['init']>[0])
       const cryst = manager.getAgent('__crystallizer__')
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
-      // v3 (agent-extraction): capabilities drive draft loop; keep "analyze" check;
-      // historic delegated_subagents text is replaced by dependencies.subagents
-      // (ingestion now happens inline in the FIRST user message, not via metadata).
-      const caps = cryst!.profile.role.capabilities.join(' ')
-      expect(caps.toLowerCase()).toMatch(/analyze/)
-      expect(caps).toMatch(/dependencies\.subagents/)
+      // v2.0: crystallizer agentPrompt contains the schema instructions
+      expect(cryst!.profile.schemaVersion).toBe('2.0')
+      expect(cryst!.profile.agentPrompt).toBeTruthy()
+      expect(cryst!.profile.agentPrompt!.toLowerCase()).toMatch(/analyz|依赖|workflow/)
     })
   })
 
   describe('AC-E3-01: 沉淀时依赖提取准确', () => {
     it('tools=[bash], skills=[lark-sheets], read 被过滤', () => {
-      const messages: Array<{ role: string; content: ContentBlock[] }> = [
+      const messages: Array<{
+        role: string
+        content: Array<{ type: string; toolName?: string; input?: unknown; output?: unknown }>
+      }> = [
         {
           role: 'assistant',
           content: [
             {
-              type: 'tool_use',
-              toolCallId: 'tc-1',
+              type: 'tool-call',
               toolName: 'bash',
               input: { command: 'echo hi' },
             },
@@ -472,19 +469,15 @@ describe('Block E: 沉淀流程', () => {
         },
         {
           role: 'assistant',
-          content: [
-            { type: 'tool_use', toolCallId: 'tc-2', toolName: 'read', input: { path: '/tmp' } },
-          ],
+          content: [{ type: 'tool-call', toolName: 'read', input: { path: '/tmp' } }],
         },
         {
           role: 'assistant',
           content: [
             {
-              type: 'tool_result',
-              toolCallId: 'tc-3',
+              type: 'tool-result',
               toolName: 'skill',
               output: '[SKILL:lark-sheets activated]\n\n# lark-sheets',
-              isError: false,
             },
           ],
         },

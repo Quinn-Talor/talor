@@ -16,7 +16,7 @@
 //      allowedTools.size === 0，不走白名单过滤；但 disabledTools（profile 声明）
 //      仍会过滤掉不暴露的工具（例如 __chat__ / __crystallizer__ 的
 //      disabledTools 含 'delegate_agent'）。
-//   3. 业务 Agent（如 sales-analyst）：profile.dependencies.tools 显式声明白名单，
+//   3. 业务 Agent（如 sales-analyst）：profile.tools 显式声明白名单（Schema 2.0 正向白名单），
 //      此时仅"白名单 ∪ ALWAYS_AVAILABLE_TOOLS"对 LLM 暴露，再叠加 disabledTools 过滤。
 //      业务 agent 永不接收 DelegationRuntime（架构层），即使 profile 没声明
 //      disabledTools 也拿不到 delegate_agent 工具实例。
@@ -34,8 +34,8 @@ import type { BuiltinToolRegistry } from './builtin-registry'
  *
  * 设计原则：**最小权限 + 安全基础底座**。
  *
- * 业务 Agent（如"销售分析师"）通过 profile.dependencies.tools 声明它需要的工具
- * （比如只声明 ['bash']）。如果严格执行白名单，Agent 会丧失最基本的"看一眼环境"
+ * 业务 Agent（如"销售分析师"）通过 profile.tools 声明它需要的工具（Schema 2.0 正向白名单，
+ * 比如只声明 ['bash']）。如果严格执行白名单，Agent 会丧失最基本的"看一眼环境"
  * 能力（read / ls / glob / grep）——任何 Agent 几乎都需要这些来理解上下文。
  * 所以本集合定义了一个"豁免基础底座"，所有 Agent 自动获得，无需显式声明。
  *
@@ -65,7 +65,7 @@ export const ALWAYS_AVAILABLE_TOOLS = new Set([
   'grep',
   'skill',
   'search_tool',
-  // delegate_agent 是元工具（按 profile.subagents/allowAnyBusinessSubagent 派生 scope）。
+  // delegate_agent 是元工具（按 profile.subagents.ids / profile.subagents.allowAny 派生 scope）。
   // 默认对所有 agent 暴露 —— 业务 agent 通过 profile.disabledTools 显式禁用，
   // 或不声明任何 subagents 让 scope=[]（持有工具但 listing 为空 → LLM 自然不会调）。
   'delegate_agent',
