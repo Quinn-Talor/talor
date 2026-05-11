@@ -36,7 +36,7 @@ describe('dryRunAgent (Schema 2.0)', () => {
 
   it('valid profile: rendered prompt contains agentPrompt content', async () => {
     const r = await dryRunAgent({ profile: VALID_PROFILE_V2, userMessage: 'go' })
-    expect(r.iterations[0].promptSent).toContain('# Identity')
+    expect(r.iterations[0].promptSent).toContain('You are a code reviewer.')
   })
 
   it('valid profile: resourceUsage reflects one iteration', async () => {

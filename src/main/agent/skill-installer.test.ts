@@ -1,4 +1,4 @@
-// src/main/agent/skill-installer.test.ts — v8.1 flat SkillItem 安装策略验证
+// src/main/agent/skill-installer.test.ts — Schema 2.0 SkillItem 安装策略验证
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,34 +12,12 @@ import type { AgentProfile } from '@shared/types/agent'
 let tempAgentDir: string
 
 const MINIMAL_PROFILE: AgentProfile = {
-  schemaVersion: '1.0',
-  identity: { id: 't', name: 't', description: 't', version: '1.0.0' },
-  mission: {
-    objective: 't',
-    outcomes: [
-      {
-        id: 'x',
-        description: 'x',
-        priority: 'core',
-        verifyBy: [
-          {
-            type: 'deliverable-present',
-            deliverableId: 'r',
-            kind: 'deterministic',
-            severity: 'must',
-          },
-        ],
-      },
-    ],
-  },
-  method: { capabilities: ['x'] },
-  delivery: {
-    deliverables: [{ id: 'r', format: 'markdown', mustContain: ['x'] }],
-  },
-  execution: {
-    limits: { maxSteps: 1, maxTokens: 1 },
-    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
-  },
+  schemaVersion: '2.0',
+  id: 't',
+  name: 't',
+  description: 't',
+  version: '1.0.0',
+  agentPrompt: '## Workflow\n1. Do thing.',
 }
 
 beforeEach(() => {
@@ -50,8 +28,8 @@ afterEach(() => {
   rmSync(tempAgentDir, { recursive: true, force: true })
 })
 
-describe('installAgentSkills (v8.1 flat SkillItem)', () => {
-  it('returns empty result when method.skills is empty / undefined', async () => {
+describe('installAgentSkills (schema 2.0 flat SkillItem)', () => {
+  it('returns empty result when skills is empty / undefined', async () => {
     const r = await installAgentSkills(MINIMAL_PROFILE, tempAgentDir)
     expect(r.installed).toEqual([])
     expect(r.skipped).toEqual([])
@@ -66,10 +44,7 @@ describe('installAgentSkills (v8.1 flat SkillItem)', () => {
     }
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      method: {
-        capabilities: ['x'],
-        skills: [{ name: 'lark-doc', required: true }],
-      },
+      skills: [{ name: 'lark-doc', required: true }],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
     expect(r.installed).toHaveLength(1)
@@ -85,10 +60,7 @@ describe('installAgentSkills (v8.1 flat SkillItem)', () => {
 
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      method: {
-        capabilities: ['x'],
-        skills: [{ name: 'fake-skill', required: true }],
-      },
+      skills: [{ name: 'fake-skill', required: true }],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
     expect(r.installed).toHaveLength(0)
@@ -100,10 +72,7 @@ describe('installAgentSkills (v8.1 flat SkillItem)', () => {
   it('records failure when skill not found anywhere (not throws)', async () => {
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      method: {
-        capabilities: ['x'],
-        skills: [{ name: 'totally-fake-skill-name-xyz123', required: true }],
-      },
+      skills: [{ name: 'totally-fake-skill-name-xyz123', required: true }],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
     expect(r.failed).toHaveLength(1)
@@ -113,20 +82,17 @@ describe('installAgentSkills (v8.1 flat SkillItem)', () => {
   })
 
   it('handles multiple skills in one call', async () => {
-    // 预先放一个,另一个找不到 → installed=1, failed=1
+    // 预先放一个,另一个找不到 → skipped=1, failed=1
     const ok = join(tempAgentDir, 'skills', 'pre-installed')
     mkdirSync(ok, { recursive: true })
     writeFileSync(join(ok, 'SKILL.md'), '---\nname: pre-installed\n---\n')
 
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      method: {
-        capabilities: ['x'],
-        skills: [
-          { name: 'pre-installed', required: true },
-          { name: 'unknown-skill-zzz', required: false },
-        ],
-      },
+      skills: [
+        { name: 'pre-installed', required: true },
+        { name: 'unknown-skill-zzz', required: false },
+      ],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
     expect(r.skipped.map((s) => s.name)).toContain('pre-installed')

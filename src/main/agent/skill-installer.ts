@@ -44,7 +44,7 @@ export async function installAgentSkills(
   agentDir: string,
 ): Promise<InstallResult> {
   const result: InstallResult = { installed: [], skipped: [], failed: [] }
-  const skills = profile.method?.skills ?? []
+  const skills = profile.skills ?? []
   if (skills.length === 0) return result
 
   const skillsRoot = join(agentDir, 'skills')

@@ -124,11 +124,11 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const loader = agentManager.getLoader()
     if (!loader) return []
     return loader.getAll().map((entry) => ({
-      id: entry.profile.identity.id,
-      name: entry.profile.identity.name,
-      description: entry.profile.identity.description,
-      avatar: entry.profile.identity.avatar,
-      version: entry.profile.identity.version,
+      id: entry.profile.id,
+      name: entry.profile.name,
+      description: entry.profile.description,
+      avatar: entry.profile.avatar,
+      version: entry.profile.version,
       status: entry.status,
       lastUsedAt: entry.lastUsedAt,
       dirPath: entry.dirPath,
@@ -141,11 +141,11 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const entry = loader.getById(id)
     if (!entry) return null
     return {
-      id: entry.profile.identity.id,
-      name: entry.profile.identity.name,
-      description: entry.profile.identity.description,
-      avatar: entry.profile.identity.avatar,
-      version: entry.profile.identity.version,
+      id: entry.profile.id,
+      name: entry.profile.name,
+      description: entry.profile.description,
+      avatar: entry.profile.avatar,
+      version: entry.profile.version,
       status: entry.status,
       lastUsedAt: entry.lastUsedAt,
       dirPath: entry.dirPath,
@@ -228,8 +228,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     if (!loader) return []
     loader.loadAll()
     return loader.getAll().map((e) => ({
-      id: e.profile.identity.id,
-      name: e.profile.identity.name,
+      id: e.profile.id,
+      name: e.profile.name,
       status: e.status,
     }))
   })
@@ -252,7 +252,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     if (!win) throw new Error('No main window')
 
     const zipBuffer = exportAgent(entry.dirPath)
-    const fileName = `${entry.profile.identity.name}-${entry.profile.identity.version}.agent.zip`
+    const fileName = `${entry.profile.name}-${entry.profile.version}.agent.zip`
     const result = await dialog.showSaveDialog(win, {
       defaultPath: fileName,
       filters: [{ name: 'Agent Package', extensions: ['zip'] }],
@@ -282,11 +282,11 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     loader.loadAll()
     log.info(
       '[agents:import] Imported:',
-      importResult.profile.identity.id,
+      importResult.profile.id,
       'overwritten:',
       importResult.overwritten,
     )
-    return { agentId: importResult.profile.identity.id, overwritten: importResult.overwritten }
+    return { agentId: importResult.profile.id, overwritten: importResult.overwritten }
   })
 
   ipcMain.handle('agents:install-deps', async (_event, id: string) => {
@@ -387,8 +387,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const src = agentManager.getAgent(id)
     if (!src) throw new Error(`Agent not found: ${id}`)
     const copy = JSON.parse(JSON.stringify(src.profile)) as AgentProfile
-    copy.identity.id = `${id}_copy_${Date.now().toString(36)}`
-    copy.identity.name = `${src.profile.identity.name} (Copy)`
+    copy.id = `${id}_copy_${Date.now().toString(36)}`
+    copy.name = `${src.profile.name} (Copy)`
     return copy
   })
 
@@ -571,13 +571,13 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         }
 
         // 2. id 格式 + 平台保留前缀检查
-        if (profile.identity.id.startsWith('__') && profile.identity.id.endsWith('__')) {
+        if (profile.id.startsWith('__') && profile.id.endsWith('__')) {
           return {
             success: false,
             error: `Reserved id pattern: __X__ is for platform agents. Pick a different id.`,
           }
         }
-        if (!/^[a-z][a-z0-9_-]*$/.test(profile.identity.id)) {
+        if (!/^[a-z][a-z0-9_-]*$/.test(profile.id)) {
           return {
             success: false,
             error: `Invalid id format. Use snake-case (lowercase letters, digits, _ or -).`,
@@ -589,20 +589,20 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         if (!loader) {
           return { success: false, error: 'AgentLoader not initialized' }
         }
-        if (loader.getById(profile.identity.id)) {
+        if (loader.getById(profile.id)) {
           return {
             success: false,
-            error: `Agent id "${profile.identity.id}" already exists. Pick a different id.`,
+            error: `Agent id "${profile.id}" already exists. Pick a different id.`,
           }
         }
 
         // 4. 写文件（path-guard：防 id 含 ../）
         const agentsDir = loader.agentsDir
-        const targetDir = join(agentsDir, profile.identity.id)
+        const targetDir = join(agentsDir, profile.id)
         const targetAbs = pathResolve(targetDir)
         const agentsDirAbs = pathResolve(agentsDir)
         if (!targetAbs.startsWith(agentsDirAbs + pathSep)) {
-          return { success: false, error: `path escape detected: ${profile.identity.id}` }
+          return { success: false, error: `path escape detected: ${profile.id}` }
         }
         if (existsSync(targetDir)) {
           return {
@@ -660,7 +660,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
 
         // 5. AgentLoader 重载
         loader.loadAll()
-        const newEntry = loader.getById(profile.identity.id)
+        const newEntry = loader.getById(profile.id)
         if (newEntry) {
           // 自动注册（用户审阅+保存=确认，减少摩擦）
           // v8.1: 业务 agent 注册时用平台 mcpRegistry,让新 agent 自动继承平台 MCP
@@ -668,13 +668,13 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
           const skillRegistry = existsSync(skillsDirPath)
             ? SkillRegistry.fromDir(skillsDirPath)
             : SkillRegistry.fromDir(null)
-          agentManager.registerBusinessAgent(profile.identity.id, {
+          agentManager.registerBusinessAgent(profile.id, {
             profile: newEntry.profile,
             source: newEntry.dirPath,
             mcpRegistry: agentManager.getMcpToolSource(),
             skillRegistry,
           })
-          loader.setStatus(profile.identity.id, 'ready')
+          loader.setStatus(profile.id, 'ready')
         }
 
         // 6. 维护 workbench.metadata.created_agents
@@ -685,8 +685,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
           : 0
         const created = (wsMeta.created_agents as Array<Record<string, unknown>> | undefined) ?? []
         created.push({
-          id: profile.identity.id,
-          version: profile.identity.version,
+          id: profile.id,
+          version: profile.version,
           created_at: new Date().toISOString(),
           based_on_message_count: sourceMsgCount,
         })
@@ -698,12 +698,12 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         const createdAt =
           (created[created.length - 1]?.created_at as string) ?? new Date().toISOString()
         log.info(
-          `[Crystallize] saved agent=${profile.identity.id} v=${profile.identity.version} from workbench=${raw.workbench_session_id} ` +
+          `[Crystallize] saved agent=${profile.id} v=${profile.version} from workbench=${raw.workbench_session_id} ` +
             `skills installed=${skillInstallResult.installed.length} skipped=${skillInstallResult.skipped.length} failed=${skillInstallResult.failed.length}`,
         )
         return {
           success: true,
-          id: profile.identity.id,
+          id: profile.id,
           created_at: createdAt,
           skill_install: skillInstallResult,
         }
@@ -727,12 +727,12 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       // reconcile 后理论上 entry 一定存在;loader 失效或并发删除时 fallback。
       return {
         id: c.id,
-        name: entry?.profile.identity.name ?? c.id,
+        name: entry?.profile.name ?? c.id,
         version: c.version,
         created_at: c.created_at,
         based_on_message_count: c.based_on_message_count,
         exists: entry !== null,
-        current_version: entry?.profile.identity.version,
+        current_version: entry?.profile.version,
       }
     })
   })
@@ -886,14 +886,14 @@ function materializeKnowledgeFiles(
   sourceWorkspace: string | null,
 ): KnowledgeMaterializeReport {
   const report: KnowledgeMaterializeReport = { copied: 0, missing: [] }
-  const items = profile.method?.knowledge ?? []
+  // v2.0: references[] replaces method.knowledge[]
+  const items = profile.references ?? []
   if (items.length === 0) return report
 
   const knowledgeDir = join(agentDir, 'knowledge')
 
   for (let i = 0; i < items.length; i++) {
     const k = items[i]
-    if (k.type !== 'file') continue
     const declaredPath = k.path
 
     // 候选源路径:绝对 path / sourceWorkspace 相对 / cwd 相对
@@ -918,12 +918,12 @@ function materializeKnowledgeFiles(
       continue
     }
 
-    const basename = declaredPath.split('/').pop() ?? `knowledge-${i}.bin`
+    const basename = declaredPath.split('/').pop() ?? `reference-${i}.bin`
     const dest = join(knowledgeDir, basename)
     try {
       writeFileSync(dest, readFileSync(foundSrc))
       // 改写 profile 中的 path 为相对路径
-      ;(profile.method.knowledge as Array<{ path: string }>)[i].path = `./knowledge/${basename}`
+      ;(profile.references as Array<{ path: string }>)[i].path = `./knowledge/${basename}`
       report.copied++
     } catch (err) {
       log.warn('[knowledge-materialize] copy failed:', foundSrc, '→', dest, err)
@@ -935,35 +935,22 @@ function materializeKnowledgeFiles(
 }
 
 function buildReadmeContent(profile: AgentProfile): string {
-  const { identity, mission, method } = profile
   const lines: string[] = []
-  lines.push(`# ${identity.name}`)
+  lines.push(`# ${profile.name}`)
   lines.push('')
-  lines.push(`> ${identity.description}`)
+  lines.push(`> ${profile.description}`)
   lines.push('')
-  lines.push(`- **id**: \`${identity.id}\``)
-  lines.push(`- **version**: ${identity.version}`)
+  lines.push(`- **id**: \`${profile.id}\``)
+  lines.push(`- **version**: ${profile.version}`)
   lines.push(`- **schemaVersion**: ${profile.schemaVersion}`)
   lines.push(`- **created_at**: ${new Date().toISOString()}`)
   lines.push('')
-  if (mission?.objective) {
-    lines.push('## Mission')
-    lines.push('')
-    lines.push(mission.objective)
-    lines.push('')
-  }
-  if (Array.isArray(method?.capabilities) && method.capabilities.length > 0) {
-    lines.push('## Capabilities')
-    lines.push('')
-    for (const cap of method.capabilities) lines.push(`- ${cap}`)
-    lines.push('')
-  }
   lines.push('## Folder Structure')
   lines.push('')
   lines.push('```')
-  lines.push('agent.json        Schema 1.0 profile')
-  lines.push('skills/           method.skills 引用的 skill 包')
-  lines.push('knowledge/        method.knowledge[type=file] 引用的本地文件')
+  lines.push('agent.json        Schema 2.0 profile')
+  lines.push('skills/           profile.skills 引用的 skill 包')
+  lines.push('knowledge/        profile.references 引用的本地文件')
   lines.push('README.md         本文件')
   lines.push('```')
   lines.push('')

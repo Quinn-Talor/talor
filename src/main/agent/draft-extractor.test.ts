@@ -22,47 +22,12 @@ function msg(
 }
 
 const VALID_PROFILE_JSON = {
-  schemaVersion: '1.0',
-  identity: {
-    id: 'love_letter_writer',
-    name: '情感挽回助手',
-    description: '基于对话生成挽回语录',
-    version: '1.0.0',
-  },
-  mission: {
-    objective: '基于对话生成挽回语录',
-    outcomes: [
-      {
-        id: 'letter_done',
-        description: '用户收到结构化的挽回语录',
-        priority: 'core',
-        verifyBy: [
-          {
-            type: 'deliverable-present',
-            deliverableId: 'letter',
-            kind: 'deterministic',
-            severity: 'must',
-          },
-        ],
-      },
-    ],
-  },
-  method: { capabilities: ['撰写挽回语录'] },
-  delivery: {
-    deliverables: [{ id: 'letter', format: 'markdown', mustContain: ['# 挽回'] }],
-    acceptance: [
-      {
-        type: 'deliverable-present',
-        deliverableId: 'letter',
-        kind: 'deterministic',
-        severity: 'must',
-      },
-    ],
-  },
-  execution: {
-    limits: { maxSteps: 10, maxTokens: 10000 },
-    retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
-  },
+  schemaVersion: '2.0',
+  id: 'love-letter-writer',
+  name: '情感挽回助手',
+  description: '基于对话生成挽回语录',
+  version: '1.0.0',
+  agentPrompt: '## Workflow\n1. 分析对话背景。\n2. 生成挽回语录。',
 }
 
 describe('serializeS1History (TASK-1, AC-004)', () => {
@@ -219,7 +184,7 @@ describe('parseAgentDraft (TASK-1, AC-005~008)', () => {
     const text = '```json\n{ "id": "x" }\n```'
     const r = parseAgentDraft(text)
     expect(r.valid).toBe(false)
-    expect(r.error).toMatch(/name|description|version|role|dependencies/)
+    expect(r.error).toMatch(/schemaVersion|name|description|version/)
   })
 
   it('AC-008 (parse fail): malformed JSON in only block', () => {
@@ -233,13 +198,12 @@ describe('parseAgentDraft (TASK-1, AC-005~008)', () => {
     const text =
       'here you go:\n```json\n' +
       `{
+  "schemaVersion": "2.0",
   "id": "love-letter-writer",
   "name": "挽回助手",
-  "description": "...",
+  "description": "基于对话生成挽回语录",
   "version": "1.0.0",
-  "role": { "capabilities": ["写"], "outputFormat": "md" },
-  "knowledge": { "files": [] },
-  "dependencies": { "tools": [], "mcpServers": [], "skills": [], "cli": [] }
+  "agentPrompt": "## Workflow\\n1. 生成语录。"
 }` +
       '\n```'
     const r = parseAgentDraft(text)

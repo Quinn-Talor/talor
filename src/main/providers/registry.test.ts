@@ -45,42 +45,12 @@ describe('AC-091/AC-092: integration with validator §12', async () => {
   const { validateProfile } = await import('../agent/validator')
 
   const baseProfile = {
-    schemaVersion: '1.0',
-    identity: { id: 'a', name: 'A', description: 'd', version: '1.0.0' },
-    mission: {
-      objective: 'o',
-      outcomes: [
-        {
-          id: 'x',
-          description: 'x',
-          priority: 'core',
-          verifyBy: [
-            {
-              type: 'deliverable-present',
-              deliverableId: 'r',
-              kind: 'deterministic',
-              severity: 'must',
-            },
-          ],
-        },
-      ],
-    },
-    method: { capabilities: ['x'] },
-    delivery: {
-      deliverables: [{ id: 'r', format: 'markdown', mustContain: ['# x'] }],
-      acceptance: [
-        {
-          type: 'deliverable-present',
-          deliverableId: 'r',
-          kind: 'deterministic',
-          severity: 'must',
-        },
-      ],
-    },
-    execution: {
-      limits: { maxSteps: 10, maxTokens: 10000 },
-      retryPolicy: { maxAttempts: 1, onMustFail: 'abort', onShouldFail: 'mark-only' },
-    },
+    schemaVersion: '2.0',
+    id: 'a',
+    name: 'A',
+    description: 'd',
+    version: '1.0.0',
+    agentPrompt: '## Workflow\n1. Do task.',
   }
 
   it('AC-092: profile with locked DEFAULT_MODEL passes validator', () => {
@@ -98,7 +68,7 @@ describe('AC-091/AC-092: integration with validator §12', async () => {
     )
     expect(r.valid).toBe(false)
     if (!r.valid) {
-      expect(r.errors.some((e) => e.rule === 12)).toBe(true)
+      expect(r.errors.some((e) => e.path === 'preferences.modelId')).toBe(true)
     }
   })
 })

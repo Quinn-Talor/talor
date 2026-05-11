@@ -1,7 +1,7 @@
-// src/renderer/pages/Agents/AgentEditPage.tsx — Schema 1.0 Agent 编辑/预览/试跑页面
+// src/renderer/pages/Agents/AgentEditPage.tsx — Schema 2.0 Agent 编辑/预览/试跑页面
 //
 // P1 简化版:JSON 编辑器(支持模板载入 + 实时 validate)+ Preview 侧栏 + DryRun 弹窗。
-// 未来可拆 form 化每段(identity/mission/method/delivery)。
+// 未来可拆 form 化（agentPrompt / tools / subagents / references 等字段）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { talorAPI } from '../../api/talorAPI'
 
@@ -18,21 +18,10 @@ type PreviewResult = {
     onDemandSamples: { firstIteration: string; midIteration: string; lastIteration: string }
   }
   enabledTools: Array<{ name: string; description: string; source: string }>
-  disabledTools: string[]
-  resolvedAcceptance: Array<Record<string, unknown>>
-  visualizations: {
-    workflowDag?: { nodes: unknown[]; edges: Array<[string, string]> }
-    outcomeTree: Array<{ outcome: { id: string; description: string }; verifyBy: unknown[] }>
-    acceptanceList: {
-      must: Array<{ naturalized: string }>
-      should: Array<{ naturalized: string }>
-    }
-  }
   estimates: {
     promptTokens: number
     toolsCount: number
-    knowledgeFilesCount: number
-    knowledgeTokenEstimate: number
+    referencesCount: number
   }
   validatorIssues: ValidatorIssue[]
 }
@@ -46,20 +35,13 @@ interface AgentEditPageProps {
 }
 
 const EMPTY_PROFILE_HINT = `{
-  "schemaVersion": "1.0",
-  "identity": {
-    "id": "my_agent",
-    "name": "My Agent",
-    "description": "...",
-    "version": "1.0.0"
-  },
-  "mission": { "objective": "...", "outcomes": [] },
-  "method": { "capabilities": ["..."] },
-  "delivery": { "deliverables": [], "acceptance": [] },
-  "execution": {
-    "limits": { "maxSteps": 30, "maxTokens": 200000 },
-    "retryPolicy": { "maxAttempts": 1, "onMustFail": "abort", "onShouldFail": "mark-only" }
-  }
+  "schemaVersion": "2.0",
+  "id": "my_agent",
+  "name": "My Agent",
+  "description": "...",
+  "version": "1.0.0",
+  "agentPrompt": "## Workflow\\n1. ...",
+  "tools": ["read", "bash"]
 }`
 
 export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
@@ -165,11 +147,9 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
   const summary = useMemo(() => {
     if (!preview) return null
     return {
-      mustCount: preview.visualizations.acceptanceList.must.length,
-      shouldCount: preview.visualizations.acceptanceList.should.length,
       tools: preview.estimates.toolsCount,
       promptTokens: preview.estimates.promptTokens,
-      outcomes: preview.visualizations.outcomeTree.length,
+      referencesCount: preview.estimates.referencesCount,
     }
   }, [preview])
 
@@ -180,7 +160,7 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
         <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800">
           <div>
             <h2 className="text-lg font-semibold">
-              {agentId ? `编辑 Agent: ${agentId}` : '新建 Agent (Schema 1.0)'}
+              {agentId ? `编辑 Agent: ${agentId}` : '新建 Agent (Schema 2.0)'}
             </h2>
             <p className="text-xs text-gray-400">JSON 编辑 + 实时校验 + 预览 + 试跑</p>
           </div>
@@ -280,8 +260,8 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
           <h3 className="text-base font-semibold">Preview</h3>
           {summary && (
             <p className="text-xs text-gray-400 mt-1">
-              outcomes: {summary.outcomes} · must: {summary.mustCount} · should:{' '}
-              {summary.shouldCount} · tools: {summary.tools} · ~{summary.promptTokens} tokens
+              tools: {summary.tools} · references: {summary.referencesCount} · ~
+              {summary.promptTokens} tokens
             </p>
           )}
         </header>
@@ -294,65 +274,14 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
           {preview && (
             <>
               <section>
-                <h4 className="text-sm font-semibold mb-1 text-blue-400">Acceptance (must)</h4>
-                <ul className="space-y-1">
-                  {preview.visualizations.acceptanceList.must.map((c, i) => (
-                    <li key={i} className="text-gray-200">
-                      ✓ {c.naturalized}
-                    </li>
-                  ))}
-                  {preview.visualizations.acceptanceList.must.length === 0 && (
-                    <li className="text-gray-500">(none)</li>
-                  )}
-                </ul>
-              </section>
-
-              {preview.visualizations.acceptanceList.should.length > 0 && (
-                <section>
-                  <h4 className="text-sm font-semibold mb-1 text-yellow-400">
-                    Acceptance (should — nice to have)
-                  </h4>
-                  <ul className="space-y-1">
-                    {preview.visualizations.acceptanceList.should.map((c, i) => (
-                      <li key={i} className="text-gray-300">
-                        ◇ {c.naturalized}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-
-              <section>
                 <h4 className="text-sm font-semibold mb-1 text-green-400">
-                  Tools ({preview.enabledTools.length} enabled
-                  {preview.disabledTools.length > 0
-                    ? ` · ${preview.disabledTools.length} disabled`
-                    : ''}
-                  )
+                  Tools ({preview.enabledTools.length} enabled)
                 </h4>
                 <ul className="space-y-1">
                   {preview.enabledTools.slice(0, 12).map((t) => (
                     <li key={t.name} className="text-gray-300">
                       <code className="bg-gray-800 px-1 rounded">{t.name}</code>{' '}
                       <span className="text-gray-500">[{t.source}]</span>
-                    </li>
-                  ))}
-                  {preview.disabledTools.map((n) => (
-                    <li key={`d-${n}`} className="text-gray-500 line-through">
-                      {n} (disabled)
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              <section>
-                <h4 className="text-sm font-semibold mb-1 text-purple-400">
-                  Outcomes ({preview.visualizations.outcomeTree.length})
-                </h4>
-                <ul className="space-y-1">
-                  {preview.visualizations.outcomeTree.map((o) => (
-                    <li key={o.outcome.id} className="text-gray-300">
-                      <code>{o.outcome.id}</code>: {o.outcome.description}
                     </li>
                   ))}
                 </ul>

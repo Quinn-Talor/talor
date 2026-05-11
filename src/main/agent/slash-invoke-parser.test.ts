@@ -9,10 +9,12 @@ import { parseSlashInvoke } from './slash-invoke-parser'
 import { AgentLoader } from './loader'
 
 const VALID_AGENT = {
-  id: 'sales-001', name: '销售分析师', description: 'test', version: '1.0.0',
-  role: { capabilities: ['分析'], outputFormat: 'md' },
-  knowledge: { files: [] },
-  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
+  schemaVersion: '2.0',
+  id: 'sales-001',
+  name: '销售分析师',
+  description: '自动分析销售数据',
+  version: '1.0.0',
+  agentPrompt: '## Workflow\n1. 分析销售数据。',
 }
 
 let tempDir: string

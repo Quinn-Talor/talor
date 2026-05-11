@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
+import log from 'electron-log'
 import { Agent } from './agent'
 import { BuiltinToolRegistry } from './builtin-registry'
 import { SkillRegistry } from '../skills/registry'
@@ -244,5 +245,6 @@ describe('Agent delegationRuntime + allowedAgentIds (AC-031, AC-032)', () => {
       delegationRuntime: makeStubRuntime(['a', 'b']),
     })
     expect(agent.allowedAgentIds).toBeNull()
+    expect(log.warn).toHaveBeenCalled()
   })
 })

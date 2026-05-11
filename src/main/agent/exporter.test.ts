@@ -11,13 +11,12 @@ import { importAgent } from './importer'
 let tempDir: string
 
 const VALID_AGENT = {
+  schemaVersion: '2.0',
   id: 'export-test-001',
   name: '导出测试',
-  description: 'test',
+  description: '导出测试用 agent',
   version: '1.0.0',
-  role: { capabilities: ['test'], outputFormat: 'text' },
-  knowledge: { files: [] },
-  dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
+  agentPrompt: '## Workflow\n1. 执行导出测试。',
 }
 
 beforeEach(() => {

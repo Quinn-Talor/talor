@@ -1,13 +1,13 @@
-// src/main/agent/dependency-checker.ts — 业务层：Agent 依赖检查 8 步链 (Schema 1.0)
+// src/main/agent/dependency-checker.ts — 业务层：Agent 依赖检查 8 步链 (Schema 2.0)
 //
-// Step 1: minAppVersion  → semver 比较 (从 profile.identity.minAppVersion)
-// Step 2: Skill 安装     → installSkills (从 profile.method.skills)
-// Step 3: CLI 自动安装   → checkCommand (从 profile.method.cli)
-// Step 4: MCP Server     → 安装包 (从 profile.method.mcpServers)
-// Step 5: Tool 白名单校验 (从 profile.method.tools，过滤 !disabled)
-// Step 5b: Subagent 依赖 (从 profile.method.collaboration?.subagents)
+// Step 1: minAppVersion  → semver 比较 (从 profile.minAppVersion)
+// Step 2: Skill 安装     → installSkills (从 profile.skills)
+// Step 3: CLI 自动安装   → checkCommand (从 profile.cli)
+// Step 4: MCP Server     → 安装包 (从 profile.mcpServers)
+// Step 5: Tool 白名单校验 (从 profile.tools，正向白名单)
+// Step 5b: Subagent 依赖 (从 profile.subagents?.ids)
 // Step 6: Config 检查    → 扫描 {{变量}}
-// Step 7: Knowledge 检查 → 知识文件存在 (从 profile.method.knowledge filter type='file')
+// Step 7: References 检查 → 引用文件存在 (从 profile.references)
 // Step 8: 汇总
 //
 // 允许依赖：agent/*、shared/*、semver、fs、child_process
@@ -42,13 +42,13 @@ export function checkDependencies(
     opts?.builtinToolNames ??
     new Set(['read', 'write', 'edit', 'bash', 'glob', 'grep', 'ls', 'skill'])
 
-  const minAppVersion = profile.identity.minAppVersion
-  const skills = profile.method.skills ?? []
-  const cli = profile.method.cli ?? []
-  const mcpServers = profile.method.mcpServers ?? []
-  const tools = profile.method.tools ?? []
-  const subagents = profile.method.collaboration?.subagents ?? []
-  const knowledge = profile.method.knowledge ?? []
+  const minAppVersion = profile.minAppVersion
+  const skills = profile.skills ?? []
+  const cli = profile.cli ?? []
+  const mcpServers = profile.mcpServers ?? []
+  const tools = profile.tools ?? []
+  const subagentIds = profile.subagents?.ids ?? []
+  const refs = profile.references ?? []
 
   // Step 1: minAppVersion
   if (minAppVersion) {
@@ -163,11 +163,11 @@ export function checkDependencies(
     steps.push({ step: 'mcpServer', status: 'pass' })
   }
 
-  // Step 5: Tool 白名单校验（required 且未 disabled 且不在 builtin 集合 → missing）
+  // Step 5: Tool 白名单校验（v2.0: tools 是 BuiltinToolName[] 正向白名单；校验每项是已知 builtin）
   const missingTools: string[] = []
-  for (const dep of tools) {
-    if (dep.required && !dep.disabled && !builtinToolNames.has(dep.name)) {
-      missingTools.push(dep.name)
+  for (const toolName of tools) {
+    if (!builtinToolNames.has(toolName)) {
+      missingTools.push(toolName)
     }
   }
 
@@ -182,12 +182,12 @@ export function checkDependencies(
     steps.push({ step: 'tool', status: 'pass' })
   }
 
-  // Step 5b: Subagent 依赖检查
+  // Step 5b: Subagent 依赖检查 (v2.0: subagents.ids is SubagentRef[])
   if (opts?.registeredBusinessAgents) {
     const missingSubagents: string[] = []
-    for (const dep of subagents) {
-      if (dep.required && !opts.registeredBusinessAgents.has(dep.id)) {
-        missingSubagents.push(dep.id)
+    for (const ref of subagentIds) {
+      if (ref.required && !opts.registeredBusinessAgents.has(ref.id)) {
+        missingSubagents.push(ref.id)
       }
     }
     if (missingSubagents.length > 0) {
@@ -237,26 +237,24 @@ export function checkDependencies(
     steps.push({ step: 'config', status: 'pass' })
   }
 
-  // Step 7: Knowledge 检查（仅 type='file' 且 required）
-  const missingKnowledge: string[] = []
-  for (const k of knowledge) {
-    if (k.type === 'file' && k.required) {
-      const absPath = join(dirPath, k.path)
-      if (!existsSync(absPath)) {
-        missingKnowledge.push(k.path)
-      }
+  // Step 7: References 检查（v2.0: profile.references[] — 每个 ReferenceFile 都校验路径存在）
+  const missingRefs: string[] = []
+  for (const r of refs) {
+    const absPath = join(dirPath, r.path)
+    if (!existsSync(absPath)) {
+      missingRefs.push(r.path)
     }
   }
 
-  if (missingKnowledge.length > 0) {
+  if (missingRefs.length > 0) {
     steps.push({
-      step: 'knowledge',
+      step: 'references',
       status: 'missing',
-      message: `缺少知识文件: ${missingKnowledge.join(', ')}`,
-      details: missingKnowledge,
+      message: `缺少引用文件: ${missingRefs.join(', ')}`,
+      details: missingRefs,
     })
   } else {
-    steps.push({ step: 'knowledge', status: 'pass' })
+    steps.push({ step: 'references', status: 'pass' })
   }
 
   // Step 8: 汇总
