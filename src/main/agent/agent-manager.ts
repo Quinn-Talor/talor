@@ -220,9 +220,9 @@ export class AgentManager {
     }
 
     // 平台 agent 装配。两个都接收 delegationRuntime；委托能力由
-    // profile.method.collaboration 决定：
+    // profile.subagents 决定：
     //   - __chat__:        allowAnyBusinessSubagent=true → 可委托所有业务 agent
-    //   - __crystallizer__: 无 collaboration → scope=[]
+    //   - __crystallizer__: 无 subagents → scope=[]
     this.platformChat = new Agent({
       profile: CHAT_PROFILE,
       source: null,
@@ -267,8 +267,8 @@ export class AgentManager {
     }
 
     // 业务 agent 也接收 delegationRuntime。能否真正委托由 profile 决定：
-    //   - profile.method.collaboration.subagents 非空 → 可委托列表内 agent（受限 scope）
-    //   - profile.method.collaboration 缺省 → scope=[]，工具持有但 listing 为空
+    //   - profile.subagents 非空 → 可委托列表内 agent（受限 scope）
+    //   - profile.subagents 缺省 → scope=[]，工具持有但 listing 为空
     // 数据驱动差异，不再用"业务 agent 不接收 runtime"做特殊隔离。
     const agent = new Agent({
       ...opts,

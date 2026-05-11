@@ -41,7 +41,7 @@ export interface ExternalDep {
   hint?: string
   /**
    * 跨机器导入时,提示导入端用户需要在 Account 配置的 env var 列表(主要给 mcp_server)。
-   * 来源:profile.method.mcpServers[].transport.auth.envVar(http transport)
+   * 来源:profile.mcpServers[].transport.auth.envVar(http transport)
    *      或 transport.env keys(stdio transport,如 GITHUB_TOKEN)
    */
   required_env_vars?: string[]

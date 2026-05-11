@@ -1,4 +1,4 @@
-// AgentDetailPage — Schema 1.0 agent profile 内嵌只读详情页(非弹窗)。
+// AgentDetailPage — Schema 2.0 agent profile 内嵌只读详情页(非弹窗)。
 // 在 Agents 工作区内替换列表显示,顶部"← 返回"按钮回列表。
 
 import { useEffect, useState } from 'react'
@@ -53,108 +53,34 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
   }, [agentId])
 
   const profile = detail?.profile ?? {}
-  const identity = (profile.identity as Record<string, unknown> | undefined) ?? {}
-  const mission = (profile.mission as Record<string, unknown> | undefined) ?? {}
-  const method = (profile.method as Record<string, unknown> | undefined) ?? {}
-  const delivery = (profile.delivery as Record<string, unknown> | undefined) ?? {}
-  const execution = (profile.execution as Record<string, unknown> | undefined) ?? {}
-  const preferences = (profile.preferences as Record<string, unknown> | undefined) ?? {}
-
-  const objective = typeof mission.objective === 'string' ? mission.objective : ''
-  const outcomes = Array.isArray(mission.outcomes)
-    ? (mission.outcomes as Array<{ id?: string; description?: string; priority?: string }>)
+  // Schema 2.0: 扁平结构直接读顶层字段
+  const agentPrompt = typeof profile.agentPrompt === 'string' ? profile.agentPrompt : ''
+  const tools = Array.isArray(profile.tools)
+    ? (profile.tools as unknown[]).filter((t): t is string => typeof t === 'string')
     : []
-  const inputs = Array.isArray(mission.inputs)
-    ? (mission.inputs as Array<{
-        id?: string
-        description?: string
-        required?: boolean
-        type?: string
-      }>)
+  const skills = Array.isArray(profile.skills)
+    ? (profile.skills as Array<{ name?: string; required?: boolean; purpose?: string }>)
     : []
-
-  const capabilities = Array.isArray(method.capabilities)
-    ? (method.capabilities as unknown[]).filter((c): c is string => typeof c === 'string')
+  const mcpServers = Array.isArray(profile.mcpServers)
+    ? (profile.mcpServers as Array<{ name?: string }>)
     : []
-  const knowledge = Array.isArray(method.knowledge)
-    ? (method.knowledge as Array<{
-        type?: string
-        path?: string
-        url?: string
-        description?: string
-        required?: boolean
-      }>)
+  const cli = Array.isArray(profile.cli)
+    ? (profile.cli as Array<{ command?: string; version?: string }>)
     : []
-  const tools = Array.isArray(method.tools)
-    ? (method.tools as Array<{
-        name?: string
-        required?: boolean
-        disabled?: boolean
-        purpose?: string
-      }>)
+  const references = Array.isArray(profile.references)
+    ? (profile.references as Array<{ id?: string; path?: string; description?: string }>)
     : []
-  // Schema 1.0 SkillItem flat: { name, required, purpose? }
-  const skills = Array.isArray(method.skills)
-    ? (method.skills as Array<{ name?: string; required?: boolean; purpose?: string }>)
-    : []
-  const cli = Array.isArray(method.cli)
-    ? (method.cli as Array<{ command?: string; version?: string }>)
-    : []
-  const collab =
-    (method.collaboration as
-      | {
-          subagents?: Array<{ id?: string; required?: boolean; purpose?: string }>
-          allowAnyBusinessSubagent?: boolean
-        }
-      | undefined) ?? {}
-  const subagents = collab.subagents ?? []
-  const allowAnyBusiness = collab.allowAnyBusinessSubagent === true
-
-  const deliverables = Array.isArray(delivery.deliverables)
-    ? (delivery.deliverables as Array<{
-        id?: string
-        format?: string
-        trigger?: string
-        required?: boolean
-      }>)
-    : []
-
-  const limits = (execution.limits as { maxSteps?: number; maxTokens?: number } | undefined) ?? {}
-  const retryPolicy =
-    (execution.retryPolicy as
-      | { maxAttempts?: number; onMustFail?: string; onShouldFail?: string }
-      | undefined) ?? {}
-
-  const lockedModel = typeof preferences.modelId === 'string' ? preferences.modelId : ''
-  const lockedProvider = typeof preferences.providerId === 'string' ? preferences.providerId : ''
-
-  const workflow = method.workflow as
+  const subagentsRaw = profile.subagents as
     | {
-        kind?: string
-        steps?: Array<{
-          id?: string
-          description?: string
-          kind?: string
-          use?: {
-            tools?: string[]
-            skills?: string[]
-            mcpServers?: string[]
-            cli?: string[]
-          }
-          produces?: string
-          requires?: string[]
-          inputs?: string[]
-        }>
+        list?: Array<{ id?: string; required?: boolean; purpose?: string }>
+        allowAnyBusinessSubagent?: boolean
       }
     | undefined
-
-  const scope = mission.scope as { in?: unknown[]; out?: unknown[] } | undefined
-  const scopeIn = Array.isArray(scope?.in)
-    ? (scope!.in as unknown[]).filter((t): t is string => typeof t === 'string')
-    : []
-  const scopeOut = Array.isArray(scope?.out)
-    ? (scope!.out as unknown[]).filter((t): t is string => typeof t === 'string')
-    : []
+  const subagents = subagentsRaw?.list ?? []
+  const allowAnyBusiness = subagentsRaw?.allowAnyBusinessSubagent === true
+  const preferences = (profile.preferences as Record<string, unknown> | undefined) ?? {}
+  const lockedModel = typeof preferences.modelId === 'string' ? preferences.modelId : ''
+  const lockedProvider = typeof preferences.providerId === 'string' ? preferences.providerId : ''
 
   return (
     <div className="flex flex-col h-full bg-white" data-testid="agent-detail-page">
@@ -202,7 +128,7 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
               disabled={installing}
               className="rounded-md px-3 py-1 text-[12px] hover:bg-gray-100 border disabled:opacity-50"
               style={{ color: '#475569', borderColor: '#cbd5e1' }}
-              title="安装/重装 method.skills 中的 skill 包,并跑依赖检查"
+              title="安装/重装 profile.skills 中的 skill 包,并跑依赖检查"
             >
               {installing ? '安装中…' : '⟳ 安装依赖'}
             </button>
@@ -287,127 +213,53 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
           {detail && (
             <>
               <Section title="Identity">
-                <ReadField label="Agent ID" value={(identity.id as string) ?? detail.id} mono />
-                <ReadField label="名称" value={(identity.name as string) ?? detail.name} />
-                {(identity.description || detail.description) && (
-                  <ReadField
-                    label="描述"
-                    value={(identity.description as string) ?? detail.description ?? ''}
-                  />
-                )}
-                <ReadField
-                  label="版本"
-                  value={(identity.version as string) ?? detail.version ?? '—'}
-                  mono
-                />
+                <ReadField label="Agent ID" value={detail.id} mono />
+                <ReadField label="名称" value={detail.name} />
+                {detail.description && <ReadField label="描述" value={detail.description} />}
+                <ReadField label="版本" value={detail.version ?? '—'} mono />
                 {detail.status && <ReadField label="状态" value={detail.status} mono />}
                 {detail.dirPath && <ReadField label="文件路径" value={detail.dirPath} mono />}
               </Section>
 
-              {(objective ||
-                outcomes.length > 0 ||
-                inputs.length > 0 ||
-                scopeIn.length > 0 ||
-                scopeOut.length > 0) && (
-                <Section title="Mission">
-                  {objective && <ReadField label="核心任务 (objective)" value={objective} />}
-                  {(scopeIn.length > 0 || scopeOut.length > 0) && (
-                    <div>
-                      <div className="text-[11px] font-medium mb-0.5" style={{ color: '#475569' }}>
-                        边界 (scope)
-                      </div>
-                      <div
-                        className="rounded-md border px-3 py-2 text-[12px] space-y-2"
-                        style={{ borderColor: '#e2e8f0', background: '#f8fafc' }}
-                      >
-                        {scopeIn.length > 0 && (
-                          <div>
-                            <div
-                              className="text-[11px] font-semibold mb-0.5"
-                              style={{ color: '#16a34a' }}
-                            >
-                              ✓ 会做
-                            </div>
-                            <ul className="ml-3 space-y-0.5">
-                              {scopeIn.map((s, i) => (
-                                <li key={i} style={{ color: '#475569' }}>
-                                  • {s}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {scopeOut.length > 0 && (
-                          <div>
-                            <div
-                              className="text-[11px] font-semibold mb-0.5"
-                              style={{ color: '#dc2626' }}
-                            >
-                              ✗ 不会做
-                            </div>
-                            <ul className="ml-3 space-y-0.5">
-                              {scopeOut.map((s, i) => (
-                                <li key={i} style={{ color: '#475569' }}>
-                                  • {s}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {inputs.length > 0 && (
-                    <ReadList
-                      label="需要的输入 (inputs)"
-                      items={inputs.map(
-                        (i) =>
-                          `${i.id ?? '?'} (${i.type ?? 'text'}${i.required ? ' · 必填' : ''})${i.description ? ' — ' + i.description : ''}`,
-                      )}
-                    />
-                  )}
-                  {outcomes.length > 0 && (
-                    <ReadList
-                      label="预期成果 (outcomes)"
-                      items={outcomes.map(
-                        (o) => `[${o.priority ?? 'core'}] ${o.id ?? '?'}: ${o.description ?? ''}`,
-                      )}
-                    />
-                  )}
+              {agentPrompt && (
+                <Section title="Agent Prompt">
+                  <details className="text-[12px]">
+                    <summary
+                      className="cursor-pointer text-[12px] font-medium"
+                      style={{ color: '#7c3aed' }}
+                    >
+                      点击展开完整 prompt
+                    </summary>
+                    <pre
+                      className="mt-2 rounded-md border px-3 py-2 text-[11px] font-mono overflow-auto whitespace-pre-wrap break-words"
+                      style={{
+                        borderColor: '#e2e8f0',
+                        background: '#f8fafc',
+                        color: '#334155',
+                        maxHeight: 400,
+                      }}
+                    >
+                      {agentPrompt}
+                    </pre>
+                  </details>
                 </Section>
               )}
 
-              <Section title="Method">
-                <ReadList label="能力 (capabilities)" items={capabilities} fallback="(未声明)" />
-                {tools.length > 0 && (
-                  <ReadList
-                    label="工具 (tools)"
-                    items={tools.map((t) => {
-                      const flags: string[] = []
-                      if (t.required) flags.push('required')
-                      if (t.disabled) flags.push('⛔ disabled')
-                      return `${t.name ?? '?'}${flags.length ? ' · ' + flags.join(' · ') : ''}${t.purpose ? ' — ' + t.purpose : ''}`
-                    })}
-                  />
-                )}
-                {knowledge.length > 0 && (
-                  <ReadList
-                    label="知识 (knowledge)"
-                    items={knowledge.map((k) =>
-                      k.type === 'file'
-                        ? `📄 ${k.path ?? '?'}${k.required ? ' · REQUIRED' : ''}${k.description ? ' — ' + k.description : ''}`
-                        : k.type === 'url'
-                          ? `🔗 ${k.url ?? '?'}${k.description ? ' — ' + k.description : ''}`
-                          : `📝 (内嵌文本)${k.description ? ' — ' + k.description : ''}`,
-                    )}
-                  />
-                )}
+              <Section title="Dependencies">
+                {tools.length > 0 && <ReadList label="工具 (tools)" items={tools} />}
                 {skills.length > 0 && (
                   <ReadList
                     label="Skill 依赖 (skills)"
                     items={skills.map(
-                      (s) => `${s.name ?? '?'}${s.required ? ' · required' : ' · optional'}`,
+                      (s) =>
+                        `${s.name ?? '?'}${s.required ? ' · required' : ' · optional'}${s.purpose ? ' — ' + s.purpose : ''}`,
                     )}
+                  />
+                )}
+                {mcpServers.length > 0 && (
+                  <ReadList
+                    label="外部服务 (mcpServers)"
+                    items={mcpServers.map((m) => m.name ?? '(unknown)')}
                   />
                 )}
                 {cli.length > 0 && (
@@ -418,9 +270,18 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
                     )}
                   />
                 )}
+                {references.length > 0 && (
+                  <ReadList
+                    label="参考资料 (references)"
+                    items={references.map(
+                      (r) =>
+                        `${r.id ?? '?'}: ${r.path ?? '?'}${r.description ? ' — ' + r.description : ''}`,
+                    )}
+                  />
+                )}
                 {(subagents.length > 0 || allowAnyBusiness) && (
                   <ReadList
-                    label="协作 (collaboration)"
+                    label="子 agent (subagents)"
                     items={
                       allowAnyBusiness
                         ? ['可委托给所有业务 agent (allowAnyBusinessSubagent=true)']
@@ -431,76 +292,18 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
                     }
                   />
                 )}
-                {workflow?.steps && workflow.steps.length > 0 && (
-                  <div>
-                    <div className="text-[11px] font-medium mb-0.5" style={{ color: '#475569' }}>
-                      执行流程 (workflow
-                      {workflow.kind && ` · ${labelForWorkflowKind(workflow.kind)}`})
+                {tools.length === 0 &&
+                  skills.length === 0 &&
+                  mcpServers.length === 0 &&
+                  cli.length === 0 &&
+                  references.length === 0 &&
+                  subagents.length === 0 &&
+                  !allowAnyBusiness && (
+                    <div className="text-[12px]" style={{ color: '#94a3b8' }}>
+                      （无依赖声明）
                     </div>
-                    <ol
-                      className="rounded-md border px-3 py-2 text-[12px] space-y-2"
-                      style={{ borderColor: '#e2e8f0', background: '#f8fafc', color: '#475569' }}
-                    >
-                      {workflow.steps.map((s, idx) => (
-                        <li key={idx}>
-                          <strong>
-                            {idx + 1}. {s.id ?? '?'}
-                          </strong>
-                          {s.kind && s.kind !== 'task' && (
-                            <span style={{ color: '#dc2626' }}> · {labelForStepKind(s.kind)}</span>
-                          )}
-                          {s.description && (
-                            <span style={{ color: '#64748b' }}> — {s.description}</span>
-                          )}
-                          {summarizeStepUse(s) && (
-                            <div className="ml-4 mt-0.5 text-[11px]" style={{ color: '#94a3b8' }}>
-                              使用：{summarizeStepUse(s)}
-                            </div>
-                          )}
-                          {s.produces && (
-                            <div className="ml-4 text-[11px]" style={{ color: '#94a3b8' }}>
-                              产出：{s.produces}
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
+                  )}
               </Section>
-
-              {deliverables.length > 0 && (
-                <Section title="Delivery">
-                  <ReadList
-                    label="交付物 (deliverables)"
-                    items={deliverables.map(
-                      (d) =>
-                        `${d.id ?? '?'} (${d.format ?? 'text'})${d.required === false ? ' · optional' : ''}${d.trigger ? ' — ' + d.trigger : ''}`,
-                    )}
-                  />
-                </Section>
-              )}
-
-              {(limits.maxSteps !== undefined ||
-                limits.maxTokens !== undefined ||
-                retryPolicy.onMustFail) && (
-                <Section title="Execution">
-                  {(limits.maxSteps !== undefined || limits.maxTokens !== undefined) && (
-                    <ReadField
-                      label="资源上限 (limits)"
-                      value={`maxSteps=${limits.maxSteps ?? '—'} · maxTokens=${limits.maxTokens ?? '—'}`}
-                      mono
-                    />
-                  )}
-                  {retryPolicy.onMustFail && (
-                    <ReadField
-                      label="重试策略 (retryPolicy)"
-                      value={`maxAttempts=${retryPolicy.maxAttempts ?? '—'} · onMustFail=${retryPolicy.onMustFail} · onShouldFail=${retryPolicy.onShouldFail ?? '—'}`}
-                      mono
-                    />
-                  )}
-                </Section>
-              )}
 
               {(lockedModel || lockedProvider) && (
                 <Section title="Preferences">
@@ -514,7 +317,7 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
 
               <details className="text-[12px]">
                 <summary className="cursor-pointer" style={{ color: '#7c3aed' }}>
-                  完整 JSON (Schema 1.0)
+                  完整 JSON (Schema 2.0)
                 </summary>
                 <pre
                   className="mt-2 rounded-md border px-3 py-2 text-[11px] font-mono overflow-auto"
@@ -569,47 +372,6 @@ function ReadField({
       </div>
     </div>
   )
-}
-
-function labelForWorkflowKind(kind: string): string {
-  switch (kind) {
-    case 'sequence':
-      return '按顺序执行'
-    case 'dag':
-      return '部分步骤可并行'
-    case 'reactive':
-      return '按需反应'
-    default:
-      return kind
-  }
-}
-
-function labelForStepKind(kind: string): string {
-  switch (kind) {
-    case 'wait_for_user_approval':
-      return '等用户确认'
-    case 'branch':
-      return '条件分支'
-    case 'loop':
-      return '循环'
-    default:
-      return kind
-  }
-}
-
-function summarizeStepUse(s: {
-  use?: { tools?: string[]; skills?: string[]; mcpServers?: string[]; cli?: string[] }
-}): string {
-  const parts: string[] = []
-  const tools = s.use?.tools ?? []
-  const skills = s.use?.skills ?? []
-  const mcps = s.use?.mcpServers ?? []
-  const cli = s.use?.cli ?? []
-  if (tools.length > 0) parts.push(`工具 ${tools.join('/')}`)
-  if (skills.length > 0) parts.push(`skill ${skills.join('/')}`)
-  if (mcps.length > 0) parts.push(`MCP ${mcps.join('/')}`)
-  if (cli.length > 0) parts.push(`CLI ${cli.join('/')}`)
-  return parts.join(' · ')
 }
 
 function ReadList({

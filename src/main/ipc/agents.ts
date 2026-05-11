@@ -610,10 +610,10 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
             error: `Directory already exists: ${targetDir}. Pick a different id.`,
           }
         }
-        // Schema 1.0 Agent 是文件夹 bundle:
+        // Schema 2.0 Agent 是文件夹 bundle:
         //   <root>/agent.json       — profile (必有)
-        //   <root>/skills/          — method.skills 引用的 skill 包(占位即建,空目录也允许)
-        //   <root>/knowledge/       — method.knowledge[type='file'].path 引用的本地文件
+        //   <root>/skills/          — profile.skills 引用的 skill 包(占位即建,空目录也允许)
+        //   <root>/references/      — profile.references[].path 引用的本地文件
         //   <root>/README.md        — 自动生成给人看的元数据
         mkdirSync(targetDir, { recursive: true })
         mkdirSync(join(targetDir, 'skills'), { recursive: true })

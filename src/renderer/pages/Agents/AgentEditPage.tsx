@@ -349,7 +349,7 @@ function DryRunModal({ profile, onClose }: DryRunModalProps) {
             placeholder="例如:帮我审 PR #123"
           />
           <p className="text-[10px] text-gray-500">
-            沙箱限制: maxSteps=10 · maxTokens=20000 · 不调真实 LLM(P0 stub)
+            验证 profile + 渲染首轮 prompt。不调真实 LLM。
           </p>
           <button
             onClick={handleRun}

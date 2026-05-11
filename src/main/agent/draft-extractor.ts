@@ -161,8 +161,8 @@ export function parseAgentDraft(text: string): ParseDraftResult {
       continue
     }
     // LLM 输出容错:常见 LLM 把 deliverable.id 当外层 wrapper key 包了一层
-    // (e.g. { "agent_profile_draft": { "schemaVersion": "1.0", ... } })
-    // 此处自动 unwrap;不影响 schema 1.0 严格性,validate 仍跑全 14 条规则
+    // (e.g. { "agent_profile_draft": { "schemaVersion": "2.0", ... } })
+    // 此处自动 unwrap;不影响 schema 2.0 严格性,validate 仍跑全规则
     const candidate = unwrapIfWrapped(parsed) ?? parsed
     const result = validateProfile(candidate)
     if (result.valid) {
@@ -176,11 +176,11 @@ export function parseAgentDraft(text: string): ParseDraftResult {
 function unwrapIfWrapped(parsed: unknown): unknown {
   if (typeof parsed !== 'object' || parsed === null) return null
   const obj = parsed as Record<string, unknown>
-  // 顶层已经是 schema 1.0 形态 → 不需要 unwrap
-  if (obj.schemaVersion === '1.0') return null
+  // 顶层已经是 schema 2.0 形态 → 不需要 unwrap
+  if (obj.schemaVersion === '2.0') return null
   const keys = Object.keys(obj)
   if (keys.length !== 1) return null
   const inner = obj[keys[0]]
   if (typeof inner !== 'object' || inner === null) return null
-  return (inner as Record<string, unknown>).schemaVersion === '1.0' ? inner : null
+  return (inner as Record<string, unknown>).schemaVersion === '2.0' ? inner : null
 }
