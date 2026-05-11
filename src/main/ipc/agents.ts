@@ -158,7 +158,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const agent = agentManager.getAgent(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
 
-    // Schema 1.0: 选 provider + model:
+    // 选 provider + model:
     //   - profile.preferences.providerId/modelId 优先(若匹配 + provider 启用)
     //   - 否则 default provider + 其第一个 model
     //   避免 session.model_id 为 null 时 orchestrator 拿到 'default' 字符串字面量
@@ -295,7 +295,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const entry = loader.getById(id)
     if (!entry) throw new Error(`Agent not found: ${id}`)
 
-    // Schema 1.0: 真正触发 skill 安装(npx),完成后再跑 dependency-checker 报告状态
+    // 真正触发 skill 安装(npx),完成后再跑 dependency-checker 报告状态
     try {
       const { installAgentSkills } = await import('../agent/skill-installer')
       const installResult = await installAgentSkills(entry.profile, entry.dirPath)
@@ -342,7 +342,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     log.info('[agents:update] Updated agent:', raw.id)
   })
 
-  // ─── Schema 1.0: validate / preview / dry-run / templates ────────────
+  // ─── validate / preview / dry-run / templates ────────────────────────
 
   /**
    * AC-081: 仅校验 profile,不持久化。返回 ValidatorIssue[] 含 path/rule/severity/message
@@ -560,7 +560,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       try {
         const profile = raw.profile
 
-        // 1. validateProfile (Schema 1.0)
+        // 1. validateProfile
         const result = validateProfile(profile)
         // adapt new ValidatorIssue[] → string for legacy error path
         if (!result.valid) {

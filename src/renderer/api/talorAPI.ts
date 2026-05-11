@@ -200,7 +200,6 @@ declare global {
             riskLevel?: string
           }>
         >
-        // Schema 1.0
         validate: (profile: unknown) => Promise<{
           valid: boolean
           errors: Array<{

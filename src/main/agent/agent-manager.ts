@@ -93,9 +93,6 @@ Dependency manifest (all optional):
   preferences:  { modelId?, providerId? }
 `.trim()
 
-// Legacy SCHEMA_KNOWLEDGE_TEXT (Schema 1.0, ~700 lines) replaced by compact SCHEMA_DESCRIPTION above.
-// Deleted in Schema 2.0 migration.
-
 const CRYSTALLIZER_PROFILE: AgentProfile = {
   schemaVersion: '2.0',
   id: '__crystallizer__',
@@ -297,7 +294,7 @@ export class AgentManager {
   }
 
   /**
-   * Schema 1.0: 公开访问 builtinRegistry / mcpRegistry,供 IPC `agents:preview`
+   * 公开访问 builtinRegistry / mcpRegistry,供 IPC `agents:preview`
    * 等需要构造临时 Agent 实例的场景使用。避免反取 chat agent 内部字段。
    */
   getBuiltinRegistry(): import('./builtin-registry').BuiltinToolRegistry {

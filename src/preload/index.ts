@@ -286,7 +286,7 @@ const talorAPI = {
       }>
     > => ipcRenderer.invoke('agents:list-tools', agentId),
 
-    // Schema 1.0: 编辑 / 预览 / 模板 / 复制 / 沙箱试跑
+    // 编辑 / 预览 / 模板 / 复制 / 沙箱试跑
     validate: (
       profile: unknown,
     ): Promise<{

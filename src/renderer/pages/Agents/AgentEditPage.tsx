@@ -221,7 +221,7 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
         <footer className="border-t border-gray-700 bg-gray-800 px-4 py-2 max-h-48 overflow-y-auto">
           {parseError && <div className="text-xs text-red-400">JSON 解析错误: {parseError}</div>}
           {!parseError && errors.length === 0 && warnings.length === 0 && (
-            <div className="text-xs text-green-400">✓ 校验通过 (rules 1~14)</div>
+            <div className="text-xs text-green-400">✓ 校验通过 (rules 1~9)</div>
           )}
           {errors.length > 0 && (
             <div className="text-xs">

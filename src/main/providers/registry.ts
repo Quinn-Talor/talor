@@ -1,6 +1,6 @@
 // src/main/providers/registry.ts — 业务层：默认模型 + 已注册模型枚举
 //
-// Schema 1.0 模型策略:
+// 模型策略 (Schema 2.0):
 //   - DEFAULT_MODEL = 'claude-opus-4-7' (latest Claude Opus)
 //   - DEFAULT_PROVIDER = 'anthropic'
 //   - 业务 / 平台 agent profile 不写 preferences.modelId 时用 DEFAULT_MODEL
@@ -17,7 +17,7 @@
 export const DEFAULT_MODEL = 'claude-opus-4-7'
 export const DEFAULT_PROVIDER = 'anthropic'
 
-/** Schema 1.0 已注册的模型 id 集合。validator §12 通过 ValidatorContext.knownModelIds 引用此集合. */
+/** 已注册的模型 id 集合。validator §12 通过 ValidatorContext.knownModelIds 引用此集合. */
 const REGISTERED_MODELS: ReadonlyArray<string> = [
   // Anthropic — latest only
   'claude-opus-4-7',
