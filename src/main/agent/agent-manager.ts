@@ -26,8 +26,8 @@ export interface PlatformAgentDeps {
   /**
    * 委托运行时。统一注入给所有 agent（含平台 + 业务）。
    * 委托能力由 profile 字段决定：
-   *   - dependencies.allowAnyBusinessSubagent=true → 全开放（仅 __chat__）
-   *   - dependencies.subagents=[...] → 仅可委托列表内 agent
+   *   - profile.subagents.allowAny=true → 全开放（仅 __chat__）
+   *   - profile.subagents.ids=[...] → 仅可委托列表内 agent
    *   - 都没声明 → scope=[]，工具持有但 listing 为空
    *
    * 启动期由 main/index.ts 装配并注入。
@@ -221,7 +221,7 @@ export class AgentManager {
 
     // 平台 agent 装配。两个都接收 delegationRuntime；委托能力由
     // profile.subagents 决定：
-    //   - __chat__:        allowAnyBusinessSubagent=true → 可委托所有业务 agent
+    //   - __chat__:        subagents.allowAny=true → 可委托所有业务 agent
     //   - __crystallizer__: 无 subagents → scope=[]
     this.platformChat = new Agent({
       profile: CHAT_PROFILE,

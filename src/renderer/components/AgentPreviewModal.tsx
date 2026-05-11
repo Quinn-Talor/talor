@@ -217,7 +217,7 @@ export function AgentPreviewModal({
                   label="子 agent (subagents)"
                   items={
                     allowAnyBusiness
-                      ? ['可委托给所有业务 agent (allowAnyBusinessSubagent=true)']
+                      ? ['可委托给所有业务 agent (allowAny=true)']
                       : subagents.map(
                           (s) =>
                             `${s.id ?? '(unknown)'}${s.required ? ' · required' : ' · optional'}${s.purpose ? ' — ' + s.purpose : ''}`,
