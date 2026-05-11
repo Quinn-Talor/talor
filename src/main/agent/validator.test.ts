@@ -100,6 +100,59 @@ describe('validateProfile (v2.0)', () => {
     expect(r.valid).toBe(false)
   })
 
+  // RULE 5 — non-string element
+  it('rejects non-string tool element', () => {
+    const r = validateProfile(minimal({ tools: [42 as never, 'read'] }))
+    expect(r.valid).toBe(false)
+    if (!r.valid) expect(r.errors.some((e) => e.rule === 5)).toBe(true)
+  })
+
+  // RULE 6 — absolute path
+  it('rejects absolute reference path', () => {
+    const r = validateProfile(
+      minimal({
+        references: [{ id: 'abs', path: '/etc/passwd', description: 'bad' }],
+      }),
+    )
+    expect(r.valid).toBe(false)
+    if (!r.valid) expect(r.errors.some((e) => e.rule === 6)).toBe(true)
+  })
+
+  // RULE 6 — backslash in path
+  it('rejects reference path with backslash', () => {
+    const r = validateProfile(
+      minimal({
+        references: [{ id: 'a', path: '..\\escape.md', description: 'x' }],
+      }),
+    )
+    expect(r.valid).toBe(false)
+  })
+
+  // RULE 7 — malformed entries
+  it('rejects malformed subagents.ids[] entries', () => {
+    const r = validateProfile(
+      minimal({
+        subagents: { ids: [{ id: 'x', required: true }, null as never, 42 as never] as never },
+      }),
+    )
+    expect(r.valid).toBe(false)
+    if (!r.valid) {
+      expect(r.errors.filter((e) => e.rule === 7).length).toBeGreaterThanOrEqual(2)
+    }
+  })
+
+  // RULE 7 — allowAny without ids
+  it('accepts subagents with allowAny only', () => {
+    const r = validateProfile(minimal({ subagents: { allowAny: true } }))
+    expect(r.valid).toBe(true)
+  })
+
+  // Empty optional arrays
+  it('accepts empty optional arrays', () => {
+    const r = validateProfile(minimal({ tools: [], references: [] }))
+    expect(r.valid).toBe(true)
+  })
+
   // RULE 7 subagents
   it('flags unknown subagent id when context provided', () => {
     const r = validateProfile(

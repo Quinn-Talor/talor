@@ -59,7 +59,7 @@ export function importAgent(zipBuffer: Buffer, agentsDir: string): ImportResult 
 
     const raw = readFileSync(agentJsonPath, 'utf-8')
     const json = JSON.parse(raw)
-    const result = validateProfile(json)
+    const result = validateProfile(json, { agentRoot: extractedDir })
 
     if (!result.valid) {
       const errMsg = result.errors.map((e) => `[rule ${e.rule}] ${e.path}: ${e.message}`).join('; ')

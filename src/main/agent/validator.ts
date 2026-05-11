@@ -157,12 +157,17 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
             path: `references[${i}].path`,
             message: 'must be non-empty string',
           })
-        } else if (isAbsolute(ref.path) || normalize(ref.path).startsWith('..')) {
+        } else if (
+          ref.path.includes('\\') ||
+          isAbsolute(ref.path) ||
+          normalize(ref.path).startsWith('..')
+        ) {
           errors.push({
             severity: 'error',
             rule: 6,
             path: `references[${i}].path`,
-            message: 'must be a relative path within agent dir (no .. or absolute paths)',
+            message:
+              'must be a relative path within agent dir (no .., absolute paths, or backslashes)',
           })
         } else if (ctx.agentRoot) {
           const full = resolve(ctx.agentRoot, ref.path)
@@ -203,7 +208,15 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
           })
         } else {
           sa.ids.forEach((s, i) => {
-            if (!s || typeof s !== 'object') return
+            if (!s || typeof s !== 'object') {
+              errors.push({
+                severity: 'error',
+                rule: 7,
+                path: `subagents.ids[${i}]`,
+                message: 'must be object',
+              })
+              return
+            }
             const sub = s as Record<string, unknown>
             if (typeof sub.id !== 'string' || !ID_RE.test(sub.id)) {
               errors.push({

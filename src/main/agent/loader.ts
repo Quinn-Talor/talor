@@ -47,7 +47,7 @@ export class AgentLoader {
       try {
         const raw = readFileSync(jsonPath, 'utf-8')
         const json = JSON.parse(raw)
-        // Schema 1.0: 不做向后兼容,旧格式 profile 直接 reject
+        // Schema 2.0: 不做向后兼容,1.0 格式 profile 直接 reject
         const result = validateProfile(json, { agentRoot: dirPath })
 
         if (!result.valid) {
