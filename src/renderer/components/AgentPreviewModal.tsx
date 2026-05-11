@@ -91,12 +91,12 @@ export function AgentPreviewModal({
     : []
   const subagentsRaw = profile.subagents as
     | {
-        list?: Array<{ id?: string; required?: boolean; purpose?: string }>
-        allowAnyBusinessSubagent?: boolean
+        ids?: Array<{ id?: string; required?: boolean; purpose?: string }>
+        allowAny?: boolean
       }
     | undefined
-  const subagents = subagentsRaw?.list ?? []
-  const allowAnyBusiness = subagentsRaw?.allowAnyBusinessSubagent === true
+  const subagents = subagentsRaw?.ids ?? []
+  const allowAnyBusiness = subagentsRaw?.allowAny === true
   const preferences = (profile.preferences as Record<string, unknown> | undefined) ?? {}
   const lockedModel = typeof preferences.modelId === 'string' ? preferences.modelId : ''
   const lockedProvider = typeof preferences.providerId === 'string' ? preferences.providerId : ''
