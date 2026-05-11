@@ -1,6 +1,6 @@
 // src/main/prompt/template-loader.ts — 基础设施层：prompt 模板统一加载
 //
-// 单一来源加载 agent-system-prompt.v1.md。
+// 单一来源加载 agent-system-prompt.v2.md。
 //
 // 设计：用 Vite `?raw` import 在编译期把模板内容内联进 bundle,
 // 解决 electron-builder 打包后 process.cwd() 路径不可用问题(审查偏差 #1)。
@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // Vite ?raw 编译期内联(production / dev / vitest 都生效)
-import inlinedTemplate from './templates/agent-system-prompt.v1.md?raw'
+import inlinedTemplate from './templates/agent-system-prompt.v2.md?raw'
 
 let cached: string | null = inlinedTemplate ?? null
 
@@ -25,7 +25,7 @@ export function loadAgentSystemPromptTemplate(): string {
   if (cached) return cached
   try {
     cached = readFileSync(
-      join(process.cwd(), 'src/main/prompt/templates/agent-system-prompt.v1.md'),
+      join(process.cwd(), 'src/main/prompt/templates/agent-system-prompt.v2.md'),
       'utf-8',
     )
   } catch {
