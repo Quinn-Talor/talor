@@ -6,6 +6,21 @@ import { tmpdir } from 'os'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
+// Template-loader mock: default returns the real inlined template via _resetTemplateCache-compatible
+// stub; individual tests can override forceEmpty to test the fallback path.
+const templateLoaderState = vi.hoisted(() => ({ forceEmpty: false }))
+vi.mock('../template-loader', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../template-loader')>()
+  return {
+    ...real,
+    loadAgentSystemPromptTemplate: () => {
+      if (templateLoaderState.forceEmpty) return ''
+      return real.loadAgentSystemPromptTemplate()
+    },
+    _resetTemplateCache: real._resetTemplateCache,
+  }
+})
+
 import { AgentPromptPlugin, _resetTemplateCache } from './AgentPromptPlugin'
 import { SkillRegistry } from '../../skills/registry'
 import type { PipelineContext } from '../types'
@@ -153,6 +168,30 @@ describe('AgentPromptPlugin (schema 2.0 template-driven)', () => {
     const agent = makeAgentStub(REVIEWER)
     const r = await plugin.build(createContext(agent))
     expect(r.tokenEstimate).toBeGreaterThan(10)
+  })
+
+  it('returns fallback identity string when template loader fails', async () => {
+    templateLoaderState.forceEmpty = true
+    try {
+      const agent = makeAgentStub({
+        schemaVersion: '2.0',
+        id: 'fallback-test',
+        name: 'FallbackAgent',
+        description: 'For testing fallback.',
+        version: '1.0.0',
+        agentPrompt: '',
+      })
+      const r = await plugin.build(createContext(agent))
+      expect(r.messages).toHaveLength(1)
+      expect((r.messages[0] as { role: string; content: string }).content).toContain(
+        'You are "FallbackAgent"',
+      )
+      expect((r.messages[0] as { role: string; content: string }).content).toContain(
+        'For testing fallback.',
+      )
+    } finally {
+      templateLoaderState.forceEmpty = false
+    }
   })
 
   describe('skill listing', () => {

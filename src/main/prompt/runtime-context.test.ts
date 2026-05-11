@@ -40,39 +40,39 @@ const BUSINESS_PROFILE: AgentProfile = {
 describe('buildRuntimeContext', () => {
   it('name passes through verbatim', () => {
     const agent = makeAgentStub(PLATFORM_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.name).toBe('Talor')
   })
 
   it('description passes through verbatim', () => {
     const agent = makeAgentStub(PLATFORM_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.description).toBe('Your AI assistant.')
   })
 
   it('agentPrompt passes through verbatim', () => {
     const agent = makeAgentStub(BUSINESS_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.agentPrompt).toBe(BUSINESS_PROFILE.agentPrompt)
   })
 
   it('hasReferences false when profile has no references', () => {
     const agent = makeAgentStub(PLATFORM_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.hasReferences).toBe(false)
     expect(ctx.references).toHaveLength(0)
   })
 
   it('hasReferences true when profile has references', () => {
     const agent = makeAgentStub(BUSINESS_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.hasReferences).toBe(true)
     expect(ctx.references).toHaveLength(2)
   })
 
   it('references preserve id / path / description', () => {
     const agent = makeAgentStub(BUSINESS_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     const ref = ctx.references[0] as ReferenceFile
     expect(ref.id).toBe('eng_rules')
     expect(ref.path).toBe('references/rules.md')
@@ -81,20 +81,20 @@ describe('buildRuntimeContext', () => {
 
   it('criticalRoleConstraints set only for __chat__', () => {
     const chatAgent = makeAgentStub(PLATFORM_PROFILE)
-    const chatCtx = buildRuntimeContext(chatAgent, { iterationNumber: 0, tokensUsed: 0 })
+    const chatCtx = buildRuntimeContext(chatAgent)
     expect(chatCtx.criticalRoleConstraints.length).toBeGreaterThan(0)
     expect(chatCtx.criticalRoleConstraints.join(' ')).toMatch(/delegate/i)
   })
 
   it('criticalRoleConstraints empty for non-__chat__ agents', () => {
     const agent = makeAgentStub(BUSINESS_PROFILE)
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.criticalRoleConstraints).toHaveLength(0)
   })
 
   it('hasSkillListing false when registry is empty', () => {
     const agent = makeAgentStub(PLATFORM_PROFILE, SkillRegistry.fromDir(null))
-    const ctx = buildRuntimeContext(agent, { iterationNumber: 0, tokensUsed: 0 })
+    const ctx = buildRuntimeContext(agent)
     expect(ctx.hasSkillListing).toBe(false)
     expect(ctx.skillListing).toBe('')
   })

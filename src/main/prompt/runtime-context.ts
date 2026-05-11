@@ -8,14 +8,7 @@
 // 禁止依赖: ipc/*
 
 import type { Agent } from '../agent/agent'
-import type { AgentProfile, ReferenceFile } from '@shared/types/agent'
-
-export interface RuntimeIterationState {
-  /** ReAct iteration 计数 (0-based) — 当前 v2.0 模板不用,保留供后续扩展 */
-  iterationNumber: number
-  /** 累计 token 用量 — 当前 v2.0 模板不用,保留供后续扩展 */
-  tokensUsed: number
-}
+import type { ReferenceFile } from '@shared/types/agent'
 
 export interface TemplateContext {
   // ── 顶层标识 (模板直接读) ──
@@ -35,7 +28,7 @@ export interface TemplateContext {
   skillListing: string
 }
 
-export function buildRuntimeContext(agent: Agent, _state: RuntimeIterationState): TemplateContext {
+export function buildRuntimeContext(agent: Agent): TemplateContext {
   const p = agent.profile
   const references = p.references ?? []
 
@@ -89,6 +82,3 @@ function renderSkillListing(skillRegistry: {
 
   return `## Available Skills\n\nEach entry is an encapsulated capability. Use via \`skill\` tool. The "When to use" line lists trigger phrases — match the user's input against these to pick a skill.\n\n${listing}`
 }
-
-// Re-export for back-compat (Profile is no longer the prompt shape itself)
-export type { AgentProfile }
