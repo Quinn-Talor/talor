@@ -855,7 +855,7 @@ describe('runReactLoop — empty toolResults disambiguation', () => {
           toolResults: Promise.resolve([]),
         }
       }
-      params.onChunk?.({ chunk: { type: 'text-delta', text: 'done' } })
+      params.onChunk?.({ chunk: { type: 'text-delta', text: 'done\n\n✓ Done' } })
       return {
         consumeStream: vi.fn().mockResolvedValue(undefined),
         toolResults: Promise.resolve([]),
@@ -1031,7 +1031,7 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
   }
 
   it('AC-6-1: first step has expand=false, used=[]', async () => {
-    setupScriptedSteps([{ toolNames: [], text: 'done' }])
+    setupScriptedSteps([{ toolNames: [], text: 'done\n\n✓ Done' }])
     const buildFn = vi
       .fn()
       .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
@@ -1049,7 +1049,7 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
     setupScriptedSteps([
       { toolNames: ['search_tool'] },
       { toolNames: ['m1'] },
-      { toolNames: [], text: 'done' },
+      { toolNames: [], text: 'done\n\n✓ Done' },
     ])
     const buildFn = vi
       .fn()
@@ -1076,7 +1076,7 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
       { toolNames: ['m1'] }, // step 2: expand=false, used=[m1], reuse m1
       { toolNames: ['search_tool'] }, // step 3: still used=[m1], next expand
       { toolNames: ['m2'] }, // step 4: expand=true, picks m2
-      { toolNames: [], text: 'done' },
+      { toolNames: [], text: 'done\n\n✓ Done' },
     ])
     const buildFn = vi
       .fn()
@@ -1103,7 +1103,7 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
       { toolNames: ['read', 'bash'] }, // builtin only
       { toolNames: ['search_tool'] },
       { toolNames: ['m1', 'glob'] }, // mix MCP + builtin
-      { toolNames: [], text: 'done' },
+      { toolNames: [], text: 'done\n\n✓ Done' },
     ])
     const buildFn = vi
       .fn()
@@ -1123,7 +1123,7 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
     setupScriptedSteps([
       // Hypothetical: model calls search_tool AND m1 in same step (parallel)
       { toolNames: ['search_tool', 'm1'] },
-      { toolNames: [], text: 'done' },
+      { toolNames: [], text: 'done\n\n✓ Done' },
     ])
     const buildFn = vi
       .fn()
@@ -1137,5 +1137,186 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
 
     const flags = captureFlags(buildFn)
     expect(flags[1]).toEqual({ expand: true, used: ['m1'] })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────
+// Fix C — Rule 13 termination-marker handling
+// ─────────────────────────────────────────────────────────────────────────
+describe('runReactLoop — Rule 13 marker enforcement', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockBuildTools.mockResolvedValue(undefined)
+  })
+
+  function setupScriptedSteps(scripts: Array<{ toolNames: string[]; text?: string }>) {
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
+      const script = scripts[stepIdx] ?? scripts[scripts.length - 1] ?? { toolNames: [] }
+      stepIdx++
+      const text = script.text ?? ''
+      if (text) params.onChunk?.({ chunk: { type: 'text-delta', text } })
+      const toolCalls: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
+      script.toolNames.forEach((name, i) => {
+        const toolCallId = `tc-${stepIdx}-${i}`
+        fireToolCall(params, toolCallId, name, { idx: i }, `${name} ok`)
+        toolCalls.push({ toolCallId, toolName: name, input: { idx: i } })
+      })
+      const toolResults = toolCalls.map((tc) => ({
+        type: 'tool-result' as const,
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        input: tc.input,
+        output: `${tc.toolName} ok`,
+        dynamic: true as const,
+      }))
+      return {
+        consumeStream: vi.fn().mockResolvedValue(undefined),
+        toolResults: Promise.resolve(toolResults),
+      }
+    })
+  }
+
+  it('含 ✓ Done marker → 单步 exit,落 final 用 ctx.messageId', async () => {
+    setupScriptedSteps([{ toolNames: [], text: 'task complete\n\n✓ Done — finished' }])
+    const opts = makeOpts()
+    await runReactLoop(opts)
+
+    // 单次 messageRepo.create 调用,且 id === messageId (final 标记)
+    expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+    const call = mockMessageCreate.mock.calls[0][0]
+    expect(call.id).toBe(opts.messageId)
+    expect(call.role).toBe('assistant')
+  })
+
+  it('含 ❓ Need input marker → 单步 exit', async () => {
+    setupScriptedSteps([
+      { toolNames: [], text: 'I need your input.\n\n❓ Need input — workspace path?' },
+    ])
+    const opts = makeOpts()
+    await runReactLoop(opts)
+    expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+    expect(mockMessageCreate.mock.calls[0][0].id).toBe(opts.messageId)
+  })
+
+  it('含 ⏸ Blocked marker → 单步 exit', async () => {
+    setupScriptedSteps([{ toolNames: [], text: 'Cannot proceed.\n\n⏸ Blocked — missing API key' }])
+    const opts = makeOpts()
+    await runReactLoop(opts)
+    expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+    expect(mockMessageCreate.mock.calls[0][0].id).toBe(opts.messageId)
+  })
+
+  it('无 marker → 自动继续,intermediate persist 用新 uuid 不是 ctx.messageId', async () => {
+    // step 0: 无 marker 文本 → intermediate,继续
+    // step 1: 有 marker → final exit
+    setupScriptedSteps([
+      { toolNames: [], text: 'preparing to start' },
+      { toolNames: [], text: 'task done\n\n✓ Done' },
+    ])
+    const opts = makeOpts({ maxSteps: 5 })
+    await runReactLoop(opts)
+
+    // 两次 create:第一次 intermediate (新 uuid),第二次 final (ctx.messageId)
+    expect(mockMessageCreate).toHaveBeenCalledTimes(2)
+    expect(mockMessageCreate.mock.calls[0][0].id).not.toBe(opts.messageId)
+    expect(mockMessageCreate.mock.calls[1][0].id).toBe(opts.messageId)
+  })
+
+  it('无 marker → 下一步注入 PENDING_MARKER_HINT', async () => {
+    // step 0 无 marker → step 1 应该收到 hint
+    setupScriptedSteps([
+      { toolNames: [], text: 'thinking...' },
+      { toolNames: [], text: 'now done\n\n✓ Done' },
+    ])
+    const buildFn = vi
+      .fn()
+      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+    const opts = makeOpts({
+      maxSteps: 5,
+      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
+    })
+    await runReactLoop(opts)
+
+    // streamText 在第 2 次 step 调用时,messages 应包含 PENDING_MARKER_HINT system message
+    const secondStepStreamCall = mockStreamText.mock.calls[1][0] as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const hintInjected = secondStepStreamCall.messages.some(
+      (m) => m.role === 'system' && m.content.includes('[Turn-end check]'),
+    )
+    expect(hintInjected).toBe(true)
+  })
+
+  it('连续 3 次无 marker → 触发 forced closure summary,落 [forced-closure] 消息', async () => {
+    // 前 3 步用 onChunk + consumeStream 模式 (runReactStep);
+    // 第 4 次调 streamText 是 forced closure 内部,用 textStream 异步迭代器消费。
+    let call = 0
+    mockStreamText.mockImplementation((params: StreamTextParams) => {
+      call++
+      if (call <= 3) {
+        params.onChunk?.({ chunk: { type: 'text-delta', text: `step ${call} text` } })
+        return {
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+          toolResults: Promise.resolve([]),
+        }
+      }
+      // forced closure 用 textStream
+      return {
+        textStream: (async function* () {
+          yield 'forced summary text'
+        })(),
+      }
+    })
+
+    const opts = makeOpts({ maxSteps: 10 })
+    await runReactLoop(opts)
+
+    // create 调用:3 次 intermediate + 1 次 forced-closure 总 = 4 次
+    expect(mockMessageCreate.mock.calls.length).toBeGreaterThanOrEqual(4)
+    // 最后一次 create 的内容含 [forced-closure] 前缀 + 服务端补的 ⏸ Blocked 兜底
+    const lastCreate = mockMessageCreate.mock.calls[mockMessageCreate.mock.calls.length - 1][0] as {
+      content: Array<{ type: string; text: string }>
+    }
+    const lastText = lastCreate.content[0].text
+    expect(lastText).toContain('[forced-closure]')
+    // forced summary 模型输出没 marker,服务端自动补 ⏸ Blocked
+    expect(lastText).toContain('⏸ Blocked')
+  })
+
+  it('有工具调用 → 重置 no-marker 计数', async () => {
+    // step 0 无 marker → count=1
+    // step 1 调工具 → count reset 0
+    // step 2 无 marker → count=1
+    // step 3 无 marker → count=2
+    // step 4 有 marker → exit (正常 final)
+    setupScriptedSteps([
+      { toolNames: [], text: 'pondering' },
+      { toolNames: ['t1'], text: '' }, // 调工具,reset
+      { toolNames: [], text: 'still pondering' },
+      { toolNames: [], text: 'almost there' },
+      { toolNames: [], text: 'task complete\n\n✓ Done' },
+    ])
+    const opts = makeOpts({
+      maxSteps: 10,
+      agent: {
+        id: '__chat__',
+        toolRegistry: {
+          listTools: () => [{ name: 't1', description: '', parameters: {} }],
+          getToolNames: () => ['t1'],
+          listMcpTools: () => [],
+          execute: vi.fn(),
+        },
+      } as unknown as ReactLoopOptions['agent'],
+    })
+    await runReactLoop(opts)
+
+    // 不应触发 forced closure (因为工具调用 reset 了 counter)
+    const calls = mockMessageCreate.mock.calls
+    const hasForceClosure = calls.some((c) => {
+      const content = (c[0] as { content: Array<{ text: string }> }).content
+      return content[0]?.text?.includes('[forced-closure]')
+    })
+    expect(hasForceClosure).toBe(false)
   })
 })

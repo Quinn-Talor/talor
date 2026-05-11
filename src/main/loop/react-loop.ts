@@ -53,6 +53,44 @@ const DEFAULT_MAX_STEPS = 1000
 const SEPARATOR = '──────────────────────────────────────────'
 const DOUBLE_SEPARATOR = '══════════════════════════════════════════'
 
+/**
+ * BEHAVIORAL_CHARTER Rule 13 的三种合法终止 marker。
+ * 任一出现在 step 的 final text 中即视为模型显式声明 turn 终止状态。
+ *
+ * 与 SystemPlugin.BEHAVIORAL_CHARTER 同步;若那里调整 marker 文本,本处必须同步。
+ */
+const TERMINATION_MARKERS = ['✓ Done', '❓ Need input', '⏸ Blocked'] as const
+
+/**
+ * 连续多少次"无 tool_call 且无 marker"后强制收尾。
+ *
+ * 单次无 marker = 注入 hint 让模型选择;3 次连续无 marker = 模型一直在
+ * "promise then stop" 反模式,触发 forced closure。
+ *
+ * 阈值 3 给模型 2 次自我修正机会:第 1 次无 marker(自动继续)→ 第 2 次有 marker
+ * 或工具调用即 reset → 链断。只有连续 3 次无 marker 才确认是死循环式失败。
+ */
+const NO_MARKER_LIMIT = 3
+
+/**
+ * 检测 step text 是否含 Rule 13 三种 marker 之一。
+ *
+ * 含 → 视为模型显式终止 turn,react-loop 正常 exit。
+ * 不含 → 视为 "未完成,模型想停" — 自动继续循环,注入 hint。
+ *
+ * 边界:marker 文本来自 BEHAVIORAL_CHARTER,UI/弱模型可能输出全角变体(如 "✔ Done"
+ * 或 "Done") — 严格 includes 不识别这些。设计选择:接受少量假阴(模型说 "已完成"
+ * 但没用 ✓ → 被当作未完成继续一次,下次模型再发现需要 marker 就会加上)。这是
+ * "教模型用准确 marker" 的代价,比含糊匹配产生假阳要好。
+ */
+function hasTerminationMarker(text: string): boolean {
+  if (!text) return false
+  for (const marker of TERMINATION_MARKERS) {
+    if (text.includes(marker)) return true
+  }
+  return false
+}
+
 // ── 内部类型 ────────────────────────────────────────────────────────────
 
 /** 单步 ReAct 所需的全部上下文（从 ReactLoopOptions 投射，去掉 maxSteps 等循环级参数）。 */
@@ -116,7 +154,9 @@ interface StepOutcome {
 
 /** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
 type LoopExitReason =
-  | 'no_tool_calls' // 模型不再调用工具（正常终态）
+  | 'no_tool_calls' // 模型不再调用工具 + Rule 13 marker 已声明（正常终态）
+  | 'no_tool_calls_no_marker' // 模型无工具且无 marker(内部信号,主循环用此判定继续 vs force closure)
+  | 'no_marker_max_attempts' // 连续 NO_MARKER_LIMIT 次无 marker → 强制 closure summary
   | 'empty_text' // 模型既无工具调用也无文本（触发兜底）
   | 'abort' // 调用方主动中止
   | 'max_steps' // 达到步数上限
@@ -464,30 +504,71 @@ async function runReactStep(
     const durationMs = Date.now() - stepStart
     const toolNames = stepToolCalls.map((tc) => tc.toolName)
 
-    // 无工具调用 → 本次推理结束（正常终态）
+    // 无工具调用 → 推理可能结束,也可能"模型想停但没收尾"。
+    // 区分依据:Rule 13 终止 marker (✓ Done / ❓ Need input / ⏸ Blocked)。
     if (stepToolCalls.length === 0) {
       if (stepText) {
-        log.info(`[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms]`)
-        log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
-        const finalParts: AssistantContent = []
-        if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
-        finalParts.push({ type: 'text', text: stepText })
+        const hasMarker = hasTerminationMarker(stepText)
+
+        if (hasMarker) {
+          // 显式终止 — 落 final (复用 ctx.messageId,前端等的就是这个 ID)
+          log.info(
+            `[ReactLoop]   → text: ${stepText.length} chars (no tools, has Rule 13 marker) [${durationMs}ms]`,
+          )
+          log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
+          const finalParts: AssistantContent = []
+          if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
+          finalParts.push({ type: 'text', text: stepText })
+          messageRepo.create({
+            id: ctx.messageId,
+            session_id: ctx.sessionId,
+            role: 'assistant',
+            content: finalParts,
+            agent_id: ctx.agentId,
+          })
+          sessionRepo.touch(ctx.sessionId)
+          persisted = true
+          return {
+            stepText,
+            wroteAssistantFinal: true,
+            shouldContinue: false,
+            durationMs,
+            toolNames,
+            exitReason: 'no_tool_calls',
+            signature: '',
+            allToolsFailed: null,
+            containsSubagentFailure: false,
+          }
+        }
+
+        // 无 marker — 视为 "未完成,模型想停" → 落 intermediate (新 uuid) + 强制循环继续。
+        // 主循环 (runReactLoop) 看到 exitReason='no_tool_calls_no_marker' 后:
+        //   1. 累加 noMarkerExits 计数
+        //   2. 给下一步注入 hint("用 marker 收尾 或 继续调工具")
+        //   3. 达 NO_MARKER_LIMIT (3) 后调 runForcedClosureSummary 强制收尾
+        log.info(
+          `[ReactLoop]   → text: ${stepText.length} chars (no tools, NO Rule 13 marker) [${durationMs}ms] — continuing loop`,
+        )
+        log.info(`[ReactLoop]   → persist: assistant(text) [intermediate]`)
+        const intermediateParts: AssistantContent = []
+        if (stepReasoning) intermediateParts.push({ type: 'reasoning', text: stepReasoning })
+        intermediateParts.push({ type: 'text', text: stepText })
         messageRepo.create({
-          id: ctx.messageId,
+          id: uuidv4(),
           session_id: ctx.sessionId,
           role: 'assistant',
-          content: finalParts,
+          content: intermediateParts,
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
         persisted = true
         return {
           stepText,
-          wroteAssistantFinal: true,
-          shouldContinue: false,
+          wroteAssistantFinal: false,
+          shouldContinue: true,
           durationMs,
           toolNames,
-          exitReason: 'no_tool_calls',
+          exitReason: 'no_tool_calls_no_marker',
           signature: '',
           allToolsFailed: null,
           containsSubagentFailure: false,
@@ -751,6 +832,108 @@ const FAILURE_STREAK_GUARDRAIL: ModelMessage = {
     '"I was unable to complete the task because <verbatim summary of last tool error>. Please advise."',
 }
 
+/**
+ * Rule 13 marker 缺失时给下一步的 system hint。
+ *
+ * 触发条件:上一步 stepText 非空 + 无 tool_call + 不含 ✓/❓/⏸ 任一 marker。
+ * 主循环把它和 failureHint 走同一通道 (system message 注入),
+ * failureHint 优先级更高(它意味着更严重的状态)。
+ */
+const PENDING_MARKER_HINT =
+  '[Turn-end check] Your previous reply ended without a tool call AND without any of the required ' +
+  'termination markers (✓ Done / ❓ Need input / ⏸ Blocked). This means "task not yet finished, ' +
+  'but you decided to stop" — which is a bug (Rule 12 + Rule 13). Choose now:\n' +
+  '  (a) Continue the work — invoke the next tool this step.\n' +
+  '  (b) Close the turn explicitly with one of the three markers as the LAST line of your text:\n' +
+  '        ✓ Done — task is actually complete; describe the result above.\n' +
+  '        ❓ Need input — say exactly what you need from the user.\n' +
+  '        ⏸ Blocked — quote the specific blocker (missing capability / permission / file / data).\n' +
+  'Do NOT stop again without either a tool call or one of these markers. Silent stop = bug.'
+
+/**
+ * 连续 NO_MARKER_LIMIT 次无 marker → 强制收尾的 guardrail。
+ *
+ * 与 FAILURE_STREAK_GUARDRAIL 类似(都是禁工具的最后一步),但内容针对 marker 缺失:
+ * 强制模型选一个 marker 作为 LAST line,不允许再无标记停。
+ */
+const FORCED_CLOSURE_GUARDRAIL: ModelMessage = {
+  role: 'system',
+  content:
+    `[Forced closure mode]\n` +
+    `You have ended ${NO_MARKER_LIMIT} consecutive replies without a tool call AND without ` +
+    `any termination marker. Tools are now DISABLED for this final response. You MUST output ` +
+    `text whose LAST line is one of:\n` +
+    `  ✓ Done — <one-line summary of what was accomplished, based on the conversation above>\n` +
+    `  ❓ Need input — <one sentence on exactly what you need the user to provide>\n` +
+    `  ⏸ Blocked — <one sentence on the specific blocker, quoting the relevant error if any>\n` +
+    `Pick the marker that honestly reflects the state. If you genuinely cannot judge, use ⏸ Blocked ` +
+    `and say "Cannot determine task state — please advise." Do NOT add any text after the marker line. ` +
+    `Do NOT invent facts not present in the conversation.`,
+}
+
+async function runForcedClosureSummary(
+  ctx: StepContext,
+  stepIndex: number,
+  noMarkerCount: number,
+): Promise<void> {
+  log.info(
+    `[ReactLoop] ${SEPARATOR} forced closure (no-marker count=${noMarkerCount}) ${SEPARATOR}`,
+  )
+  const summaryStart = Date.now()
+  try {
+    const summaryCtx = {
+      sessionId: ctx.sessionId,
+      currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
+      provider: ctx.provider,
+      providerConfig: ctx.providerConfig,
+      workspacePath: ctx.workspace || undefined,
+      agent: ctx.agent,
+      skillTracker: ctx.skillTracker,
+      events: ctx.events,
+    }
+    const { messages } = await ctx.pipeline.build(summaryCtx)
+    const summaryResult = streamText({
+      model: ctx.model,
+      messages: [...messages, FORCED_CLOSURE_GUARDRAIL],
+      abortSignal: buildStreamSignal(ctx.abortSignal),
+    })
+    let summaryText = ''
+    for await (const chunk of summaryResult.textStream) {
+      summaryText += chunk
+      ctx.callbacks.onTextDelta(chunk, stepIndex)
+    }
+    const durationMs = Date.now() - summaryStart
+    // 兜底:模型如果还是没 marker,服务端补一个 ⏸ Blocked
+    const cleaned = hasTerminationMarker(summaryText)
+      ? summaryText
+      : `${summaryText.trim() || 'Cannot determine task state.'}\n\n⏸ Blocked — model failed to provide explicit closure after ${noMarkerCount} attempts; please re-engage.`
+    messageRepo.create({
+      id: uuidv4(),
+      session_id: ctx.sessionId,
+      role: 'assistant',
+      content: [{ type: 'text', text: `[forced-closure]\n${cleaned}` }],
+      agent_id: ctx.agentId,
+    })
+    sessionRepo.touch(ctx.sessionId)
+    log.info(`[ReactLoop]   → forced closure summary: ${cleaned.length} chars [${durationMs}ms]`)
+  } catch (err) {
+    log.error(`[ReactLoop]   → forced closure failed [${Date.now() - summaryStart}ms]:`, err)
+    messageRepo.create({
+      id: uuidv4(),
+      session_id: ctx.sessionId,
+      role: 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: `[forced-closure failed]\n⏸ Blocked — internal error during forced closure after ${noMarkerCount} no-marker attempts. Please retry.`,
+        },
+      ],
+      agent_id: ctx.agentId,
+    })
+    sessionRepo.touch(ctx.sessionId)
+  }
+}
+
 async function runFailureStreakSummary(
   ctx: StepContext,
   stepIndex: number,
@@ -997,6 +1180,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   let consecutiveRepeatCount = 0
   let consecutiveFailureCount = 0
   let consecutiveToolOnlySteps = 0
+  // Rule 13 marker 缺失计数。
+  //   - 模型某步无 tool + 无 marker → +1 + 下一步注入 PENDING_MARKER_HINT
+  //   - 模型某步有 marker 或调工具 → reset to 0
+  //   - 达 NO_MARKER_LIMIT → 调 runForcedClosureSummary 强制收尾
+  let consecutiveNoMarkerExits = 0
   // 累积可见策略（方案 C）：
   //   - mcpExpandThisStep: 一次性"全集"展示——
   //       · turn 第一步默认 true（若已连接任何 MCP server），让模型直接看到
@@ -1026,13 +1214,17 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
           `and ask the user for guidance. Do NOT repeat the same approach.`
         : null
 
+    // Rule 13 marker hint:上一步出现 "无 tool + 无 marker" 即注入,引导模型选择
+    // 继续干活或显式收尾。failureHint 优先级更高(失败更严重),两者通过 ?? 合并。
+    const markerHintMessage = consecutiveNoMarkerExits > 0 ? PENDING_MARKER_HINT : null
+
     const outcome = await runReactStep(
       ctx,
       step,
       maxSteps,
       mcpExpandThisStep,
       Array.from(usedMcpToolNames),
-      failureHintMessage,
+      failureHintMessage ?? markerHintMessage,
     )
     // 默认下一步不再扩展；search_tool 调用会再次置 true
     let nextExpand = false
@@ -1117,6 +1309,28 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       }
     } else if (outcome.stepText.trim() !== '') {
       consecutiveToolOnlySteps = 0
+    }
+
+    // Rule 13 marker 处理。runReactStep 已经在"无 tool+无 marker"时把 outcome.shouldContinue
+    // 设为 true 强制循环继续,这里只负责计数和 forced-closure 阈值判定。
+    if (outcome.exitReason === 'no_tool_calls_no_marker') {
+      consecutiveNoMarkerExits++
+      log.info(
+        `[ReactLoop] no-marker exit detected (count=${consecutiveNoMarkerExits}/${NO_MARKER_LIMIT})`,
+      )
+      if (consecutiveNoMarkerExits >= NO_MARKER_LIMIT) {
+        log.warn(
+          `[ReactLoop] no-marker streak: ${consecutiveNoMarkerExits} consecutive steps ended without marker. Forcing closure.`,
+        )
+        await runForcedClosureSummary(ctx, totalSteps, consecutiveNoMarkerExits)
+        wroteAssistantFinal = true
+        exitReason = 'no_marker_max_attempts'
+        break
+      }
+    } else if (outcome.toolNames.length > 0 || hasTerminationMarker(outcome.stepText)) {
+      // 有工具调用 或 有 marker → reset。
+      // 注:有 marker 的 final exit 也会走这里(在 shouldContinue=false break 之前 reset)。
+      consecutiveNoMarkerExits = 0
     }
 
     if (!outcome.shouldContinue) {

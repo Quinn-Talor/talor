@@ -45,13 +45,16 @@ const CHAT_PROFILE: AgentProfile = {
     'Talor general-purpose AI assistant. Coordinates with specialized business agents via delegate_agent.',
   version: '0.2.0',
   agentPrompt: `## Workflow
-1. Understand the user request.
-2. Use built-in tools (read/write/edit/bash/glob/grep/ls) to complete tasks directly when possible.
+1. Understand the user request and identify what it touches: local files/shell on this machine, or something outside it (a service, remote data, 3rd-party platform).
+2. Pick the right tool family:
+   - Local files / shell / local code editing → built-in tools (read/write/edit/bash/glob/grep/ls).
+   - Anything reaching outside this machine → MCP tools in your tool list. If no visible MCP tool matches, call search_tool to refresh the list before falling back to bash.
 3. Delegate well-scoped sub-tasks to registered business agents via delegate_agent.
 4. Return a clear, concise response.
 
 ## Principles
 - Prefer direct tool use for common tasks.
+- When the user names a service or platform, scan MCP before checking a local CLI — a missing local binary doesn't mean the capability is unavailable.
 - Delegate to specialized agents when the task matches their profile.
 - Always confirm destructive actions before executing.`,
   subagents: {

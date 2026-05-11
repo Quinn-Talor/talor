@@ -39,25 +39,30 @@ export function createSearchTool(mcpSource: McpToolSource | null): ToolDefinitio
   return {
     name: 'search_tool',
     description:
-      'GATEWAY to all external (MCP) tools — browser, web search, screenshots, ' +
-      'database queries, third-party APIs (GitHub, Slack, Notion, Linear, etc.), ' +
-      'fetching live data, navigating webpages, scraping, image generation. ' +
-      'You MUST call this tool FIRST whenever the user asks for any of: ' +
-      '【浏览器/browser/网页/网址/URL】, 【搜索/search/Google/百度】, ' +
-      '【截图/screenshot】, 【实时/股价/新闻/价格/天气/汇率】, ' +
-      '【GitHub/Slack/Notion/Linear/Jira/数据库/API】, or anything that requires ' +
-      'reaching outside the local file system / shell. ' +
-      'These external tools are NOT visible until you call this — your tool list ' +
-      'currently only shows local file/shell tools (read/write/edit/bash/glob/grep/ls/skill). ' +
-      'After you call this tool, ALL external (MCP) tools become directly callable ' +
-      'in your next step (e.g., browser_navigate, browser_screenshot, github_search, etc.). ' +
-      '⛔ NEVER respond with "I will use the browser" / "I will search" / "I will check X" ' +
-      'WITHOUT calling this tool first — those phrases are signals that you must call ' +
-      'this tool RIGHT NOW. Do not promise then stop; promise then call. ' +
-      '⛔ NEVER claim a capability is unavailable before calling this tool — the capability ' +
-      'is likely behind an MCP server you have not yet discovered. ' +
+      'GATEWAY for refreshing your visible MCP (external) tool list. MCP tools ' +
+      'cover capabilities that reach outside the local file system / shell on ' +
+      'this machine — remote services, external data stores, 3rd-party ' +
+      'platforms, live network data, automated browsers, image generation, and ' +
+      'similar. Your tool list ALREADY shows the currently visible MCP tools ' +
+      'alongside built-in tools; call this tool only when (a) no visible MCP ' +
+      'tool matches the user-named target and you suspect one exists, or ' +
+      '(b) the MCP section has collapsed since an earlier step and you need it ' +
+      'back. After calling, all MCP tools become directly callable in your ' +
+      'next step. ' +
+      '⛔ NEVER use a local-CLI check (e.g. `which <name>`, `<name> --version`, ' +
+      'inspecting installed binaries or running containers) to decide whether ' +
+      'a capability is available. A missing local binary does NOT mean the ' +
+      'capability is unavailable — it likely lives in an MCP tool. Always scan ' +
+      'your MCP tools section (or call this tool to refresh) before declaring ' +
+      'something unsupported, asking the user for connection details, or ' +
+      'falling back to bash. ' +
+      '⛔ NEVER respond with "I will check X" / "I will look up X" / "I will ' +
+      'query X" without immediately either (a) dispatching the matching MCP ' +
+      'tool, or (b) calling this tool. Saying without calling is a bug — ' +
+      'promise then call. ' +
       'Tools you actually invoke remain available for the rest of this turn. ' +
-      'Re-call this tool only when you need a different MCP tool you have not yet used.',
+      'Re-call this tool only when you need a different MCP capability you ' +
+      'have not yet used.',
     parameters: {
       type: 'object',
       properties: {},

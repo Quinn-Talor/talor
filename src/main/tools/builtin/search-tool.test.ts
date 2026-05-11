@@ -131,6 +131,35 @@ describe('search-tool', () => {
       expect(tool.description).toMatch(/MCP/)
       expect(tool.description).toMatch(/next step/i)
     })
+
+    it('description 通用化:不硬编码具体服务/产品名', () => {
+      const tool = createSearchTool(null)
+      // 不触发:具体服务名不应出现在 description 里,避免遗漏新场景时模型不会泛化
+      expect(tool.description).not.toMatch(/MySQL|PostgreSQL|MongoDB|Redis|SQLite/i)
+      expect(tool.description).not.toMatch(/GitHub|Slack|Notion|Linear|Jira/i)
+      expect(tool.description).not.toMatch(/browser_navigate|browser_screenshot|github_search/)
+    })
+
+    it('description 描述能力边界 (local file/shell vs external)', () => {
+      const tool = createSearchTool(null)
+      // 触发:讲清楚"本机以外"的能力边界
+      expect(tool.description).toMatch(/outside the local file system \/ shell/i)
+      expect(tool.description).toMatch(/remote services|external data stores|3rd-party platforms/i)
+    })
+
+    it('description 明确警告 `which <name>` 反模式', () => {
+      const tool = createSearchTool(null)
+      // 触发:点名 `which` 反模式,避免模型用本机 CLI 检查判定能力可用性
+      expect(tool.description).toMatch(/which <name>|`which/i)
+      expect(tool.description).toMatch(/missing local binary does NOT mean/i)
+    })
+
+    it('description 警告"promise without call"反模式', () => {
+      const tool = createSearchTool(null)
+      // 触发:点名"说了不做"的常见 bug
+      expect(tool.description).toMatch(/I will check X|I will look up X|I will query X/)
+      expect(tool.description).toMatch(/Saying without calling is a bug/)
+    })
   })
 
   it('does not import or use console (uses electron-log)', () => {

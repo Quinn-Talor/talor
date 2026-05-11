@@ -72,6 +72,21 @@ describe('AgentManager (schema 2.0)', () => {
     expect(chat.profile.schemaVersion).toBe('2.0')
   })
 
+  it('AC-022: __chat__.agentPrompt 区分 local-builtin 与 external-MCP 两类工具家族', () => {
+    const chat = manager.getChatAgent()
+    const prompt = chat.profile.agentPrompt
+    // 触发:两类工具家族明确分开
+    expect(prompt).toMatch(/built-in/i)
+    expect(prompt).toMatch(/MCP/)
+    // 引到 search_tool 作为外部能力入口
+    expect(prompt).toMatch(/search_tool/)
+    // 警告"用本地 CLI 判可用性"的反模式
+    expect(prompt).toMatch(/local CLI|local binary/i)
+    // 不触发:不硬编码具体服务/产品名,保持通用
+    expect(prompt).not.toMatch(/MySQL|PostgreSQL|MongoDB|Redis|SQLite/i)
+    expect(prompt).not.toMatch(/GitHub|Slack|Notion|Linear|Jira/i)
+  })
+
   it('platform __chat__ has all tools (empty whitelist means all)', () => {
     const chat = manager.getAgent('__chat__')!
     const tools = chat.toolRegistry.getToolNames()
