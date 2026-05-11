@@ -8,7 +8,7 @@ import {
   isRegisteredModel,
 } from './registry'
 
-describe('Provider registry (schema 1.0)', () => {
+describe('Provider registry', () => {
   it('AC-090: DEFAULT_MODEL is claude-opus-4-7', () => {
     expect(DEFAULT_MODEL).toBe('claude-opus-4-7')
   })
