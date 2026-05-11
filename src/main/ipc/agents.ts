@@ -617,22 +617,22 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         //   <root>/README.md        — 自动生成给人看的元数据
         mkdirSync(targetDir, { recursive: true })
         mkdirSync(join(targetDir, 'skills'), { recursive: true })
-        mkdirSync(join(targetDir, 'knowledge'), { recursive: true })
+        mkdirSync(join(targetDir, 'references'), { recursive: true })
 
-        // P1: 物理化 knowledge[type='file']
-        // LLM 可能写绝对路径(workspace 内的文件)或相对路径,尝试从这些来源复制到 <root>/knowledge/<basename>:
+        // P1: 物理化 references[]
+        // LLM 可能写绝对路径(workspace 内的文件)或相对路径,尝试从这些来源复制到 <root>/references/<basename>:
         //   1. 路径已经是绝对路径 + 文件存在 → 直接 cp
         //   2. 路径相对于 workbench session 的 source workspace → cp
         //   3. 都没找到 → 保留 entry,dep-checker 会标 missing,UI 警告用户
-        // 复制后 path 改写为 './knowledge/<basename>',让 agent 自包含且导出 .talor-pack 时整目录跟带
+        // 复制后 path 改写为 './references/<basename>',让 agent 自包含且导出 .talor-pack 时整目录跟带
         const sourceWorkspace = resolveSourceWorkspaceFromWorkbench(raw.workbench_session_id)
-        const knowledgeReport = materializeKnowledgeFiles(profile, targetDir, sourceWorkspace)
-        if (knowledgeReport.copied > 0 || knowledgeReport.missing.length > 0) {
+        const referencesReport = materializeReferenceFiles(profile, targetDir, sourceWorkspace)
+        if (referencesReport.copied > 0 || referencesReport.missing.length > 0) {
           log.info(
-            '[agents:create-from-draft] knowledge — copied:',
-            knowledgeReport.copied,
+            '[agents:create-from-draft] references — copied:',
+            referencesReport.copied,
             'missing:',
-            knowledgeReport.missing,
+            referencesReport.missing,
           )
         }
 
@@ -855,7 +855,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
 
 /**
  * 从 workbench session 元数据回溯 source 对话的 workspace 路径,
- * 用于解析 knowledge[type='file'] 中的相对路径。
+ * 用于解析 profile.references[].path 中的相对路径。
  */
 function resolveSourceWorkspaceFromWorkbench(workbenchSessionId: string): string | null {
   try {
@@ -869,28 +869,27 @@ function resolveSourceWorkspaceFromWorkbench(workbenchSessionId: string): string
   }
 }
 
-interface KnowledgeMaterializeReport {
+interface ReferenceMaterializeReport {
   copied: number
   missing: string[]
 }
 
 /**
- * 把 knowledge[type='file'] 实际文件复制到 <agentDir>/knowledge/<basename>,
- * 并把 profile 中的 path 改写为相对路径 './knowledge/<basename>'。
+ * 把 profile.references[].path 引用的文件复制到 <agentDir>/references/<basename>,
+ * 并把 profile 中的 path 改写为相对路径 './references/<basename>'。
  *
  * 找不到源文件时保留 entry 但 path 不变,dep-checker 会标 missing,UI 警示用户。
  */
-function materializeKnowledgeFiles(
+function materializeReferenceFiles(
   profile: AgentProfile,
   agentDir: string,
   sourceWorkspace: string | null,
-): KnowledgeMaterializeReport {
-  const report: KnowledgeMaterializeReport = { copied: 0, missing: [] }
-  // v2.0: references[] replaces method.knowledge[]
+): ReferenceMaterializeReport {
+  const report: ReferenceMaterializeReport = { copied: 0, missing: [] }
   const items = profile.references ?? []
   if (items.length === 0) return report
 
-  const knowledgeDir = join(agentDir, 'knowledge')
+  const referencesDir = join(agentDir, 'references')
 
   for (let i = 0; i < items.length; i++) {
     const k = items[i]
@@ -919,14 +918,14 @@ function materializeKnowledgeFiles(
     }
 
     const basename = declaredPath.split('/').pop() ?? `reference-${i}.bin`
-    const dest = join(knowledgeDir, basename)
+    const dest = join(referencesDir, basename)
     try {
       writeFileSync(dest, readFileSync(foundSrc))
       // 改写 profile 中的 path 为相对路径
-      ;(profile.references as Array<{ path: string }>)[i].path = `./knowledge/${basename}`
+      ;(profile.references as Array<{ path: string }>)[i].path = `./references/${basename}`
       report.copied++
     } catch (err) {
-      log.warn('[knowledge-materialize] copy failed:', foundSrc, '→', dest, err)
+      log.warn('[references-materialize] copy failed:', foundSrc, '→', dest, err)
       report.missing.push(declaredPath)
     }
   }
@@ -950,7 +949,7 @@ function buildReadmeContent(profile: AgentProfile): string {
   lines.push('```')
   lines.push('agent.json        Schema 2.0 profile')
   lines.push('skills/           profile.skills 引用的 skill 包')
-  lines.push('knowledge/        profile.references 引用的本地文件')
+  lines.push('references/       profile.references 引用的本地文件')
   lines.push('README.md         本文件')
   lines.push('```')
   lines.push('')
