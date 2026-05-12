@@ -702,7 +702,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   //   3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
   //   4. no-marker-streak:     连续 N 次无 Rule 13 marker (Fix C)
   const detectors = [
-    new SignatureDeadLoopDetector(),
+    new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
     new ToolOnlyLoopDetector(),
     new NoMarkerStreakDetector(ctx),

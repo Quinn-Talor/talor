@@ -17,6 +17,11 @@ import log from 'electron-log'
 import type { LoopDetector, DetectorVerdict } from './types'
 import { NO_TRIGGER } from './types'
 import type { OutcomeFacts } from '../outcome-facts'
+import {
+  runForcedSummary,
+  signatureDeadLoopSummaryOpts,
+  type ForcedSummaryCtx,
+} from '../forced-summary'
 
 export interface SignatureDeadLoopOpts {
   withErrorThreshold?: number // 默认 1
@@ -29,9 +34,16 @@ export class SignatureDeadLoopDetector implements LoopDetector {
   private lastSignature = ''
   private repeatCount = 0
 
-  constructor(private readonly opts: SignatureDeadLoopOpts = {}) {}
+  /**
+   * @param ctx ForcedSummaryCtx — 触发死循环时跑解释性 summary 让用户看到原因。
+   *            没有 summary 用户只看到"任务突然停了"——这是旧版的 UX 缺陷。
+   */
+  constructor(
+    private readonly ctx: ForcedSummaryCtx,
+    private readonly opts: SignatureDeadLoopOpts = {},
+  ) {}
 
-  observe(facts: OutcomeFacts): DetectorVerdict {
+  observe(facts: OutcomeFacts, stepIndex: number = 0): DetectorVerdict {
     if (!facts.signature) return NO_TRIGGER
 
     if (facts.signature === this.lastSignature) {
@@ -42,9 +54,21 @@ export class SignatureDeadLoopDetector implements LoopDetector {
         : (this.opts.noErrorThreshold ?? 2)
       if (this.repeatCount >= threshold) {
         log.warn(
-          `[ReactLoop] Dead loop: signature "${facts.signature}" repeated ${this.repeatCount + 1}x (isError=${isErrorSig}). Breaking.`,
+          `[ReactLoop] Dead loop: signature "${facts.signature}" repeated ${this.repeatCount + 1}x (isError=${isErrorSig}). Breaking with forced summary.`,
         )
-        return { triggered: true, exitReason: 'repeated_error' }
+        const signature = facts.signature
+        const repeatCount = this.repeatCount
+        return {
+          triggered: true,
+          exitReason: 'repeated_error',
+          markFinal: true,
+          runSummary: () =>
+            runForcedSummary(
+              this.ctx,
+              stepIndex,
+              signatureDeadLoopSummaryOpts(signature, repeatCount, isErrorSig),
+            ),
+        }
       }
     } else {
       this.lastSignature = facts.signature

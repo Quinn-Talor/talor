@@ -279,6 +279,42 @@ export function failureStreakSummaryOpts(failureCount: number): ForcedSummaryOpt
   }
 }
 
+/** Signature dead-loop summary (同 tool+input+output 重复触发兜底)。 */
+export function signatureDeadLoopSummaryOpts(
+  signature: string,
+  repeatCount: number,
+  isError: boolean,
+): ForcedSummaryOpts {
+  const SIGNATURE_DEAD_LOOP_GUARDRAIL: ModelMessage = {
+    role: 'system',
+    content:
+      `[Signature dead-loop recovery mode]\n` +
+      `You called the SAME tool with the SAME inputs and got the SAME ` +
+      `${isError ? 'error' : 'result'} ${repeatCount + 1} times in a row. ` +
+      `Continuing would waste resources. Tools are now DISABLED for this final ` +
+      `response. You MUST output text explaining to the user:\n` +
+      `1. The exact tool + input you kept repeating (signature: ${signature}).\n` +
+      `2. The verbatim ${isError ? 'error' : 'output'} from the most recent tool result.\n` +
+      `3. Why you believe the tool kept ${isError ? 'rejecting' : 'returning the same answer'} ` +
+      `(e.g., wrong syntax/dialect, missing permission, malformed argument, ` +
+      `or task is genuinely impossible with this tool).\n` +
+      `4. What the user can do next (different approach, manual workaround, ask for help).\n` +
+      `Quote the error/output text exactly. Do not invent facts. Do not pretend it worked. ` +
+      `End your reply with one of:\n` +
+      `  ❓ Need input — <what specific info / decision you need from user>\n` +
+      `  ⏸ Blocked — <the blocker preventing further progress>`,
+  }
+
+  return {
+    logName: `signature dead-loop summary (sig=${signature.slice(0, 20)}…, count=${repeatCount + 1}, isError=${isError})`,
+    guardrail: SIGNATURE_DEAD_LOOP_GUARDRAIL,
+    label: '[signature-dead-loop]',
+    applyVerification: true,
+    fallbackTextIfEmpty: `I kept calling the same tool with the same input ${repeatCount + 1} times and got the same ${isError ? 'error' : 'result'}. Please advise.`,
+    errorFallbackText: `[signature-dead-loop failed]\n⏸ Blocked — internal error during dead-loop recovery (signature repeated ${repeatCount + 1}x). Please retry with different approach.`,
+  }
+}
+
 /** Forced-closure summary (连续无 Rule 13 marker 兜底)。 */
 export function forcedClosureSummaryOpts(noMarkerCount: number): ForcedSummaryOpts {
   const FORCED_CLOSURE_GUARDRAIL: ModelMessage = {

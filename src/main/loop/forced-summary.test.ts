@@ -39,6 +39,7 @@ import {
   FALLBACK_SUMMARY_OPTS,
   failureStreakSummaryOpts,
   forcedClosureSummaryOpts,
+  signatureDeadLoopSummaryOpts,
   type ForcedSummaryCtx,
 } from './forced-summary'
 
@@ -74,6 +75,18 @@ function mockTextStream(text: string) {
 describe('runForcedSummary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // mockReset 清 mockReturnValueOnce 残留队列, 再设默认 impl, 避免 case 间污染
+    vi.mocked(verifyQuotedFacts).mockReset()
+    vi.mocked(verifyEntityGrounding).mockReset()
+    vi.mocked(verifyQuotedFacts).mockImplementation((cleaned: string) => ({
+      cleaned,
+      unverifiedCount: 0,
+    }))
+    vi.mocked(verifyEntityGrounding).mockImplementation((cleaned: string) => ({
+      cleaned,
+      ungroundedCount: 0,
+      ungroundedEntities: [],
+    }))
   })
 
   describe('FALLBACK_SUMMARY_OPTS', () => {
@@ -228,6 +241,48 @@ describe('runForcedSummary', () => {
       // forced-closure 不跑 verify, label 干净
       expect(text).toContain('[forced-closure]')
       expect(text).not.toMatch(/unverifiable/)
+    })
+  })
+
+  describe('signatureDeadLoopSummaryOpts', () => {
+    it('isError=true: 正常输出 → 落库带 [signature-dead-loop] label', async () => {
+      mockTextStream('I kept calling SHOW TABLES FROM game; same error.')
+      await runForcedSummary(
+        makeCtx(),
+        0,
+        signatureDeadLoopSummaryOpts('mysql_query#abc:def', 1, true),
+      )
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('[signature-dead-loop]')
+      expect(text).toContain('SHOW TABLES')
+    })
+
+    it('isError=false: 重复同 input 同 output (无 error) → 同样收尾', async () => {
+      mockTextStream('I kept getting the same result.')
+      await runForcedSummary(makeCtx(), 0, signatureDeadLoopSummaryOpts('read#xy:zw', 2, false))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('[signature-dead-loop]')
+    })
+
+    it('空输出 → 用 fallbackTextIfEmpty', async () => {
+      mockTextStream('')
+      await runForcedSummary(makeCtx(), 0, signatureDeadLoopSummaryOpts('tool#a:b', 1, true))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('kept calling the same tool')
+      expect(text).toContain('2 times') // repeatCount + 1
+    })
+
+    it('pipeline.build 抛错 → errorFallbackText 含 ⏸ Blocked', async () => {
+      const ctx = makeCtx()
+      ctx.pipeline.build = vi.fn().mockRejectedValue(new Error('boom'))
+      await runForcedSummary(ctx, 0, signatureDeadLoopSummaryOpts('tool#a:b', 1, true))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('[signature-dead-loop failed]')
+      expect(text).toContain('⏸ Blocked')
     })
   })
 
