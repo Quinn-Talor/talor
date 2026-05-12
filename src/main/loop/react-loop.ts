@@ -2,21 +2,20 @@
 //
 // 公开接口：runReactLoop(opts)
 //
-// 内部结构：
-//   runReactLoop          —— 顶层循环 + 兜底摘要调度
-//   └── runReactStep      —— 单步 ReAct（build prompt → stream → persist）
-//   └── runFallbackSummary —— 循环结束但零文本输出时的兜底
+// 内部结构（Phase 1B 优化后）：
+//   runReactLoop  —— 顶层调度: 遍历 detectors[] + 触发 forced summary
+//   runReactStep  —— 单步 ReAct（build prompt → stream → persist）
+//
+// 检测器分布:
+//   src/main/loop/detectors/
+//     signature-dead-loop / failure-streak / tool-only-loop / no-marker-streak
+//
+// 强制摘要、累积状态、MCP 暴露状态、Outcome 派生信号已抽到各自模块。
 //
 // 允许依赖：loop/*、repos/*、shared/*
 // 禁止依赖：ipc/*
 
-import {
-  streamText,
-  type LanguageModel,
-  type ModelMessage,
-  type AssistantContent,
-  type ToolContent,
-} from 'ai'
+import { streamText, type LanguageModel, type AssistantContent, type ToolContent } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import { createHash } from 'crypto'
 import log from 'electron-log'
@@ -28,23 +27,28 @@ import {
   truncateOutput,
   wrapToolOutput,
 } from './stream-utils'
-import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
 import { buildTools } from '../tools/build-tools'
 import { estimate } from '../memory/types'
-import type { ReactLoopOptions, ReactLoopCallbacks } from './types'
+import type { ReactLoopOptions, ReactLoopCallbacks, StepOutcome, LoopExitReason } from './types'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
+import { hasTerminationMarker } from './outcome-facts'
+import { classify } from './outcome-facts'
+import { LoopAccumulator } from './loop-accumulator'
+import { McpExposureState } from './mcp-exposure-state'
+import { runForcedSummary, FALLBACK_SUMMARY_OPTS } from './forced-summary'
+import { composeHint } from './compose-hint'
+import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
+import { FailureStreakDetector } from './detectors/failure-streak'
+import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
+import { NoMarkerStreakDetector } from './detectors/no-marker-streak'
 
 /**
  * 单步 prompt 估算到达该比例时,提醒模型收敛。
  * ShortTermMemory 90% 触发压缩后,已压缩过的 prompt 再次超此阈值意味着
  * 纯粹的工具输出/recent 段已经吃满窗口,继续跑可能被 provider 静默截断。
- *
- * 阈值设在 98%(而非 95%):estimate() 是偏保守的 token 估算,90%~95% 实际
- * 还有充足余量;只有估算超 98% 才算真的"临门一脚"。告警文本也避免命令模型
- * "不许再开工具链"——长 prompt 本身不等于任务该被放弃,只提醒"尽量收敛"。
  */
 const CONTEXT_USAGE_WARNING_RATIO = 0.98
 
@@ -52,44 +56,6 @@ const DEFAULT_MAX_STEPS = 1000
 
 const SEPARATOR = '──────────────────────────────────────────'
 const DOUBLE_SEPARATOR = '══════════════════════════════════════════'
-
-/**
- * BEHAVIORAL_CHARTER Rule 13 的三种合法终止 marker。
- * 任一出现在 step 的 final text 中即视为模型显式声明 turn 终止状态。
- *
- * 与 SystemPlugin.BEHAVIORAL_CHARTER 同步;若那里调整 marker 文本,本处必须同步。
- */
-const TERMINATION_MARKERS = ['✓ Done', '❓ Need input', '⏸ Blocked'] as const
-
-/**
- * 连续多少次"无 tool_call 且无 marker"后强制收尾。
- *
- * 单次无 marker = 注入 hint 让模型选择;3 次连续无 marker = 模型一直在
- * "promise then stop" 反模式,触发 forced closure。
- *
- * 阈值 3 给模型 2 次自我修正机会:第 1 次无 marker(自动继续)→ 第 2 次有 marker
- * 或工具调用即 reset → 链断。只有连续 3 次无 marker 才确认是死循环式失败。
- */
-const NO_MARKER_LIMIT = 3
-
-/**
- * 检测 step text 是否含 Rule 13 三种 marker 之一。
- *
- * 含 → 视为模型显式终止 turn,react-loop 正常 exit。
- * 不含 → 视为 "未完成,模型想停" — 自动继续循环,注入 hint。
- *
- * 边界:marker 文本来自 BEHAVIORAL_CHARTER,UI/弱模型可能输出全角变体(如 "✔ Done"
- * 或 "Done") — 严格 includes 不识别这些。设计选择:接受少量假阴(模型说 "已完成"
- * 但没用 ✓ → 被当作未完成继续一次,下次模型再发现需要 marker 就会加上)。这是
- * "教模型用准确 marker" 的代价,比含糊匹配产生假阳要好。
- */
-function hasTerminationMarker(text: string): boolean {
-  if (!text) return false
-  for (const marker of TERMINATION_MARKERS) {
-    if (text.includes(marker)) return true
-  }
-  return false
-}
 
 // ── 内部类型 ────────────────────────────────────────────────────────────
 
@@ -115,55 +81,7 @@ interface StepContext {
   streamOptions?: Record<string, unknown>
 }
 
-/** runReactStep 返回值——循环控制层据此决定是否继续。 */
-interface StepOutcome {
-  /** 本步产生的纯文本（供兜底判断 fullText 是否为空） */
-  stepText: string
-  /** 是否已写入最终 assistant 消息（有 text 且无工具调用 → true） */
-  wroteAssistantFinal: boolean
-  /** 是否应继续下一步（工具调用且有 toolResults 时为 true） */
-  shouldContinue: boolean
-  /** 本步耗时（毫秒） */
-  durationMs: number
-  /** 本步调用的工具名列表 */
-  toolNames: string[]
-  /** 循环终止原因（仅当 shouldContinue=false 时有值） */
-  exitReason?: LoopExitReason
-  /**
-   * 本步的复合签名（sorted `toolName#inputHash:outputHash`），供顶层 dead-loop
-   * 判断使用。包含 input 和 output hash：同工具 + 同参数 + 同结果连出现两次，
-   * 基本可确定是死循环（模型不会在"同问题同答案"前提下有意义地推进）。
-   * 没有工具调用的步返回空串。
-   */
-  signature: string
-  /**
-   * 本步是否"所有工具调用都失败"。
-   * - null: 本步无工具调用，不参与错误率统计
-   * - true: 本步有工具调用且每一条 tool_result.isError 都为 true
-   * - false: 至少一条工具调用成功
-   * 顶层用滑窗统计连续错误率,阻止"模型换参数重试→依然失败"的隐式死循环。
-   */
-  allToolsFailed: boolean | null
-  /**
-   * 本步是否含至少一个 delegate_agent 返回的 SUBAGENT_* envelope。
-   * 委托失败比普通工具失败成本高（消耗了一整个子 loop）, 顶层在 streak 计数器
-   * 上加权（+2 而非 +1）, 让父 loop 更早进入 failure-recovery 模式。
-   */
-  containsSubagentFailure: boolean
-}
-
-/** 循环终止原因枚举。写入终局日志，方便排查为什么停下来。 */
-type LoopExitReason =
-  | 'no_tool_calls' // 模型不再调用工具 + Rule 13 marker 已声明（正常终态）
-  | 'no_tool_calls_no_marker' // 模型无工具且无 marker(内部信号,主循环用此判定继续 vs force closure)
-  | 'no_marker_max_attempts' // 连续 NO_MARKER_LIMIT 次无 marker → 强制 closure summary
-  | 'empty_text' // 模型既无工具调用也无文本（触发兜底）
-  | 'abort' // 调用方主动中止
-  | 'max_steps' // 达到步数上限
-  | 'fallback_summary' // 兜底摘要触发
-  | 'repeated_error' // 死循环保护（签名重复 或 错误率超阈值）
-  | 'tool_only_loop' // 连续 N 步有工具调用但零文本输出
-  | 'context_overflow' // prompt 估算已 >= context_limit,提交前短路
+// StepOutcome / LoopExitReason 已迁移到 ./types.ts (Phase 1B 优化)
 
 function sha8(s: string): string {
   return createHash('sha1').update(s).digest('hex').slice(0, 8)
@@ -187,24 +105,7 @@ function isSubagentFailureOutput(output: unknown): boolean {
   )
 }
 
-/**
- * C3: 清洗 fallback / failure-recovery 输出中泄漏的工具调用 markup。
- * Failure-recovery 模式下工具被禁用,但模型仍可能把 tool_use 风格 markup 当文本输出
- * (DSML / invoke / parameter / tool_calls)。直接显示给用户混乱。
- *
- * 替换策略:把符合常见 tool-call 模式的标签替换为 ⟨tool-call-attempt⟩ 占位,
- * 不直接删除以保留"曾尝试调工具"的事实信号。
- */
-function stripToolCallMarkup(text: string): string {
-  if (!text) return text
-  // 先把 || 风格的 DSML 分隔符标签替换 (如 <||DSML||tool_calls> 等)
-  let out = text.replace(/<\|\|[^>]*>/g, '⟨tool-call-attempt⟩')
-  // 再把常见 tool_use XML 标签 (含可选属性 / 闭合斜杠)
-  out = out.replace(/<\/?(?:invoke|parameter|tool_call|tool_calls|tool_use)\b[^>]*>/gi, '')
-  // 连续多个占位符合并为一个,降低噪声
-  out = out.replace(/(?:⟨tool-call-attempt⟩\s*){2,}/g, '⟨tool-call-attempt⟩ ')
-  return out
-}
+// stripToolCallMarkup 已迁移至 ./forced-summary.ts (内部 helper)
 
 /**
  * 对任意 JSON 值做规范化序列化:递归对对象键排序,确保键顺序差异不影响 hash。
@@ -745,366 +646,8 @@ async function runReactStep(
     }
   }
 }
-
-/**
- * 收集最近 k 条 tool 角色消息的 raw output 文本,供 verifyQuotedFacts 比对。
- *
- * 为什么从后往前扫:兜底摘要最相关的证据是"刚刚跑过的工具",越早的越次要;
- * 取 k 条后就停,避免对已存档的历史 session 做全量读取。
- */
-function collectRecentToolOutputs(sessionId: string, k: number): string[] {
-  const all = messageRepo.listBySession(sessionId)
-  const outputs: string[] = []
-  for (let i = all.length - 1; i >= 0 && outputs.length < k; i--) {
-    if (all[i].role !== 'tool') continue
-    try {
-      const blocks = JSON.parse(all[i].content) as Array<{ type: string; output?: string }>
-      for (const b of blocks) {
-        if (b.type === 'tool_result' && typeof b.output === 'string' && b.output.length > 0) {
-          outputs.push(b.output)
-          if (outputs.length >= k) break
-        }
-      }
-    } catch {
-      // 非 blocks 格式的旧消息,跳过
-    }
-  }
-  return outputs
-}
-
-// ── runFallbackSummary ──────────────────────────────────────────────────
-
-/**
- * 兜底摘要。
- *
- * 触发条件（由 runReactLoop 判断）：主循环结束后 fullText 为 0 且未写过最终 assistant 消息。
- * 常见场景：模型连续调用工具但始终没有输出文本（如只调用了 read 但没生成总结）。
- *
- * 行为：不带 tools 做一次 streamText，把文本流式回调并落库。
- * 异常策略：catch 后仅记录，**不抛出**——避免破坏外层 orchestrator 的 onDone 语义。
- */
-/**
- * 兜底时模型只能看到"之前的工具结果"，没有任何约束 prompt。
- * 此时最容易凭空编造结论，所以补一条强护栏，并把产出落库时打 ⚠️ 前缀，
- * 下一轮模型读到自己上轮是兜底，会更谨慎地复核。
- */
-const FALLBACK_GUARDRAIL: ModelMessage = {
-  role: 'system',
-  content:
-    '[Fallback summary mode — SILENCE IS NOT ALLOWED]\n' +
-    'You just made tool calls but produced no text output. The user is waiting and sees nothing. ' +
-    'You MUST output text in this turn. Empty response is forbidden. ' +
-    'Report to the user what you did and what was observed, ' +
-    '**using only the content inside the <tool_output> tags above**. Strict rules:\n' +
-    '1. Do not call any tools.\n' +
-    '2. Do not invent facts, paths, file names, or numbers that did not appear in tool_output.\n' +
-    '3. If any tool returned an error (File not found / [exit: non-zero] / ERROR / missing_scope / etc.), ' +
-    'state the failure verbatim AND quote the exact error message. Do not pretend it succeeded.\n' +
-    '4. If the tool results are insufficient for a meaningful answer, say explicitly: "Task not completed because ...".\n' +
-    '5. If you genuinely have nothing to say, you MUST still output the single sentence: ' +
-    '"I have no useful output to provide here. The last tool result was: <one-line summary>. Please advise." ' +
-    'Silence is a bug. Always speak.',
-}
-
-/**
- * 失败连击降级摘要。streak >= 3 时调用，替代旧的 "[auto-halt]" 硬中断。
- *
- * 行为：禁用 tools 再做一次 streamText，强制模型用文本向用户说明：
- *   - 它尝试了什么
- *   - 失败的具体错误
- *   - 用户可能的后续动作
- *
- * 与 runFallbackSummary 的区别：触发时机不同（这是失败链触发，不是空文本触发），
- * 但底层流程几乎一致——共享落库、verifyQuotedFacts、token-stream 回调。
- */
-const FAILURE_STREAK_GUARDRAIL: ModelMessage = {
-  role: 'system',
-  content:
-    '[Tool failure recovery mode]\n' +
-    'You just had 3 consecutive tool calls that all failed. To prevent further wasted attempts, ' +
-    'tools are now disabled for this final response. You MUST output text explaining to the user:\n' +
-    '1. What you were trying to accomplish.\n' +
-    '2. Each tool call you made and the verbatim error it returned.\n' +
-    '3. Why you believe it kept failing (e.g., file does not exist, missing permission, wrong path).\n' +
-    '4. What the user can do next (provide more info / different approach / accept partial result).\n' +
-    'Quote error text exactly as it appeared in <tool_output>. Do not invent facts. Do not pretend ' +
-    'anything succeeded. If you genuinely have nothing useful to say, output the single sentence: ' +
-    '"I was unable to complete the task because <verbatim summary of last tool error>. Please advise."',
-}
-
-/**
- * Rule 13 marker 缺失时给下一步的 system hint。
- *
- * 触发条件:上一步 stepText 非空 + 无 tool_call + 不含 ✓/❓/⏸ 任一 marker。
- * 主循环把它和 failureHint 走同一通道 (system message 注入),
- * failureHint 优先级更高(它意味着更严重的状态)。
- */
-const PENDING_MARKER_HINT =
-  '[Turn-end check] Your previous reply ended without a tool call AND without any of the required ' +
-  'termination markers (✓ Done / ❓ Need input / ⏸ Blocked). This means "task not yet finished, ' +
-  'but you decided to stop" — which is a bug (Rule 12 + Rule 13). Choose now:\n' +
-  '  (a) Continue the work — invoke the next tool this step.\n' +
-  '  (b) Close the turn explicitly with one of the three markers as the LAST line of your text:\n' +
-  '        ✓ Done — task is actually complete; describe the result above.\n' +
-  '        ❓ Need input — say exactly what you need from the user.\n' +
-  '        ⏸ Blocked — quote the specific blocker (missing capability / permission / file / data).\n' +
-  'Do NOT stop again without either a tool call or one of these markers. Silent stop = bug.'
-
-/**
- * 连续 NO_MARKER_LIMIT 次无 marker → 强制收尾的 guardrail。
- *
- * 与 FAILURE_STREAK_GUARDRAIL 类似(都是禁工具的最后一步),但内容针对 marker 缺失:
- * 强制模型选一个 marker 作为 LAST line,不允许再无标记停。
- */
-const FORCED_CLOSURE_GUARDRAIL: ModelMessage = {
-  role: 'system',
-  content:
-    `[Forced closure mode]\n` +
-    `You have ended ${NO_MARKER_LIMIT} consecutive replies without a tool call AND without ` +
-    `any termination marker. Tools are now DISABLED for this final response. You MUST output ` +
-    `text whose LAST line is one of:\n` +
-    `  ✓ Done — <one-line summary of what was accomplished, based on the conversation above>\n` +
-    `  ❓ Need input — <one sentence on exactly what you need the user to provide>\n` +
-    `  ⏸ Blocked — <one sentence on the specific blocker, quoting the relevant error if any>\n` +
-    `Pick the marker that honestly reflects the state. If you genuinely cannot judge, use ⏸ Blocked ` +
-    `and say "Cannot determine task state — please advise." Do NOT add any text after the marker line. ` +
-    `Do NOT invent facts not present in the conversation.`,
-}
-
-async function runForcedClosureSummary(
-  ctx: StepContext,
-  stepIndex: number,
-  noMarkerCount: number,
-): Promise<void> {
-  log.info(
-    `[ReactLoop] ${SEPARATOR} forced closure (no-marker count=${noMarkerCount}) ${SEPARATOR}`,
-  )
-  const summaryStart = Date.now()
-  try {
-    const summaryCtx = {
-      sessionId: ctx.sessionId,
-      currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
-      provider: ctx.provider,
-      providerConfig: ctx.providerConfig,
-      workspacePath: ctx.workspace || undefined,
-      agent: ctx.agent,
-      skillTracker: ctx.skillTracker,
-      events: ctx.events,
-    }
-    const { messages } = await ctx.pipeline.build(summaryCtx)
-    const summaryResult = streamText({
-      model: ctx.model,
-      messages: [...messages, FORCED_CLOSURE_GUARDRAIL],
-      abortSignal: buildStreamSignal(ctx.abortSignal),
-    })
-    let summaryText = ''
-    for await (const chunk of summaryResult.textStream) {
-      summaryText += chunk
-      ctx.callbacks.onTextDelta(chunk, stepIndex)
-    }
-    const durationMs = Date.now() - summaryStart
-    // 兜底:模型如果还是没 marker,服务端补一个 ⏸ Blocked
-    const cleaned = hasTerminationMarker(summaryText)
-      ? summaryText
-      : `${summaryText.trim() || 'Cannot determine task state.'}\n\n⏸ Blocked — model failed to provide explicit closure after ${noMarkerCount} attempts; please re-engage.`
-    messageRepo.create({
-      id: uuidv4(),
-      session_id: ctx.sessionId,
-      role: 'assistant',
-      content: [{ type: 'text', text: `[forced-closure]\n${cleaned}` }],
-      agent_id: ctx.agentId,
-    })
-    sessionRepo.touch(ctx.sessionId)
-    log.info(`[ReactLoop]   → forced closure summary: ${cleaned.length} chars [${durationMs}ms]`)
-  } catch (err) {
-    log.error(`[ReactLoop]   → forced closure failed [${Date.now() - summaryStart}ms]:`, err)
-    messageRepo.create({
-      id: uuidv4(),
-      session_id: ctx.sessionId,
-      role: 'assistant',
-      content: [
-        {
-          type: 'text',
-          text: `[forced-closure failed]\n⏸ Blocked — internal error during forced closure after ${noMarkerCount} no-marker attempts. Please retry.`,
-        },
-      ],
-      agent_id: ctx.agentId,
-    })
-    sessionRepo.touch(ctx.sessionId)
-  }
-}
-
-async function runFailureStreakSummary(
-  ctx: StepContext,
-  stepIndex: number,
-  failureCount: number,
-): Promise<void> {
-  log.info(`[ReactLoop] ${SEPARATOR} failure-streak summary (count=${failureCount}) ${SEPARATOR}`)
-  const summaryStart = Date.now()
-  try {
-    const summaryCtx = {
-      sessionId: ctx.sessionId,
-      currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
-      provider: ctx.provider,
-      providerConfig: ctx.providerConfig,
-      workspacePath: ctx.workspace || undefined,
-      agent: ctx.agent,
-      skillTracker: ctx.skillTracker,
-      events: ctx.events,
-    }
-    const { messages } = await ctx.pipeline.build(summaryCtx)
-    const summaryResult = streamText({
-      model: ctx.model,
-      messages: [...messages, FAILURE_STREAK_GUARDRAIL],
-      abortSignal: buildStreamSignal(ctx.abortSignal),
-    })
-    let summaryText = ''
-    for await (const chunk of summaryResult.textStream) {
-      summaryText += chunk
-      ctx.callbacks.onTextDelta(chunk, stepIndex)
-    }
-    const durationMs = Date.now() - summaryStart
-    const baseText =
-      summaryText.trim() ||
-      `I was unable to complete the task after ${failureCount} consecutive tool failures. Please advise.`
-    const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)
-    // 1) verifyQuotedFacts: 长引用兜底
-    const { cleaned: q1, unverifiedCount } = verifyQuotedFacts(baseText, toolOutputs)
-    // 2) C2 entity grounding: 实体接地兜底
-    const { cleaned: q2, ungroundedCount } = verifyEntityGrounding(q1, {
-      instruction: ctx.userContent,
-      toolOutputs,
-    })
-    // 3) C3 strip tool-call markup: 清掉模型在 tool 禁用模式下泄漏的 DSML / invoke 标签
-    const cleaned = stripToolCallMarkup(q2)
-
-    if (unverifiedCount > 0) {
-      log.warn(`[ReactLoop]   failure-streak: masked ${unverifiedCount} unverifiable quote(s)`)
-    }
-    if (ungroundedCount > 0) {
-      log.warn(
-        `[ReactLoop]   failure-streak: masked ${ungroundedCount} ungrounded entity reference(s)`,
-      )
-    }
-    const labelTags: string[] = []
-    if (unverifiedCount > 0)
-      labelTags.push(
-        `${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked`,
-      )
-    if (ungroundedCount > 0)
-      labelTags.push(
-        `${ungroundedCount} ungrounded entit${ungroundedCount > 1 ? 'ies' : 'y'} masked`,
-      )
-    const label =
-      labelTags.length > 0 ? `[failure-recovery • ${labelTags.join('; ')}]` : '[failure-recovery]'
-    const markedText = `${label}\n${cleaned}`
-    messageRepo.create({
-      id: uuidv4(),
-      session_id: ctx.sessionId,
-      role: 'assistant',
-      content: [{ type: 'text', text: markedText }],
-      agent_id: ctx.agentId,
-    })
-    sessionRepo.touch(ctx.sessionId)
-    log.info(`[ReactLoop]   → failure-streak summary: ${baseText.length} chars [${durationMs}ms]`)
-  } catch (err) {
-    log.error(
-      `[ReactLoop]   → failure-streak summary failed [${Date.now() - summaryStart}ms]:`,
-      err,
-    )
-    // 兜底兜底——summary 自身失败时回退到原来的 [auto-halt] 行为，保证至少
-    // 用户看到一条消息而不是静默退出。
-    messageRepo.create({
-      id: uuidv4(),
-      session_id: ctx.sessionId,
-      role: 'assistant',
-      content: [
-        {
-          type: 'text',
-          text: `[auto-halt] Task blocked by ${failureCount} consecutive tool failures. Please review the errors above and provide guidance.`,
-        },
-      ],
-      agent_id: ctx.agentId,
-    })
-    sessionRepo.touch(ctx.sessionId)
-  }
-}
-
-async function runFallbackSummary(ctx: StepContext, stepIndex: number): Promise<void> {
-  log.info(`[ReactLoop] ${SEPARATOR} fallback summary ${SEPARATOR}`)
-  const summaryStart = Date.now()
-  try {
-    const summaryCtx = {
-      sessionId: ctx.sessionId,
-      currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
-      provider: ctx.provider,
-      providerConfig: ctx.providerConfig,
-      workspacePath: ctx.workspace || undefined,
-      agent: ctx.agent,
-      skillTracker: ctx.skillTracker,
-      events: ctx.events,
-    }
-    const { messages } = await ctx.pipeline.build(summaryCtx)
-    const summaryResult = streamText({
-      model: ctx.model,
-      messages: [...messages, FALLBACK_GUARDRAIL],
-      abortSignal: buildStreamSignal(ctx.abortSignal),
-    })
-    let summaryText = ''
-    for await (const chunk of summaryResult.textStream) {
-      summaryText += chunk
-      ctx.callbacks.onTextDelta(chunk, stepIndex)
-    }
-    const durationMs = Date.now() - summaryStart
-    if (summaryText.trim()) {
-      // 代码前置约束:摘要靠 prompt 指示"逐字引用",但无法保证模型不编造。
-      // 三层兜底叠加（同 runFailureStreakSummary）:
-      //   1) verifyQuotedFacts: 长引用核对
-      //   2) verifyEntityGrounding: 高置信度实体必须接地于 instruction/tool_output
-      //   3) stripToolCallMarkup: 清掉模型在 tool 禁用模式下泄漏的工具调用 markup
-      const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)
-      const { cleaned: q1, unverifiedCount } = verifyQuotedFacts(summaryText, toolOutputs)
-      const { cleaned: q2, ungroundedCount } = verifyEntityGrounding(q1, {
-        instruction: ctx.userContent,
-        toolOutputs,
-      })
-      const cleaned = stripToolCallMarkup(q2)
-
-      if (unverifiedCount > 0) {
-        log.warn(`[ReactLoop]   fallback: masked ${unverifiedCount} unverifiable quote(s)`)
-      }
-      if (ungroundedCount > 0) {
-        log.warn(`[ReactLoop]   fallback: masked ${ungroundedCount} ungrounded entity reference(s)`)
-      }
-      const labelTags: string[] = []
-      if (unverifiedCount > 0)
-        labelTags.push(
-          `${unverifiedCount} unverifiable quote${unverifiedCount > 1 ? 's' : ''} masked`,
-        )
-      if (ungroundedCount > 0)
-        labelTags.push(
-          `${ungroundedCount} ungrounded entit${ungroundedCount > 1 ? 'ies' : 'y'} masked`,
-        )
-      const label =
-        labelTags.length > 0 ? `[auto-summary • ${labelTags.join('; ')}]` : '[auto-summary]'
-      const markedText = `${label}\n${cleaned}`
-      messageRepo.create({
-        id: uuidv4(),
-        session_id: ctx.sessionId,
-        role: 'assistant',
-        content: [{ type: 'text', text: markedText }],
-        agent_id: ctx.agentId,
-      })
-      sessionRepo.touch(ctx.sessionId)
-      log.info(`[ReactLoop]   → summary: ${summaryText.length} chars [${durationMs}ms]`)
-    } else {
-      log.info(`[ReactLoop]   → summary: empty [${durationMs}ms]`)
-    }
-  } catch (err) {
-    log.error(`[ReactLoop]   → summary failed [${Date.now() - summaryStart}ms]:`, err)
-    throw err
-  }
-}
+// 已迁移至 forced-summary.ts: collectRecentToolOutputs, FALLBACK/FAILURE_STREAK/FORCED_CLOSURE guardrail,
+// runFallbackSummary, runFailureStreakSummary, runForcedClosureSummary, PENDING_MARKER_HINT.
 
 // ── runReactLoop（公开入口）────────────────────────────────────────────
 
@@ -1123,7 +666,6 @@ async function runFallbackSummary(ctx: StepContext, stepIndex: number): Promise<
  */
 export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const loopStart = Date.now()
-  // Schema 2.0: no per-profile execution limits; always use DEFAULT_MAX_STEPS.
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS
 
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
@@ -1151,187 +693,51 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     streamOptions: opts.streamOptions,
   }
 
-  let fullText = ''
-  let wroteAssistantFinal = false
-  let totalSteps = 0
-  let totalToolCalls = 0
-  let exitReason: LoopExitReason = 'no_tool_calls'
-  const allToolNames: string[] = []
+  const accumulator = new LoopAccumulator()
+  const mcpState = new McpExposureState(opts.agent)
 
-  // Dead-loop detection.
-  //
-  // 两路侦测,都按"保守触发"设计——宁可漏报一次也不打断合法的自我修正:
-  //   1) 签名重复 (stepSignature: toolName + inputHash + outputHash)
-  //      - 带 error 输出:阈值 1(连续第 2 次同错 = 真死循环,模型显然没在读错误)
-  //      - 不带 error:  阈值 2(连续第 3 次同调用才 break,允许合理的幂等读)
-  //   2) 连续失败连击
-  //      "N 步连续 allToolsFailed=true" 才 break。任意一步有工具调用成功 → 清零。
-  //      这是 signature 侦测之外的兜底。设计分工:
-  //        - signature with error (阈值 1):锁"原地重试同一调用"
-  //        - Failure streak   (阈值 3):兜底"每次换参数但全失败"
-  //      阈值 3 给模型充分的"修错误→遇到新错误→告知用户"链条。阈值 2 会误伤
-  //      正在真实修正 flag 的模型(step 2 改 flag → step 3 撞 missing_scope → break
-  //      就不让模型走到 step 4 输出"请用户授权"的文本)。
-  const REPEATED_SIGNATURE_THRESHOLD_WITH_ERROR = 1
-  const REPEATED_SIGNATURE_THRESHOLD_NO_ERROR = 2
-  const CONSECUTIVE_FAILURE_LIMIT = 3
-  const TOOL_ONLY_STEP_LIMIT = 8
-  let lastStepSignature = ''
-  let consecutiveRepeatCount = 0
-  let consecutiveFailureCount = 0
-  let consecutiveToolOnlySteps = 0
-  // Rule 13 marker 缺失计数。
-  //   - 模型某步无 tool + 无 marker → +1 + 下一步注入 PENDING_MARKER_HINT
-  //   - 模型某步有 marker 或调工具 → reset to 0
-  //   - 达 NO_MARKER_LIMIT → 调 runForcedClosureSummary 强制收尾
-  let consecutiveNoMarkerExits = 0
-  // 累积可见策略（方案 C）：
-  //   - mcpExpandThisStep: 一次性"全集"展示——
-  //       · turn 第一步默认 true（若已连接任何 MCP server），让模型直接看到
-  //         全部 MCP 工具，省掉 "search_tool → 下一步" 的强制双跳。
-  //       · 之后默认 false；如果某步调过 search_tool，下一步再置 true。
-  //   - usedMcpToolNames:  累积已使用过的 MCP 工具名（本轮内只增不减）
-  // 平衡 token 开销（不暴露未用过的 MCP schema）与上下文稳定（已用过的工具
-  // 一直可见，避免反复 search 浪费）。
-  let mcpExpandThisStep = (ctx.agent.toolRegistry?.listMcpTools?.().length ?? 0) > 0
-  const usedMcpToolNames = new Set<string>()
-  // 缓存 MCP 工具名集合用于判断 outcome.toolNames 中哪些是 MCP（仅在首次需要时取）
-  let mcpNameSet: Set<string> | null = null
+  // Detector 顺序敏感 (业务属性, 显式排列):
+  //   1. signature-dead-loop:  原地重试同一调用 (最敏感, 阈值 1/2)
+  //   2. failure-streak:       连续 N 次工具失败 (兜底 signature 没抓到的"换参全败")
+  //   3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
+  //   4. no-marker-streak:     连续 N 次无 Rule 13 marker (Fix C)
+  const detectors = [
+    new SignatureDeadLoopDetector(),
+    new FailureStreakDetector(ctx),
+    new ToolOnlyLoopDetector(),
+    new NoMarkerStreakDetector(ctx),
+  ] as const
+
+  let exitReason: LoopExitReason = 'no_tool_calls'
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
       exitReason = 'abort'
       break
     }
-    // Strategy A — 渐进式失败提示：streak 累积到阈值-1 时（即下一次失败就 break），
-    // 注入一条 system 消息让模型自我修正：换思路、换工具、或求助用户。
-    const failureHintMessage =
-      consecutiveFailureCount === CONSECUTIVE_FAILURE_LIMIT - 1
-        ? `[failure-streak warning] Your previous ${consecutiveFailureCount} tool calls all returned errors. ` +
-          `One more failure and tool execution will stop for this turn. ` +
-          `Reconsider before your next action: try a different tool or different parameters, ` +
-          `verify your assumptions (paths exist? syntax correct?), or summarize what you've tried ` +
-          `and ask the user for guidance. Do NOT repeat the same approach.`
-        : null
 
-    // Rule 13 marker hint:上一步出现 "无 tool + 无 marker" 即注入,引导模型选择
-    // 继续干活或显式收尾。failureHint 优先级更高(失败更严重),两者通过 ?? 合并。
-    const markerHintMessage = consecutiveNoMarkerExits > 0 ? PENDING_MARKER_HINT : null
+    const hint = composeHint(detectors)
+    const { expand, used } = mcpState.flags
+    const outcome = await runReactStep(ctx, step, maxSteps, expand, used, hint)
 
-    const outcome = await runReactStep(
-      ctx,
-      step,
-      maxSteps,
-      mcpExpandThisStep,
-      Array.from(usedMcpToolNames),
-      failureHintMessage ?? markerHintMessage,
-    )
-    // 默认下一步不再扩展；search_tool 调用会再次置 true
-    let nextExpand = false
-    if (outcome.toolNames.length > 0) {
-      if (!mcpNameSet) {
-        mcpNameSet = new Set(ctx.agent.toolRegistry.listMcpTools().map((t) => t.name))
-      }
-      for (const tn of outcome.toolNames) {
-        if (tn === 'search_tool') {
-          nextExpand = true
-        } else if (mcpNameSet.has(tn)) {
-          usedMcpToolNames.add(tn)
-        }
-      }
+    mcpState.update(outcome)
+    accumulator.observe(outcome)
+
+    const facts = classify(outcome)
+
+    // Detector 顺序遍历 — 第一个 triggered 即 break。
+    let detectorBroke = false
+    for (const detector of detectors) {
+      const verdict = detector.observe(facts, accumulator.totalSteps)
+      if (!verdict.triggered) continue
+      log.warn(`[ReactLoop] Detector "${detector.name}" triggered (exit=${verdict.exitReason})`)
+      if (verdict.runSummary) await verdict.runSummary()
+      if (verdict.markFinal) accumulator.markFinal()
+      exitReason = verdict.exitReason ?? exitReason
+      detectorBroke = true
+      break
     }
-    mcpExpandThisStep = nextExpand
-    totalSteps++
-    fullText += outcome.stepText
-    totalToolCalls += outcome.toolNames.length
-    allToolNames.push(...outcome.toolNames)
-    if (outcome.wroteAssistantFinal) wroteAssistantFinal = true
-
-    if (outcome.signature) {
-      const isErrorSig = outcome.allToolsFailed === true
-      const threshold = isErrorSig
-        ? REPEATED_SIGNATURE_THRESHOLD_WITH_ERROR
-        : REPEATED_SIGNATURE_THRESHOLD_NO_ERROR
-      if (outcome.signature === lastStepSignature) {
-        consecutiveRepeatCount++
-        if (consecutiveRepeatCount >= threshold) {
-          log.warn(
-            `[ReactLoop] Dead loop: signature "${outcome.signature}" repeated ${consecutiveRepeatCount + 1}x (isError=${isErrorSig}). Breaking.`,
-          )
-          exitReason = 'repeated_error'
-          break
-        }
-      } else {
-        lastStepSignature = outcome.signature
-        consecutiveRepeatCount = 0
-      }
-    }
-    // 无工具调用的步(纯文本 / empty)不参与签名判定,也不 reset——
-    // 避免模型在死循环中穿插一步纯思考就逃脱侦测。
-
-    if (outcome.allToolsFailed === true) {
-      // E1: SUBAGENT_*/DELEGATION_* failure 加权 +2,普通 tool 失败 +1。
-      // 子 loop 已经烧掉一整轮推理,代价更高,触发 failure-recovery 应该更早。
-      const weight = outcome.containsSubagentFailure ? 2 : 1
-      consecutiveFailureCount += weight
-      if (outcome.containsSubagentFailure) {
-        log.warn(
-          `[ReactLoop] SUBAGENT_* failure detected, streak +2 (now ${consecutiveFailureCount})`,
-        )
-      }
-      if (consecutiveFailureCount >= CONSECUTIVE_FAILURE_LIMIT) {
-        // Strategy B — 优雅退出：到达失败链阈值时不立即 halt，而是禁用工具、
-        // 强制模型用文本向用户解释发生了什么。比"[auto-halt]"冷消息友好得多。
-        log.warn(
-          `[ReactLoop] Failure streak: ${consecutiveFailureCount} consecutive steps all failed. Switching to text-only recovery summary.`,
-        )
-        await runFailureStreakSummary(ctx, totalSteps, consecutiveFailureCount)
-        wroteAssistantFinal = true
-        exitReason = 'repeated_error'
-        break
-      }
-    } else if (outcome.allToolsFailed === false) {
-      // 至少一个工具成功 → 清零连续失败计数。
-      // null(无工具调用)不 reset,保守。
-      consecutiveFailureCount = 0
-    }
-
-    // Tool-only loop detection: model keeps calling tools but never outputs text.
-    // Signature-based detection won't catch this when inputs differ each step.
-    if (outcome.toolNames.length > 0 && outcome.stepText.trim() === '') {
-      consecutiveToolOnlySteps++
-      if (consecutiveToolOnlySteps >= TOOL_ONLY_STEP_LIMIT) {
-        log.warn(
-          `[ReactLoop] Tool-only loop: ${consecutiveToolOnlySteps} consecutive steps with tools but no text. Breaking.`,
-        )
-        exitReason = 'tool_only_loop'
-        break
-      }
-    } else if (outcome.stepText.trim() !== '') {
-      consecutiveToolOnlySteps = 0
-    }
-
-    // Rule 13 marker 处理。runReactStep 已经在"无 tool+无 marker"时把 outcome.shouldContinue
-    // 设为 true 强制循环继续,这里只负责计数和 forced-closure 阈值判定。
-    if (outcome.exitReason === 'no_tool_calls_no_marker') {
-      consecutiveNoMarkerExits++
-      log.info(
-        `[ReactLoop] no-marker exit detected (count=${consecutiveNoMarkerExits}/${NO_MARKER_LIMIT})`,
-      )
-      if (consecutiveNoMarkerExits >= NO_MARKER_LIMIT) {
-        log.warn(
-          `[ReactLoop] no-marker streak: ${consecutiveNoMarkerExits} consecutive steps ended without marker. Forcing closure.`,
-        )
-        await runForcedClosureSummary(ctx, totalSteps, consecutiveNoMarkerExits)
-        wroteAssistantFinal = true
-        exitReason = 'no_marker_max_attempts'
-        break
-      }
-    } else if (outcome.toolNames.length > 0 || hasTerminationMarker(outcome.stepText)) {
-      // 有工具调用 或 有 marker → reset。
-      // 注:有 marker 的 final exit 也会走这里(在 shouldContinue=false break 之前 reset)。
-      consecutiveNoMarkerExits = 0
-    }
+    if (detectorBroke) break
 
     if (!outcome.shouldContinue) {
       exitReason = outcome.exitReason ?? 'no_tool_calls'
@@ -1342,20 +748,18 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     }
   }
 
-  // 兜底摘要：整轮一字没吐且非 abort → 强制一次无工具 streamText
-  if (!wroteAssistantFinal && fullText.length === 0 && exitReason !== 'abort') {
+  // 兜底摘要:整轮零文本且未写过 final → 强制一次无工具 streamText 让用户至少看到一条消息。
+  // 非 abort 才触发 (用户主动停止时不兜底)。
+  if (accumulator.needsFallback() && exitReason !== 'abort') {
     exitReason = 'fallback_summary'
-    await runFallbackSummary(ctx, totalSteps)
+    await runForcedSummary(ctx, accumulator.totalSteps, FALLBACK_SUMMARY_OPTS)
   }
 
   // 循环结束报告
   const totalMs = Date.now() - loopStart
+  const { summary, detail } = accumulator.buildReport(totalMs, exitReason)
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
-  log.info(
-    `[ReactLoop] done | steps: ${totalSteps} | total: ${(totalMs / 1000).toFixed(1)}s | exit: ${exitReason}`,
-  )
-  log.info(
-    `[ReactLoop]      | text: ${fullText.length} chars | tools: ${totalToolCalls} calls [${[...new Set(allToolNames)].join(', ') || 'none'}]`,
-  )
+  log.info(`[ReactLoop] ${summary}`)
+  log.info(`[ReactLoop]      | ${detail}`)
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
 }
