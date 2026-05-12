@@ -10,8 +10,14 @@ vi.mock('./stream-utils', () => ({
 
 vi.mock('./quote-verifier', () => ({
   verifyQuotedFacts: vi.fn((cleaned: string) => ({ cleaned, unverifiedCount: 0 })),
-  verifyEntityGrounding: vi.fn((cleaned: string) => ({ cleaned, ungroundedCount: 0 })),
+  verifyEntityGrounding: vi.fn((cleaned: string) => ({
+    cleaned,
+    ungroundedCount: 0,
+    ungroundedEntities: [] as string[],
+  })),
 }))
+
+import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
 
 const { mockMessageCreate, mockMessageListBySession, mockSessionTouch, mockStreamText } =
   vi.hoisted(() => ({
@@ -136,6 +142,92 @@ describe('runForcedSummary', () => {
       const text = mockMessageCreate.mock.calls[0][0].content[0].text
       expect(text).toContain('Cannot determine task state')
       expect(text).toContain('⏸ Blocked')
+    })
+  })
+
+  describe('Verify tag 拼接 (applyVerification=true 路径)', () => {
+    it('unverifiedCount > 0 → label 含 "N unverifiable quote(s) masked"', async () => {
+      vi.mocked(verifyQuotedFacts).mockReturnValueOnce({
+        cleaned: 'redacted output',
+        unverifiedCount: 2,
+      })
+      mockTextStream('original output')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toMatch(/^\[auto-summary • 2 unverifiable quotes masked\]/)
+      expect(text).toContain('redacted output')
+    })
+
+    it('unverifiedCount=1 → 单数 "quote"', async () => {
+      vi.mocked(verifyQuotedFacts).mockReturnValueOnce({
+        cleaned: 'x',
+        unverifiedCount: 1,
+      })
+      mockTextStream('x')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toMatch(/1 unverifiable quote masked/)
+    })
+
+    it('ungroundedCount > 0 → label 含 "N ungrounded entity/entities masked"', async () => {
+      vi.mocked(verifyEntityGrounding).mockReturnValueOnce({
+        cleaned: 'output',
+        ungroundedCount: 3,
+        ungroundedEntities: ['e1', 'e2', 'e3'],
+      })
+      mockTextStream('original')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toMatch(/3 ungrounded entities masked/)
+    })
+
+    it('ungroundedCount=1 → 单数 "entity"', async () => {
+      vi.mocked(verifyEntityGrounding).mockReturnValueOnce({
+        cleaned: 'x',
+        ungroundedCount: 1,
+        ungroundedEntities: ['e1'],
+      })
+      mockTextStream('x')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toMatch(/1 ungrounded entity masked/)
+    })
+
+    it('两种 verify tag 同时触发 → 用 "; " 连接', async () => {
+      vi.mocked(verifyQuotedFacts).mockReturnValueOnce({
+        cleaned: 'x',
+        unverifiedCount: 2,
+      })
+      vi.mocked(verifyEntityGrounding).mockReturnValueOnce({
+        cleaned: 'x',
+        ungroundedCount: 1,
+        ungroundedEntities: ['e1'],
+      })
+      mockTextStream('y')
+      await runForcedSummary(makeCtx(), 0, failureStreakSummaryOpts(3))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toMatch(
+        /^\[failure-recovery • 2 unverifiable quotes masked; 1 ungrounded entity masked\]/,
+      )
+    })
+
+    it('forced-closure 关闭 verify (applyVerification=false) → 即便 mock 返回 N>0 label 不带 tag', async () => {
+      vi.mocked(verifyQuotedFacts).mockReturnValueOnce({
+        cleaned: 'should not be used',
+        unverifiedCount: 99,
+      })
+      mockTextStream('summary ✓ Done')
+      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      // forced-closure 不跑 verify, label 干净
+      expect(text).toContain('[forced-closure]')
+      expect(text).not.toMatch(/unverifiable/)
     })
   })
 
