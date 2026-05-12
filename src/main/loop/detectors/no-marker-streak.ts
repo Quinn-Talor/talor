@@ -32,15 +32,22 @@ const PENDING_MARKER_HINT =
   '        ⏸ Blocked — quote the specific blocker (missing capability / permission / file / data).\n' +
   'Do NOT stop again without either a tool call or one of these markers. Silent stop = bug.'
 
-/** 强化 hint — count 3~4 时注入,明确警告还有几次机会 + 反 markup 反模式。 */
+/**
+ * 强化 hint — limit-1 次时注入,明确警告还有几次机会 + 反"伪工具调用 markup"反模式。
+ *
+ * 通用化原则:不点名具体模型的 markup 方言 (旧版列 <DSML> / <invoke> 是为
+ * Deepseek 等特定模型打补丁,违反通用性)。改为描述"任何尝试在文本里嵌入工具调用语法"
+ * 的反模式,适用所有模型。
+ */
 const STRONG_MARKER_HINT =
   '[⚠️ Turn-end check — REPEATED] You have ended multiple replies without a tool call AND without ' +
   'any of the required termination markers (✓ Done / ❓ Need input / ⏸ Blocked).\n\n' +
-  '⛔ Do NOT output tool-call markup like <DSML> / <invoke> / <tool_call> in text — those are ' +
-  'NOT real tool calls and will be stripped from your reply. Real tool calls are emitted via ' +
-  'the tool_use mechanism (the framework handles this when you invoke a tool properly).\n\n' +
+  '⛔ Do NOT embed pseudo tool-call syntax in your text (any markup-style tag attempting to ' +
+  'invoke a tool — XML-like, JSON-fenced, or any other format). Tools are invoked ONLY through ' +
+  "the framework's tool-use mechanism, not via text-embedded syntax. Such markup is not " +
+  'executed and will be stripped from your reply.\n\n' +
   'You have a limited number of attempts left before forced closure. Choose now:\n' +
-  '  (a) ACTUALLY invoke a tool this step (not via markup — use the real tool mechanism).\n' +
+  '  (a) ACTUALLY invoke a tool this step (via the real tool mechanism, not embedded syntax).\n' +
   '  (b) Close the turn with one of the three markers as the LAST line:\n' +
   '        ✓ Done / ❓ Need input — <what> / ⏸ Blocked — <reason>'
 
@@ -50,7 +57,7 @@ export interface NoMarkerStreakOpts {
    *
    * 设计:阈值 3 = 2 次警告 + 1 次触发,警告分两级递进:
    *   - count=1: PENDING_MARKER_HINT (温和提醒)
-   *   - count=2: STRONG_MARKER_HINT  (强警告 + 反 DSML markup 反模式)
+   *   - count=2: STRONG_MARKER_HINT  (强警告 + 反"伪工具调用 markup"反模式)
    *   - count=3: forced-closure
    * 紧凑收敛——每次警告升级,模型必须立刻反应;比"堆多次同强度 hint"信息密度更高。
    */
@@ -95,7 +102,7 @@ export class NoMarkerStreakDetector implements LoopDetector {
    * 渐进式 hint (与默认 limit=3 配套):
    *   count = 0: null                  (无需提示)
    *   count = 1: PENDING_MARKER_HINT  (温和提醒 — 你刚错过一次 marker)
-   *   count = 2: STRONG_MARKER_HINT   (强警告 — 下次必触发 + 反 DSML markup 反模式)
+   *   count = 2: STRONG_MARKER_HINT   (强警告 — 下次必触发 + 反"伪工具调用 markup"反模式)
    *   count = 3: 已 triggered, observe 已返回 forced-closure verdict, 不再到这里
    *
    * 自定义 limit 时仍按"前半温和,后半强化"规则:limit-1 后置 STRONG。

@@ -342,13 +342,14 @@ export function forcedClosureSummaryOpts(noMarkerCount: number): ForcedSummaryOp
       `[Forced closure mode]\n` +
       `You have ended ${noMarkerCount} consecutive replies without a tool call AND without ` +
       `any termination marker. Tools are now DISABLED for this final response.\n\n` +
-      `⛔ DO NOT output tool-call markup of any kind (e.g. <DSML> / <invoke> / <tool_call> / ` +
-      `<｜｜DSML｜｜...> / <parameter>). Tools are disabled — any markup will be stripped from ` +
-      `your reply before it reaches the user. Real tool calls cannot happen in this mode.\n\n` +
+      `⛔ DO NOT embed pseudo tool-call syntax in your reply (any markup-style tag attempting ` +
+      `to invoke a tool — XML-like, JSON-fenced, or any other format). Tools are disabled in ` +
+      `this mode — such markup is meaningless and will be stripped before the reply reaches ` +
+      `the user.\n\n` +
       `You MUST output text whose LAST line is one of:\n` +
       `  ✓ Done — <one-line summary of what was accomplished, based on the conversation above>\n` +
-      `  ❓ Need input — <one sentence on exactly what you need the user to provide ` +
-      `(e.g. "the correct SQL dialect for listing tables in the mysql MCP tool")>\n` +
+      `  ❓ Need input — <one sentence on exactly what specific info / decision you need ` +
+      `from the user to proceed>\n` +
       `  ⏸ Blocked — <one sentence on the specific blocker, quoting the relevant error if any>\n\n` +
       `Pick the marker that honestly reflects the state. If you were mid-task and need to ` +
       `defer to the user, prefer ❓ Need input over ⏸ Blocked. Do NOT add any text after the ` +

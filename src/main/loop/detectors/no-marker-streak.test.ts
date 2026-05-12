@@ -98,8 +98,11 @@ describe('NoMarkerStreakDetector', () => {
       d.observe(facts({ noMarkerExit: true }), 1)
       const hint = d.nextHint?.()
       expect(hint).toContain('REPEATED')
-      expect(hint).toContain('DSML')
+      // 通用化:不点名具体模型的 markup 方言 (DSML/invoke 等),用通用反模式描述
+      expect(hint).toContain('pseudo tool-call syntax')
       expect(hint).toContain('will be stripped')
+      // 不触发:不应硬编码具体模型的 markup 标签名 (DSML/invoke/tool_call)
+      expect(hint).not.toMatch(/<DSML>|<invoke>|<tool_call>/)
     })
   })
 
