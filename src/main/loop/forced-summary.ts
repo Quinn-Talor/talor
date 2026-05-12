@@ -48,18 +48,33 @@ function collectRecentToolOutputs(sessionId: string, k: number): string[] {
 }
 
 /**
- * 清洗 fallback / failure-recovery 输出中泄漏的工具调用 markup。
+ * 清洗 fallback / failure-recovery / forced-closure 输出中泄漏的工具调用 markup。
  *
- * Failure-recovery 模式下工具被禁用, 但模型仍可能把 tool_use 风格 markup 当文本输出
- * (DSML / invoke / parameter / tool_calls)。直接显示给用户混乱。
+ * Failure-recovery / forced-closure 模式下工具被禁用, 但模型仍可能把 tool_use
+ * 风格 markup 当文本输出 (DSML / invoke / parameter / tool_calls)。直接显示
+ * 给用户混乱。
  *
- * 替换策略: 把符合常见 tool-call 模式的标签替换为 ⟨tool-call-attempt⟩ 占位,
- * 不直接删除以保留"曾尝试调工具"的事实信号。
+ * 支持的 markup 形式 (历史踩坑总结):
+ *   1. ASCII pipe:   <||DSML||tool_calls>
+ *   2. 全角 pipe:    <｜｜DSML｜｜tool_calls>  (U+FF5C FULLWIDTH VERTICAL LINE)
+ *      — deepseek / qwen 等中文模型常输出全角变体
+ *   3. XML 标签:     <invoke> / <parameter> / <tool_call> / <tool_calls> / <tool_use>
+ *
+ * 替换策略: 把 markup 标签替换为 ⟨tool-call-attempt⟩ 占位, 不直接删除以保留
+ * "曾尝试调工具"的事实信号。
+ *
+ * 不导出 (内部 helper); 任何 forced-summary 路径都应通过 runForcedSummary
+ * 间接调用,以保证 strip 一定被执行。
  */
-function stripToolCallMarkup(text: string): string {
+export function stripToolCallMarkup(text: string): string {
   if (!text) return text
+  // ASCII pipe 变体 <||...>
   let out = text.replace(/<\|\|[^>]*>/g, '⟨tool-call-attempt⟩')
+  // 全角 pipe 变体 <｜｜...>  (中文模型常输出)
+  out = out.replace(/<｜｜[^>]*>/g, '⟨tool-call-attempt⟩')
+  // XML 标签 (含可选属性 / 闭合斜杠)
   out = out.replace(/<\/?(?:invoke|parameter|tool_call|tool_calls|tool_use)\b[^>]*>/gi, '')
+  // 连续多个占位符合并为一个,降低噪声
   out = out.replace(/(?:⟨tool-call-attempt⟩\s*){2,}/g, '⟨tool-call-attempt⟩ ')
   return out
 }
@@ -155,7 +170,7 @@ export async function runForcedSummary(
     }
     const baseText = summaryText.trim() || (opts.fallbackTextIfEmpty as string)
 
-    // Verify 三件套 (可选)
+    // Verify 三件套 (可选 — 仅 quote / entity 校验受 applyVerification 控制)
     let cleaned = baseText
     const verifyTags: string[] = []
     if (opts.applyVerification) {
@@ -165,7 +180,7 @@ export async function runForcedSummary(
         instruction: ctx.userContent,
         toolOutputs,
       })
-      cleaned = stripToolCallMarkup(r2.cleaned)
+      cleaned = r2.cleaned
 
       if (r1.unverifiedCount > 0) {
         log.warn(
@@ -185,7 +200,11 @@ export async function runForcedSummary(
       }
     }
 
-    // postProcess (forced-closure 用)
+    // strip markup 永远跑 — forced-* 模式禁工具, 任何 tool-call markup 都是无效的,
+    // 必须剥, 否则模型尝试 DSML / invoke / XML 都会原封显示给用户 (本次 bug)。
+    cleaned = stripToolCallMarkup(cleaned)
+
+    // postProcess (forced-closure 用 — 补 ⏸ Blocked 等)
     if (opts.postProcess) cleaned = opts.postProcess(cleaned)
 
     // 组装最终 label + 落库
@@ -322,14 +341,18 @@ export function forcedClosureSummaryOpts(noMarkerCount: number): ForcedSummaryOp
     content:
       `[Forced closure mode]\n` +
       `You have ended ${noMarkerCount} consecutive replies without a tool call AND without ` +
-      `any termination marker. Tools are now DISABLED for this final response. You MUST output ` +
-      `text whose LAST line is one of:\n` +
+      `any termination marker. Tools are now DISABLED for this final response.\n\n` +
+      `⛔ DO NOT output tool-call markup of any kind (e.g. <DSML> / <invoke> / <tool_call> / ` +
+      `<｜｜DSML｜｜...> / <parameter>). Tools are disabled — any markup will be stripped from ` +
+      `your reply before it reaches the user. Real tool calls cannot happen in this mode.\n\n` +
+      `You MUST output text whose LAST line is one of:\n` +
       `  ✓ Done — <one-line summary of what was accomplished, based on the conversation above>\n` +
-      `  ❓ Need input — <one sentence on exactly what you need the user to provide>\n` +
-      `  ⏸ Blocked — <one sentence on the specific blocker, quoting the relevant error if any>\n` +
-      `Pick the marker that honestly reflects the state. If you genuinely cannot judge, use ⏸ Blocked ` +
-      `and say "Cannot determine task state — please advise." Do NOT add any text after the marker line. ` +
-      `Do NOT invent facts not present in the conversation.`,
+      `  ❓ Need input — <one sentence on exactly what you need the user to provide ` +
+      `(e.g. "the correct SQL dialect for listing tables in the mysql MCP tool")>\n` +
+      `  ⏸ Blocked — <one sentence on the specific blocker, quoting the relevant error if any>\n\n` +
+      `Pick the marker that honestly reflects the state. If you were mid-task and need to ` +
+      `defer to the user, prefer ❓ Need input over ⏸ Blocked. Do NOT add any text after the ` +
+      `marker line. Do NOT invent facts not present in the conversation.`,
   }
 
   return {

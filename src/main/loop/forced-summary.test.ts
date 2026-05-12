@@ -36,6 +36,7 @@ vi.mock('ai', () => ({ streamText: (...args: unknown[]) => mockStreamText(...arg
 
 import {
   runForcedSummary,
+  stripToolCallMarkup,
   FALLBACK_SUMMARY_OPTS,
   failureStreakSummaryOpts,
   forcedClosureSummaryOpts,
@@ -283,6 +284,74 @@ describe('runForcedSummary', () => {
       const text = mockMessageCreate.mock.calls[0][0].content[0].text
       expect(text).toContain('[signature-dead-loop failed]')
       expect(text).toContain('⏸ Blocked')
+    })
+  })
+
+  describe('stripToolCallMarkup (公开 helper)', () => {
+    it('ASCII pipe 变体 <||...> → ⟨tool-call-attempt⟩', () => {
+      const input = 'before <||DSML||tool_calls> after'
+      expect(stripToolCallMarkup(input)).toContain('⟨tool-call-attempt⟩')
+      expect(stripToolCallMarkup(input)).not.toContain('<||')
+    })
+
+    it('全角 pipe 变体 <｜｜...> → ⟨tool-call-attempt⟩ (本次 bug)', () => {
+      const input = '好的方案 <｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="mysql_query">'
+      const out = stripToolCallMarkup(input)
+      expect(out).toContain('⟨tool-call-attempt⟩')
+      expect(out).not.toContain('<｜｜')
+    })
+
+    it('XML 标签 <invoke> <parameter> <tool_call> → 移除', () => {
+      const input = '<invoke name="x"><parameter name="y">z</parameter></invoke>'
+      const out = stripToolCallMarkup(input)
+      expect(out).not.toContain('<invoke')
+      expect(out).not.toContain('<parameter')
+      expect(out).toBe('z')
+    })
+
+    it('多个连续占位符合并 → 单个', () => {
+      const input = '<||A||><||B||><||C||>'
+      const out = stripToolCallMarkup(input)
+      // 连续多个 ⟨tool-call-attempt⟩ 合并为 1 个
+      expect(out.match(/⟨tool-call-attempt⟩/g)?.length).toBe(1)
+    })
+
+    it('空字符串 → 空', () => {
+      expect(stripToolCallMarkup('')).toBe('')
+    })
+
+    it('无 markup 的文本 → 原样', () => {
+      const plain = 'just some plain text without markup'
+      expect(stripToolCallMarkup(plain)).toBe(plain)
+    })
+  })
+
+  describe('Strip markup 在 applyVerification=false 路径也跑 (A2 修复)', () => {
+    it('forced-closure 输出含全角 DSML markup → 被剥', async () => {
+      const polluted =
+        '好,方案确认了。<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="mysql_query">SELECT *</｜｜DSML｜｜invoke> </｜｜DSML｜｜tool_calls>'
+      mockTextStream(polluted)
+      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(5))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      // markup 全部被剥 (包括 invoke 闭合标签)
+      expect(text).not.toContain('<｜｜DSML｜｜')
+      expect(text).not.toContain('<invoke')
+      // 占位符出现
+      expect(text).toContain('⟨tool-call-attempt⟩')
+      // 业务文本保留
+      expect(text).toContain('方案确认了')
+      // forced-closure 兜底补 ⏸ Blocked (因为输出无 marker)
+      expect(text).toContain('⏸ Blocked')
+    })
+
+    it('fallback-summary 也跑 strip (applyVerification=true 路径,与 verify 解耦)', async () => {
+      mockTextStream('result <||DSML||tool_calls> 是这样')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).not.toContain('<||')
+      expect(text).toContain('⟨tool-call-attempt⟩')
     })
   })
 
