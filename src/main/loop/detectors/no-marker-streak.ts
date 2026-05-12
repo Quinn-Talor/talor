@@ -46,12 +46,13 @@ const STRONG_MARKER_HINT =
 
 export interface NoMarkerStreakOpts {
   /**
-   * 连续多少次"无 tool + 无 marker"触发 forced closure。默认 5。
+   * 连续多少次"无 tool + 无 marker"触发 forced closure。默认 3。
    *
-   * 阈值放宽的理由 (Phase 1B+ UX 修复):
-   *   - 旧版 3: 模型只有 2 次自救机会 (count=1,2 注入 hint, count=3 触发)
-   *   - 新版 5: 4 次自救机会 (count=1,2 温和 hint; count=3,4 强化 hint; count=5 触发)
-   * 给中文模型 (deepseek / qwen) 更多时间从"DSML markup"误用切换到真正的 tool_use。
+   * 设计:阈值 3 = 2 次警告 + 1 次触发,警告分两级递进:
+   *   - count=1: PENDING_MARKER_HINT (温和提醒)
+   *   - count=2: STRONG_MARKER_HINT  (强警告 + 反 DSML markup 反模式)
+   *   - count=3: forced-closure
+   * 紧凑收敛——每次警告升级,模型必须立刻反应;比"堆多次同强度 hint"信息密度更高。
    */
   limit?: number
 }
@@ -64,7 +65,7 @@ export class NoMarkerStreakDetector implements LoopDetector {
     private readonly ctx: ForcedSummaryCtx,
     opts: NoMarkerStreakOpts = {},
   ) {
-    this.counter = new StreakCounter(opts.limit ?? 5)
+    this.counter = new StreakCounter(opts.limit ?? 3)
   }
 
   observe(facts: OutcomeFacts, stepIndex: number): DetectorVerdict {
@@ -91,16 +92,17 @@ export class NoMarkerStreakDetector implements LoopDetector {
   }
 
   /**
-   * 渐进式 hint:
-   *   count = 0:       null (无需提示)
-   *   count = 1~2:     PENDING_MARKER_HINT  (温和提醒)
-   *   count = 3~limit-1: STRONG_MARKER_HINT (强化警告 + 反 DSML markup 反模式)
-   *   count = limit:   触发 forced-closure (observe 已返回 triggered)
+   * 渐进式 hint (与默认 limit=3 配套):
+   *   count = 0: null                  (无需提示)
+   *   count = 1: PENDING_MARKER_HINT  (温和提醒 — 你刚错过一次 marker)
+   *   count = 2: STRONG_MARKER_HINT   (强警告 — 下次必触发 + 反 DSML markup 反模式)
+   *   count = 3: 已 triggered, observe 已返回 forced-closure verdict, 不再到这里
+   *
+   * 自定义 limit 时仍按"前半温和,后半强化"规则:limit-1 后置 STRONG。
    */
   nextHint(): string | null {
     const c = this.counter.value
     if (c === 0) return null
-    if (c <= 2) return PENDING_MARKER_HINT
-    return STRONG_MARKER_HINT
+    return c >= this.counter.limit - 1 ? STRONG_MARKER_HINT : PENDING_MARKER_HINT
   }
 }

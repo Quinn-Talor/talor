@@ -1248,14 +1248,14 @@ describe('runReactLoop — Rule 13 marker enforcement', () => {
     expect(hintInjected).toBe(true)
   })
 
-  it('连续 5 次无 marker → 触发 forced closure summary,落 [forced-closure] 消息', async () => {
-    // NoMarker LIMIT 从 3 → 5 (B 修复:给模型更多自救机会)。
-    // 前 5 步用 onChunk + consumeStream 模式 (runReactStep);
-    // 第 6 次调 streamText 是 forced closure 内部,用 textStream 异步迭代器消费。
+  it('连续 3 次无 marker → 触发 forced closure summary,落 [forced-closure] 消息', async () => {
+    // NoMarker LIMIT=3 (默认):紧凑收敛,2 次警告 (温和→强) + 1 次触发。
+    // 前 3 步用 onChunk + consumeStream 模式 (runReactStep);
+    // 第 4 次调 streamText 是 forced closure 内部,用 textStream 异步迭代器消费。
     let call = 0
     mockStreamText.mockImplementation((params: StreamTextParams) => {
       call++
-      if (call <= 5) {
+      if (call <= 3) {
         params.onChunk?.({ chunk: { type: 'text-delta', text: `step ${call} text` } })
         return {
           consumeStream: vi.fn().mockResolvedValue(undefined),
@@ -1273,8 +1273,8 @@ describe('runReactLoop — Rule 13 marker enforcement', () => {
     const opts = makeOpts({ maxSteps: 10 })
     await runReactLoop(opts)
 
-    // create 调用:5 次 intermediate + 1 次 forced-closure 总 = 6 次
-    expect(mockMessageCreate.mock.calls.length).toBeGreaterThanOrEqual(6)
+    // create 调用:3 次 intermediate + 1 次 forced-closure 总 = 4 次
+    expect(mockMessageCreate.mock.calls.length).toBeGreaterThanOrEqual(4)
     // 最后一次 create 的内容含 [forced-closure] 前缀 + 服务端补的 ⏸ Blocked 兜底
     const lastCreate = mockMessageCreate.mock.calls[mockMessageCreate.mock.calls.length - 1][0] as {
       content: Array<{ type: string; text: string }>
