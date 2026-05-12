@@ -41,6 +41,12 @@ export const NO_TRIGGER: DetectorVerdict = { triggered: false }
  *   - observe 是唯一的 state 入口; 内部维护自己的 counter / 签名等
  *   - nextHint (可选) 用于在下一步注入 system hint (如 streak 警告 / marker 提示)
  *   - 不强制每个 detector 都有 nextHint
+ *
+ * v3.6 SemanticDetector 扩展:
+ *   - 部分语义判定 (WaitAndActConflict / HallucinatedConfirm) 需要原始 stepText
+ *     做 regex 兜底,facts.blocks 已经覆盖结构化判定但 raw text 信号仍有价值。
+ *   - observe 的 stepIndex 改为可选第二参数,raw 走第三参数 (向后兼容旧 detector
+ *     不需要 raw 的签名)。
  */
 export interface LoopDetector {
   /** 用于日志的人类可读名 (e.g. 'signature-dead-loop' / 'failure-streak') */
@@ -50,12 +56,27 @@ export interface LoopDetector {
    * 观察一步的 facts, 决定是否触发。
    * stepIndex 用于 forced summary 闭包内捕获当前步数; 不需要 forced summary 的
    * detector (signature / tool-only) 可省略此参数。
+   * raw 仅 SemanticDetector 用 — 提供 stepText 等供 regex 判定;非 raw-aware
+   * detector 可忽略。
    */
-  observe(facts: OutcomeFacts, stepIndex?: number): DetectorVerdict
+  observe(facts: OutcomeFacts, stepIndex?: number, raw?: DetectorRawContext): DetectorVerdict
 
   /**
    * 返回给"下一步"注入的 system hint, 或 null。
    * 主循环用 composeHint(detectors) 取第一个非空的 hint (按 detectors 数组顺序)。
    */
   nextHint?(): string | null
+}
+
+/**
+ * SemanticDetector 用的 raw 信号。
+ *
+ * 不放进 OutcomeFacts (OutcomeFacts 是"派生信号", raw 是"原文") — 把
+ * stepText 这种粗糙信息再塞进 facts 会污染其他 detector 的判定。
+ *
+ * 字段最小化原则: 只暴露 SemanticDetector 真正需要的信号。需要时再加。
+ */
+export interface DetectorRawContext {
+  /** 本步模型纯文本输出 (剔除 tool_use markup 后) */
+  stepText: string
 }

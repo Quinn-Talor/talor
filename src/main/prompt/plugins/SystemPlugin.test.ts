@@ -19,7 +19,7 @@ function makeCtx(workspace?: string): PipelineContext {
 }
 
 describe('SystemPlugin', () => {
-  it('Layer 1 含 13 条行为原则', async () => {
+  it('Layer 1 含 14 条行为原则', async () => {
     const result = await new SystemPlugin().build(makeCtx('/tmp/ws'))
     const content = (result.messages[0] as { content: string }).content
     expect(content).toMatch(/# Core Behavior Principles/)
@@ -35,7 +35,8 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/10\. Parallel tool calls/)
     expect(content).toMatch(/11\. Always state intent/)
     expect(content).toMatch(/12\. Promise then call/)
-    expect(content).toMatch(/13\. Mark how the turn ends/)
+    expect(content).toMatch(/13\. Mark decision points with structured talor blocks/)
+    expect(content).toMatch(/14\. Declare side effects before invoking/)
   })
 
   it('原则 12 "Promise then call" 明确"宣布行动必须同步执行"', async () => {
@@ -55,26 +56,65 @@ describe('SystemPlugin', () => {
     // 触发:阻塞时应 ASK 或 REPORT,不应宣布
     expect(norm).toContain('ASK the user')
     expect(norm).toContain('REPORT what you found')
+    // 触发:wait-for-user dual case 主路径是 talor need_input block (不是只 legacy marker)
+    expect(content).toMatch(/```talor[\s\S]*"type"\s*:\s*"need_input"/)
+    expect(norm).toContain('need_input` talor block')
+    // 触发:legacy marker 保留作 fallback,二者并存
+    expect(content).toContain('❓ Need input')
+    // 触发: pending_confirm 引导(side-effect 工具配 confirm,不是矛盾的"等"+"做")
+    expect(norm).toContain('pending_confirm')
     // 不触发:不应硬编码具体服务名(保持通用)
     expect(content).not.toMatch(/MySQL|GitHub|Slack/i)
   })
 
-  it('原则 13 "Mark how the turn ends" 提供三种显式终止标记', async () => {
+  it('原则 13 "Mark decision points with structured talor blocks" 定义统一 JSONC 协议', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     const norm = content.replace(/\s+/g, ' ')
 
-    expect(norm).toContain('13. Mark how the turn ends')
-    // 触发:三种标记必须都列出来,模型才知道选哪个
+    expect(norm).toContain('13. Mark decision points with structured talor blocks')
+    // 触发: fenced talor block 围栏语法
+    expect(content).toMatch(/```talor/)
+    // 触发: type 必须是第一个 key (streaming detection)
+    expect(norm).toContain('type` field MUST be the FIRST key')
+    // 触发: V1 五种 block 类型全部出现
+    expect(content).toMatch(/\| done/)
+    expect(content).toMatch(/\| need_input/)
+    expect(content).toMatch(/\| blocked/)
+    expect(content).toMatch(/\| pending_confirm/)
+    expect(content).toMatch(/\| warning/)
+    // 触发: turn-ending vs mid-turn 区分
+    expect(norm).toContain('Turn-ending blocks')
+    expect(norm).toContain('Mid-turn blocks')
+    // 触发: 与 Rule 12 联动 — 若选不出 marker,继续调工具
+    expect(norm).toContain('make the next tool call instead')
+    // 触发: legacy markers 仍然识别 (向后兼容)
     expect(content).toContain('✓ Done')
     expect(content).toContain('❓ Need input')
     expect(content).toContain('⏸ Blocked')
-    // 触发:LAST line 约束,避免模型把 marker 塞在中间然后又继续讲废话
-    expect(norm).toContain('LAST line')
-    // 触发:与 Rule 12 联动 — 若选不出 marker,继续调工具
-    expect(norm).toContain('make the next tool call instead')
-    // 触发:三种 marker 各有其契约义务,不是装饰
-    expect(norm.toLowerCase()).toContain('marker is a contract')
+    expect(norm).toContain('backward compatibility')
+  })
+
+  it('原则 14 "Declare side effects before invoking" 定义 pending_confirm 契约', async () => {
+    const result = await new SystemPlugin().build(makeCtx())
+    const content = (result.messages[0] as { content: string }).content
+    const norm = content.replace(/\s+/g, ' ')
+
+    expect(norm).toContain('14. Declare side effects before invoking')
+    // 触发: pending_confirm block 出现在示例中
+    expect(content).toMatch(/"type":\s*"pending_confirm"/)
+    // 触发: 必须在 SAME step 与 tool call 一起 emit
+    expect(norm).toContain('SAME step as the')
+    // 触发: 副作用 vs 只读 分类
+    expect(content).toMatch(/INSERT.*UPDATE.*DELETE/s)
+    expect(norm).toContain('SELECT / GET / list')
+    // 触发: pattern key 格式
+    expect(norm).toContain('<tool>:<op>:<target>')
+    // 触发: destructive 不可记忆
+    expect(norm).toContain('Destructive operations cannot be remembered')
+    // 触发: fallback 兜底机制提示
+    expect(norm).toContain("framework's fallback")
+    // 不触发: 不应硬编码具体业务名 (保持通用性) - 注: 示例里 mysql/lark 是格式范例,允许出现
   })
 
   it('原则 2 "Tool results are ground truth" 给出 (a)/(b)/(c) 三步诊断流程', async () => {

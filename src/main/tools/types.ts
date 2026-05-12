@@ -167,6 +167,32 @@ export interface ToolExecuteContext extends ToolConfig {
    * ignore this field.
    */
   confirmTool?: import('../ipc/tool-confirm').ToolConfirmPort
+  /**
+   * v3.6 RiskGate: 本 step 中解析出的 talor blocks (含 pending_confirm)。
+   * 由 react-loop / runReactStep 在 buildTools 调用前注入。
+   * RiskGate.gate 用此提取 pending_confirm block 主路径。
+   */
+  currentStepBlocks?: import('@shared/talor-blocks/talor-block-schema').TalorBlock[]
+  /**
+   * v3.6: 当前工具调用的 ID, 供 RiskGate 路由 confirm 响应。
+   */
+  toolCallId?: string
+  /**
+   * v3.6 Ledger: 当前父消息 id。RiskGate 通过后写 ledger 用。
+   * 由 buildTools 从 react-loop messageId 透传。
+   */
+  parentMessageIdForLedger?: string
+  /**
+   * v3.6 Ledger: 当前父 session id (subagent 场景)。null 表示根 session。
+   * 让 SideEffectLedger 能聚合 subagent 副作用到父 session 视图。
+   */
+  rootSessionId?: string | null
+  /**
+   * v3.6 Ledger: 本 turn 在 react-loop 中的 step_index。
+   * forced summary 的 sinceTurn 划界依赖此字段(buildSummary 取 turn-start
+   * step_index 作为下限)。
+   */
+  stepIndex?: number
 }
 
 export type PermissionPort = (req: PermissionRequestInput) => Promise<boolean>

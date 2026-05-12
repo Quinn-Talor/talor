@@ -15,9 +15,10 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { streamText, type ModelMessage } from 'ai'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
+import { sideEffectLedger } from '../repos/side-effect-ledger'
 import { buildStreamSignal } from './stream-utils'
 import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
-import { hasTerminationMarker } from './outcome-facts'
+import { hasTerminationInText, looksLikeOpenQuestion } from './outcome-facts'
 
 const SEPARATOR = '──────────────────────────────────────────'
 
@@ -97,7 +98,19 @@ export interface ForcedSummaryCtx {
   agentId: string
   skillTracker: import('../skills/registry').SkillActivationTracker
   events: import('../chat/events').ExecutionEventBus
-  callbacks: { onTextDelta: (delta: string, stepIndex: number) => void }
+  callbacks: {
+    onTextDelta: (delta: string, stepIndex: number) => void
+    /** v3.6: forced summary 落库后通知 renderer 立即刷新 (替代 polling) */
+    onMessagePersisted?: (sessionId: string, stepIndex: number) => void
+  }
+  /**
+   * v3.6: 本 turn 起始时刻 (ISO timestamp)。
+   * forced summary 拼接 sideEffectLedger.buildSummary 时用,只取本 turn 内
+   * record 的 entries — 避免把历史 turn 的副作用也列一遍。
+   *
+   * runReactLoop 进入时 snapshot new Date().toISOString() 透传。
+   */
+  turnStartTime: string
 }
 
 export interface ForcedSummaryOpts {
@@ -115,6 +128,12 @@ export interface ForcedSummaryOpts {
   postProcess?: (text: string) => string
   /** catch 块落库的兜底文案 (内部错误兜底) */
   errorFallbackText: string
+  /**
+   * v3.6: 是否在 forced summary 内嵌副作用 ledger 摘要。
+   * 默认 true — 用户在中断/兜底场景下尤其需要知道本 turn 已经发生了哪些写操作。
+   * 仅在测试/特殊场景关。
+   */
+  includeLedgerSummary?: boolean
 }
 
 /**
@@ -207,6 +226,21 @@ export async function runForcedSummary(
     // postProcess (forced-closure 用 — 补 ⏸ Blocked 等)
     if (opts.postProcess) cleaned = opts.postProcess(cleaned)
 
+    // v3.6: 副作用 ledger 摘要拼接 — 让用户在兜底场景仍能看到本 turn 已发生的写操作
+    // 用 turnStartTime (ISO) 划界, 只拼本 turn 的副作用, 不拉历史 turn
+    if (opts.includeLedgerSummary !== false) {
+      try {
+        const ledgerSummary = sideEffectLedger.buildSummary(ctx.sessionId, ctx.turnStartTime)
+        if (ledgerSummary) {
+          cleaned = `${cleaned}\n${ledgerSummary}`
+          log.info(`[ReactLoop]   ${opts.logName}: appended ledger summary`)
+        }
+      } catch (err) {
+        // ledger 读失败不应阻塞 forced summary
+        log.warn(`[ReactLoop]   ${opts.logName}: ledger.buildSummary failed:`, err)
+      }
+    }
+
     // 组装最终 label + 落库
     const finalLabel =
       verifyTags.length > 0
@@ -222,6 +256,7 @@ export async function runForcedSummary(
       agent_id: ctx.agentId,
     })
     sessionRepo.touch(ctx.sessionId)
+    ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
     log.info(`[ReactLoop]   → ${opts.logName}: ${cleaned.length} chars [${durationMs}ms]`)
   } catch (err) {
     log.error(`[ReactLoop]   → ${opts.logName} failed [${Date.now() - summaryStart}ms]:`, err)
@@ -235,6 +270,7 @@ export async function runForcedSummary(
         agent_id: ctx.agentId,
       })
       sessionRepo.touch(ctx.sessionId)
+      ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
     } catch (persistErr) {
       log.error(`[ReactLoop]   ${opts.logName} fallback persist failed:`, persistErr)
     }
@@ -319,9 +355,13 @@ export function signatureDeadLoopSummaryOpts(
       `or task is genuinely impossible with this tool).\n` +
       `4. What the user can do next (different approach, manual workaround, ask for help).\n` +
       `Quote the error/output text exactly. Do not invent facts. Do not pretend it worked. ` +
-      `End your reply with one of:\n` +
-      `  ❓ Need input — <what specific info / decision you need from user>\n` +
-      `  ⏸ Blocked — <the blocker preventing further progress>`,
+      `End your reply with a talor block (preferred):\n` +
+      '  ```talor\n' +
+      '  {"type":"need_input","question":"<what info / decision you need from user>"}\n' +
+      '  ```\n' +
+      '  or {"type":"blocked","reason":"<the blocker>","can_retry":false}\n\n' +
+      `Legacy text marker (fallback, weaker models): last line "❓ Need input — <...>" ` +
+      `or "⏸ Blocked — <...>".`,
   }
 
   return {
@@ -341,19 +381,23 @@ export function forcedClosureSummaryOpts(noMarkerCount: number): ForcedSummaryOp
     content:
       `[Forced closure mode]\n` +
       `You have ended ${noMarkerCount} consecutive replies without a tool call AND without ` +
-      `any termination marker. Tools are now DISABLED for this final response.\n\n` +
+      `any termination signal (talor done/need_input/blocked block OR legacy ✓/❓/⏸ marker). ` +
+      `Tools are now DISABLED for this final response.\n\n` +
       `⛔ DO NOT embed pseudo tool-call syntax in your reply (any markup-style tag attempting ` +
       `to invoke a tool — XML-like, JSON-fenced, or any other format). Tools are disabled in ` +
       `this mode — such markup is meaningless and will be stripped before the reply reaches ` +
       `the user.\n\n` +
-      `You MUST output text whose LAST line is one of:\n` +
-      `  ✓ Done — <one-line summary of what was accomplished, based on the conversation above>\n` +
-      `  ❓ Need input — <one sentence on exactly what specific info / decision you need ` +
-      `from the user to proceed>\n` +
-      `  ⏸ Blocked — <one sentence on the specific blocker, quoting the relevant error if any>\n\n` +
-      `Pick the marker that honestly reflects the state. If you were mid-task and need to ` +
-      `defer to the user, prefer ❓ Need input over ⏸ Blocked. Do NOT add any text after the ` +
-      `marker line. Do NOT invent facts not present in the conversation.`,
+      `You MUST end your reply with ONE of these closure signals (talor block preferred):\n\n` +
+      '  ```talor\n' +
+      '  {"type":"done","summary":"<one-line summary of what was accomplished>"}\n' +
+      '  ```\n' +
+      '  or {"type":"need_input","question":"<exactly what you need from the user>"}\n' +
+      '  or {"type":"blocked","reason":"<the specific blocker, quoting the error if any>"}\n\n' +
+      `Legacy text fallback (last line): "✓ Done — <...>" / "❓ Need input — <...>" / ` +
+      `"⏸ Blocked — <...>".\n\n` +
+      `Pick the signal that honestly reflects the state. If you were mid-task and need to ` +
+      `defer to the user, prefer need_input over blocked. Do NOT add any text after the ` +
+      `closure block / marker. Do NOT invent facts not present in the conversation.`,
   }
 
   return {
@@ -362,10 +406,18 @@ export function forcedClosureSummaryOpts(noMarkerCount: number): ForcedSummaryOp
     label: '[forced-closure]',
     applyVerification: false, // 与原 runForcedClosureSummary 一致, 不做 quote-verify
     fallbackTextIfEmpty: 'Cannot determine task state.',
-    postProcess: (text) =>
-      hasTerminationMarker(text)
-        ? text
-        : `${text}\n\n⏸ Blocked — model failed to provide explicit closure after ${noMarkerCount} attempts; please re-engage.`,
+    postProcess: (text) => {
+      // 合并判定: talor block(done/need_input/blocked) 或 legacy marker 都算收尾。
+      // 否则模型 emit talor done 后还会被强补一个 ⏸ Blocked。
+      if (hasTerminationInText(text)) return text
+      // 没显式 marker, 但内容像问句 (forced-closure 模式下模型常自答 +
+      // 接着再问 — 截图回归 bug)。补 ❓ Need input 比 ⏸ Blocked 更准确,
+      // 因为模型在问就是等用户答, 不是被卡住。
+      if (looksLikeOpenQuestion(text)) {
+        return `${text}\n\n❓ Need input — model is asking the user (no explicit closure marker after ${noMarkerCount} attempts; please answer above).`
+      }
+      return `${text}\n\n⏸ Blocked — model failed to provide explicit closure after ${noMarkerCount} attempts; please re-engage.`
+    },
     errorFallbackText: `[forced-closure failed]\n⏸ Blocked — internal error during forced closure after ${noMarkerCount} no-marker attempts. Please retry.`,
   }
 }

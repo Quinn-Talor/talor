@@ -328,22 +328,39 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     if (streamState === 'done' && currentSessionId) loadMessages(currentSessionId)
   }, [streamState, currentSessionId]) // eslint-disable-line
 
-  // Streaming 期间定期 polling 刷新消息列表。
+  // v3.6 事件驱动: 主进程一条 message 落库后,通过 chat:message-persisted
+  // 事件通知 renderer 立即刷新本 session — 替代旧 3s polling。
   //
-  // 背景: 旧实现只在 streamState='done' 时 loadMessages,但长任务 (30+ step) 期间
-  // 后端已 persist 的 assistant + tool 消息前端从未拉取过,UI 卡在 sendChat
-  // 起始那一刻,造成"消息丢失"的错觉。
+  // 配套两件事:
+  //   1. loadMessages — 拉取最新 messages,renderedMessages 显示新落库内容
+  //   2. dropStreamItemsUpToStep — 清掉对应 step 的 streamItems,避免
+  //      ToolCallMessage (持久) 与 ToolCallLog (流式) 同时渲染同一步工具调用
+  //      列表 (1:1 视觉重复 — 事件驱动放大了 race,3s polling 不显眼)
   //
-  // 修复: streaming 期间每 3 秒拉一次。loadMessages 是只读 listBySession,
-  // IPC 成本可接受;3 秒间隔用户基本感知不到延迟。
+  // 配套保留 30s 兜底 polling: 万一主进程事件丢 (IPC 罕见但可能),loadMessages
+  // 仍能补齐。兜底间隔比旧值长 10×,几乎无 CPU 开销。
+  //
+  // 历史背景: 旧实现是 streaming 期间每 3 秒 polling,因为只在 streamState='done'
+  // 时 loadMessages 会导致长任务期间"消息丢失" (commit 3d38945)。事件驱动
+  // 把延迟从秒级降到 IPC RTT (<50ms),同时保留兜底防回归。
   useEffect(() => {
     if (streamState !== 'streaming' || !currentSessionId) return
     // 立即刷一次,让首批 persist 的 message 立刻进入 messages 列表
     loadMessages(currentSessionId)
+    // 主事件订阅: 仅当通知的 session 是当前 session 时刷新 + 清流式残留
+    const unsubscribe = talorAPI.chat.onMessagePersisted((ev) => {
+      if (ev.session_id !== currentSessionId) return
+      loadMessages(currentSessionId)
+      useChatStore.getState().dropStreamItemsUpToStep(ev.step_index)
+    })
+    // 兜底 polling: 30s 间隔(事件丢/IPC 异常时仍能补齐)
     const interval = setInterval(() => {
       loadMessages(currentSessionId)
-    }, 3000)
-    return () => clearInterval(interval)
+    }, 30000)
+    return () => {
+      unsubscribe()
+      clearInterval(interval)
+    }
   }, [streamState, currentSessionId, loadMessages])
 
   // Reset userScrolledUp when streaming starts or session changes

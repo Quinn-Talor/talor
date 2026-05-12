@@ -16,6 +16,27 @@ export interface ReactLoopCallbacks {
     startedAt: number,
   ) => void
   onToolResult: (toolCallId: string, toolName: string, output: unknown, durationMs: number) => void
+  /**
+   * v3.6: 一条消息落库后触发(messageRepo.create / createBatch 之后)。
+   *
+   * 用途: 替代 renderer 端的 3s polling — 入口层把这个回调桥接到
+   * `webContents.send('chat:message-persisted', { sessionId, stepIndex })`,
+   * 前端收到事件立即调 loadMessages,延迟从秒级降到 IPC RTT 量级 (<50ms)。
+   *
+   * stepIndex 设计 (v3.6 dedupe fix):
+   *   - renderer 拿到这个值后, 清掉 streamItems 中 stepIndex <= 该值的项,
+   *     避免"已落库 message 的 ToolCallMessage" 与 "streamItems 的 ToolCallLog"
+   *     同时显示同一步工具调用列表 (1:1 视觉重复)
+   *   - forced-summary 等非具体 step 的 persist 用 react-loop 的 accumulator
+   *     总 step 数, 仍能正确划界
+   *
+   * 设计:
+   *   - 不带 message 内容 — 只通知"有新消息了 + 边界在哪",renderer 自行 loadMessages
+   *   - 兼容旧调用方: 可选回调,缺省即退化为 polling 路径
+   *   - subagent 透传: 子 loop 的 persist 也应该让父 session UI 知道。
+   *     V1 只透传顶层 sessionId — subagent 落库时也用父 sessionId 触发刷新。
+   */
+  onMessagePersisted?: (sessionId: string, stepIndex: number) => void
 }
 
 export interface ReactLoopOptions {

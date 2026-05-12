@@ -892,20 +892,21 @@ K-MUST-4 / K-MUST-5 / K-MUST-6 / K-MUST-7 / K-MUST-8 / K-MUST-9、K-NEVER-3 / K-
 
 ## 模式索引
 
-| 模式                                                          | 相关标准                            | 关键参考实现                                                             |
-| ------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ |
-| [P1. 参数校验分层](#p1-参数校验的分层职责)                    | F-MUST-1/2, F-NEVER-1, B-NEVER-1    | `tools/registry.ts`、`tools/builtin/*.ts`、`tools/schema-check.ts`       |
-| [P2. 错误建模](#p2-错误建模结构化错误信封)                    | F-MUST-3, G-NEVER-2                 | `tools/types.ts`、`loop/stream-utils.ts`、`mcp/client.ts`                |
-| [P3. 错误边界分类](#p3-错误的边界分类与降级)                  | D-NEVER-1, G-MUST-1, G-SHOULD-2     | `ipc/error-codes.ts`、`chat/orchestrator.ts`                             |
-| [P4. 不变量代码化](#p4-不变量的代码化prompt--code)            | J-MUST-\*, J-SHOULD-1, K-MUST/NEVER | `loop/quote-verifier.ts`、`tools/path-guard.ts`、`tools/builtin/edit.ts` |
-| [P5. Repo CRUD](#p5-repo-crud-契约)                           | E-MUST-\*                           | `repos/session-repo.ts`、`repos/mcp-server-repo.ts`                      |
-| [P6. 事务原子性](#p6-事务与原子性)                            | E-MUST-4, I-MUST-1                  | `repos/session-repo.ts:createBatch`、`loop/react-loop.ts`                |
-| [P7. 分层边界](#p7-分层边界与依赖方向)                        | A-MUST-\*, A-NEVER-1, D-MUST-3      | 各模块头部注释、`chat/orchestrator.ts`                                   |
-| [P8. Critical vs Optional](#p8-critical-vs-optional-组件分级) | J-MUST-2, F-MUST-4                  | `prompt/PromptPipeline.ts`、`memory/ShortTermMemory.ts`                  |
-| [P9. Fail-Loud vs Silent](#p9-fail-loud-vs-silent-fallback)   | F-MUST-4, J-MUST-2/3                | `tools/registry.ts`（verify）、`loop/react-loop.ts`（context halt）      |
-| [P10. 测试风格](#p10-测试风格与隔离)                          | L-MUST-_, L-SHOULD-2, L-NEVER-_     | 各 `*.test.ts`                                                           |
-| [P11. Electron 渲染端安全边界](#p11-electron-渲染端安全边界)  | K-MUST-4/5/6/7/8/9, K-NEVER-3/4/5   | `main/index.ts`、`preload/index.ts`、`index.html`、`agent/accounts.ts`   |
-| [P12. 领域知识加载策略](#p12--领域知识加载策略)               | —                                   | `src/main/agent/templates.ts`、`vibe/` 目录                              |
+| 模式                                                                       | 相关标准                            | 关键参考实现                                                                                      |
+| -------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [P1. 参数校验分层](#p1-参数校验的分层职责)                                 | F-MUST-1/2, F-NEVER-1, B-NEVER-1    | `tools/registry.ts`、`tools/builtin/*.ts`、`tools/schema-check.ts`                                |
+| [P2. 错误建模](#p2-错误建模结构化错误信封)                                 | F-MUST-3, G-NEVER-2                 | `tools/types.ts`、`loop/stream-utils.ts`、`mcp/client.ts`                                         |
+| [P3. 错误边界分类](#p3-错误的边界分类与降级)                               | D-NEVER-1, G-MUST-1, G-SHOULD-2     | `ipc/error-codes.ts`、`chat/orchestrator.ts`                                                      |
+| [P4. 不变量代码化](#p4-不变量的代码化prompt--code)                         | J-MUST-\*, J-SHOULD-1, K-MUST/NEVER | `loop/quote-verifier.ts`、`tools/path-guard.ts`、`tools/builtin/edit.ts`                          |
+| [P5. Repo CRUD](#p5-repo-crud-契约)                                        | E-MUST-\*                           | `repos/session-repo.ts`、`repos/mcp-server-repo.ts`                                               |
+| [P6. 事务原子性](#p6-事务与原子性)                                         | E-MUST-4, I-MUST-1                  | `repos/session-repo.ts:createBatch`、`loop/react-loop.ts`                                         |
+| [P7. 分层边界](#p7-分层边界与依赖方向)                                     | A-MUST-\*, A-NEVER-1, D-MUST-3      | 各模块头部注释、`chat/orchestrator.ts`                                                            |
+| [P8. Critical vs Optional](#p8-critical-vs-optional-组件分级)              | J-MUST-2, F-MUST-4                  | `prompt/PromptPipeline.ts`、`memory/ShortTermMemory.ts`                                           |
+| [P9. Fail-Loud vs Silent](#p9-fail-loud-vs-silent-fallback)                | F-MUST-4, J-MUST-2/3                | `tools/registry.ts`（verify）、`loop/react-loop.ts`（context halt）                               |
+| [P10. 测试风格](#p10-测试风格与隔离)                                       | L-MUST-_, L-SHOULD-2, L-NEVER-_     | 各 `*.test.ts`                                                                                    |
+| [P11. Electron 渲染端安全边界](#p11-electron-渲染端安全边界)               | K-MUST-4/5/6/7/8/9, K-NEVER-3/4/5   | `main/index.ts`、`preload/index.ts`、`index.html`、`agent/accounts.ts`                            |
+| [P12. 领域知识加载策略](#p12--领域知识加载策略)                            | —                                   | `src/main/agent/templates.ts`、`vibe/` 目录                                                       |
+| [P13. Talor Block + RiskGate (v3.6)](#p13--talor-block-协议--riskgate-v36) | —                                   | `src/shared/talor-blocks/`、`src/main/tools/risk-gate.ts`、`src/main/repos/side-effect-ledger.ts` |
 
 ---
 
@@ -927,6 +928,67 @@ Agent 需要的领域知识有 4 条加载通道,按规模与共享需求选:
 - 介于之间 → 先 references,复用时升级为 Skill
 
 参考实现: `src/main/agent/templates.ts` 的内置模板演示了 references 用法;`vibe/` 目录自身是 Skill 思想的项目级体现。
+
+---
+
+---
+
+## P13 — Talor Block 协议 + RiskGate (v3.6)
+
+### 问题
+
+工具调用前需要拦截"高风险/副作用"操作让用户确认,但代码无法穷举业务级风险
+(具体 schema、关键表名等)。同时模型自然语言输出难以被 detector 字段化判定
+"是已完成 / 需用户输入 / 阻塞 / 待确认",流程容错弱。
+
+### 原则
+
+- **判断交给 LLM(设计原则 #6)**: 业务/语义判断由模型通过 `pending_confirm`
+  block 主动声明,代码只做"通用兜底 + 执行管控",不绑业务名
+- **结构化决策点**: 用统一 JSONC fence (` ```talor ` + discriminated union)
+  让 detector / UI / Gate 都拿到字段化信号,不再靠 regex 嗅探文本
+- **审计可追溯**: 所有副作用走 SQLite ledger,父子 session 聚合,forced summary
+  内嵌副作用摘要让用户知道"已经发生了什么"
+- **流式优先**: `type` 字段必须是 JSON 第一个 key,UI 在 JSONC 闭合前就能
+  显示对应类型的骨架
+
+### Talor 实施
+
+5 层架构 (L0 → L5):
+
+| 层  | 职责                              | 关键文件                                              |
+| --- | --------------------------------- | ----------------------------------------------------- |
+| L0  | Block 协议 + JSONC parser         | `src/shared/talor-blocks/`                            |
+| L1  | 流程健康度 detector (Phase 1B)    | `src/main/loop/detectors/`                            |
+| L2  | 语义一致性 detector (软纠偏)      | `wait-and-act-conflict.ts`、`hallucinated-confirm.ts` |
+| L3  | 风险 Gate (4 路径决策)            | `src/main/tools/risk-gate.ts`                         |
+| L4  | 副作用 Ledger (SQLite + 父聚合)   | `src/main/repos/side-effect-ledger.ts`                |
+| L5  | UI 卡片 + 流式骨架 + Confirm 增强 | `src/renderer/components/TalorBlockRenderer.tsx`      |
+
+5 个 V1 block 类型 (`done` / `need_input` / `blocked` / `pending_confirm` / `warning`),
+plan/diagram 等留 V2。
+
+### 参考实现
+
+- 协议 + parser: `src/shared/talor-blocks/talor-block-schema.ts`、`talor-block-parser.ts`
+- Gate 4 路径决策: `src/main/tools/risk-gate.ts:gate()`
+- Ledger 父子聚合: `src/main/repos/side-effect-ledger.ts:listByRootSession`
+- 流式 currentStepBlocks: `src/main/tools/build-tools.ts:getCurrentStepBlocks` getter
+- forced summary 内嵌 ledger: `src/main/loop/forced-summary.ts:runForcedSummary`
+- 事件驱动 IPC: `chat:message-persisted` 链路 (orchestrator → ipc/chat.ts → preload → Chat 页)
+
+### 取舍
+
+- 静态 HIGH builtin (bash/write/edit) 走 `pass-to-legacy` 旧路径,避免双弹窗
+  (Gate 内部不重复 confirm)。未来若统一,该 action 可移除
+- ledger 用 `created_at` (ISO string) 划界本 turn,不用 step_index — step_index
+  跨 turn 重置无法区分历史 turn
+- 弱模型若不 emit `pending_confirm`,代码兜底 regex (`DROP/INSERT/rm -rf` 等
+  通用语法层) 仍能拦截,但**不允许 remember**,鼓励模型主动声明
+
+### 相关标准
+
+详见方案文档 [docs/superpowers/plans/2026-05-12-talor-block-protocol.md](../../docs/superpowers/plans/2026-05-12-talor-block-protocol.md),§12 列了实施与方案的差异回写。
 
 ---
 

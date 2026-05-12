@@ -10,6 +10,12 @@ import type { Components } from 'react-markdown'
 import React from 'react'
 import { AttachmentPreview } from './AttachmentPreview'
 import { detectDraftInText } from '../lib/draft-extractor'
+import {
+  splitMessageWithTalorBlocks,
+  TalorBlockCard,
+  InvalidTalorBlockCard,
+  StreamingTalorSkeleton,
+} from './TalorBlockRenderer'
 
 class ErrorBoundary extends React.Component<
   { fallback: React.ReactNode; children: React.ReactNode },
@@ -259,15 +265,36 @@ function MessageBubbleInner({
                 </div>
               }
             >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  code: CodeBlock as Components['code'],
-                  pre: ({ children }) => <>{children}</>,
-                }}
-              >
-                {textContent || ''}
-              </ReactMarkdown>
+              {splitMessageWithTalorBlocks(textContent || '').map((seg, i) => {
+                if (seg.type === 'talor' && seg.block) {
+                  return <TalorBlockCard key={i} block={seg.block} />
+                }
+                if (seg.type === 'invalid-talor') {
+                  return <InvalidTalorBlockCard key={i} raw={seg.content} />
+                }
+                if (seg.type === 'streaming-talor') {
+                  // 流式中未闭合 fence: 仅 isStreaming=true 时显示骨架,流结束后
+                  // (按 parser 看仍是 unclosed → 是真损坏) 才降级为 invalid 卡片。
+                  // 避免持久化的消息因为意外格式损坏而显示永久 "streaming…" 假象。
+                  return isStreaming ? (
+                    <StreamingTalorSkeleton key={i} streamingType={seg.streamingType} />
+                  ) : (
+                    <InvalidTalorBlockCard key={i} raw={seg.content} />
+                  )
+                }
+                return (
+                  <ReactMarkdown
+                    key={i}
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code: CodeBlock as Components['code'],
+                      pre: ({ children }) => <>{children}</>,
+                    }}
+                  >
+                    {seg.content}
+                  </ReactMarkdown>
+                )
+              })}
             </ErrorBoundary>
           </div>
         )}

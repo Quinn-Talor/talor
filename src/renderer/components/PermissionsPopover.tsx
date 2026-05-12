@@ -106,11 +106,12 @@ export function PermissionsPopover({ workspacePath }: Props) {
     }, 100)
   }
 
-  const handleToolConfirmDecide = (decision: 'approved' | 'rejected') => {
+  const handleToolConfirmDecide = (decision: 'approved' | 'rejected', remember?: boolean) => {
     if (!pendingToolConfirm) return
     talorAPI.chat.sendToolConfirmResponse({
       toolCallId: pendingToolConfirm.toolCallId,
       decision,
+      ...(remember ? { remember: true } : {}),
     })
     setPendingToolConfirm(null)
     // 决策后自动收起(与 handlePermissionDecide 对称)。
@@ -231,24 +232,79 @@ export function PermissionsPopover({ workspacePath }: Props) {
 
 interface ToolConfirmCardProps {
   request: ToolConfirmRequest
-  onDecide: (decision: 'approved' | 'rejected') => void
+  onDecide: (decision: 'approved' | 'rejected', remember?: boolean) => void
 }
 
+/**
+ * v3.6 增强:
+ *   - 顶部带 risk-level 徽章 (high vs destructive)
+ *   - summary (来自 pending_confirm.summary, 一句话给用户看)
+ *   - preview (详细预览, 黑底 code, 可滚动)
+ *   - allowRemember=true 时展示"Remember for this session"复选框
+ *   - destructive 强制隐藏 remember 复选框
+ */
 function ToolConfirmCard({ request, onDecide }: ToolConfirmCardProps) {
+  const [remember, setRemember] = useState(false)
+
+  const isDestructive = request.riskLevel === 'destructive'
+  const showRememberCheckbox = !!request.allowRemember && !isDestructive
+
+  // summary 优先级: v3.6 summary > legacy inputSummary
+  const headerSummary = request.summary?.trim() || `Run ${request.toolName}`
+  // preview 优先级: v3.6 preview > legacy inputSummary
+  const previewText = request.preview?.trim() || request.inputSummary?.trim() || ''
+
+  const cardBorderColor = isDestructive ? 'border-red-400' : 'border-amber-300'
+  const cardBgColor = isDestructive ? 'bg-red-50' : 'bg-amber-50'
+  const headerBgColor = isDestructive ? 'bg-red-100' : 'bg-amber-100'
+  const headerBorderColor = isDestructive ? 'border-red-200' : 'border-amber-200'
+  const headerTextColor = isDestructive ? 'text-red-900' : 'text-amber-900'
+  const headerSubTextColor = isDestructive ? 'text-red-800' : 'text-amber-800'
+  const footerBorderColor = isDestructive ? 'border-red-200' : 'border-amber-200'
+
   return (
-    <div className="mx-3 my-3 rounded-lg border-2 border-amber-300 bg-amber-50 overflow-hidden">
-      <div className="px-3 py-2 bg-amber-100 border-b border-amber-200">
-        <p className="text-[11px] font-semibold text-amber-900">Pending approval</p>
-        <p className="text-xs text-amber-800 mt-0.5 font-mono">Run {request.toolName}</p>
+    <div
+      className={`mx-3 my-3 rounded-lg border-2 ${cardBorderColor} ${cardBgColor} overflow-hidden`}
+    >
+      <div className={`px-3 py-2 ${headerBgColor} border-b ${headerBorderColor}`}>
+        <div className="flex items-center justify-between">
+          <p className={`text-[11px] font-semibold ${headerTextColor}`}>
+            {isDestructive ? '⚠️ Destructive — Pending approval' : 'Pending approval'}
+          </p>
+          <p className={`text-[10px] font-mono ${headerSubTextColor}`}>{request.toolName}</p>
+        </div>
+        <p className={`text-xs ${headerSubTextColor} mt-0.5`}>{headerSummary}</p>
       </div>
 
-      <div className="px-3 py-2 bg-gray-900 max-h-48 overflow-y-auto">
-        <pre className="text-xs font-mono whitespace-pre-wrap break-words text-green-400">
-          {request.inputSummary || <span className="text-gray-500 italic">(no arguments)</span>}
-        </pre>
-      </div>
+      {previewText && (
+        <div className="px-3 py-2 bg-gray-900 max-h-48 overflow-y-auto">
+          <pre className="text-xs font-mono whitespace-pre-wrap break-words text-green-400">
+            {previewText}
+          </pre>
+        </div>
+      )}
 
-      <div className="px-3 py-2 flex justify-end gap-2 border-t border-amber-200 bg-amber-50">
+      {showRememberCheckbox && (
+        <div className="px-3 py-2 bg-white border-t border-gray-100">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+            />
+            <span className="text-[11px] text-gray-700">
+              Remember for this session
+              {request.patternKey && (
+                <span className="text-gray-400 font-mono ml-1">({request.patternKey})</span>
+              )}
+            </span>
+          </label>
+        </div>
+      )}
+
+      <div
+        className={`px-3 py-2 flex justify-end gap-2 border-t ${footerBorderColor} ${cardBgColor}`}
+      >
         <button
           onClick={() => onDecide('rejected')}
           className="px-3 py-1 text-xs bg-white border border-gray-300 rounded hover:bg-gray-50 text-gray-700"
@@ -256,10 +312,12 @@ function ToolConfirmCard({ request, onDecide }: ToolConfirmCardProps) {
           Deny
         </button>
         <button
-          onClick={() => onDecide('approved')}
-          className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded"
+          onClick={() => onDecide('approved', showRememberCheckbox && remember)}
+          className={`px-3 py-1 text-xs rounded text-white ${
+            isDestructive ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+          }`}
         >
-          Allow
+          {isDestructive ? 'Confirm anyway' : 'Allow'}
         </button>
       </div>
     </div>

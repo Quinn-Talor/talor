@@ -76,6 +76,9 @@ declare global {
         onStream: (callback: (event: ChatStreamEvent) => void) => () => void
         onToolCall: (callback: (event: ChatToolCallEvent) => void) => () => void
         onToolResult: (callback: (event: ChatToolResultEvent) => void) => () => void
+        onMessagePersisted: (
+          callback: (event: { session_id: string; step_index: number }) => void,
+        ) => () => void
         onToolConfirm: (callback: (event: ToolConfirmRequest) => void) => () => void
         sendToolConfirmResponse: (response: ToolConfirmResponse) => void
         onPermissionRequest: (callback: (event: PermissionRequest) => void) => () => void
@@ -292,6 +295,7 @@ const stubChat = {
   onStream: () => () => {},
   onToolCall: () => () => {},
   onToolResult: () => () => {},
+  onMessagePersisted: () => () => {},
   onToolConfirm: () => () => {},
   sendToolConfirmResponse: () => {},
   onPermissionRequest: () => () => {},

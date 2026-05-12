@@ -194,6 +194,24 @@ const talorAPI = {
       ipcRenderer.on('chat:tool-result', handler)
       return () => ipcRenderer.removeListener('chat:tool-result', handler)
     },
+    /**
+     * v3.6: 主进程一条 message 落库后触发。renderer 应在此立即调
+     * loadMessages 刷新本 session 的消息列表 — 替代 3 秒 polling。
+     *
+     * payload: { session_id, step_index }。renderer 用 step_index 清掉
+     * streamItems 中 stepIndex <= 该值的项,避免 ToolCallMessage(持久)与
+     * ToolCallLog(流式)同时显示同一步(1:1 视觉重复)。
+     */
+    onMessagePersisted: (
+      callback: (event: { session_id: string; step_index: number }) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        data: { session_id: string; step_index: number },
+      ) => callback(data)
+      ipcRenderer.on('chat:message-persisted', handler)
+      return () => ipcRenderer.removeListener('chat:message-persisted', handler)
+    },
     onToolConfirm: (callback: (event: ToolConfirmRequest) => void): (() => void) => {
       const handler = (_: Electron.IpcRendererEvent, data: ToolConfirmRequest) => callback(data)
       ipcRenderer.on('chat:tool-confirm', handler)

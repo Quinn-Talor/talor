@@ -85,6 +85,43 @@ CREATE TABLE IF NOT EXISTS account_keys (
 );
 `
 
+/**
+ * side_effect_log — v3.6 Talor Block 协议: 记录所有"副作用"工具调用 (写 DB /
+ * 写文件 / 调外部 API 等)。供 forced summary 内嵌摘要 + UI 审计 + 用户回滚参考。
+ *
+ * 设计要点:
+ *   - parent_session_id: 子 session 副作用归属父 (root_session) 聚合查询
+ *   - confirmed_by: 'pendingBlock' (LLM 主动 emit pending_confirm) /
+ *                   'fallback' (代码 regex 兜底拦截) /
+ *                   'memory' (session approval memory 自动通过) /
+ *                   'auto-low' (无风险信号,直接执行)
+ *   - user_decision: 'approved' / 'denied' / 'auto' (auto = pattern memory / auto-low)
+ *
+ * 删除联动: session 删除时 FOREIGN KEY CASCADE 自动清理 entry。
+ */
+const CREATE_SIDE_EFFECT_LOG = `
+CREATE TABLE IF NOT EXISTS side_effect_log (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  parent_session_id   TEXT,
+  message_id          TEXT NOT NULL,
+  tool_call_id        TEXT NOT NULL,
+  step_index          INTEGER NOT NULL,
+  op                  TEXT NOT NULL,
+  target              TEXT NOT NULL,
+  preview             TEXT NOT NULL,
+  confirmed_by        TEXT NOT NULL CHECK(confirmed_by IN ('pendingBlock','fallback','memory','auto-low')),
+  user_decision       TEXT NOT NULL CHECK(user_decision IN ('approved','denied','auto')),
+  created_at          TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+`
+
+const CREATE_SIDE_EFFECT_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_side_effect_session ON side_effect_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_side_effect_parent ON side_effect_log(parent_session_id);
+`
+
 let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
@@ -119,6 +156,8 @@ export function initChatDb(): Database.Database {
   db.exec(CREATE_MCP_SERVERS)
   db.exec(CREATE_SESSION_SUMMARIES)
   db.exec(CREATE_ACCOUNT_KEYS)
+  db.exec(CREATE_SIDE_EFFECT_LOG)
+  db.exec(CREATE_SIDE_EFFECT_INDEXES)
 
   // Cleanup orphan running sub-sessions left from previous crashed runs.
   cleanupOrphanRunningSubSessions(db)

@@ -19,17 +19,27 @@ vi.mock('./quote-verifier', () => ({
 
 import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
 
-const { mockMessageCreate, mockMessageListBySession, mockSessionTouch, mockStreamText } =
-  vi.hoisted(() => ({
-    mockMessageCreate: vi.fn(),
-    mockMessageListBySession: vi.fn(() => [] as unknown[]),
-    mockSessionTouch: vi.fn(),
-    mockStreamText: vi.fn(),
-  }))
+const {
+  mockMessageCreate,
+  mockMessageListBySession,
+  mockSessionTouch,
+  mockStreamText,
+  mockLedgerBuildSummary,
+} = vi.hoisted(() => ({
+  mockMessageCreate: vi.fn(),
+  mockMessageListBySession: vi.fn(() => [] as unknown[]),
+  mockSessionTouch: vi.fn(),
+  mockStreamText: vi.fn(),
+  mockLedgerBuildSummary: vi.fn(() => ''),
+}))
 
 vi.mock('../repos/session-repo', () => ({
   messageRepo: { create: mockMessageCreate, listBySession: mockMessageListBySession },
   sessionRepo: { touch: mockSessionTouch },
+}))
+
+vi.mock('../repos/side-effect-ledger', () => ({
+  sideEffectLedger: { buildSummary: mockLedgerBuildSummary },
 }))
 
 vi.mock('ai', () => ({ streamText: (...args: unknown[]) => mockStreamText(...args) }))
@@ -62,6 +72,7 @@ function makeCtx(): ForcedSummaryCtx {
     skillTracker: {} as ForcedSummaryCtx['skillTracker'],
     events: {} as ForcedSummaryCtx['events'],
     callbacks: { onTextDelta: vi.fn() },
+    turnStartTime: '2026-05-12T00:00:00.000Z',
   }
 }
 
@@ -374,6 +385,112 @@ describe('runForcedSummary', () => {
       const text = mockMessageCreate.mock.calls[0][0].content[0].text
       expect(text).toContain('[forced-closure failed]')
       expect(text).toContain('⏸ Blocked')
+    })
+  })
+
+  describe('v3.6 — sideEffectLedger summary 拼接', () => {
+    it('ledger 有 entries → forced summary 内嵌 "Side effects this turn"', async () => {
+      mockLedgerBuildSummary.mockReturnValueOnce(
+        '\n## Side effects this turn\n\n- ✓ sql:INSERT on game.rule (approved)',
+      )
+      mockTextStream('Inserted 1 row')
+      await runForcedSummary(makeCtx(), 0, failureStreakSummaryOpts(3))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('Inserted 1 row')
+      expect(text).toContain('## Side effects this turn')
+      expect(text).toContain('sql:INSERT on game.rule')
+    })
+
+    it('ledger 空 → 不附加 ledger 区块', async () => {
+      mockLedgerBuildSummary.mockReturnValueOnce('')
+      mockTextStream('plain summary')
+      await runForcedSummary(makeCtx(), 0, failureStreakSummaryOpts(3))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('plain summary')
+      expect(text).not.toContain('Side effects this turn')
+    })
+
+    it('ledger.buildSummary 抛错 → forced summary 不中断, 不附加', async () => {
+      mockLedgerBuildSummary.mockImplementationOnce(() => {
+        throw new Error('db error')
+      })
+      mockTextStream('summary continues')
+      await runForcedSummary(makeCtx(), 0, failureStreakSummaryOpts(3))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('summary continues')
+      expect(text).not.toContain('Side effects')
+    })
+
+    it('forced-closure 也拼接 ledger', async () => {
+      mockLedgerBuildSummary.mockReturnValueOnce(
+        '\n## Side effects this turn\n\n- ✓ file:write on /tmp/x (approved)',
+      )
+      mockTextStream('Cannot determine')
+      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('Side effects this turn')
+      // forced-closure 仍在文本末尾补 ⏸ Blocked
+      expect(text).toContain('⏸ Blocked')
+    })
+
+    it('opts.includeLedgerSummary=false → 跳过 ledger 调用', async () => {
+      mockLedgerBuildSummary.mockReturnValue('SHOULD_NOT_APPEAR')
+      mockTextStream('clean summary')
+      await runForcedSummary(makeCtx(), 0, {
+        ...failureStreakSummaryOpts(3),
+        includeLedgerSummary: false,
+      })
+
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('clean summary')
+      expect(text).not.toContain('SHOULD_NOT_APPEAR')
+      expect(mockLedgerBuildSummary).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('v3.6 — guardrail 教模型优先 talor block', () => {
+    /** 从 mockStreamText 的最后一次调用里捕获 guardrail system message 的 content */
+    function extractLastGuardrailContent(): string {
+      const lastCall = mockStreamText.mock.calls[mockStreamText.mock.calls.length - 1]
+      const args = lastCall[0] as { messages: Array<{ role: string; content: string }> }
+      // guardrail 总是 messages 数组末尾的 system message (pipeline.build 返回 [] + 追加 guardrail)
+      const last = args.messages[args.messages.length - 1]
+      return last.content
+    }
+
+    it('forcedClosureSummaryOpts: guardrail 含 done/need_input/blocked talor block 模板', async () => {
+      mockTextStream('summary ✓ Done')
+      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
+      const guardrail = extractLastGuardrailContent()
+      // talor block 优先 — 三种 type 都列出来
+      expect(guardrail).toMatch(/```talor/)
+      expect(guardrail).toContain('"type":"done"')
+      expect(guardrail).toContain('"type":"need_input"')
+      expect(guardrail).toContain('"type":"blocked"')
+      // legacy fallback 保留
+      expect(guardrail).toContain('✓ Done')
+      expect(guardrail).toContain('❓ Need input')
+      expect(guardrail).toContain('⏸ Blocked')
+      // 反"伪工具调用 markup"段保留
+      expect(guardrail).toContain('pseudo tool-call syntax')
+    })
+
+    it('signatureDeadLoopSummaryOpts: guardrail 含 need_input/blocked talor block 模板', async () => {
+      mockTextStream('repeated error.')
+      await runForcedSummary(makeCtx(), 0, signatureDeadLoopSummaryOpts('tool#a:b', 1, true))
+      const guardrail = extractLastGuardrailContent()
+      expect(guardrail).toMatch(/```talor/)
+      expect(guardrail).toContain('"type":"need_input"')
+      expect(guardrail).toContain('"type":"blocked"')
+      // legacy fallback 保留
+      expect(guardrail).toContain('❓ Need input')
+      expect(guardrail).toContain('⏸ Blocked')
+      // signature 仍透传给模型 (重要诊断信息)
+      expect(guardrail).toContain('tool#a:b')
     })
   })
 })

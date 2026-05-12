@@ -42,6 +42,18 @@ interface ChatState {
     durationMs?: number,
   ) => void
   commitStreaming: (messageId: string) => void
+  /**
+   * v3.6: 清掉 streamItems 中 stepIndex <= persistedStepIndex 的项。
+   *
+   * 调用时机: 收到 chat:message-persisted 事件时,主进程已把这一步的
+   * assistant + tool 消息落库, renderedMessages 会渲染 ToolCallMessage,
+   * 此时这步对应的 streamItems 必须清掉,否则 ToolCallLog 会再渲染一遍
+   * 同样的工具调用列表 (1:1 视觉重复 — 旧 polling 版本因为间隔大不显眼,
+   * 事件驱动版本一落库立刻 reload 暴露此 bug)。
+   *
+   * 不影响仍在跑的 step (stepIndex > persistedStepIndex 保留)。
+   */
+  dropStreamItemsUpToStep: (persistedStepIndex: number) => void
   setStreamState: (state: ChatState['streamState']) => void
   setError: (error: { code: string; message: string } | null) => void
   clearStreaming: () => void
@@ -115,6 +127,10 @@ export const useChatStore = create<ChatState>((set) => ({
     }),
 
   commitStreaming: (_messageId) => set({ streamState: 'done', streamItems: [], error: null }),
+  dropStreamItemsUpToStep: (persistedStepIndex) =>
+    set((state) => ({
+      streamItems: state.streamItems.filter((it) => it.stepIndex > persistedStepIndex),
+    })),
   setStreamState: (streamState) => set({ streamState }),
   setError: (error) => set({ error }),
   clearStreaming: () => set({ streamState: 'idle', streamItems: [], error: null }),

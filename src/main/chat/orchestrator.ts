@@ -74,6 +74,15 @@ export interface ChatCallbacks {
     output: unknown,
     durationMs: number,
   ): void
+  /**
+   * v3.6: 主进程一条消息落库后触发。入口层桥接到
+   * `webContents.send('chat:message-persisted', { sessionId, stepIndex })`,
+   * renderer 收到事件立即调 loadMessages, 替代 3s polling。
+   *
+   * stepIndex 用于 renderer 清理 streamItems 中 step <= 该值的项, 避免
+   * 已落库 message 与 streaming UI 同时显示同一步工具调用(1:1 视觉重复)。
+   */
+  onMessagePersisted?(sessionId: string, stepIndex: number): void
   onDone(messageId: string, err?: { code: ChatErrorCode; message: string }): void
 }
 
@@ -259,6 +268,7 @@ export async function sendChat(
           callbacks.onToolCall(messageId, id, name, input, stepIdx, startedAt),
         onToolResult: (id, name, output, durationMs) =>
           callbacks.onToolResult(messageId, id, name, output, durationMs),
+        onMessagePersisted: (sid, stepIdx) => callbacks.onMessagePersisted?.(sid, stepIdx),
       },
     })
 

@@ -20,17 +20,26 @@ import {
   type ForcedSummaryCtx,
 } from '../forced-summary'
 
-/** 普通 hint — count 1~2 时注入,温和提醒。 */
+/**
+ * 普通 hint — count 1~2 时注入,温和提醒。
+ *
+ * v3.6: 优先教模型用 talor block (Rule 13 主路径);保留 legacy 文字 marker 作兜底。
+ */
 const PENDING_MARKER_HINT =
-  '[Turn-end check] Your previous reply ended without a tool call AND without any of the required ' +
-  'termination markers (✓ Done / ❓ Need input / ⏸ Blocked). This means "task not yet finished, ' +
-  'but you decided to stop" — which is a bug (Rule 12 + Rule 13). Choose now:\n' +
+  '[Turn-end check] Your previous reply ended without a tool call AND without any termination ' +
+  'signal. The framework cannot tell if the task is done, blocked, or waiting on you — which is ' +
+  'a bug (Rule 12 + Rule 13). Choose now:\n' +
   '  (a) Continue the work — invoke the next tool this step.\n' +
-  '  (b) Close the turn explicitly with one of the three markers as the LAST line of your text:\n' +
-  '        ✓ Done — task is actually complete; describe the result above.\n' +
-  '        ❓ Need input — say exactly what you need from the user.\n' +
-  '        ⏸ Blocked — quote the specific blocker (missing capability / permission / file / data).\n' +
-  'Do NOT stop again without either a tool call or one of these markers. Silent stop = bug.'
+  '  (b) Close the turn explicitly with a talor block (preferred):\n' +
+  '        ```talor\n' +
+  '        {"type":"done","summary":"<what you accomplished>"}\n' +
+  '        ```\n' +
+  '        or {"type":"need_input","question":"<exact ask>"}\n' +
+  '        or {"type":"blocked","reason":"<verbatim blocker>"}\n' +
+  '  (c) Fallback (legacy compat) — last line of plain text being one of:\n' +
+  '        ✓ Done / ❓ Need input — <what> / ⏸ Blocked — <reason>\n' +
+  'Do NOT stop again without either a tool call or an explicit termination signal. Silent ' +
+  'stop = bug.'
 
 /**
  * 强化 hint — limit-1 次时注入,明确警告还有几次机会 + 反"伪工具调用 markup"反模式。
@@ -41,15 +50,17 @@ const PENDING_MARKER_HINT =
  */
 const STRONG_MARKER_HINT =
   '[⚠️ Turn-end check — REPEATED] You have ended multiple replies without a tool call AND without ' +
-  'any of the required termination markers (✓ Done / ❓ Need input / ⏸ Blocked).\n\n' +
+  'any termination signal (talor done/need_input/blocked block OR legacy ✓/❓/⏸ marker).\n\n' +
   '⛔ Do NOT embed pseudo tool-call syntax in your text (any markup-style tag attempting to ' +
   'invoke a tool — XML-like, JSON-fenced, or any other format). Tools are invoked ONLY through ' +
   "the framework's tool-use mechanism, not via text-embedded syntax. Such markup is not " +
   'executed and will be stripped from your reply.\n\n' +
   'You have a limited number of attempts left before forced closure. Choose now:\n' +
   '  (a) ACTUALLY invoke a tool this step (via the real tool mechanism, not embedded syntax).\n' +
-  '  (b) Close the turn with one of the three markers as the LAST line:\n' +
-  '        ✓ Done / ❓ Need input — <what> / ⏸ Blocked — <reason>'
+  '  (b) Close the turn with a talor block as the last block of your reply:\n' +
+  '        ```talor\n' +
+  '        {"type":"done|need_input|blocked", ...fields}\n' +
+  '        ```'
 
 export interface NoMarkerStreakOpts {
   /**

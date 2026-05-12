@@ -34,8 +34,9 @@ import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
-import { hasTerminationMarker } from './outcome-facts'
+import { hasTerminationInText, looksLikeOpenQuestion } from './outcome-facts'
 import { classify } from './outcome-facts'
+import { parseTalorBlocks } from '@shared/talor-blocks/talor-block-parser'
 import { LoopAccumulator } from './loop-accumulator'
 import { McpExposureState } from './mcp-exposure-state'
 import { runForcedSummary, FALLBACK_SUMMARY_OPTS } from './forced-summary'
@@ -44,6 +45,8 @@ import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
 import { FailureStreakDetector } from './detectors/failure-streak'
 import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
 import { NoMarkerStreakDetector } from './detectors/no-marker-streak'
+import { WaitAndActConflictDetector } from './detectors/wait-and-act-conflict'
+import { HallucinatedConfirmDetector } from './detectors/hallucinated-confirm'
 
 /**
  * 单步 prompt 估算到达该比例时,提醒模型收敛。
@@ -79,6 +82,8 @@ interface StepContext {
   skillTracker: import('../skills/registry').SkillActivationTracker
   events: import('../chat/events').ExecutionEventBus
   streamOptions?: Record<string, unknown>
+  /** v3.6: 本 turn 起始时刻 (ISO),透传给 forced-summary 做 ledger 划界 */
+  turnStartTime: string
 }
 
 // StepOutcome / LoopExitReason 已迁移到 ./types.ts (Phase 1B 优化)
@@ -243,6 +248,7 @@ async function runReactStep(
         agent_id: ctx.agentId,
       })
       sessionRepo.touch(ctx.sessionId)
+      ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
       ctx.callbacks.onTextDelta(haltText, stepIndex)
       return {
         stepText: haltText,
@@ -271,6 +277,10 @@ async function runReactStep(
     }
   }
 
+  // stepText 必须在 buildTools 之前声明 — buildTools 的 getCurrentStepBlocks
+  // getter 需要闭包捕获此变量, 才能在 tool execute 时取到最新累积的文本。
+  let stepText = ''
+
   const tools = await buildTools({
     sessionId: ctx.sessionId,
     messageId: ctx.messageId,
@@ -281,6 +291,12 @@ async function runReactStep(
     toolSchemas,
     skillTracker: ctx.skillTracker,
     abortSignal: ctx.abortSignal,
+    // v3.6 流式: 每次 tool execute 时实时 parse stepText, RiskGate 据此走主路径
+    getCurrentStepBlocks: () => parseTalorBlocks(stepText).blocks,
+    // v3.6 Ledger: 透传 step_index, RiskGate.recordLedger 用
+    stepIndex,
+    // subagent 暂未引入嵌套 buildTools; 顶层 buildTools 当前总是 root
+    parentSessionIdForLedger: null,
   })
 
   if (failureHintMessage) {
@@ -302,7 +318,6 @@ async function runReactStep(
   // 仅作为兜底:若某个 toolCallId 走了非常规路径 (SDK 取消、未来 API 变更
   // 等),consumeStream 之后用 result.steps 对账,给未解决的发一个错误结果。
   const stepResolvedToolCallIds = new Set<string>()
-  let stepText = ''
   let stepReasoning = ''
   let persisted = false
 
@@ -406,10 +421,11 @@ async function runReactStep(
     const toolNames = stepToolCalls.map((tc) => tc.toolName)
 
     // 无工具调用 → 推理可能结束,也可能"模型想停但没收尾"。
-    // 区分依据:Rule 13 终止 marker (✓ Done / ❓ Need input / ⏸ Blocked)。
+    // 区分依据:Rule 13 收尾信号 — talor block (done/need_input/blocked)
+    //   或 legacy 文字 marker (✓/❓/⏸)。hasTerminationInText 合并两路。
     if (stepToolCalls.length === 0) {
       if (stepText) {
-        const hasMarker = hasTerminationMarker(stepText)
+        const hasMarker = hasTerminationInText(stepText)
 
         if (hasMarker) {
           // 显式终止 — 落 final (复用 ctx.messageId,前端等的就是这个 ID)
@@ -428,6 +444,7 @@ async function runReactStep(
             agent_id: ctx.agentId,
           })
           sessionRepo.touch(ctx.sessionId)
+          ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
           persisted = true
           return {
             stepText,
@@ -442,13 +459,54 @@ async function runReactStep(
           }
         }
 
-        // 无 marker — 视为 "未完成,模型想停" → 落 intermediate (新 uuid) + 强制循环继续。
+        // 无显式 marker — 二级判定:模型可能"实际上在问用户" 但忘了 emit
+        // need_input block / legacy ❓ marker。looksLikeOpenQuestion 启发式识别
+        // 问号 + 列举选项模式 → 当作隐式 need_input,落 final,不进 no-marker streak。
+        //
+        // 为什么这样兜底:
+        //   - 截图回归: 模型列了 "目标市场? 内地/香港/日本/东南亚/欧美?" 这种问题,
+        //     现行逻辑判为"想停但没收尾",连续 3 次后进 forced-closure。模型在
+        //     forced-closure 模式下凭空自答 (e.g. "好,日本市场") — 灾难性绕过用户授权。
+        //   - 启发式假阳性代价: 模型中段写了个反问句 → 提前 final,用户下一轮可以补完;
+        //     比"误进 forced-closure 强制兜底然后模型自答"代价小一个数量级。
+        if (looksLikeOpenQuestion(stepText)) {
+          log.info(
+            `[ReactLoop]   → text: ${stepText.length} chars (no tools, no explicit marker, but looks-like-question) [${durationMs}ms] — implicit need_input, FINAL`,
+          )
+          log.info(`[ReactLoop]   → persist: assistant(text) [FINAL via implicit-question]`)
+          const implicitFinalParts: AssistantContent = []
+          if (stepReasoning) implicitFinalParts.push({ type: 'reasoning', text: stepReasoning })
+          implicitFinalParts.push({ type: 'text', text: stepText })
+          messageRepo.create({
+            id: ctx.messageId,
+            session_id: ctx.sessionId,
+            role: 'assistant',
+            content: implicitFinalParts,
+            agent_id: ctx.agentId,
+          })
+          sessionRepo.touch(ctx.sessionId)
+          ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
+          persisted = true
+          return {
+            stepText,
+            wroteAssistantFinal: true,
+            shouldContinue: false,
+            durationMs,
+            toolNames,
+            exitReason: 'no_tool_calls',
+            signature: '',
+            allToolsFailed: null,
+            containsSubagentFailure: false,
+          }
+        }
+
+        // 无 marker + 也不像问句 → 视为 "未完成,模型想停" → 落 intermediate (新 uuid) + 强制循环继续。
         // 主循环 (runReactLoop) 看到 exitReason='no_tool_calls_no_marker' 后:
         //   1. 累加 noMarkerExits 计数
         //   2. 给下一步注入 hint("用 marker 收尾 或 继续调工具")
         //   3. 达 NO_MARKER_LIMIT (3) 后调 runForcedClosureSummary 强制收尾
         log.info(
-          `[ReactLoop]   → text: ${stepText.length} chars (no tools, NO Rule 13 marker) [${durationMs}ms] — continuing loop`,
+          `[ReactLoop]   → text: ${stepText.length} chars (no tools, NO marker, NOT question-like) [${durationMs}ms] — continuing loop`,
         )
         log.info(`[ReactLoop]   → persist: assistant(text) [intermediate]`)
         const intermediateParts: AssistantContent = []
@@ -462,6 +520,7 @@ async function runReactStep(
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
+        ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
         persisted = true
         return {
           stepText,
@@ -584,6 +643,7 @@ async function runReactStep(
         agent_id: ctx.agentId,
       },
     ])
+    ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
     persisted = true
 
     const signature = stepSignature(stepToolCalls, toolResults)
@@ -639,6 +699,7 @@ async function runReactStep(
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
+        ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
         log.info(`[ReactLoop]   partial aborted step persisted (${abortedParts.length} parts)`)
       } catch (persistErr) {
         log.error('[ReactLoop]   failed to persist partial aborted step:', persistErr)
@@ -666,6 +727,9 @@ async function runReactStep(
  */
 export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const loopStart = Date.now()
+  // turnStartTime: ISO 形式的 loop 起始时刻,供 ledger 按 turn 划界
+  // (loopStart 是 Date.now() 的数字,无法直接给 SQL 比较 ISO 时间戳)
+  const turnStartTime = new Date(loopStart).toISOString()
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS
 
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
@@ -691,22 +755,35 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     skillTracker: opts.skillTracker,
     events: opts.events,
     streamOptions: opts.streamOptions,
+    turnStartTime,
   }
 
   const accumulator = new LoopAccumulator()
   const mcpState = new McpExposureState(opts.agent)
 
   // Detector 顺序敏感 (业务属性, 显式排列):
-  //   1. signature-dead-loop:  原地重试同一调用 (最敏感, 阈值 1/2)
-  //   2. failure-streak:       连续 N 次工具失败 (兜底 signature 没抓到的"换参全败")
-  //   3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
-  //   4. no-marker-streak:     连续 N 次无 Rule 13 marker (Fix C)
-  const detectors = [
+  //   L1 流程健康度 (硬阻断 / forced summary):
+  //     1. signature-dead-loop:  原地重试同一调用 (最敏感, 阈值 1/2)
+  //     2. failure-streak:       连续 N 次工具失败 (兜底 signature 没抓到的"换参全败")
+  //     3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
+  //     4. no-marker-streak:     连续 N 次无 Rule 13 marker (Fix C)
+  //   L2 语义一致性 (软纠偏 / hint 注入,不 break):
+  //     5. wait-and-act-conflict: 文本说在等用户但同步调了 side-effect 工具
+  //     6. hallucinated-confirm:  文本声称用户已确认但本步无 pending_confirm block
+  //
+  // 排序原因: L1 detector 触发即 break, 放前面避免 L2 hint 被浪费;
+  //          L2 不 break, 放后面只参与 composeHint 的 fallback 顺序。
+  // 显式标注 LoopDetector[] — `as const` 会保留每个具体类的 observe 重载,
+  // 导致 detector.observe(facts, idx, raw) 与 L1 detector 的 2-arg 签名冲突。
+  // 接口签名第 3 个 raw 参数已是 optional, 实现类不必都接受。
+  const detectors: import('./detectors/types').LoopDetector[] = [
     new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
     new ToolOnlyLoopDetector(),
     new NoMarkerStreakDetector(ctx),
-  ] as const
+    new WaitAndActConflictDetector(),
+    new HallucinatedConfirmDetector(),
+  ]
 
   let exitReason: LoopExitReason = 'no_tool_calls'
 
@@ -726,9 +803,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     const facts = classify(outcome)
 
     // Detector 顺序遍历 — 第一个 triggered 即 break。
+    // raw 仅 SemanticDetector 用 (旧 L1 detector 忽略此参数, 接口向后兼容)。
+    const rawCtx = { stepText: outcome.stepText }
     let detectorBroke = false
     for (const detector of detectors) {
-      const verdict = detector.observe(facts, accumulator.totalSteps)
+      const verdict = detector.observe(facts, accumulator.totalSteps, rawCtx)
       if (!verdict.triggered) continue
       log.warn(`[ReactLoop] Detector "${detector.name}" triggered (exit=${verdict.exitReason})`)
       if (verdict.runSummary) await verdict.runSummary()

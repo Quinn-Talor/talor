@@ -67,6 +67,14 @@ export function registerChatHandlers(agentManager: AgentManager): void {
             is_error: isErrorOutput(out),
             duration_ms: durationMs,
           }),
+        // v3.6: 落库即通知 renderer 立即刷新, 替代 3s polling。
+        // step_index 让 renderer 清掉已落库步对应的 streamItems, 防止
+        // ToolCallMessage (持久) + ToolCallLog (流式) 同时显示同一步。
+        onMessagePersisted: (persistedSid, stepIdx) =>
+          win.webContents.send('chat:message-persisted', {
+            session_id: persistedSid,
+            step_index: stepIdx,
+          }),
         onDone: (mid, err) =>
           win.webContents.send('chat:stream', {
             session_id: sid,

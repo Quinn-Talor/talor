@@ -30,6 +30,16 @@ function facts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
     isSubagentFailure: false,
     signature: 'read#abc:def',
     noMarkerExit: false,
+    toolNames: [],
+    blocks: [],
+    invalidBlocks: [],
+    hasDone: false,
+    hasNeedInput: false,
+    hasBlocked: false,
+    hasPendingConfirm: false,
+    hasWarning: false,
+    hasLegacyMarker: false,
+    hasTermination: false,
     ...overrides,
   }
 }
