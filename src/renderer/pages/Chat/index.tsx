@@ -328,6 +328,24 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     if (streamState === 'done' && currentSessionId) loadMessages(currentSessionId)
   }, [streamState, currentSessionId]) // eslint-disable-line
 
+  // Streaming 期间定期 polling 刷新消息列表。
+  //
+  // 背景: 旧实现只在 streamState='done' 时 loadMessages,但长任务 (30+ step) 期间
+  // 后端已 persist 的 assistant + tool 消息前端从未拉取过,UI 卡在 sendChat
+  // 起始那一刻,造成"消息丢失"的错觉。
+  //
+  // 修复: streaming 期间每 3 秒拉一次。loadMessages 是只读 listBySession,
+  // IPC 成本可接受;3 秒间隔用户基本感知不到延迟。
+  useEffect(() => {
+    if (streamState !== 'streaming' || !currentSessionId) return
+    // 立即刷一次,让首批 persist 的 message 立刻进入 messages 列表
+    loadMessages(currentSessionId)
+    const interval = setInterval(() => {
+      loadMessages(currentSessionId)
+    }, 3000)
+    return () => clearInterval(interval)
+  }, [streamState, currentSessionId, loadMessages])
+
   // Reset userScrolledUp when streaming starts or session changes
   useEffect(() => {
     if (streamState === 'streaming') userScrolledUpRef.current = false
