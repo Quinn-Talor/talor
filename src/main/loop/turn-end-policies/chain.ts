@@ -13,7 +13,8 @@ import type { StepOutcome } from '../types'
 import type { PolicyContext, TurnEndDecision, TurnEndPolicy } from './types'
 import { SdkFinishReasonPolicy } from './sdk-finish-reason'
 import { ExplicitTerminationBlockPolicy } from './explicit-termination'
-import { PendingContinuationBlockPolicy } from './pending-continuation'
+// v4 Phase 4a: PendingContinuationBlockPolicy 删除 — request_continuation virtual tool
+// 让 SDK 自然续 loop (有 tool call 走正常路径,不进 turn-end policy 链)。
 import { LegacyNaturalFinalPolicy } from './legacy'
 
 /**
@@ -56,15 +57,20 @@ export async function runPolicyChain(
 }
 
 /**
- * 默认链组装。PR 1 范围:仅 4 个 policy (SDK / 终止 block / 续做 block / legacy)。
- * PR 2 在 LegacyNaturalFinalPolicy 之前插入 JudgeCompletionPolicy。
+ * 默认链组装。
+ *
+ * v4 Phase 4a 后:3 个 policy (SDK / 终止 block / legacy)。
+ * pending_continuation block 删除,LLM 用 request_continuation tool 替代,
+ * SDK 视为有 tool call 自动续 loop,不需要 policy 链消费。
+ *
+ * 未来 Phase 2 在 LegacyNaturalFinalPolicy 之前插入 JudgeCompletionPolicy。
  */
 export function buildDefaultChain(): readonly TurnEndPolicy[] {
   return [
     new SdkFinishReasonPolicy(), // P0: SDK 信号最优先
-    new ExplicitTerminationBlockPolicy(), // P1: LLM 显式终止 block
-    new PendingContinuationBlockPolicy(), // P2: LLM 续做 block
+    new ExplicitTerminationBlockPolicy(), // P1: LLM 显式终止 block (done/need_input/blocked)
+    // (v4 Phase 4a 删:PendingContinuationBlockPolicy — 用 request_continuation tool 替代)
     // PR 2: new JudgeCompletionPolicy(...) — 在此位置插入
-    new LegacyNaturalFinalPolicy(), // P3: v3.7 natural FINAL 兜底
+    new LegacyNaturalFinalPolicy(), // P2: v3.7 natural FINAL 兜底
   ]
 }

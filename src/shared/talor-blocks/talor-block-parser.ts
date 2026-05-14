@@ -114,13 +114,14 @@ export function detectStreamingTalorType(streamingText: string): string | null {
 // ─── 内部 helpers ──────────────────────────────────────────────────────
 
 function isV1Type(t: string): t is TalorBlockType {
+  // v4 Phase 4a: 'pending_continuation' 删除 (改用 request_continuation virtual tool)
+  // 老 session history 含 pending_continuation 时,parser 归入 invalid (UI 不渲染卡片)
   return (
     t === 'done' ||
     t === 'need_input' ||
     t === 'blocked' ||
     t === 'pending_confirm' ||
     t === 'warning' ||
-    t === 'pending_continuation' ||
     t === 'plan'
   )
 }
@@ -143,10 +144,6 @@ function validateBlockFields(type: TalorBlockType, obj: Record<string, unknown>)
       return typeof obj.summary === 'string' && obj.summary.length > 0
     case 'warning':
       return typeof obj.message === 'string' && obj.message.length > 0
-    case 'pending_continuation':
-      // 零必填字段;reason 选填且仅做信息字段 (UI/日志),不参与框架决策。
-      // 若 reason 出现但类型错,降级失败让 block 走 invalid 路径,避免 schema 漂移。
-      return obj.reason === undefined || typeof obj.reason === 'string'
     case 'plan':
       return Array.isArray(obj.steps)
     default:

@@ -19,7 +19,6 @@ import type {
   BlockedBlock,
   PendingConfirmBlock,
   WarningBlock,
-  PendingContinuationBlock,
 } from '@shared/talor-blocks/talor-block-schema'
 import { parseTalorBlocks, detectStreamingTalorType } from '@shared/talor-blocks/talor-block-parser'
 
@@ -218,20 +217,9 @@ function PendingConfirmCard({ block }: CardProps<PendingConfirmBlock>) {
   )
 }
 
-function PendingContinuationCard({ block }: CardProps<PendingContinuationBlock>) {
-  // v3.7.3: 续做声明卡片 — 表达"任务未结束,框架正在驱动续做"。
-  // 视觉上轻量(浅色 chip),与 done/blocked 重终止卡区分;
-  // 与 warning (amber) / pending_confirm (amber) 色系区分,避免误读为"需要确认"。
-  return (
-    <div className="my-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
-      <div className="flex items-center gap-1.5 text-indigo-800">
-        <span className="text-base">▶</span>
-        <span className="text-[11px] font-semibold uppercase tracking-wide">Continuing…</span>
-      </div>
-      {block.reason && <p className="mt-1 text-sm text-gray-700 italic">{block.reason}</p>}
-    </div>
-  )
-}
+// v4 Phase 4a: PendingContinuationCard 删除 (pending_continuation block 被
+// request_continuation virtual tool 替代,LLM 调用即续 loop,无须 UI 卡片)。
+// 老 session history 含此 block 时,parser 归入 invalid → InvalidTalorBlockCard 渲染。
 
 function WarningCard({ block }: CardProps<WarningBlock>) {
   const sev = block.severity ?? 'medium'
@@ -277,14 +265,7 @@ function StreamingSkeletonCard({ streamingType }: { streamingType: string | null
               }
             : streamingType === 'warning'
               ? { border: 'border-amber-200', bg: 'bg-amber-50', icon: '⚠️', label: 'Warning' }
-              : streamingType === 'pending_continuation'
-                ? {
-                    border: 'border-indigo-200',
-                    bg: 'bg-indigo-50',
-                    icon: '▶',
-                    label: 'Continuing',
-                  }
-                : { border: 'border-gray-200', bg: 'bg-gray-50', icon: '◌', label: 'Talor block' }
+              : { border: 'border-gray-200', bg: 'bg-gray-50', icon: '◌', label: 'Talor block' }
 
   return (
     <div
@@ -343,7 +324,8 @@ export function TalorBlockCard({ block }: { block: TalorBlock }) {
     case 'warning':
       return <WarningCard block={block} />
     case 'pending_continuation':
-      return <PendingContinuationCard block={block} />
+      // v4 Phase 4a: deprecated — 老 session 兼容,渲染为 invalid 卡片
+      return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />
     case 'plan':
       // V2 type, 暂用通用卡片渲染
       return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />

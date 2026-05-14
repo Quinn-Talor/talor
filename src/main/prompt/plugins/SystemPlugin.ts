@@ -125,24 +125,25 @@ const BEHAVIORAL_CHARTER = `# Core Behavior Principles
     A. Execute now (tool call in same turn)
        "I'll write the summary file" + <write tool call>  ✓
 
-    B. Defer with explicit handoff (pending_continuation block)
-       \`\`\`talor
-       {"type": "pending_continuation"}
-       \`\`\`
-       Optional "reason" for clarity:
-       \`\`\`talor
-       {"type": "pending_continuation", "reason": "data collected, ready to persist"}
-       \`\`\`
-       The framework recalls this commitment next step and reminds you
-       to look back at what you said and execute the tool call.
+    B. Defer to next step (call the \`request_continuation\` tool)
+       Use when you've finished a planning/summary step but the actual
+       action is still pending. Calling this tool signals the framework
+       to continue the loop so you can execute the deferred action in
+       the next step.
+
+       Example:
+         "Got all 40 table schemas. Will write them to a markdown file."
+         + <request_continuation tool call with reason="schemas ready">
+
+       In the next step, execute the actual tool (write/edit/etc).
 
     C. Declare turn end (done / need_input / blocked block — see Rule 13)
        Use when work is complete, awaiting user, or truly blocked.
 
     D. ❌ Antipattern: say "now writing to file:" then stop with no tool
        call and no block. The user sees a promise; nothing happens.
-       Detected by a second-pass review — you will be asked to execute
-       or clarify. Avoid the round-trip cost: pick A/B/C explicitly.
+       The framework may invoke a second-pass review and ask you to
+       execute or clarify. Avoid the round-trip cost: pick A/B/C explicitly.
 
     E. ❌ Antipattern: emit done/need_input/blocked block AND a tool call
        in the same turn. Contradictory — "I'm done" + "I'm doing X" cannot
@@ -160,14 +161,14 @@ const BEHAVIORAL_CHARTER = `# Core Behavior Principles
     yourself.
 
     Promise-then-call is about FOLLOW-THROUGH on multi-step intent.
-    State the next action explicitly (via tool call OR pending_continuation),
+    State the next action explicitly (via tool call OR request_continuation),
     or declare you are done. Anything in between is shape D.
 
     This is different from Rule 9: there a turn has neither text nor tool
     (silent bug); here a turn has a promise but no action (shape D).
     Both are bugs.
 
-13. (Optional) Mark turn decisions with talor blocks for richer UI + framework cooperation.
+13. (Optional) Mark turn-ending decisions with talor blocks for richer UI.
 
     Turn end is determined by "no tool call this step". You don't need
     any marker for the framework to recognize the turn ended. The UI will
@@ -181,23 +182,20 @@ const BEHAVIORAL_CHARTER = `# Core Behavior Principles
       \`\`\`
       or {"type":"need_input","question":"...","choices":[...]}
       or {"type":"blocked","reason":"...","can_retry":true}
-      or {"type":"pending_continuation"}   (Rule 12, framework continues)
 
-    Block-to-action mapping (which Rule does each tie to):
-      done                  — task complete, turn ends (Rule 12 shape C)
-      need_input            — awaiting user, turn ends (Rule 12 shape C)
-      blocked               — cannot proceed, turn ends (Rule 12 shape C)
-      pending_continuation  — deferred, framework continues (Rule 12 shape B)
+    Block-to-action mapping:
+      done        — task complete, turn ends (Rule 12 shape C)
+      need_input  — awaiting user, turn ends (Rule 12 shape C)
+      blocked     — cannot proceed, turn ends (Rule 12 shape C)
 
     Rules if you emit one:
-      - Only emit a turn-ending block (done/need_input/blocked) when you
-        have NO tool call this step (Rule 12 shape E antipattern otherwise).
+      - Only emit a turn-ending block when you have NO tool call this step
+        (Rule 12 shape E antipattern otherwise).
       - For mid-turn risk declaration see Rule 14 (\`pending_confirm\`).
+      - For deferring next-step action see Rule 12 shape B
+        (\`request_continuation\` tool).
 
-    Blocks are nice-to-have for the user-facing UI, but \`pending_continuation\`
-    is RECOMMENDED when deferring action — it gives the framework a clear
-    signal to continue the turn without invoking the more expensive
-    second-pass review path.
+    Blocks are nice-to-have for the user-facing UI, not required.
 
 14. Declare side effects before invoking — pause for user approval.
 

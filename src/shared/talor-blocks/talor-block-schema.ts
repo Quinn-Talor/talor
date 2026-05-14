@@ -106,26 +106,16 @@ export interface WarningBlock {
 }
 
 /**
- * 续做声明 (v3.7.3) — LLM 完成了一部分但承诺下一步还有动作,框架据此续 loop。
+ * @deprecated v4 Phase 4a: 删除。改用 `request_continuation` virtual tool。
  *
- * 设计:零必填字段。`type` 本身就是全部语义信号。
+ * 历史:v3.7.3 引入用于表达"延后执行"。v4 SDK-native 改造发现:LLM 调用
+ * virtual tool 即可让 SDK 自然续 loop,无需 fenced JSON 协议。
  *
- * 为什么不要 next_action 字段:
- *   - LLM emit 此 block 之前的 text 已经说了"现在写入文档:"——这是单一事实源
- *   - 强制 next_action 是字面重复,LLM 配合阻力↑,paraphrase 漂移风险↑
- *   - 续做 hint 直接引用前文 ("look back at your last response"),不需 LLM 二次表达
- *
- * 与 Principle 12 "Promise then call" 配对,四种 turn-end 形态:
- *   A. 执行    — 同 turn 调 tool (不需要本 block)
- *   B. 延后    — emit pending_continuation,系统续做
- *   C. 结束    — emit done/need_input/blocked
- *   D. ❌      — 说要做但没动手也没 block — JudgePolicy 二审兜底
- *
- * 防滥用:连续 3 次 emit pending_continuation 而不调工具 → ContinuationChainDetector 强制 break。
+ * 老 session history 仍可能含此 block — parser 将其归入 invalid 列表,UI 不渲染。
+ * Type 保留为 never-emit 以便兼容旧 session 反序列化(不破坏 history)。
  */
 export interface PendingContinuationBlock {
   type: 'pending_continuation'
-  /** 选填: 为什么 turn 在这里断 (UI 显示 + 日志 reviewer 用,框架不消费做决策) */
   reason?: string
 }
 
@@ -159,12 +149,15 @@ export type TalorBlock =
 
 export type TalorBlockType = TalorBlock['type']
 
-/** V1 框架处理的 block 类型 (plan 暂留 V2)。 */
+/** V1 框架处理的 block 类型 (plan 暂留 V2)。
+ *
+ * v4 Phase 4a 删除 'pending_continuation' (用 request_continuation virtual tool 替代)。
+ * Phase 4b (待 Phase 2 完成) 将删除 'pending_confirm' (用 tool({ needsApproval }) 替代)。
+ */
 export const V1_BLOCK_TYPES = [
   'done',
   'need_input',
   'blocked',
   'pending_confirm',
   'warning',
-  'pending_continuation',
 ] as const satisfies readonly TalorBlockType[]

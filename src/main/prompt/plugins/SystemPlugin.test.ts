@@ -35,11 +35,11 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/10\. Parallel tool calls/)
     expect(content).toMatch(/11\. Always state intent/)
     expect(content).toMatch(/12\. Promise then call/)
-    expect(content).toMatch(/13\. \(Optional\) Mark turn decisions/)
+    expect(content).toMatch(/13\. \(Optional\) Mark turn-ending decisions/)
     expect(content).toMatch(/14\. Declare side effects before invoking/)
   })
 
-  it('原则 12 "Promise then call" 列出四种 turn-end 形态 + 两类反模式 (v3.7.3 协议补完)', async () => {
+  it('原则 12 "Promise then call" 列出四种 turn-end 形态 + 两类反模式 (v4 Phase 4a)', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     const norm = content.replace(/\s+/g, ' ')
@@ -49,16 +49,15 @@ describe('SystemPlugin', () => {
     expect(norm).toContain('Every turn ends in ONE of four shapes')
     // 形态 A: 执行
     expect(norm).toContain('A. Execute now')
-    // 形态 B: pending_continuation 延后 (v3.7.3 协议补完核心)
-    expect(norm).toContain('B. Defer with explicit handoff')
-    expect(norm).toContain('pending_continuation')
-    expect(norm).toContain('framework recalls this commitment')
+    // 形态 B: v4 Phase 4a 改为调 request_continuation tool (替代 pending_continuation block)
+    expect(norm).toContain('B. Defer to next step')
+    expect(norm).toContain('request_continuation')
     // 形态 C: 显式终止
     expect(norm).toContain('C. Declare turn end')
     // 形态 D: promise-then-stop 反模式
     expect(norm).toContain('D. ❌ Antipattern')
     expect(norm).toContain('second-pass review')
-    // 形态 E: block + tool 共存反模式 (v3.7.3 新增)
+    // 形态 E: block + tool 共存反模式
     expect(norm).toContain('E. ❌ Antipattern')
     expect(norm).toContain('emit done/need_input/blocked block AND a tool call')
     // 触发: 与 Rule 9 的区分
@@ -70,38 +69,33 @@ describe('SystemPlugin', () => {
     expect(norm).toContain('Rule 14')
     // 不触发: 不应硬编码具体服务名 (保持通用)
     expect(content).not.toMatch(/MySQL|GitHub|Slack/i)
-    // 不再含旧版 self-discipline 标注 (v3.7.3 升级为主声明 + 兜底)
-    expect(norm).not.toContain('Self-discipline rule: not framework-enforced')
+    // 不再提 pending_continuation block (v4 Phase 4a 删)
+    expect(norm).not.toContain('pending_continuation block')
   })
 
-  it('原则 13 列举 4 个可选 block 类型 (含 pending_continuation, v3.7.3)', async () => {
+  it('原则 13 列举 3 个可选终止 block 类型 (v4 Phase 4a 移除 pending_continuation)', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     const norm = content.replace(/\s+/g, ' ')
 
-    // v3.7.3: Rule 13 标题改为 "Mark turn decisions" (不再限"ending",因 pending_continuation 不终止)
-    expect(norm).toContain('13. (Optional) Mark turn decisions')
+    // v4 Phase 4a: Rule 13 标题回归 "Mark turn-ending decisions"
+    expect(norm).toContain('13. (Optional) Mark turn-ending decisions')
     // 触发: 强调 turn end 由"无 tool call"决定,不需要 marker
     expect(norm).toContain('no tool call this step')
     // 触发: UI 推断说明
     expect(norm).toContain('UI will infer your intent')
-    // 触发: 4 个可选 block 类型都在
+    // 触发: 3 个可选终止 block 类型 (pending_continuation 删)
     expect(content).toMatch(/```talor/)
     expect(content).toMatch(/"type":"done"/)
     expect(content).toMatch(/"type":"need_input"/)
     expect(content).toMatch(/"type":"blocked"/)
-    expect(content).toMatch(/"type":"pending_continuation"/)
-    // 触发: block-to-action 映射表 (v3.7.3 新增)
-    expect(norm).toContain('Block-to-action mapping')
-    expect(norm).toContain('framework continues')
-    // v3.7.1: 删除 "type FIRST key" 反 JSON 惯例约束
-    expect(norm).not.toContain('FIRST key')
+    // 不再含 pending_continuation block
+    expect(content).not.toMatch(/"type":"pending_continuation"/)
     // 触发: Rule 12/14 交叉引用
     expect(norm).toContain('Rule 12')
     expect(norm).toContain('Rule 14')
-    // 触发: pending_continuation 推荐使用 (避免昂贵 second-pass)
-    expect(norm).toContain('pending_continuation')
-    expect(norm).toContain('RECOMMENDED')
+    // 触发: 指向 request_continuation tool
+    expect(norm).toContain('request_continuation')
   })
 
   it('原则 14 "Declare side effects before invoking" 定义 pending_confirm 契约', async () => {

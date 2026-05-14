@@ -69,6 +69,9 @@ export const ALWAYS_AVAILABLE_TOOLS = new Set([
   // 默认对所有 agent 暴露 —— 业务 agent 通过 profile.disabledTools 显式禁用，
   // 或不声明任何 subagents 让 scope=[]（持有工具但 listing 为空 → LLM 自然不会调）。
   'delegate_agent',
+  // v4 Phase 4a: 替代 pending_continuation talor block 的 virtual tool。
+  // 所有 agent 自动持有,让 LLM 通过工具调用而非 fence JSON 表达"延后意图"。
+  'request_continuation',
 ])
 
 export interface McpToolSource {

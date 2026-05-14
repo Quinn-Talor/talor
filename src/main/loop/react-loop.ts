@@ -43,7 +43,9 @@ import { composeHint } from './compose-hint'
 import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
 import { FailureStreakDetector } from './detectors/failure-streak'
 import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
-import { ContinuationChainDetector } from './detectors/continuation-chain'
+// v4 Phase 4a: ContinuationChainDetector 删除 — pending_continuation block 退役,
+// request_continuation virtual tool 改走"调工具即续 loop" 路径,被 SDK 内置 step counter
+// + ToolOnlyLoopDetector ("N 步纯工具零文本") 共同兜底。
 import { LengthTruncationStreakDetector } from './detectors/length-truncation-streak'
 import {
   buildDefaultChain,
@@ -916,8 +918,9 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
     new ToolOnlyLoopDetector(),
-    // v3.7.3: 防 pending_continuation 滥用 (LLM 连 3 次声明续做却不动手 → break)
-    new ContinuationChainDetector(),
+    // v4 Phase 4a 删:ContinuationChainDetector — pending_continuation block 退役。
+    // request_continuation virtual tool 滥用由 ToolOnlyLoopDetector 兜底
+    // (连续 N 步纯工具零文本即视为 tool-only loop)。
     // v3.7.3: 防 'length' 截断死循环 (reasoning 烧 token / inline 大内容 → 连续 length → break)
     new LengthTruncationStreakDetector(),
   ]
