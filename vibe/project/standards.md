@@ -457,6 +457,24 @@ Skill 内容例外：加 `trust="skill-content"`。
 
 Prompt 是软引导。凡"**必须**"级别的规则必须有代码实现。
 
+#### 例外:LLM 自律规则 (self-discipline rules)
+
+少数 prompt 规则**有意保留为软引导**,因为对应的代码强制会触发 §J-SHOULD-2 反模式表中的"系统抢 LLM 活"反模式 (例如:用 regex 抽 "I will" / "现在创建" 等意图短语 → 等同被删的 `WaitAndAct` / `HallucinatedConfirm`)。
+
+这类规则必须满足:
+
+1. **prompt 内显式自标**:在规则文本开头标注 "Self-discipline rule: not framework-enforced" 或同义语句,让 LLM 看到时就知道这条全靠自律。
+2. **不当作 J-NEVER-1 违反**:不要求补一个 detector;补了就退回反模式。
+3. **代码侧仍保留兜底 fallback** (针对"违反后果"而非"违反行为"):违反带来的最坏结果须有兜底——例如 Principle 9 "no silent exits" 由 `runForcedSummary` 兜底"整轮无文本"这一**结果**,而不是检测"该不该输出文本"这一**意图**。
+
+| 规则                                    | 软引导原因                                                            | 兜底机制                                     |
+| --------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------- |
+| Principle 12 "Promise then call"        | 检测"promise"短语 = 系统替 LLM 判意图                                 | 无(用户可见,靠自律)                          |
+| Principle 8 "Finish when task done"     | 检测"成功信号 + 继续工具调用" = 系统替 LLM 判任务完成                 | maxSteps 上限 + signature-dead-loop detector |
+| Principle 11 "State intent before tool" | 检测"工具调用前是否有 text"逼模型 emit text = 退回 v3.6 RULE 0 反模式 | UI inferIntent 推断 (仅服务渲染,不回馈 loop) |
+
+新增此类规则前先问:**违反后果由代码兜底了吗?** 兜底了再保留软引导;否则按 J-NEVER-1 处理。
+
 ### J-NEVER-2 · 禁止改动 LLM 返回的错误消息展示给用户
 
 - 依据：`src/main/prompt/plugins/SystemPlugin.ts:46-48` Principle 3（Report failures verbatim）

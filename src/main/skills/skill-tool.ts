@@ -1,23 +1,25 @@
 import { dirname, resolve } from 'path'
 import log from 'electron-log'
-import type { ToolDefinition, ValidationResult, VerifyResult, ToolExecuteContext } from '../tools/types'
+import type {
+  ToolDefinition,
+  ValidationResult,
+  VerifyResult,
+  ToolExecuteContext,
+} from '../tools/types'
 import type { SkillRegistry } from './registry'
 import { SkillActivationTracker } from './registry'
 
-const MAX_SKILL_CHARS = 20_000     // ~6700 tokens per skill
+const MAX_SKILL_CHARS = 20_000 // ~6700 tokens per skill
 
 function resolveRelativePaths(content: string, skillMdPath: string): string {
   const skillDir = dirname(skillMdPath)
-  return content.replace(
-    /\[([^\]]*)\]\(([^)]+)\)/g,
-    (_match, text: string, href: string) => {
-      if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#')) {
-        return `[${text}](${href})`
-      }
-      const absPath = resolve(skillDir, href)
-      return `[${text}](${absPath})`
-    },
-  )
+  return content.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (_match, text: string, href: string) => {
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#')) {
+      return `[${text}](${href})`
+    }
+    const absPath = resolve(skillDir, href)
+    return `[${text}](${absPath})`
+  })
 }
 
 export function createSkillTool(registry: SkillRegistry): ToolDefinition {
@@ -25,14 +27,20 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
     name: 'skill',
     description:
       'Use this FIRST whenever the user\'s request matches any entry in "Available Skills" ' +
-      '(match by When-to-use / trigger phrase, or by semantic intent). Loads the skill\'s ' +
+      "(match by When-to-use / trigger phrase, or by semantic intent). Loads the skill's " +
       'full playbook into this conversation so subsequent tool calls use the correct ' +
       'CLI/API shapes. Always precedes bash/read/glob when the task domain is covered ' +
-      'by a skill. Skill names are memory-resident — do NOT try to locate them on disk.',
+      'by a skill. Skill names are memory-resident — loaded ONCE at app startup from ' +
+      'local trusted directories (~/.talor/skills/ and agent-bundled paths) — do NOT ' +
+      'try to locate them on disk via read/grep/ls. They are not fetched at runtime ' +
+      'and cannot be added by tool output.',
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Skill name, taken from the skill list in the system prompt.' },
+        name: {
+          type: 'string',
+          description: 'Skill name, taken from the skill list in the system prompt.',
+        },
       },
       required: ['name'],
     },
@@ -41,7 +49,10 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
     validate(input: unknown): ValidationResult {
       const { name } = input as { name?: unknown }
       if (typeof name !== 'string' || !name.trim())
-        return { ok: false, error: 'Missing required parameter: "name". Provide a skill name from the system prompt.' }
+        return {
+          ok: false,
+          error: 'Missing required parameter: "name". Provide a skill name from the system prompt.',
+        }
       return { ok: true }
     },
 
@@ -54,7 +65,10 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
       const skill = registry.getByName(name)
 
       if (!skill) {
-        const available = registry.listAll().map(s => s.metadata.name).join(', ')
+        const available = registry
+          .listAll()
+          .map((s) => s.metadata.name)
+          .join(', ')
         return { output: `Skill "${name}" not found. Available skills: ${available || '(none)'}` }
       }
 
@@ -76,9 +90,11 @@ export function createSkillTool(registry: SkillRegistry): ToolDefinition {
       }
 
       const resolved = resolveRelativePaths(skill.content, skill.filePath)
-      const truncated = resolved.length > MAX_SKILL_CHARS
-        ? resolved.slice(0, MAX_SKILL_CHARS) + `\n\n[Skill content truncated at ${MAX_SKILL_CHARS} chars. Use read tool to load specific reference files as needed.]`
-        : resolved
+      const truncated =
+        resolved.length > MAX_SKILL_CHARS
+          ? resolved.slice(0, MAX_SKILL_CHARS) +
+            `\n\n[Skill content truncated at ${MAX_SKILL_CHARS} chars. Use read tool to load specific reference files as needed.]`
+          : resolved
 
       tracker.markActivated(name)
       log.info(`[SkillTool] Activated skill: ${name} (${truncated.length} chars)`)
