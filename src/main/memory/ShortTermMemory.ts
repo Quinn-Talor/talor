@@ -1,8 +1,62 @@
-import { generateText } from 'ai'
+import { generateObject } from 'ai'
+import { z } from 'zod'
 import { getAdapter } from '../providers/model-adapter'
 import { messageRepo } from '../repos/session-repo'
 import { getDb } from '../db/index'
 import log from 'electron-log'
+
+/**
+ * v4 Phase 5: Memory 压缩结构化 schema (generateObject 替代 generateText free-form)。
+ *
+ * 字段设计:
+ *   - user_intent       — 用户原始意图,锚定整轮目标
+ *   - key_facts         — tool 输出建立的关键事实
+ *   - pending_actions   — LLM 承诺但未执行的动作(天然解决长对话 promise-then-stop)
+ *   - resolved_issues   — 已诊断 + 已修的错误
+ *   - current_blocker   — 当前阻塞(可空)
+ *
+ * 见 docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md §3.4
+ */
+const CompressionSchema = z.object({
+  user_intent: z.string().describe('What the user originally asked for'),
+  key_facts: z.array(z.string()).describe('Critical facts established by tool results'),
+  pending_actions: z.array(z.string()).describe('Actions LLM committed to but not yet executed'),
+  resolved_issues: z.array(z.string()).describe('Errors diagnosed and fixed'),
+  current_blocker: z
+    .string()
+    .nullable()
+    .describe('What is currently blocking progress, or null if none'),
+})
+type CompressionObject = z.infer<typeof CompressionSchema>
+
+/**
+ * 把结构化压缩 object 渲染回 markdown,以便插入 messages history。
+ * 保留对外接口 string 不变,所有 saveSummary/loadSummary 调用方无感知。
+ */
+function renderCompressionAsText(obj: CompressionObject): string {
+  const lines: string[] = []
+  lines.push(`User intent: ${obj.user_intent}`)
+  if (obj.key_facts.length > 0) {
+    lines.push('')
+    lines.push('Key facts established:')
+    for (const f of obj.key_facts) lines.push(`  - ${f}`)
+  }
+  if (obj.pending_actions.length > 0) {
+    lines.push('')
+    lines.push('Pending actions (LLM committed but not yet executed):')
+    for (const a of obj.pending_actions) lines.push(`  - ${a}`)
+  }
+  if (obj.resolved_issues.length > 0) {
+    lines.push('')
+    lines.push('Resolved issues:')
+    for (const r of obj.resolved_issues) lines.push(`  - ${r}`)
+  }
+  if (obj.current_blocker) {
+    lines.push('')
+    lines.push(`Current blocker: ${obj.current_blocker}`)
+  }
+  return lines.join('\n')
+}
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ExecutionEventBus } from '../chat/events'
 import {
@@ -314,23 +368,36 @@ async function generateSummary(
     `You are a conversation-history compressor. Follow these rules strictly:\n` +
     `1. Only state facts, user requests, tool calls, and tool outputs that **actually appeared** above. Quote the literal content.\n` +
     `2. Do NOT infer unstated intent, conclusions, or causes.\n` +
-    `3. Do NOT rewrite tool failures as successes. If a tool returned an error (ERROR tag / "File not found" / "[exit: non-zero]" / etc.), preserve it verbatim as "<tool> failed: <reason>".\n` +
+    `3. Do NOT rewrite tool failures as successes. If a tool returned an error (ERROR tag / "File not found" / "[exit: non-zero]" / etc.), preserve them verbatim in resolved_issues or current_blocker.\n` +
     `4. Do NOT fabricate file names, paths, numbers, code snippets, or API signatures.\n` +
     `5. When information is unclear, write "unspecified" rather than guessing.\n` +
-    `6. Respond in English, at most ${summaryBudgetChars} characters.\n` +
-    `7. Structure: User intent → Key actions executed (mark success/failure) → Current state.`
+    `6. Field discipline:\n` +
+    `   - user_intent: 1-2 sentences\n` +
+    `   - key_facts: only facts established by ACTUAL tool results (not inferred)\n` +
+    `   - pending_actions: actions the assistant committed to ("I'll write X", "Now creating Y") but did NOT execute (no matching tool call)\n` +
+    `   - resolved_issues: errors that were diagnosed AND fixed\n` +
+    `   - current_blocker: only set if work is currently stuck; null otherwise\n` +
+    `7. Respond in English.\n` +
+    `8. Total output should fit within ~${summaryBudgetChars} characters across all fields.`
 
   const model = getAdapter(config.provider.type).createModel(config.provider, 'default')
-  const { text } = await generateText({
+  const { object } = await generateObject({
     model,
+    schema: CompressionSchema,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ],
-    maxTokens: Math.ceil(summaryBudget),
+    maxOutputTokens: Math.ceil(summaryBudget),
     abortSignal: AbortSignal.timeout(60_000),
   })
 
-  log.info(`[ShortTermMemory] summary generated, length=${text.length} chars`)
+  const text = renderCompressionAsText(object)
+  log.info(
+    `[ShortTermMemory] summary generated (structured) — ` +
+      `facts=${object.key_facts.length} pending=${object.pending_actions.length} ` +
+      `resolved=${object.resolved_issues.length} blocker=${object.current_blocker !== null} ` +
+      `chars=${text.length}`,
+  )
   return text
 }

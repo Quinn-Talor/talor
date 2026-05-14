@@ -40,7 +40,16 @@ vi.mock('../db/index', () => ({
 }))
 
 vi.mock('ai', () => ({
-  generateText: vi.fn(async () => ({ text: '摘要文本' })),
+  // v4 Phase 5: ShortTermMemory.generateSummary 改用 generateObject + CompressionSchema
+  generateObject: vi.fn(async () => ({
+    object: {
+      user_intent: '摘要文本',
+      key_facts: [],
+      pending_actions: [],
+      resolved_issues: [],
+      current_blocker: null,
+    },
+  })),
 }))
 
 vi.mock('../providers/model-adapter', () => ({
@@ -49,7 +58,7 @@ vi.mock('../providers/model-adapter', () => ({
 
 import { messageRepo } from '../repos/session-repo'
 import { getDb } from '../db/index'
-import { generateText } from 'ai'
+import { generateObject } from 'ai'
 
 describe('ShortTermMemory.getContext', () => {
   beforeEach(() => {
@@ -63,7 +72,7 @@ describe('ShortTermMemory.getContext', () => {
     expect(result.summaryMessage).toBeNull()
     expect(result.recentMessages).toHaveLength(0)
     expect(result.tokenEstimate).toBe(0)
-    expect(generateText).not.toHaveBeenCalled()
+    expect(generateObject).not.toHaveBeenCalled()
   })
 
   it('AC-001-01: 未超阈值时返回全量历史消息(pop 末尾),无摘要', async () => {
@@ -79,7 +88,7 @@ describe('ShortTermMemory.getContext', () => {
     expect(result.summaryMessage).toBeNull()
     // 末尾一条由 MessagePlugin 独立注入,Memory 只给 0..-2 共 49 条
     expect(result.recentMessages).toHaveLength(49)
-    expect(generateText).not.toHaveBeenCalled()
+    expect(generateObject).not.toHaveBeenCalled()
   })
 
   it('只有 1 条消息时,Memory 返回空(末尾由 MessagePlugin 负责)', async () => {
@@ -110,7 +119,7 @@ describe('ShortTermMemory.getContext', () => {
     const mem = new ShortTermMemory()
     const result = await mem.getContext('s1', makeConfig(8000))
 
-    expect(generateText).not.toHaveBeenCalled() // 不触发摘要
+    expect(generateObject).not.toHaveBeenCalled() // 不触发摘要
     expect(result.summaryMessage).toBeNull()
     expect(result.recentMessages).toHaveLength(50) // 不含末尾巨型消息
   })
@@ -133,7 +142,7 @@ describe('ShortTermMemory.getContext', () => {
     expect(result.summaryMessage).not.toBeNull()
     expect(result.summaryMessage!.content).toMatch(/^\[Conversation summary — may be incomplete/)
     expect(result.tokenEstimate).toBeLessThanOrEqual(8000 * 0.15)
-    expect(generateText).toHaveBeenCalledTimes(1)
+    expect(generateObject).toHaveBeenCalledTimes(1)
     expect(dbRunMock).toHaveBeenCalled()
   })
 
@@ -159,7 +168,7 @@ describe('ShortTermMemory.getContext', () => {
     const mem = new ShortTermMemory()
     const result = await mem.getContext('s1', makeConfig(8000))
 
-    expect(generateText).not.toHaveBeenCalled()
+    expect(generateObject).not.toHaveBeenCalled()
     expect(result.summaryMessage!.content).toContain('旧摘要')
   })
 
@@ -183,8 +192,8 @@ describe('ShortTermMemory.getContext', () => {
     const mem = new ShortTermMemory()
     await mem.getContext('s1', makeConfig(8000))
 
-    expect(generateText).toHaveBeenCalledTimes(1)
-    const callArg = vi.mocked(generateText).mock.calls[0][0]
+    expect(generateObject).toHaveBeenCalledTimes(1)
+    const callArg = vi.mocked(generateObject).mock.calls[0][0]
     const userContent = (callArg.messages as Array<{ role: string; content: string }>).find(
       (m) => m.role === 'user',
     )!.content
@@ -237,7 +246,7 @@ describe('ShortTermMemory.getContext', () => {
 
     // Now simulate cache hit: DB returns a summary with matching covered_until
     listener.mockClear()
-    vi.mocked(generateText).mockClear()
+    vi.mocked(generateObject).mockClear()
     vi.mocked(getDb).mockReturnValue({
       prepare: vi.fn(() => ({
         run: vi.fn(),
@@ -253,7 +262,7 @@ describe('ShortTermMemory.getContext', () => {
 
     await mem.getContext('s1', makeConfig(8000), bus)
 
-    expect(generateText).not.toHaveBeenCalled()
+    expect(generateObject).not.toHaveBeenCalled()
     expect(listener).not.toHaveBeenCalled()
   })
 
@@ -265,7 +274,7 @@ describe('ShortTermMemory.getContext', () => {
     vi.mocked(getDb).mockReturnValue({
       prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })),
     } as unknown as ReturnType<typeof getDb>)
-    vi.mocked(generateText).mockRejectedValue(new Error('API timeout'))
+    vi.mocked(generateObject).mockRejectedValue(new Error('API timeout'))
 
     const bus = new ExecutionEventBus()
     const listener = vi.fn()
@@ -292,7 +301,7 @@ describe('ShortTermMemory.getContext', () => {
     vi.mocked(getDb).mockReturnValue({
       prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(() => null) })),
     } as unknown as ReturnType<typeof getDb>)
-    vi.mocked(generateText).mockRejectedValue(new Error('API timeout'))
+    vi.mocked(generateObject).mockRejectedValue(new Error('API timeout'))
 
     const mem = new ShortTermMemory()
     const result = await mem.getContext('s1', makeConfig(8000))
