@@ -141,6 +141,27 @@ export interface SubagentRef {
 export interface AgentPreferences {
   modelId?: string
   providerId?: string
+
+  // v4 Phase 1: 采样参数(全部 optional,覆盖 Provider 级默认)
+  /** 输出 token 预算。覆盖 provider.max_output_tokens / 全局默认 64K。 */
+  maxOutputTokens?: number
+  /** 采样温度,默认 provider 决定。 */
+  temperature?: number
+  /** Nucleus sampling 概率,默认 provider 决定。 */
+  topP?: number
+  /** 仅测试场景:固定 seed 复现。 */
+  seed?: number
+  /** 工具选择策略。默认 'auto'。 */
+  toolChoice?: 'auto' | 'required' | { type: 'tool'; toolName: string }
+  /**
+   * v3.7.3 承接:turn-end 二审(judge)配置。
+   * Phase 2 + Phase 5 启用,Phase 1 仅记 schema。
+   */
+  turnEndJudge?: {
+    enabled: boolean
+    model?: string
+    timeoutMs?: number
+  }
 }
 
 // ═══ 运行时辅助类型 (基本沿用) ════════════════════════════════

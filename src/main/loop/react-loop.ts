@@ -395,15 +395,33 @@ async function runReactStep(
   let stepReasoning = ''
   let persisted = false
 
+  // v4 Phase 1: per-provider / per-agent 参数派生 (优先级 agent > provider > 全局默认)
+  // 防御性访问:测试 mock 不一定有 profile 字段
+  const provider = ctx.provider
+  const agentPrefs = ctx.agent?.profile?.preferences ?? undefined
+  const v4Params: Record<string, unknown> = {
+    maxOutputTokens:
+      agentPrefs?.maxOutputTokens ?? provider.max_output_tokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    maxRetries: provider.max_retries,
+    headers: provider.headers,
+  }
+  if (agentPrefs?.temperature !== undefined) v4Params.temperature = agentPrefs.temperature
+  if (agentPrefs?.topP !== undefined) v4Params.topP = agentPrefs.topP
+  if (agentPrefs?.seed !== undefined) v4Params.seed = agentPrefs.seed
+  if (agentPrefs?.toolChoice !== undefined) v4Params.toolChoice = agentPrefs.toolChoice
+  if (provider.request_timeout_ms !== undefined) v4Params.timeout = provider.request_timeout_ms
+  // 合并 provider_options 与 adapter.buildStreamOptions() 返回的 providerOptions
+  const adapterProviderOpts =
+    (ctx.streamOptions as { providerOptions?: Record<string, unknown> } | undefined)
+      ?.providerOptions ?? {}
+  v4Params.providerOptions = { ...adapterProviderOpts, ...(provider.provider_options ?? {}) }
+
   const result = streamText({
     model: ctx.model,
     messages,
     tools,
-    // v3.7.3: 显式给个大 output 预算 (1M),让 reasoning + 大输出 + tool call 都有空间。
-    // SDK 自动 clamp 到 provider 实际上限。adapter.buildStreamOptions() 可在
-    // ...ctx.streamOptions 中返自定义值覆盖此默认。
-    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     ...ctx.streamOptions,
+    ...v4Params,
     abortSignal: buildStreamSignal(ctx.abortSignal),
     onChunk({ chunk }) {
       // 只处理文本类 chunk:tool-call / tool-result chunk 在 AI SDK v6 内部被

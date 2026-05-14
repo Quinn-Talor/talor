@@ -1,8 +1,10 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { wrapLanguageModel } from 'ai'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
 import { SafeStorageService } from '../../services/safe-storage'
 import { createBasicModelInfo } from '@shared/types/models'
+import { buildSdkMiddlewares } from '../middleware'
 
 export const googleAdapter: ModelAdapter = {
   createModel(provider, modelId) {
@@ -11,7 +13,11 @@ export const googleAdapter: ModelAdapter = {
     const model = modelId.replace(/^google\//, '')
     log.info('[google-adapter] baseURL:', baseUrl, 'model:', model)
     const google = createGoogleGenerativeAI({ baseURL: baseUrl, apiKey })
-    return google(model)
+    const baseModel = google(model)
+    // v4 Phase 1: SDK middleware
+    const sdkMiddlewares = buildSdkMiddlewares(provider.middleware)
+    if (sdkMiddlewares.length === 0) return baseModel
+    return wrapLanguageModel({ model: baseModel, middleware: sdkMiddlewares })
   },
 
   async fetchModels(provider) {

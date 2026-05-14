@@ -1,7 +1,9 @@
 import { createOllama } from 'ollama-ai-provider-v2'
+import { wrapLanguageModel } from 'ai'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
 import { createBasicModelInfo } from '@shared/types/models'
+import { buildSdkMiddlewares } from '../middleware'
 
 export const ollamaAdapter: ModelAdapter = {
   createModel(provider, modelId) {
@@ -10,7 +12,11 @@ export const ollamaAdapter: ModelAdapter = {
     const ollamaBase = `${baseUrl}/api`
     log.info('[ollama-adapter] baseURL:', ollamaBase, 'model:', model)
     const ollama = createOllama({ baseURL: ollamaBase })
-    return ollama(model)
+    const baseModel = ollama(model)
+    // v4 Phase 1: SDK middleware
+    const sdkMiddlewares = buildSdkMiddlewares(provider.middleware)
+    if (sdkMiddlewares.length === 0) return baseModel
+    return wrapLanguageModel({ model: baseModel, middleware: sdkMiddlewares })
   },
 
   async fetchModels(provider) {

@@ -62,6 +62,25 @@ export interface Provider {
   context_limit?: number
   recent_ratio?: number
   summary_ratio?: number
+
+  // v4 Phase 1: 参数化配置 (全部 optional,向后兼容)
+  /** 输出 token 预算上限。默认 64_000。SDK 透传给 provider,clamp 到 provider 实际上限。 */
+  max_output_tokens?: number
+  /** SDK 自动重试次数。默认 2。 */
+  max_retries?: number
+  /** 单次请求超时(ms)。默认 120_000。 */
+  request_timeout_ms?: number
+  /** 额外 HTTP 头(替代 fetch 拦截方式)。 */
+  headers?: Record<string, string>
+  /** Provider-specific options 透传给 streamText.providerOptions(顶级 key 即 provider 类型)。 */
+  provider_options?: Record<string, unknown>
+  /**
+   * 启用的 middleware 名称列表。可选值:
+   *   - 'disable-thinking'   (DeepSeek 等 reasoner 关闭 thinking)
+   *   - 'cost-tracking'      (token usage → Ledger)
+   *   - 'request-logging'    (dev mode 详细日志)
+   */
+  middleware?: string[]
 }
 
 export interface ProviderInput {

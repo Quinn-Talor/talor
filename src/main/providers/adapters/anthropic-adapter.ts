@@ -1,8 +1,10 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { wrapLanguageModel } from 'ai'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
 import { SafeStorageService } from '../../services/safe-storage'
 import { createBasicModelInfo } from '@shared/types/models'
+import { buildSdkMiddlewares } from '../middleware'
 
 export const anthropicAdapter: ModelAdapter = {
   createModel(provider, modelId) {
@@ -11,7 +13,11 @@ export const anthropicAdapter: ModelAdapter = {
     const model = modelId.replace(/^anthropic\//, '')
     log.info('[anthropic-adapter] baseURL:', baseUrl, 'model:', model)
     const anthropic = createAnthropic({ baseURL: baseUrl, apiKey })
-    return anthropic(model)
+    const baseModel = anthropic(model)
+    // v4 Phase 1: SDK middleware (cost-tracking / request-logging)
+    const sdkMiddlewares = buildSdkMiddlewares(provider.middleware)
+    if (sdkMiddlewares.length === 0) return baseModel
+    return wrapLanguageModel({ model: baseModel, middleware: sdkMiddlewares })
   },
 
   async fetchModels(provider) {
