@@ -25,12 +25,20 @@ import type { TalorBlock, TalorBlockType } from './talor-block-schema'
 const TALOR_BLOCK_RE = /```talor[ \t]*\n([\s\S]+?)\n[ \t]*```/g
 
 /**
- * 流式 type 提取的 regex —— 不要求 JSONC 闭合, 只要拿到第一个 "type": "<name>" 即可。
+ * 流式 type 提取的 regex —— 不要求 JSONC 闭合, 只要 fence 内任意位置出现
+ * "type": "<name>" 即匹配。
  *
- * 设计依赖 Rule 13 约定: type 必须是 JSON 的第一个 key。
- * 如果模型违反约定 (type 不在第一位), 此 regex 仍可能匹配, 但流式骨架可能延迟。
+ * v3.7.1: 改为位置无关 (此前要求 type 紧跟 `{`, 反过来要求 LLM 守"type 必须
+ * first key"的反 JSON 惯例 — 属于系统侧 streaming 便利压给 LLM 负担)。
+ *
+ * 边界 case: 模型在 JSON value 里写假 `"type":"..."` 字符串 (例如 summary 里
+ * quote 别人的代码) → streaming 期间可能短暂误判类型。但 JSONC 闭合后 parser
+ * 取真实 block 仍正确,UI 骨架短暂错样式代价极小。
+ *
+ * 见 docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md §6
+ * Cleanup 3。
  */
-const STREAMING_TYPE_RE = /```talor[ \t]*\n\s*\{\s*"type"\s*:\s*"(\w+)"/g
+const STREAMING_TYPE_RE = /```talor[ \t]*\n[\s\S]*?"type"\s*:\s*"(\w+)"/g
 
 /**
  * 解析 stepText 中的所有 talor blocks。

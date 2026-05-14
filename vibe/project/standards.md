@@ -14,9 +14,9 @@
 
 ## A. 分层与依赖
 
-### A-MUST-0 · 系统与LLM职责分离原则，必须遵守
+### A-MUST-0 · LLM 与 系统擅长原则，必须遵守
 
-LLM擅长判断，系统负责执行和兜底，各自做擅长的事情，协作解决用户输入问题。
+LLM擅长推理/判断，系统负责执行/兜底，各自做擅长的事情，协作解决用户输入问题。
 
 ### A-MUST-1 · 业务层与基础设施层文件必须带头部注释
 
@@ -373,37 +373,83 @@ Skill 内容例外：加 `trust="skill-content"`。
 - 违反后果：prompt 约束会被模型绕过，无机器保证
 - → `patterns.md` §P4
 
-### J-SHOULD-2 · 维度 B(LLM 输出意图)不强制纠正自然语言
+### J-SHOULD-2 · LLM × 系统 协作模型 — 信任 LLM,系统兜底,各做擅长的事
 
-**容错的两个维度独立处理**:
+**核心原则**:
 
-- **维度 A — 代码执行错误**(tool 失败 / MCP 断连 / 超时 / 参数错): 代码强制 +
-  detector 阻断 + 结构化错误信封,这是 J-SHOULD-1 适用范围
-- **维度 B — LLM 输出意图**(完成 / 等用户 / 卡住): **信任 LLM 自然语言**,
-  代码只在副作用安全这件事上强制
+- **LLM 擅长**: 推理 / 判断 / 自然语言 / 语义理解
+- **系统擅长**: 执行 / 校验 / 兜底 / 审计 / 事实核对(基于运行时真相数据)
 
-**反例**(v3.6 教训): 把"模型没 emit 收尾 marker"当 bug,引入 `no-marker-streak`
-counter,3 次后强制 forced-closure。结果模型在 forced-closure 压力下凭空自答
-("好,日本市场")继续执行,绕过用户授权 — 灾难性。
+两类典型职责越界(任何新代码 / PR 都要自查):
 
-**正例**(v3.7): react-loop 终止规则简化为"有 tool = continue,无 tool = final",
-不再强制模型用任何 marker。UI 渲染层用 `inferIntent` 启发式分类(`src/shared/talor-blocks/intent-classifier.ts`)
-推断意图后渲染对应卡片样式 — **仅 UI 辅助,不参与 loop 控制**。
+1. **系统抢 LLM 活** — 用 regex 做语义判断,不强制只软建议 → 两边不靠岸
+2. **LLM 担系统责任** — 强制 LLM 守 streaming 解析便利的约定 → 负担反而降低遵从度
 
-**何时仍需代码强制**(维度 A 范畴):
+#### 协作矩阵(canonical reference)
+
+| 决策点              | LLM 主责           | 系统主责                           |
+| ------------------- | ------------------ | ---------------------------------- |
+| 该不该调工具        | ✅                 | —                                  |
+| 调哪个工具          | ✅                 | (提供列表)                         |
+| 工具参数生成        | ✅                 | Zod / path-guard 校验              |
+| 工具能否执行        | —                  | ✅(失败 → envelope 回流)           |
+| 工具失败重试        | ✅(自适应)         | ✅(死循环兜底)                     |
+| 声明副作用          | ✅(主路径)         | ✅(fallback regex 兜底)            |
+| 副作用授权决策      | —                  | ✅(弹 confirm + 记忆)              |
+| **该不该终止 turn** | ✅(无 tool 即终止) | **— 系统不强制纠正**               |
+| 任务完成判断        | ✅                 | —                                  |
+| 需要用户输入        | ✅(自然语言)       | —                                  |
+| 任务被卡住          | ✅(自然语言)       | —                                  |
+| UI 卡片样式         | 可选(主动 emit)    | ✅(推断兜底,**仅 UI 不回馈 loop**) |
+| 事实引用准确性      | 推理               | ✅(verify-quote 核对)              |
+| Context 预算        | —                  | ✅(monitor + halt)                 |
+| Memory 压缩         | —                  | ✅(全权)                           |
+| 跨 turn 状态        | —                  | ✅(持久化)                         |
+
+#### 反模式表(代码 review 警报)
+
+| 反模式                                      | 历史例子                                    | 处理                     |
+| ------------------------------------------- | ------------------------------------------- | ------------------------ |
+| 系统用 regex 判断 LLM "意图"(仅纠偏)        | `WaitAndAct` / `HallucinatedConfirm` (已删) | 不做 — 信任 LLM          |
+| 系统强制 LLM 用特定语法格式(streaming 便利) | "type 必须 first key" (已删)                | 系统 parser 容忍         |
+| 系统派生大量 LLM 输出衍生字段给 detector 用 | `hasDone/blocks/...` (已删)                 | LLM 自己负责             |
+| Prompt 教模型严格 schema 然后代码不强制     | v3.6 Rule 13 强制 (已退化)                  | 退化 optional 或代码强制 |
+| 系统判断"该不该终止"+ 强制纠正              | `no-marker-streak + forced-closure` (已删)  | "无 tool = 自然 final"   |
+| Detector 注入 hint 教 LLM "你刚才错了"      | `PENDING_MARKER_HINT` (已删)                | 删                       |
+
+#### 正模式表(职责清晰)
+
+| 正模式                          | 例子                                        |
+| ------------------------------- | ------------------------------------------- |
+| LLM 声明意图,系统记录执行       | `pending_confirm` block + Ledger            |
+| 系统遇错给结构化反馈,LLM 自适应 | `ToolErrorEnvelope` → LLM 读 hint 换策略    |
+| 系统用真相数据校对 LLM 引用     | `verifyQuotedFacts` (有 tool output 可对照) |
+| 系统监控资源边界,LLM 不感知     | context overflow / memory 压缩              |
+| 系统计数硬阻断兜底死循环        | signature-dead-loop counter                 |
+| UI 推断仅服务渲染,不回馈 loop   | `inferIntent` → `MessageBubble`             |
+
+#### 何时该用代码强制 / 何时该信任 LLM
+
+**该代码强制**(维度 A — 代码执行 / 安全):
 
 - 副作用前授权(pending_confirm + RiskGate)
 - 死循环阻断(signature-dead-loop / failure-streak)
 - Token 预算保护(context overflow halt)
 - 副作用审计(SideEffectLedger)
+- 工具参数 schema 校验(Zod)
+- 路径越权校验(path-guard)
 
-**何时不应代码强制**(维度 B 范畴):
+**该信任 LLM**(维度 B — 输出意图 / 语义):
 
-- 模型该不该 emit 收尾 marker
-- 模型问问题该不该用 talor `need_input` block
-- 模型该叙述还是该直接给答案
+- 该不该 emit 收尾 marker
+- 该用 talor `need_input` block 还是自然语言
+- 该叙述还是直接给答案
+- 在什么场合用 emoji / 列表 / 代码块
 
-- 依据: `docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md`
+**判别速记**: 系统能用 runtime 真相数据(tool output / fs / memory)验证的事 → 代码强制;系统只能用 regex 猜测意图的事 → 信任 LLM。
+
+- 依据: [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 前置: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
 - → `patterns.md` §P13
 
 ### J-NEVER-1 · 禁止把硬约束仅写在 prompt 而代码里无兜底

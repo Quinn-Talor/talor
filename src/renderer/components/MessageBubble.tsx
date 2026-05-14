@@ -17,7 +17,7 @@ import {
   StreamingTalorSkeleton,
   InferredIntentCard,
 } from './TalorBlockRenderer'
-import { inferIntent } from '@shared/talor-blocks/intent-classifier'
+import { inferIntent } from '@shared/ui-rendering/intent-classifier'
 
 class ErrorBoundary extends React.Component<
   { fallback: React.ReactNode; children: React.ReactNode },

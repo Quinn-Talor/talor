@@ -209,4 +209,21 @@ describe('detectStreamingTalorType', () => {
   it('完全无 block → null', () => {
     expect(detectStreamingTalorType('no blocks here')).toBeNull()
   })
+
+  // v3.7.1: 位置无关 regression
+  it('type 不在 first key (summary 在前) → 仍能识别', () => {
+    const text = '```talor\n{ "summary": "OK", "type": "done" }\n```'
+    expect(detectStreamingTalorType(text)).toBe('done')
+  })
+
+  it('未闭合 fence + summary 在前 + type 已流出 → 仍能识别', () => {
+    const text = '```talor\n{ "summary": "preparing", "type": "need_input"'
+    expect(detectStreamingTalorType(text)).toBe('need_input')
+  })
+
+  it('多字段乱序 + type 在末尾 → 仍能识别', () => {
+    const text =
+      '```talor\n{\n  "summary": "x",\n  "pattern": "sql:INSERT:t",\n  "type": "pending_confirm"\n}\n```'
+    expect(detectStreamingTalorType(text)).toBe('pending_confirm')
+  })
 })

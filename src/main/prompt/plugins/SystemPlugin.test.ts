@@ -86,8 +86,8 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/"type":"done"/)
     expect(content).toMatch(/"type":"need_input"/)
     expect(content).toMatch(/"type":"blocked"/)
-    // 触发: streaming detection 规则
-    expect(norm).toContain('FIRST key')
+    // v3.7.1: 删除 "type FIRST key" 反 JSON 惯例约束 — streaming detector 已改位置无关
+    expect(norm).not.toContain('FIRST key')
     // 触发: Rule 14 引用 (mid-turn pending_confirm)
     expect(norm).toContain('Rule 14')
     // 触发: 整体定位 "nice-to-have, not required"

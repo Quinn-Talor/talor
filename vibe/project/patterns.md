@@ -892,21 +892,21 @@ K-MUST-4 / K-MUST-5 / K-MUST-6 / K-MUST-7 / K-MUST-8 / K-MUST-9、K-NEVER-3 / K-
 
 ## 模式索引
 
-| 模式                                                                          | 相关标准                            | 关键参考实现                                                                                      |
-| ----------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [P1. 参数校验分层](#p1-参数校验的分层职责)                                    | F-MUST-1/2, F-NEVER-1, B-NEVER-1    | `tools/registry.ts`、`tools/builtin/*.ts`、`tools/schema-check.ts`                                |
-| [P2. 错误建模](#p2-错误建模结构化错误信封)                                    | F-MUST-3, G-NEVER-2                 | `tools/types.ts`、`loop/stream-utils.ts`、`mcp/client.ts`                                         |
-| [P3. 错误边界分类](#p3-错误的边界分类与降级)                                  | D-NEVER-1, G-MUST-1, G-SHOULD-2     | `ipc/error-codes.ts`、`chat/orchestrator.ts`                                                      |
-| [P4. 不变量代码化](#p4-不变量的代码化prompt--code)                            | J-MUST-\*, J-SHOULD-1, K-MUST/NEVER | `loop/quote-verifier.ts`、`tools/path-guard.ts`、`tools/builtin/edit.ts`                          |
-| [P5. Repo CRUD](#p5-repo-crud-契约)                                           | E-MUST-\*                           | `repos/session-repo.ts`、`repos/mcp-server-repo.ts`                                               |
-| [P6. 事务原子性](#p6-事务与原子性)                                            | E-MUST-4, I-MUST-1                  | `repos/session-repo.ts:createBatch`、`loop/react-loop.ts`                                         |
-| [P7. 分层边界](#p7-分层边界与依赖方向)                                        | A-MUST-\*, A-NEVER-1, D-MUST-3      | 各模块头部注释、`chat/orchestrator.ts`                                                            |
-| [P8. Critical vs Optional](#p8-critical-vs-optional-组件分级)                 | J-MUST-2, F-MUST-4                  | `prompt/PromptPipeline.ts`、`memory/ShortTermMemory.ts`                                           |
-| [P9. Fail-Loud vs Silent](#p9-fail-loud-vs-silent-fallback)                   | F-MUST-4, J-MUST-2/3                | `tools/registry.ts`（verify）、`loop/react-loop.ts`（context halt）                               |
-| [P10. 测试风格](#p10-测试风格与隔离)                                          | L-MUST-_, L-SHOULD-2, L-NEVER-_     | 各 `*.test.ts`                                                                                    |
-| [P11. Electron 渲染端安全边界](#p11-electron-渲染端安全边界)                  | K-MUST-4/5/6/7/8/9, K-NEVER-3/4/5   | `main/index.ts`、`preload/index.ts`、`index.html`、`agent/accounts.ts`                            |
-| [P12. 领域知识加载策略](#p12--领域知识加载策略)                               | —                                   | `src/main/agent/templates.ts`、`vibe/` 目录                                                       |
-| [P13. 容错回归初心 (v3.7)](#p13--容错回归初心-维度-a-强化--维度-b-极简化-v37) | —                                   | `src/shared/talor-blocks/`、`src/main/tools/risk-gate.ts`、`src/main/repos/side-effect-ledger.ts` |
+| 模式                                                              | 相关标准                            | 关键参考实现                                                                                                                  |
+| ----------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [P1. 参数校验分层](#p1-参数校验的分层职责)                        | F-MUST-1/2, F-NEVER-1, B-NEVER-1    | `tools/registry.ts`、`tools/builtin/*.ts`、`tools/schema-check.ts`                                                            |
+| [P2. 错误建模](#p2-错误建模结构化错误信封)                        | F-MUST-3, G-NEVER-2                 | `tools/types.ts`、`loop/stream-utils.ts`、`mcp/client.ts`                                                                     |
+| [P3. 错误边界分类](#p3-错误的边界分类与降级)                      | D-NEVER-1, G-MUST-1, G-SHOULD-2     | `ipc/error-codes.ts`、`chat/orchestrator.ts`                                                                                  |
+| [P4. 不变量代码化](#p4-不变量的代码化prompt--code)                | J-MUST-\*, J-SHOULD-1, K-MUST/NEVER | `loop/quote-verifier.ts`、`tools/path-guard.ts`、`tools/builtin/edit.ts`                                                      |
+| [P5. Repo CRUD](#p5-repo-crud-契约)                               | E-MUST-\*                           | `repos/session-repo.ts`、`repos/mcp-server-repo.ts`                                                                           |
+| [P6. 事务原子性](#p6-事务与原子性)                                | E-MUST-4, I-MUST-1                  | `repos/session-repo.ts:createBatch`、`loop/react-loop.ts`                                                                     |
+| [P7. 分层边界](#p7-分层边界与依赖方向)                            | A-MUST-\*, A-NEVER-1, D-MUST-3      | 各模块头部注释、`chat/orchestrator.ts`                                                                                        |
+| [P8. Critical vs Optional](#p8-critical-vs-optional-组件分级)     | J-MUST-2, F-MUST-4                  | `prompt/PromptPipeline.ts`、`memory/ShortTermMemory.ts`                                                                       |
+| [P9. Fail-Loud vs Silent](#p9-fail-loud-vs-silent-fallback)       | F-MUST-4, J-MUST-2/3                | `tools/registry.ts`（verify）、`loop/react-loop.ts`（context halt）                                                           |
+| [P10. 测试风格](#p10-测试风格与隔离)                              | L-MUST-_, L-SHOULD-2, L-NEVER-_     | 各 `*.test.ts`                                                                                                                |
+| [P11. Electron 渲染端安全边界](#p11-electron-渲染端安全边界)      | K-MUST-4/5/6/7/8/9, K-NEVER-3/4/5   | `main/index.ts`、`preload/index.ts`、`index.html`、`agent/accounts.ts`                                                        |
+| [P12. 领域知识加载策略](#p12--领域知识加载策略)                   | —                                   | `src/main/agent/templates.ts`、`vibe/` 目录                                                                                   |
+| [P13. LLM × 系统协作模型 (v3.7.1)](#p13--llm--系统-协作模型-v371) | J-SHOULD-2                          | `src/shared/talor-blocks/`、`src/shared/ui-rendering/`、`src/main/tools/risk-gate.ts`、`src/main/repos/side-effect-ledger.ts` |
 
 ---
 
@@ -933,74 +933,75 @@ Agent 需要的领域知识有 4 条加载通道,按规模与共享需求选:
 
 ---
 
-## P13 — 容错回归初心: 维度 A 强化 + 维度 B 极简化 (v3.7)
+## P13 — LLM × 系统 协作模型 (v3.7.1)
 
 ### 问题
 
-agent 系统的容错有两个维度:
+agent 系统是 LLM 和系统协作的产物。如果**职责边界不清**(系统抢 LLM 活 / LLM 担系统责任),会出现两类典型 bug:
 
-- **维度 A — 代码执行错误**: tool 失败、MCP 断连、超时、参数错、SQL 语法错
-- **维度 B — LLM 输出意图**: 完成 / 等用户 / 卡住 / 待确认
+- 系统用 regex 判 LLM 意图后不强制只软建议 → 两边不靠岸,生 hint 浪费 token,真危险时也救不了场
+- 系统强制 LLM 守 streaming 解析便利的反 JSON 惯例约定 → 增加 LLM 负担,反而降低遵从度
 
-v3.6 试图用 talor block 协议 + 5 层 detector 把两个维度都"代码化",但
-**维度 B 的过度工程**(`no-marker-streak` 强制模型 emit marker、`forced-closure`
-压力下让模型自答)反而引发了灾难性 bug — 模型在没有用户输入时凭空编造决策
-继续执行,绕过所有授权。
+v3.6 在这两个反模式上都踩过(`forced-closure` + `WaitAndAct` + `"type first key"`),v3.7 + v3.7.1 系统性清理。
 
 ### 原则
 
-- **容错两个维度独立处理**:
-  - 维度 A:**代码强制** (path-guard / Zod / detector / RiskGate)
-  - 维度 B:**信任 LLM 自然语言**,不强制纠正
-- **不强制纠正 LLM 输出**: 模型不发 marker 不是 bug。强制纠正的代价(自答灾难) > 收益
-- **代码只在 "安全 / 审计" 上强制**: pending_confirm + RiskGate + Ledger 必须代码强制
-- **talor block 退化为可选 UI 增强**: 强模型用,弱模型不用也能正常工作
+- **LLM 擅长**: 推理 / 判断 / 自然语言 / 语义理解
+- **系统擅长**: 执行 / 校验 / 兜底 / 审计 / 事实核对(基于运行时真相数据)
+- **判别速记**: 系统能用 runtime 真相数据(tool output / fs / memory)验证的事 → 代码强制;系统只能用 regex 猜测意图的事 → 信任 LLM
 
 ### Talor 实施
 
-| 维度  | 机制                                                                      | 强制?   |
-| ----- | ------------------------------------------------------------------------- | ------- |
-| **A** | `signature-dead-loop` / `failure-streak` / `tool-only-loop` detector      | ✅      |
-| **A** | `ToolErrorEnvelope` 结构化错误 + 三级 `isErrorOutput` 识别                | ✅      |
-| **A** | path-guard / Zod / context overflow halt / abort                          | ✅      |
-| **A** | `FALLBACK_SUMMARY` / `failureStreak` / `signatureDeadLoop` forced summary | ✅      |
-| **A** | RiskGate + pending_confirm + SessionApprovalMemory + SideEffectLedger     | ✅      |
-| **B** | talor block 协议 (parser + 5 UI 卡片 + 流式骨架)                          | 可选    |
-| **B** | `inferIntent` 多信号 voting (UI 渲染辅助)                                 | 仅 UI   |
-| **B** | `WaitAndActConflict` / `HallucinatedConfirm` (软提示 hint detector)       | 仅 hint |
+容错两个维度独立处理:
 
-**v3.7 移除**(对比 v3.6):
+| 维度  | 机制                                                                      | 谁强制?  |
+| ----- | ------------------------------------------------------------------------- | -------- |
+| **A** | `signature-dead-loop` / `failure-streak` / `tool-only-loop` detector      | 系统     |
+| **A** | `ToolErrorEnvelope` 结构化错误 + 三级 `isErrorOutput` 识别                | 系统     |
+| **A** | path-guard / Zod / context overflow halt / abort                          | 系统     |
+| **A** | `FALLBACK_SUMMARY` / `failureStreak` / `signatureDeadLoop` forced summary | 系统     |
+| **A** | RiskGate + pending_confirm + SessionApprovalMemory + SideEffectLedger     | 系统     |
+| **B** | talor block 协议 (parser + 5 UI 卡片 + 流式骨架)                          | LLM 可选 |
+| **B** | `inferIntent` 多信号 voting (UI 渲染辅助,**仅 UI 不回馈 loop**)           | 系统     |
 
-- ❌ `no-marker-streak` detector
-- ❌ `forced-closure` summary / guardrail / postProcess
-- ❌ Rule 13 强制 talor block 教学 (降级为可选段)
-- ❌ Rule 12 中 "wait dual case 必须 emit need_input block" 强制
-
-**react-loop 终止规则简化为**:
+**react-loop 终止规则**:
 
 - 有 tool 调用 → continue
 - 无 tool 调用 + 有 text → **自然 final** (信任 LLM)
 - 无 tool 无 text → empty_text fallback summary
 
+完整协作矩阵 + 反模式 / 正模式表见 [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md) §2 + §5。
+
+### 历史移除清单(对比 v3.6)
+
+| 移除项                                                 | 原因(反模式)                           |
+| ------------------------------------------------------ | -------------------------------------- |
+| `no-marker-streak` detector + `forced-closure` summary | 系统判 LLM "该终止" + 强制纠正灾难     |
+| `WaitAndActConflict` + `HallucinatedConfirm` detector  | 系统用 regex 判 LLM 意图 + 不强制      |
+| Rule 13 中 "type FIRST key" 约束                       | 系统侧 streaming 便利压给 LLM          |
+| `OutcomeFacts` 中 10+ LLM 输出衍生字段                 | 系统为 LLM 输出派生供后续判断的字段    |
+| Rule 13 / Rule 12 强制 talor block 教学                | Prompt 教模型严格 schema 但代码不强制  |
+| `PENDING_MARKER_HINT` / `STRONG_MARKER_HINT` 注入      | Detector 注入 hint 教 LLM "你刚才错了" |
+
 ### 参考实现
 
-- v3.7 方案: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
-- v3.6 历史: [docs/superpowers/plans/2026-05-12-talor-block-protocol.md](../../docs/superpowers/plans/2026-05-12-talor-block-protocol.md) (superseded)
+- 协作模型文档: [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 前置 v3.7: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
 - 维度 A 代表: `src/main/loop/detectors/signature-dead-loop.ts`、`src/main/tools/risk-gate.ts`
-- 维度 B 启发式: `src/shared/talor-blocks/intent-classifier.ts`
+- 维度 B 启发式 (仅 UI): `src/shared/ui-rendering/intent-classifier.ts`、`src/shared/ui-rendering/text-heuristics.ts`
 - UI 渲染分发: `src/renderer/components/MessageBubble.tsx`(显式 talor block > InferredIntentCard > 普通 markdown)
 
 ### 取舍
 
-- 删 `no-marker-streak` 后,模型连续多步纯文本不停的极端场景不再被强制兜底。
-  实际现代 LLM 不会这样;`tool-only-loop` / `signature-dead-loop` / `max-steps` 仍可阻断
-- inferIntent 假阳性(误判 done → need_input 等)代价 = 一次额外用户澄清,
-  远小于"误进 forced-closure 让模型自答"的代价
-- talor block 协议仍保留,强模型(Claude 等)主动 emit 时 UI 优先按 block 渲染
+- 删 `no-marker-streak` / `WaitAndAct` / `HallucinatedConfirm` 后,LLM 意图相关的强制纠偏机制全部去除。代价: 模型连续多步异常的极端场景不再被代码救场。实际收益: 弱模型不再被压力测试出 "自答灾难"。
+- inferIntent 假阳性(误判 done → need_input 等)代价 = 一次额外用户澄清,远小于"误进 forced-closure 让模型自答"。
+- talor block 协议仍保留,强模型主动 emit 时 UI 优先按 block 渲染。
+- 维度 A 的 detector 一律保留:这些是基于 runtime 真相数据的判断,不会越界。
 
 ### 相关标准
 
-J-SHOULD-2(新增): 维度 B 不强制纠正 LLM 自然语言。详见 standards.md。
+- **J-SHOULD-2**(canonical): LLM × 系统 协作模型 — 信任 LLM,系统兜底,各做擅长的事
+- → `standards.md` §J-SHOULD-2 内含完整协作矩阵 + 反模式 / 正模式表 + 判别速记
 
 ---
 

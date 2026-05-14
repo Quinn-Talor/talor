@@ -43,8 +43,6 @@ import { composeHint } from './compose-hint'
 import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
 import { FailureStreakDetector } from './detectors/failure-streak'
 import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
-import { WaitAndActConflictDetector } from './detectors/wait-and-act-conflict'
-import { HallucinatedConfirmDetector } from './detectors/hallucinated-confirm'
 
 /**
  * 单步 prompt 估算到达该比例时,提醒模型收敛。
@@ -681,23 +679,20 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const mcpState = new McpExposureState(opts.agent)
 
   // Detector 顺序敏感 (业务属性, 显式排列):
-  //   L1 流程健康度 (硬阻断 / forced summary):
+  //   L1 流程健康度 (硬阻断 / forced summary,**维度 A 系统职责**):
   //     1. signature-dead-loop:  原地重试同一调用 (最敏感, 阈值 1/2)
   //     2. failure-streak:       连续 N 次工具失败 (兜底 signature 没抓到的"换参全败")
   //     3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
-  //   L2 语义一致性 (软纠偏 / hint 注入,不 break):
-  //     4. wait-and-act-conflict: 文本说在等用户但同步调了 side-effect 工具
-  //     5. hallucinated-confirm:  文本声称用户已确认但本步无 pending_confirm block
   //
-  // v3.7 移除: no-marker-streak + forced-closure 路径 —— 把"无 marker"当 bug 是
-  // 过度补偿,反而引发 forced-closure 模式下模型自答的灾难性绕过授权 bug。
-  // 现在"无 tool = 自然 final" (见 runReactStep no-tool 分支)。
+  // v3.7 移除: no-marker-streak + forced-closure (把"无 marker"当 bug 反而引发自答灾难)
+  // v3.7.1 移除: wait-and-act-conflict + hallucinated-confirm
+  //   —— 用 regex 做语义判断属于"系统抢 LLM 活"反模式,不强制只软建议,两边不靠岸。
+  //   真危险路径仍由 RiskGate 拦,删除二者不丢失安全。
+  //   见 docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md
   const detectors: import('./detectors/types').LoopDetector[] = [
     new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
     new ToolOnlyLoopDetector(),
-    new WaitAndActConflictDetector(),
-    new HallucinatedConfirmDetector(),
   ]
 
   let exitReason: LoopExitReason = 'no_tool_calls'

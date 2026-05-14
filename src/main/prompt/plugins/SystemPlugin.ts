@@ -158,7 +158,6 @@ const BEHAVIORAL_CHARTER = `# Core Behavior Principles
       or {"type":"blocked","reason":"...","can_retry":true}
 
     Rules if you emit one:
-      - The \`type\` field must be the FIRST key (streaming detection).
       - Only emit a turn-ending block when you have NO tool call this step.
       - For mid-turn risk declaration see Rule 14 (\`pending_confirm\`).
 

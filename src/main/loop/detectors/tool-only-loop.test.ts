@@ -11,20 +11,9 @@ function facts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
   return {
     hasToolCall: false,
     hasText: false,
-    hasMarker: false,
     allToolsFailed: null,
     isSubagentFailure: false,
     signature: '',
-    toolNames: [],
-    blocks: [],
-    invalidBlocks: [],
-    hasDone: false,
-    hasNeedInput: false,
-    hasBlocked: false,
-    hasPendingConfirm: false,
-    hasWarning: false,
-    hasLegacyMarker: false,
-    hasTermination: false,
     ...overrides,
   }
 }
