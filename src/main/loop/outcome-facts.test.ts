@@ -174,20 +174,9 @@ describe('classify', () => {
     expect(facts.hasToolCall).toBe(false)
     expect(facts.hasText).toBe(true)
     expect(facts.hasMarker).toBe(true)
-    expect(facts.noMarkerExit).toBe(false)
   })
 
-  it('无工具 + 有 text + 无 marker + exitReason=no_tool_calls_no_marker → noMarkerExit=true (Fix C 信号)', () => {
-    const outcome = makeOutcome({
-      stepText: 'preparing to start',
-      toolNames: [],
-      exitReason: 'no_tool_calls_no_marker',
-    })
-    const facts = classify(outcome)
-    expect(facts.hasText).toBe(true)
-    expect(facts.hasMarker).toBe(false)
-    expect(facts.noMarkerExit).toBe(true)
-  })
+  // v3.7: noMarkerExit 字段已删除,no_tool_calls_no_marker exit reason 不再存在
 
   it('有工具 + 无 text → hasToolCall=true, hasText=false', () => {
     const outcome = makeOutcome({ toolNames: ['read', 'write'], stepText: '' })

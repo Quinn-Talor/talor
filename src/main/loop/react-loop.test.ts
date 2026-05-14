@@ -1141,9 +1141,9 @@ describe('runReactLoop — Plan C cumulative-used MCP exposure (TASK-6)', () => 
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// Fix C — Rule 13 termination-marker handling
+// v3.7: 无 tool = 自然 final (信任 LLM 自然语言)。
 // ─────────────────────────────────────────────────────────────────────────
-describe('runReactLoop — Rule 13 marker enforcement', () => {
+describe('runReactLoop — natural termination on no-tool step', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockBuildTools.mockResolvedValue(undefined)
@@ -1207,96 +1207,48 @@ describe('runReactLoop — Rule 13 marker enforcement', () => {
     expect(mockMessageCreate.mock.calls[0][0].id).toBe(opts.messageId)
   })
 
-  it('无 marker → 自动继续,intermediate persist 用新 uuid 不是 ctx.messageId', async () => {
-    // step 0: 无 marker 文本 → intermediate,继续
-    // step 1: 有 marker → final exit
-    setupScriptedSteps([
-      { toolNames: [], text: 'preparing to start' },
-      { toolNames: [], text: 'task done\n\n✓ Done' },
-    ])
+  it('v3.7: 无 marker 的纯文本 → 同样单步 exit,落 final 用 ctx.messageId', async () => {
+    // v3.7 行为变化: "无 tool = 总是 final"。
+    // 不再有 "无 marker → intermediate + continue" 路径,
+    // 不再有 PENDING_MARKER_HINT 注入,
+    // 不再有 forced-closure 兜底。
+    setupScriptedSteps([{ toolNames: [], text: 'preparing to start' }])
     const opts = makeOpts({ maxSteps: 5 })
     await runReactLoop(opts)
 
-    // 两次 create:第一次 intermediate (新 uuid),第二次 final (ctx.messageId)
-    expect(mockMessageCreate).toHaveBeenCalledTimes(2)
-    expect(mockMessageCreate.mock.calls[0][0].id).not.toBe(opts.messageId)
-    expect(mockMessageCreate.mock.calls[1][0].id).toBe(opts.messageId)
+    expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+    expect(mockMessageCreate.mock.calls[0][0].id).toBe(opts.messageId)
+    // streamText 只调用一次, 没有后续 step 的 hint 注入
+    expect(mockStreamText).toHaveBeenCalledTimes(1)
   })
 
-  it('无 marker → 下一步注入 PENDING_MARKER_HINT', async () => {
-    // step 0 无 marker → step 1 应该收到 hint
+  it('v3.7: 模型问问题 (无 marker) → 自然 final, 不进 forced-closure', async () => {
+    // 回归截图灾难: 模型列了 "目标市场? 内地/香港/日本" 这种问题,
+    // v3.6 走 no-marker streak → forced-closure → 模型自答 "好,日本市场" → 灾难。
+    // v3.7 直接落 final 等用户回答, 路径不存在了。
     setupScriptedSteps([
-      { toolNames: [], text: 'thinking...' },
-      { toolNames: [], text: 'now done\n\n✓ Done' },
+      { toolNames: [], text: '目标市场是哪里? 内地 / 香港 / 日本 / 东南亚 / 欧美?' },
     ])
-    const buildFn = vi
-      .fn()
-      .mockResolvedValue({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
-    const opts = makeOpts({
-      maxSteps: 5,
-      pipeline: { build: buildFn } as unknown as ReactLoopOptions['pipeline'],
-    })
-    await runReactLoop(opts)
-
-    // streamText 在第 2 次 step 调用时,messages 应包含 PENDING_MARKER_HINT system message
-    const secondStepStreamCall = mockStreamText.mock.calls[1][0] as {
-      messages: Array<{ role: string; content: string }>
-    }
-    const hintInjected = secondStepStreamCall.messages.some(
-      (m) => m.role === 'system' && m.content.includes('[Turn-end check]'),
-    )
-    expect(hintInjected).toBe(true)
-  })
-
-  it('连续 3 次无 marker → 触发 forced closure summary,落 [forced-closure] 消息', async () => {
-    // NoMarker LIMIT=3 (默认):紧凑收敛,2 次警告 (温和→强) + 1 次触发。
-    // 前 3 步用 onChunk + consumeStream 模式 (runReactStep);
-    // 第 4 次调 streamText 是 forced closure 内部,用 textStream 异步迭代器消费。
-    let call = 0
-    mockStreamText.mockImplementation((params: StreamTextParams) => {
-      call++
-      if (call <= 3) {
-        params.onChunk?.({ chunk: { type: 'text-delta', text: `step ${call} text` } })
-        return {
-          consumeStream: vi.fn().mockResolvedValue(undefined),
-          toolResults: Promise.resolve([]),
-        }
-      }
-      // forced closure 用 textStream
-      return {
-        textStream: (async function* () {
-          yield 'forced summary text'
-        })(),
-      }
-    })
-
     const opts = makeOpts({ maxSteps: 10 })
     await runReactLoop(opts)
 
-    // create 调用:3 次 intermediate + 1 次 forced-closure 总 = 4 次
-    expect(mockMessageCreate.mock.calls.length).toBeGreaterThanOrEqual(4)
-    // 最后一次 create 的内容含 [forced-closure] 前缀 + 服务端补的 ⏸ Blocked 兜底
-    const lastCreate = mockMessageCreate.mock.calls[mockMessageCreate.mock.calls.length - 1][0] as {
-      content: Array<{ type: string; text: string }>
-    }
-    const lastText = lastCreate.content[0].text
-    expect(lastText).toContain('[forced-closure]')
-    // forced summary 模型输出没 marker,服务端自动补 ⏸ Blocked
-    expect(lastText).toContain('⏸ Blocked')
+    // 单步 final, 不会有多次 create
+    expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+    expect(mockMessageCreate.mock.calls[0][0].id).toBe(opts.messageId)
+    // 没有 [forced-closure] 消息存在
+    const hasForceClosure = mockMessageCreate.mock.calls.some((c) => {
+      const content = (c[0] as { content: Array<{ text: string }> }).content
+      return content[0]?.text?.includes('[forced-closure]')
+    })
+    expect(hasForceClosure).toBe(false)
   })
 
-  it('有工具调用 → 重置 no-marker 计数', async () => {
-    // step 0 无 marker → count=1
-    // step 1 调工具 → count reset 0
-    // step 2 无 marker → count=1
-    // step 3 无 marker → count=2
-    // step 4 有 marker → exit (正常 final)
+  it('v3.7: tool → text(无 marker) → 自然 final (两步 exit)', async () => {
+    // step 0 调工具 → continue
+    // step 1 纯文本无 marker → 自然 final
     setupScriptedSteps([
-      { toolNames: [], text: 'pondering' },
-      { toolNames: ['t1'], text: '' }, // 调工具,reset
-      { toolNames: [], text: 'still pondering' },
-      { toolNames: [], text: 'almost there' },
-      { toolNames: [], text: 'task complete\n\n✓ Done' },
+      { toolNames: ['t1'], text: 'calling t1' },
+      { toolNames: [], text: 'all done based on t1 result' },
     ])
     const opts = makeOpts({
       maxSteps: 10,
@@ -1312,9 +1264,12 @@ describe('runReactLoop — Rule 13 marker enforcement', () => {
     })
     await runReactLoop(opts)
 
-    // 不应触发 forced closure (因为工具调用 reset 了 counter)
-    const calls = mockMessageCreate.mock.calls
-    const hasForceClosure = calls.some((c) => {
+    // step 1 自然 final 用 messageId (step 0 走 createBatch 不进 mockMessageCreate)
+    expect(mockMessageCreate).toHaveBeenCalled()
+    const lastCreate = mockMessageCreate.mock.calls[mockMessageCreate.mock.calls.length - 1][0]
+    expect(lastCreate.id).toBe(opts.messageId)
+    // 不应触发 forced-closure
+    const hasForceClosure = mockMessageCreate.mock.calls.some((c) => {
       const content = (c[0] as { content: Array<{ text: string }> }).content
       return content[0]?.text?.includes('[forced-closure]')
     })

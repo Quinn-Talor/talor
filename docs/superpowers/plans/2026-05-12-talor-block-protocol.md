@@ -1,8 +1,33 @@
 # Talor Block 协议 + 系统性容错方案 (v3.6)
 
 > 实施日期: 2026-05-12 起
-> 状态: 阶段 1 实施中
+> **状态: superseded by v3.7 (2026-05-13)** —— 见 [2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
 > 目标: 让 react-loop 具备系统性容错能力 — 高危操作授权、副作用可追溯、意图一致性、可扩展协议
+
+## ⚠️ v3.7 退化说明 (2026-05-13)
+
+v3.6 的 L2 detector (`no-marker-streak` + `forced-closure` summary) + 强制 talor block
+协议被 v3.7 评估为**过度补偿**: 它的核心假设 "模型无 marker = bug" 在现代 LLM 上不成立,
+反而引发 forced-closure 模式下模型自答的灾难性 bug (绕过用户授权)。
+
+v3.7 保留的 v3.6 成果:
+
+- ✅ L0 talor block 协议 + parser + 5 UI 卡片 (退化为**可选 UI 增强**)
+- ✅ L3 RiskGate + pending_confirm 主路径 (副作用安全核心,保留强制)
+- ✅ L4 SideEffectLedger (审计追溯)
+- ✅ WaitAndAct / HallucinatedConfirm 软提示 detector
+- ✅ 事件驱动 IPC chat:message-persisted
+
+v3.7 移除的 v3.6 部分:
+
+- ❌ no-marker-streak detector (整个文件删)
+- ❌ forced-closure summary / guardrail / postProcess
+- ❌ Rule 13 强制 talor block 教学 (退化为可选段)
+- ❌ Rule 12 wait-for-user dual case 中"必须 emit need_input block"的强制
+
+下方原 v3.6 内容保留作历史参考,**不再代表当前实现**。
+
+---
 
 ---
 

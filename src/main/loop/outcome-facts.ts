@@ -118,8 +118,8 @@ export interface OutcomeFacts {
   isSubagentFailure: boolean
   /** outcome.signature — 复合签名 (含工具时非空) */
   signature: string
-  /** outcome.exitReason === 'no_tool_calls_no_marker' (Fix C 信号) */
-  noMarkerExit: boolean
+  // v3.7: noMarkerExit 字段已删除 —— no_tool_calls_no_marker exit reason 不再存在,
+  // "无 marker" 不再是 bug 信号 (无 tool = 自然 final)。
   /** outcome.toolNames 透传 — SemanticDetector 判定 side-effect 工具时需要 */
   toolNames: readonly string[]
 
@@ -165,7 +165,6 @@ export function classify(outcome: StepOutcome): OutcomeFacts {
     allToolsFailed: outcome.allToolsFailed,
     isSubagentFailure: outcome.containsSubagentFailure,
     signature: outcome.signature,
-    noMarkerExit: outcome.exitReason === 'no_tool_calls_no_marker',
     toolNames: outcome.toolNames,
     blocks,
     invalidBlocks: invalid,

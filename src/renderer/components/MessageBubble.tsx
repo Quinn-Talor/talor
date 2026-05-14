@@ -15,7 +15,9 @@ import {
   TalorBlockCard,
   InvalidTalorBlockCard,
   StreamingTalorSkeleton,
+  InferredIntentCard,
 } from './TalorBlockRenderer'
+import { inferIntent } from '@shared/talor-blocks/intent-classifier'
 
 class ErrorBoundary extends React.Component<
   { fallback: React.ReactNode; children: React.ReactNode },
@@ -265,36 +267,60 @@ function MessageBubbleInner({
                 </div>
               }
             >
-              {splitMessageWithTalorBlocks(textContent || '').map((seg, i) => {
-                if (seg.type === 'talor' && seg.block) {
-                  return <TalorBlockCard key={i} block={seg.block} />
-                }
-                if (seg.type === 'invalid-talor') {
-                  return <InvalidTalorBlockCard key={i} raw={seg.content} />
-                }
-                if (seg.type === 'streaming-talor') {
-                  // 流式中未闭合 fence: 仅 isStreaming=true 时显示骨架,流结束后
-                  // (按 parser 看仍是 unclosed → 是真损坏) 才降级为 invalid 卡片。
-                  // 避免持久化的消息因为意外格式损坏而显示永久 "streaming…" 假象。
-                  return isStreaming ? (
-                    <StreamingTalorSkeleton key={i} streamingType={seg.streamingType} />
-                  ) : (
-                    <InvalidTalorBlockCard key={i} raw={seg.content} />
-                  )
-                }
-                return (
-                  <ReactMarkdown
-                    key={i}
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code: CodeBlock as Components['code'],
-                      pre: ({ children }) => <>{children}</>,
-                    }}
-                  >
-                    {seg.content}
-                  </ReactMarkdown>
+              {(() => {
+                const segments = splitMessageWithTalorBlocks(textContent || '')
+
+                // v3.7: 如果消息已含显式 talor 收尾 block (done/need_input/blocked),按
+                //   分段渲染 (显式 > 推断)。streaming 中也按分段(骨架卡走流式路径)。
+                // 否则 (落库后, 无显式收尾 block, 文本可被分类) → 整段渲染为 InferredIntentCard。
+                const hasExplicitTermination = segments.some(
+                  (s) =>
+                    s.type === 'talor' &&
+                    (s.block?.type === 'done' ||
+                      s.block?.type === 'need_input' ||
+                      s.block?.type === 'blocked'),
                 )
-              })}
+                const onlyMarkdown =
+                  segments.length === 1 && segments[0].type === 'markdown' && !isStreaming
+                if (!hasExplicitTermination && onlyMarkdown) {
+                  const inferred = inferIntent(textContent || '')
+                  if (inferred.type) {
+                    return (
+                      <InferredIntentCard text={textContent || ''} inferredType={inferred.type} />
+                    )
+                  }
+                }
+
+                return segments.map((seg, i) => {
+                  if (seg.type === 'talor' && seg.block) {
+                    return <TalorBlockCard key={i} block={seg.block} />
+                  }
+                  if (seg.type === 'invalid-talor') {
+                    return <InvalidTalorBlockCard key={i} raw={seg.content} />
+                  }
+                  if (seg.type === 'streaming-talor') {
+                    // 流式中未闭合 fence: 仅 isStreaming=true 时显示骨架,流结束后
+                    // (按 parser 看仍是 unclosed → 是真损坏) 才降级为 invalid 卡片。
+                    return isStreaming ? (
+                      <StreamingTalorSkeleton key={i} streamingType={seg.streamingType} />
+                    ) : (
+                      <InvalidTalorBlockCard key={i} raw={seg.content} />
+                    )
+                  }
+                  return (
+                    <ReactMarkdown
+                      key={i}
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code: CodeBlock as Components['code'],
+                        pre: ({ children }) => <>{children}</>,
+                      }}
+                    >
+                      {seg.content}
+                    </ReactMarkdown>
+                  )
+                })
+              })()}
             </ErrorBoundary>
           </div>
         )}

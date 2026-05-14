@@ -14,6 +14,10 @@
 
 ## A. 分层与依赖
 
+### A-MUST-0 · 系统与LLM职责分离原则，必须遵守
+
+LLM擅长判断，系统负责执行和兜底，各自做擅长的事情，协作解决用户输入问题。
+
 ### A-MUST-1 · 业务层与基础设施层文件必须带头部注释
 
 头部含三信息：**路径 + 所在层 + 一句话职责**。
@@ -368,6 +372,39 @@ Skill 内容例外：加 `trust="skill-content"`。
 - 案例：`EDIT_AMBIGUOUS_MATCH`、`⟨unverifiable⟩`、context ≥100% 硬阻断
 - 违反后果：prompt 约束会被模型绕过，无机器保证
 - → `patterns.md` §P4
+
+### J-SHOULD-2 · 维度 B(LLM 输出意图)不强制纠正自然语言
+
+**容错的两个维度独立处理**:
+
+- **维度 A — 代码执行错误**(tool 失败 / MCP 断连 / 超时 / 参数错): 代码强制 +
+  detector 阻断 + 结构化错误信封,这是 J-SHOULD-1 适用范围
+- **维度 B — LLM 输出意图**(完成 / 等用户 / 卡住): **信任 LLM 自然语言**,
+  代码只在副作用安全这件事上强制
+
+**反例**(v3.6 教训): 把"模型没 emit 收尾 marker"当 bug,引入 `no-marker-streak`
+counter,3 次后强制 forced-closure。结果模型在 forced-closure 压力下凭空自答
+("好,日本市场")继续执行,绕过用户授权 — 灾难性。
+
+**正例**(v3.7): react-loop 终止规则简化为"有 tool = continue,无 tool = final",
+不再强制模型用任何 marker。UI 渲染层用 `inferIntent` 启发式分类(`src/shared/talor-blocks/intent-classifier.ts`)
+推断意图后渲染对应卡片样式 — **仅 UI 辅助,不参与 loop 控制**。
+
+**何时仍需代码强制**(维度 A 范畴):
+
+- 副作用前授权(pending_confirm + RiskGate)
+- 死循环阻断(signature-dead-loop / failure-streak)
+- Token 预算保护(context overflow halt)
+- 副作用审计(SideEffectLedger)
+
+**何时不应代码强制**(维度 B 范畴):
+
+- 模型该不该 emit 收尾 marker
+- 模型问问题该不该用 talor `need_input` block
+- 模型该叙述还是该直接给答案
+
+- 依据: `docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md`
+- → `patterns.md` §P13
 
 ### J-NEVER-1 · 禁止把硬约束仅写在 prompt 而代码里无兜底
 

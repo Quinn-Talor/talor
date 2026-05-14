@@ -29,7 +29,6 @@ function facts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
     allToolsFailed: null,
     isSubagentFailure: false,
     signature: 'read#abc:def',
-    noMarkerExit: false,
     toolNames: [],
     blocks: [],
     invalidBlocks: [],

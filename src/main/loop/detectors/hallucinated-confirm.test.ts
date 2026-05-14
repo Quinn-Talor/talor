@@ -14,7 +14,6 @@ function makeFacts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
     allToolsFailed: null,
     isSubagentFailure: false,
     signature: '',
-    noMarkerExit: false,
     toolNames: ['edit'],
     blocks: [] as TalorBlock[],
     invalidBlocks: [],

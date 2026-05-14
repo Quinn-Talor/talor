@@ -8,7 +8,7 @@
 //
 // 检测器分布:
 //   src/main/loop/detectors/
-//     signature-dead-loop / failure-streak / tool-only-loop / no-marker-streak
+//     signature-dead-loop / failure-streak / tool-only-loop
 //
 // 强制摘要、累积状态、MCP 暴露状态、Outcome 派生信号已抽到各自模块。
 //
@@ -34,7 +34,6 @@ import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
-import { hasTerminationInText, looksLikeOpenQuestion } from './outcome-facts'
 import { classify } from './outcome-facts'
 import { parseTalorBlocks } from '@shared/talor-blocks/talor-block-parser'
 import { LoopAccumulator } from './loop-accumulator'
@@ -44,7 +43,6 @@ import { composeHint } from './compose-hint'
 import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
 import { FailureStreakDetector } from './detectors/failure-streak'
 import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
-import { NoMarkerStreakDetector } from './detectors/no-marker-streak'
 import { WaitAndActConflictDetector } from './detectors/wait-and-act-conflict'
 import { HallucinatedConfirmDetector } from './detectors/hallucinated-confirm'
 
@@ -420,103 +418,24 @@ async function runReactStep(
     const durationMs = Date.now() - stepStart
     const toolNames = stepToolCalls.map((tc) => tc.toolName)
 
-    // 无工具调用 → 推理可能结束,也可能"模型想停但没收尾"。
-    // 区分依据:Rule 13 收尾信号 — talor block (done/need_input/blocked)
-    //   或 legacy 文字 marker (✓/❓/⏸)。hasTerminationInText 合并两路。
+    // v3.7: 无工具调用 + 有文本 → 自然 final (信任 LLM 自然语言结束)。
+    // 不再区分"显式 marker / 隐式问句 / no-marker streak":现代 LLM 不发 marker
+    // 也是合法结束 (问号本身就是信号, "无法做"就是 blocked 语义)。
+    // UI 渲染层用 inferIntent 启发式分类 (Phase B) 决定卡片样式。
     if (stepToolCalls.length === 0) {
       if (stepText) {
-        const hasMarker = hasTerminationInText(stepText)
-
-        if (hasMarker) {
-          // 显式终止 — 落 final (复用 ctx.messageId,前端等的就是这个 ID)
-          log.info(
-            `[ReactLoop]   → text: ${stepText.length} chars (no tools, has Rule 13 marker) [${durationMs}ms]`,
-          )
-          log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
-          const finalParts: AssistantContent = []
-          if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
-          finalParts.push({ type: 'text', text: stepText })
-          messageRepo.create({
-            id: ctx.messageId,
-            session_id: ctx.sessionId,
-            role: 'assistant',
-            content: finalParts,
-            agent_id: ctx.agentId,
-          })
-          sessionRepo.touch(ctx.sessionId)
-          ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
-          persisted = true
-          return {
-            stepText,
-            wroteAssistantFinal: true,
-            shouldContinue: false,
-            durationMs,
-            toolNames,
-            exitReason: 'no_tool_calls',
-            signature: '',
-            allToolsFailed: null,
-            containsSubagentFailure: false,
-          }
-        }
-
-        // 无显式 marker — 二级判定:模型可能"实际上在问用户" 但忘了 emit
-        // need_input block / legacy ❓ marker。looksLikeOpenQuestion 启发式识别
-        // 问号 + 列举选项模式 → 当作隐式 need_input,落 final,不进 no-marker streak。
-        //
-        // 为什么这样兜底:
-        //   - 截图回归: 模型列了 "目标市场? 内地/香港/日本/东南亚/欧美?" 这种问题,
-        //     现行逻辑判为"想停但没收尾",连续 3 次后进 forced-closure。模型在
-        //     forced-closure 模式下凭空自答 (e.g. "好,日本市场") — 灾难性绕过用户授权。
-        //   - 启发式假阳性代价: 模型中段写了个反问句 → 提前 final,用户下一轮可以补完;
-        //     比"误进 forced-closure 强制兜底然后模型自答"代价小一个数量级。
-        if (looksLikeOpenQuestion(stepText)) {
-          log.info(
-            `[ReactLoop]   → text: ${stepText.length} chars (no tools, no explicit marker, but looks-like-question) [${durationMs}ms] — implicit need_input, FINAL`,
-          )
-          log.info(`[ReactLoop]   → persist: assistant(text) [FINAL via implicit-question]`)
-          const implicitFinalParts: AssistantContent = []
-          if (stepReasoning) implicitFinalParts.push({ type: 'reasoning', text: stepReasoning })
-          implicitFinalParts.push({ type: 'text', text: stepText })
-          messageRepo.create({
-            id: ctx.messageId,
-            session_id: ctx.sessionId,
-            role: 'assistant',
-            content: implicitFinalParts,
-            agent_id: ctx.agentId,
-          })
-          sessionRepo.touch(ctx.sessionId)
-          ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
-          persisted = true
-          return {
-            stepText,
-            wroteAssistantFinal: true,
-            shouldContinue: false,
-            durationMs,
-            toolNames,
-            exitReason: 'no_tool_calls',
-            signature: '',
-            allToolsFailed: null,
-            containsSubagentFailure: false,
-          }
-        }
-
-        // 无 marker + 也不像问句 → 视为 "未完成,模型想停" → 落 intermediate (新 uuid) + 强制循环继续。
-        // 主循环 (runReactLoop) 看到 exitReason='no_tool_calls_no_marker' 后:
-        //   1. 累加 noMarkerExits 计数
-        //   2. 给下一步注入 hint("用 marker 收尾 或 继续调工具")
-        //   3. 达 NO_MARKER_LIMIT (3) 后调 runForcedClosureSummary 强制收尾
         log.info(
-          `[ReactLoop]   → text: ${stepText.length} chars (no tools, NO marker, NOT question-like) [${durationMs}ms] — continuing loop`,
+          `[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms] — natural FINAL`,
         )
-        log.info(`[ReactLoop]   → persist: assistant(text) [intermediate]`)
-        const intermediateParts: AssistantContent = []
-        if (stepReasoning) intermediateParts.push({ type: 'reasoning', text: stepReasoning })
-        intermediateParts.push({ type: 'text', text: stepText })
+        log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
+        const finalParts: AssistantContent = []
+        if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
+        finalParts.push({ type: 'text', text: stepText })
         messageRepo.create({
-          id: uuidv4(),
+          id: ctx.messageId,
           session_id: ctx.sessionId,
           role: 'assistant',
-          content: intermediateParts,
+          content: finalParts,
           agent_id: ctx.agentId,
         })
         sessionRepo.touch(ctx.sessionId)
@@ -524,11 +443,11 @@ async function runReactStep(
         persisted = true
         return {
           stepText,
-          wroteAssistantFinal: false,
-          shouldContinue: true,
+          wroteAssistantFinal: true,
+          shouldContinue: false,
           durationMs,
           toolNames,
-          exitReason: 'no_tool_calls_no_marker',
+          exitReason: 'no_tool_calls',
           signature: '',
           allToolsFailed: null,
           containsSubagentFailure: false,
@@ -766,21 +685,17 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   //     1. signature-dead-loop:  原地重试同一调用 (最敏感, 阈值 1/2)
   //     2. failure-streak:       连续 N 次工具失败 (兜底 signature 没抓到的"换参全败")
   //     3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
-  //     4. no-marker-streak:     连续 N 次无 Rule 13 marker (Fix C)
   //   L2 语义一致性 (软纠偏 / hint 注入,不 break):
-  //     5. wait-and-act-conflict: 文本说在等用户但同步调了 side-effect 工具
-  //     6. hallucinated-confirm:  文本声称用户已确认但本步无 pending_confirm block
+  //     4. wait-and-act-conflict: 文本说在等用户但同步调了 side-effect 工具
+  //     5. hallucinated-confirm:  文本声称用户已确认但本步无 pending_confirm block
   //
-  // 排序原因: L1 detector 触发即 break, 放前面避免 L2 hint 被浪费;
-  //          L2 不 break, 放后面只参与 composeHint 的 fallback 顺序。
-  // 显式标注 LoopDetector[] — `as const` 会保留每个具体类的 observe 重载,
-  // 导致 detector.observe(facts, idx, raw) 与 L1 detector 的 2-arg 签名冲突。
-  // 接口签名第 3 个 raw 参数已是 optional, 实现类不必都接受。
+  // v3.7 移除: no-marker-streak + forced-closure 路径 —— 把"无 marker"当 bug 是
+  // 过度补偿,反而引发 forced-closure 模式下模型自答的灾难性绕过授权 bug。
+  // 现在"无 tool = 自然 final" (见 runReactStep no-tool 分支)。
   const detectors: import('./detectors/types').LoopDetector[] = [
     new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
     new ToolOnlyLoopDetector(),
-    new NoMarkerStreakDetector(ctx),
     new WaitAndActConflictDetector(),
     new HallucinatedConfirmDetector(),
   ]

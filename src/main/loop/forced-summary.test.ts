@@ -49,7 +49,6 @@ import {
   stripToolCallMarkup,
   FALLBACK_SUMMARY_OPTS,
   failureStreakSummaryOpts,
-  forcedClosureSummaryOpts,
   signatureDeadLoopSummaryOpts,
   type ForcedSummaryCtx,
 } from './forced-summary'
@@ -138,37 +137,8 @@ describe('runForcedSummary', () => {
     })
   })
 
-  describe('forcedClosureSummaryOpts', () => {
-    it('模型输出含 marker → 落库不补 ⏸', async () => {
-      mockTextStream('summary ✓ Done')
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
-
-      const text = mockMessageCreate.mock.calls[0][0].content[0].text
-      expect(text).toContain('[forced-closure]')
-      expect(text).toContain('✓ Done')
-      expect(text).not.toContain('please re-engage')
-    })
-
-    it('模型输出无 marker → 服务端补 ⏸ Blocked', async () => {
-      mockTextStream('vague text')
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
-
-      const text = mockMessageCreate.mock.calls[0][0].content[0].text
-      expect(text).toContain('[forced-closure]')
-      expect(text).toContain('vague text')
-      expect(text).toContain('⏸ Blocked')
-      expect(text).toContain('please re-engage')
-    })
-
-    it('空输出 → 用 fallbackTextIfEmpty + 补 ⏸ Blocked', async () => {
-      mockTextStream('')
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
-
-      const text = mockMessageCreate.mock.calls[0][0].content[0].text
-      expect(text).toContain('Cannot determine task state')
-      expect(text).toContain('⏸ Blocked')
-    })
-  })
+  // v3.7: forcedClosureSummaryOpts 已删除 — 见 forced-summary.ts 头注释。
+  // 相关 describe('forcedClosureSummaryOpts') 整段移除。
 
   describe('Verify tag 拼接 (applyVerification=true 路径)', () => {
     it('unverifiedCount > 0 → label 含 "N unverifiable quote(s) masked"', async () => {
@@ -241,19 +211,7 @@ describe('runForcedSummary', () => {
       )
     })
 
-    it('forced-closure 关闭 verify (applyVerification=false) → 即便 mock 返回 N>0 label 不带 tag', async () => {
-      vi.mocked(verifyQuotedFacts).mockReturnValueOnce({
-        cleaned: 'should not be used',
-        unverifiedCount: 99,
-      })
-      mockTextStream('summary ✓ Done')
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
-
-      const text = mockMessageCreate.mock.calls[0][0].content[0].text
-      // forced-closure 不跑 verify, label 干净
-      expect(text).toContain('[forced-closure]')
-      expect(text).not.toMatch(/unverifiable/)
-    })
+    // v3.7: forced-closure 测试整段删除 (forcedClosureSummaryOpts 已移除)。
   })
 
   describe('signatureDeadLoopSummaryOpts', () => {
@@ -338,11 +296,11 @@ describe('runForcedSummary', () => {
   })
 
   describe('Strip markup 在 applyVerification=false 路径也跑 (A2 修复)', () => {
-    it('forced-closure 输出含全角 DSML markup → 被剥', async () => {
+    it('signature-dead-loop 输出含全角 DSML markup → 被剥', async () => {
       const polluted =
         '好,方案确认了。<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="mysql_query">SELECT *</｜｜DSML｜｜invoke> </｜｜DSML｜｜tool_calls>'
       mockTextStream(polluted)
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(5))
+      await runForcedSummary(makeCtx(), 0, signatureDeadLoopSummaryOpts('tool#a:b', 1, true))
 
       const text = mockMessageCreate.mock.calls[0][0].content[0].text
       // markup 全部被剥 (包括 invoke 闭合标签)
@@ -352,8 +310,6 @@ describe('runForcedSummary', () => {
       expect(text).toContain('⟨tool-call-attempt⟩')
       // 业务文本保留
       expect(text).toContain('方案确认了')
-      // forced-closure 兜底补 ⏸ Blocked (因为输出无 marker)
-      expect(text).toContain('⏸ Blocked')
     })
 
     it('fallback-summary 也跑 strip (applyVerification=true 路径,与 verify 解耦)', async () => {
@@ -377,15 +333,7 @@ describe('runForcedSummary', () => {
       expect(text).toContain('Task blocked by 3 consecutive tool failures')
     })
 
-    it('forced-closure 错误兜底文案含 ⏸ Blocked', async () => {
-      const ctx = makeCtx()
-      ctx.pipeline.build = vi.fn().mockRejectedValue(new Error('boom'))
-      await runForcedSummary(ctx, 0, forcedClosureSummaryOpts(3))
-
-      const text = mockMessageCreate.mock.calls[0][0].content[0].text
-      expect(text).toContain('[forced-closure failed]')
-      expect(text).toContain('⏸ Blocked')
-    })
+    // v3.7: forced-closure 错误兜底测试删除 (forcedClosureSummaryOpts 已移除)。
   })
 
   describe('v3.6 — sideEffectLedger summary 拼接', () => {
@@ -424,18 +372,7 @@ describe('runForcedSummary', () => {
       expect(text).not.toContain('Side effects')
     })
 
-    it('forced-closure 也拼接 ledger', async () => {
-      mockLedgerBuildSummary.mockReturnValueOnce(
-        '\n## Side effects this turn\n\n- ✓ file:write on /tmp/x (approved)',
-      )
-      mockTextStream('Cannot determine')
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
-
-      const text = mockMessageCreate.mock.calls[0][0].content[0].text
-      expect(text).toContain('Side effects this turn')
-      // forced-closure 仍在文本末尾补 ⏸ Blocked
-      expect(text).toContain('⏸ Blocked')
-    })
+    // v3.7: forced-closure ledger 拼接测试删除 (forcedClosureSummaryOpts 已移除)。
 
     it('opts.includeLedgerSummary=false → 跳过 ledger 调用', async () => {
       mockLedgerBuildSummary.mockReturnValue('SHOULD_NOT_APPEAR')
@@ -462,22 +399,7 @@ describe('runForcedSummary', () => {
       return last.content
     }
 
-    it('forcedClosureSummaryOpts: guardrail 含 done/need_input/blocked talor block 模板', async () => {
-      mockTextStream('summary ✓ Done')
-      await runForcedSummary(makeCtx(), 0, forcedClosureSummaryOpts(3))
-      const guardrail = extractLastGuardrailContent()
-      // talor block 优先 — 三种 type 都列出来
-      expect(guardrail).toMatch(/```talor/)
-      expect(guardrail).toContain('"type":"done"')
-      expect(guardrail).toContain('"type":"need_input"')
-      expect(guardrail).toContain('"type":"blocked"')
-      // legacy fallback 保留
-      expect(guardrail).toContain('✓ Done')
-      expect(guardrail).toContain('❓ Need input')
-      expect(guardrail).toContain('⏸ Blocked')
-      // 反"伪工具调用 markup"段保留
-      expect(guardrail).toContain('pseudo tool-call syntax')
-    })
+    // v3.7: forcedClosureSummaryOpts guardrail 测试删除 (函数已移除)。
 
     it('signatureDeadLoopSummaryOpts: guardrail 含 need_input/blocked talor block 模板', async () => {
       mockTextStream('repeated error.')

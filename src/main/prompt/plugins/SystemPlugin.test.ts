@@ -35,7 +35,7 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/10\. Parallel tool calls/)
     expect(content).toMatch(/11\. Always state intent/)
     expect(content).toMatch(/12\. Promise then call/)
-    expect(content).toMatch(/13\. Mark decision points with structured talor blocks/)
+    expect(content).toMatch(/13\. \(Optional\) Mark turn-ending decisions/)
     expect(content).toMatch(/14\. Declare side effects before invoking/)
   })
 
@@ -56,43 +56,42 @@ describe('SystemPlugin', () => {
     // 触发:阻塞时应 ASK 或 REPORT,不应宣布
     expect(norm).toContain('ASK the user')
     expect(norm).toContain('REPORT what you found')
-    // 触发:wait-for-user dual case 主路径是 talor need_input block (不是只 legacy marker)
-    expect(content).toMatch(/```talor[\s\S]*"type"\s*:\s*"need_input"/)
-    expect(norm).toContain('need_input` talor block')
-    // 触发:legacy marker 保留作 fallback,二者并存
-    expect(content).toContain('❓ Need input')
+    // v3.7: wait-for-user dual case 简化 —— 没有 marker 要求,只需 "drop the tool calls, end the turn"
+    expect(norm).toContain('do NOT call any tool in the SAME turn')
+    expect(norm).toContain('Truly wait')
+    expect(norm).toContain('Truly proceed')
     // 触发: pending_confirm 引导(side-effect 工具配 confirm,不是矛盾的"等"+"做")
     expect(norm).toContain('pending_confirm')
     // 不触发:不应硬编码具体服务名(保持通用)
     expect(content).not.toMatch(/MySQL|GitHub|Slack/i)
   })
 
-  it('原则 13 "Mark decision points with structured talor blocks" 定义统一 JSONC 协议', async () => {
+  it('原则 13 "(Optional) Mark turn-ending decisions with talor blocks" 退化为可选 UI 增强', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     const norm = content.replace(/\s+/g, ' ')
 
-    expect(norm).toContain('13. Mark decision points with structured talor blocks')
-    // 触发: fenced talor block 围栏语法
+    // v3.7: Rule 13 退化为可选段
+    expect(norm).toContain('13. (Optional) Mark turn-ending decisions with talor blocks')
+    // 触发: 强调 turn end 由"无 tool call"决定,不需要 marker
+    expect(norm).toContain('no tool call this step')
+    expect(norm).toContain("don't need any marker")
+    // 触发: UI 推断说明
+    expect(norm).toContain('UI will infer your intent')
+    expect(norm).toContain('need_input card')
+    expect(norm).toContain('blocked card')
+    expect(norm).toContain('done card')
+    // 触发: 可选用法 — fenced talor block 仍可主动 emit
     expect(content).toMatch(/```talor/)
-    // 触发: type 必须是第一个 key (streaming detection)
-    expect(norm).toContain('type` field MUST be the FIRST key')
-    // 触发: V1 五种 block 类型全部出现
-    expect(content).toMatch(/\| done/)
-    expect(content).toMatch(/\| need_input/)
-    expect(content).toMatch(/\| blocked/)
-    expect(content).toMatch(/\| pending_confirm/)
-    expect(content).toMatch(/\| warning/)
-    // 触发: turn-ending vs mid-turn 区分
-    expect(norm).toContain('Turn-ending blocks')
-    expect(norm).toContain('Mid-turn blocks')
-    // 触发: 与 Rule 12 联动 — 若选不出 marker,继续调工具
-    expect(norm).toContain('make the next tool call instead')
-    // 触发: legacy markers 仍然识别 (向后兼容)
-    expect(content).toContain('✓ Done')
-    expect(content).toContain('❓ Need input')
-    expect(content).toContain('⏸ Blocked')
-    expect(norm).toContain('backward compatibility')
+    expect(content).toMatch(/"type":"done"/)
+    expect(content).toMatch(/"type":"need_input"/)
+    expect(content).toMatch(/"type":"blocked"/)
+    // 触发: streaming detection 规则
+    expect(norm).toContain('FIRST key')
+    // 触发: Rule 14 引用 (mid-turn pending_confirm)
+    expect(norm).toContain('Rule 14')
+    // 触发: 整体定位 "nice-to-have, not required"
+    expect(norm).toContain('nice-to-have')
   })
 
   it('原则 14 "Declare side effects before invoking" 定义 pending_confirm 契约', async () => {

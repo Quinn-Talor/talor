@@ -344,3 +344,62 @@ export function StreamingTalorSkeleton({
 }) {
   return <StreamingSkeletonCard streamingType={streamingType} />
 }
+
+/**
+ * v3.7: 推断意图卡片 — 模型没 emit talor block, framework 用启发式推断意图后
+ * 渲染对应卡片样式。比纯 markdown bubble 多一层结构化提示, 但比 talor block
+ * 弱(打 "⚙️ inferred" 徽章告知用户)。
+ *
+ * `text` 是原始文本(模型自然语言); `inferredType` 是 inferIntent 返的类型。
+ */
+export function InferredIntentCard({
+  text,
+  inferredType,
+}: {
+  text: string
+  inferredType: 'done' | 'need_input' | 'blocked'
+}) {
+  const styles =
+    inferredType === 'done'
+      ? {
+          border: 'border-green-200',
+          bg: 'bg-green-50',
+          icon: '✓',
+          label: 'Done',
+          accent: 'text-green-700',
+        }
+      : inferredType === 'need_input'
+        ? {
+            border: 'border-blue-200',
+            bg: 'bg-blue-50',
+            icon: '❓',
+            label: 'Need input',
+            accent: 'text-blue-700',
+          }
+        : {
+            border: 'border-orange-200',
+            bg: 'bg-orange-50',
+            icon: '⏸',
+            label: 'Blocked',
+            accent: 'text-orange-700',
+          }
+
+  return (
+    <div
+      className={`my-2 rounded-lg border ${styles.border} ${styles.bg} px-3 py-2`}
+      data-inferred-intent={inferredType}
+    >
+      <div className={`flex items-center gap-1.5 ${styles.accent}`}>
+        <span className="text-base">{styles.icon}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wide">{styles.label}</span>
+        <span
+          className="ml-1 text-[10px] opacity-60"
+          title="Framework inferred this from your text — the model did not emit an explicit talor block"
+        >
+          ⚙️ inferred
+        </span>
+      </div>
+      <div className="mt-1 text-sm text-gray-900 whitespace-pre-wrap break-words">{text}</div>
+    </div>
+  )
+}

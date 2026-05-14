@@ -1,12 +1,15 @@
 // src/main/loop/forced-summary.ts —— 业务层: 统一的"强制摘要"执行器
 //
-// 合并原 3 个函数 (runFallbackSummary / runFailureStreakSummary / runForcedClosureSummary)
-// 的共同流程: build prompt → streamText 禁工具 → 净化三件套 → 落库带 label。
+// 合并原 fallback / failure-recovery / signature-dead-loop 三种维度 A 兜底场景的
+// 共同流程: build prompt → streamText 禁工具 → 净化三件套 → 落库带 label。
 //
 // 三个 OPTS 常量工厂分别对应三类触发场景:
-//   - FALLBACK_SUMMARY_OPTS:        整轮无 text 时兜底
-//   - failureStreakSummaryOpts(N):  连续 N 次工具失败时兜底
-//   - forcedClosureSummaryOpts(N):  连续 N 次无 Rule 13 marker 时兜底
+//   - FALLBACK_SUMMARY_OPTS:               整轮无 text 时兜底
+//   - failureStreakSummaryOpts(N):         连续 N 次工具失败时兜底
+//   - signatureDeadLoopSummaryOpts(...):   同 tool+input+output 重复 N 次时兜底
+//
+// v3.7 移除: forcedClosureSummaryOpts ("连续无 marker 强制收尾") —— 这是过度
+// 补偿,模型在压力下自答制造更大灾难。react-loop 现在"无 tool = 自然 final"。
 //
 // 允许依赖: ./types, ../repos/session-repo, ./quote-verifier
 // 禁止依赖: ipc/*
@@ -18,7 +21,6 @@ import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { sideEffectLedger } from '../repos/side-effect-ledger'
 import { buildStreamSignal } from './stream-utils'
 import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
-import { hasTerminationInText, looksLikeOpenQuestion } from './outcome-facts'
 
 const SEPARATOR = '──────────────────────────────────────────'
 
@@ -374,50 +376,6 @@ export function signatureDeadLoopSummaryOpts(
   }
 }
 
-/** Forced-closure summary (连续无 Rule 13 marker 兜底)。 */
-export function forcedClosureSummaryOpts(noMarkerCount: number): ForcedSummaryOpts {
-  const FORCED_CLOSURE_GUARDRAIL: ModelMessage = {
-    role: 'system',
-    content:
-      `[Forced closure mode]\n` +
-      `You have ended ${noMarkerCount} consecutive replies without a tool call AND without ` +
-      `any termination signal (talor done/need_input/blocked block OR legacy ✓/❓/⏸ marker). ` +
-      `Tools are now DISABLED for this final response.\n\n` +
-      `⛔ DO NOT embed pseudo tool-call syntax in your reply (any markup-style tag attempting ` +
-      `to invoke a tool — XML-like, JSON-fenced, or any other format). Tools are disabled in ` +
-      `this mode — such markup is meaningless and will be stripped before the reply reaches ` +
-      `the user.\n\n` +
-      `You MUST end your reply with ONE of these closure signals (talor block preferred):\n\n` +
-      '  ```talor\n' +
-      '  {"type":"done","summary":"<one-line summary of what was accomplished>"}\n' +
-      '  ```\n' +
-      '  or {"type":"need_input","question":"<exactly what you need from the user>"}\n' +
-      '  or {"type":"blocked","reason":"<the specific blocker, quoting the error if any>"}\n\n' +
-      `Legacy text fallback (last line): "✓ Done — <...>" / "❓ Need input — <...>" / ` +
-      `"⏸ Blocked — <...>".\n\n` +
-      `Pick the signal that honestly reflects the state. If you were mid-task and need to ` +
-      `defer to the user, prefer need_input over blocked. Do NOT add any text after the ` +
-      `closure block / marker. Do NOT invent facts not present in the conversation.`,
-  }
-
-  return {
-    logName: `forced closure (no-marker count=${noMarkerCount})`,
-    guardrail: FORCED_CLOSURE_GUARDRAIL,
-    label: '[forced-closure]',
-    applyVerification: false, // 与原 runForcedClosureSummary 一致, 不做 quote-verify
-    fallbackTextIfEmpty: 'Cannot determine task state.',
-    postProcess: (text) => {
-      // 合并判定: talor block(done/need_input/blocked) 或 legacy marker 都算收尾。
-      // 否则模型 emit talor done 后还会被强补一个 ⏸ Blocked。
-      if (hasTerminationInText(text)) return text
-      // 没显式 marker, 但内容像问句 (forced-closure 模式下模型常自答 +
-      // 接着再问 — 截图回归 bug)。补 ❓ Need input 比 ⏸ Blocked 更准确,
-      // 因为模型在问就是等用户答, 不是被卡住。
-      if (looksLikeOpenQuestion(text)) {
-        return `${text}\n\n❓ Need input — model is asking the user (no explicit closure marker after ${noMarkerCount} attempts; please answer above).`
-      }
-      return `${text}\n\n⏸ Blocked — model failed to provide explicit closure after ${noMarkerCount} attempts; please re-engage.`
-    },
-    errorFallbackText: `[forced-closure failed]\n⏸ Blocked — internal error during forced closure after ${noMarkerCount} no-marker attempts. Please retry.`,
-  }
-}
+// v3.7: forcedClosureSummaryOpts 删除 —— "无 marker 强制收尾"是过度补偿。
+// 现代 LLM 不发 marker 也是合法结束;强制后反而让模型在压力下自答 (截图灾难)。
+// react-loop 现在"无 tool = 自然 final",不再有 no-marker streak 路径。
