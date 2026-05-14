@@ -1,22 +1,21 @@
-# v4 Phase 2b + Phase 3 — 执行 plan (本次会话遗留)
+# v4 Phase 2b — 执行 plan (本次会话遗留)
 
 **Status**: ready to execute in next session
 **Predecessor**: docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md (架构总纲)
-**Last shipped**: f1c0d5f (Phase 2a — `RiskGate.decide()` 抽取)
+**Last shipped**: 77cd8bd (Phase 3 — react-loop SDK 多步重写完成)
 
 ---
 
 ## 0. TL;DR
 
-v4 SDK-native 改造剩两块未落地:
+v4 SDK-native 改造剩 **Phase 2b** 未落地:
 
-| 块           | 范围                                                           | 工作量 | 风险                         |
-| ------------ | -------------------------------------------------------------- | ------ | ---------------------------- |
-| **Phase 2b** | `tool({ needsApproval })` + SDK approval IPC + UI 适配         | 3-5 天 | 中 (用户感知核心,需充分测试) |
-| **Phase 3**  | `react-loop.ts` 改用 SDK `stopWhen` 多步 + onStepFinish 持久化 | 5-7 天 | 高 (核心控制流, 30 测试改写) |
+| 块           | 范围                                                   | 工作量 | 风险                         |
+| ------------ | ------------------------------------------------------ | ------ | ---------------------------- |
+| **Phase 2b** | `tool({ needsApproval })` + SDK approval IPC + UI 适配 | 3-5 天 | 中 (用户感知核心,需充分测试) |
 
+Phase 3 (react-loop SDK 多步重写) **已于本会话完成** (77cd8bd)。
 Phase 2a 完成的 `RiskGate.decide()` 已经为 Phase 2b 备好纯决策函数。
-Phase 3 是 v4 最大单点改造,占 plan §6 全部价值的 60%。
 
 ---
 
@@ -25,6 +24,8 @@ Phase 3 是 v4 最大单点改造,占 plan §6 全部价值的 60%。
 按 commit 时间倒序:
 
 ```
+77cd8bd feat(loop): v4 Phase 3 — react-loop SDK 多步重写
+b7f9b56 docs(v4): Phase 2b + Phase 3 execution plan for next session
 f1c0d5f refactor(tools): v4 Phase 2a — extract RiskGate.decide() pure decision function
 2d588a5 fix(loop,prompt): tool-only-loop soft-hint + parallel-tool prompt enforcement
 8b95231 docs(v4): update L1 docs (standards + patterns) to reflect v4 progress
@@ -41,7 +42,23 @@ e8612a5 feat(loop,prompt): v3.7.3 — turn-end policy chain + pending_continuati
 - ✅ v4 Phase 1 middleware 注入正常(disable-thinking 已生效,DeepSeek body 含 `thinking=disabled`)
 - ✅ Phase 4a request_continuation virtual tool 已注册到 ALWAYS_AVAILABLE_TOOLS
 - ✅ Phase 5 generateObject memory 压缩链路通
+- ✅ Phase 3 SDK 多步重写完成,193 loop tests passing
 - ⚠️ **现场发现的 bug** — DeepSeek V4 Flash 沉默工具链触发 tool-only-loop 误判 → 已修复 (2d588a5)
+
+---
+
+## 1b. Phase 3 落地总结 (✅ 完成于 77cd8bd)
+
+实际产物 (vs §2 设计):
+
+- ✅ `loop/detector-state.ts` — DetectorState 接口 + createDetectorState
+- ✅ `loop/step-adapter.ts` — factsFromStep, outcomeFromStep, stepSignature, canonicalizeJson 等
+- ✅ `loop/persist-step.ts` — persistStepFromResult + persistAbortedStep
+- ✅ `loop/test-helpers/mock-stream-text.ts` — driveStreamText (29 + 13 tests using it)
+- ✅ `react-loop.ts` 994 → 494 行 (-50%)
+- ⚠️ **未实施 experimental_repairToolCall** — 留作 Phase 3.5 (独立小改动,InvalidToolInputError 同步修复)
+- ⚠️ **测试覆盖收缩** — 30 v3 tests → 13 v4 tests + 29 step-adapter 单测。覆盖核心场景(text-only/abort/context budget/dead-loop/failure-streak/turn-end policy/persistence),v3 中部分细节场景未直接迁移(MCP exposure flags 中部分 / talor block marker 单步触发 — 现由 turn-end policy 覆盖)。
+- ⚠️ **持久化 messageId 行为** — v4 所有 step 用 uuid 落库 (v3 FINAL step 用 ctx.messageId)。orchestrator 验证: messageId 只是 wire id (chat:stream 协议), DB id 任意 uuid 即可。
 
 ---
 
@@ -544,43 +561,68 @@ ipcMain.on('chat:tool-approval-respond', (e, resp) => {
 })
 ```
 
-⚠️ **需在 SDK v6 文档确认**: `addToolApproveResponseFunction` 的具体名称与签名。
-plan §3.2 引用为 "chatAddToolApproveResponseFunction" 但 SDK 实际 API 可能不同。
-**先用一个 spike (10 min) 验证 SDK approval part 完整流程**。
+⚠️ **SDK v6 实际 API 已查证** (本会话 spike, 2026-05-14):
+
+- `tool({ needsApproval: (input, { toolCallId, messages }) => boolean | PromiseLike<boolean> })` ✓
+- 返 true 时, SDK 暂停 stream + 在 AssistantContent 中 emit `ToolApprovalRequest` part:
+  `{ type: 'tool-approval-request', approvalId, toolCallId }`
+- 用户响应必须以 `ToolApprovalResponse` part 形式写回:
+  `{ type: 'tool-approval-response', approvalId, approved, reason? }`
+- **关键**: SDK 暂停 = 当前 streamText 调用 **结束** (不继续, 不阻塞)。
+  next call to streamText 时, 把 approval response 拼入 messages 即可继续。
+- `ChatAddToolApproveResponseFunction` 在 Chat (UIMessage stream) 层提供;
+  Talor 用的是直接 streamText, 需要在 messages 层级手动拼接。
+
+**这意味着**: Phase 2b 不是单纯改 build-tools, 它要求 react-loop **支持 pause/resume**:
+
+1. streamText 跑到 needsApproval 返 true → SDK emit approval-request part, stream 结束
+2. react-loop 检测到 ToolApprovalRequest part → 发送给 renderer 等待响应
+3. 用户响应到达 → 把 ToolApprovalResponse part 注入 next messages → 再调一次 streamText 继续
+4. 这个 "pause/resume" 跨越 react-loop 的 segment 边界 — 需要在外层 while 增加 'awaiting-approval' 分支
+
+工作量重新评估: 3-5 天 → **5-7 天** (包括 react-loop pause/resume 改造)。
 
 ### 3.2 实施顺序
 
-**Step 0** (~30min): SDK approval API spike
+**Step 0** ~~(spike)~~ — **已完成**, API 已查证 (见上方 §3.1 注释)
 
-- 写最小 streamText + tool({ needsApproval }) demo,验证:
-  - needsApproval 返 true 后 SDK 是否暂停 stream
-  - 如何提供 approval response (addToolApproveResponse / 别的 API)
-  - 用户 deny 时 SDK 给 tool 的 output 是什么形态
+**Step 1** (~2h): react-loop "pause/resume" 改造
 
-**Step 1** (~1h): build-tools.ts 切到 `tool({ ... })`,sessionApprovalMemory 直接 import
+- 在 segmentResult 上加 `'awaiting-approval'` kind, 携带 ToolApprovalRequest[]
+- 外层 while 收到此 kind → 通过 `ctx.callbacks.onApprovalRequest(req)` 通知 IPC
+- await 一个 Promise (callbacks.waitForApproval(approvalId)) → 拿到 ToolApprovalResponse
+- 把 response 注入 ctx.pendingApprovalResponses (下次 pipeline.build 拼入 messages)
+- 再 loop 一次 (新 segment) — SDK 看到 messages 含 response 即继续
 
-- 单测验证 needsApproval 决策路径
+**Step 2** (~1h): build-tools.ts 切到 `tool({ ... })`
 
-**Step 2** (~1.5h): IPC + preload + main 监听
+- riskGate.decide(toolDef, input) 返 RiskDecision → needsApproval=true/false
+- execute() 不再 sync block (因为 needsApproval 已分流)
+- toModelOutput: 替代 wrapToolOutput (从 react-loop 内的 persist-step 拉出来)
 
-- 新 channel 注册
-- 接到 approval response 调 SDK
+**Step 3** (~1.5h): IPC + preload + main 监听
 
-**Step 3** (~1h): renderer ToolConfirmDialog 适配
+- 新 channel `chat:tool-approval-request` (main → renderer): { sessionId, approvalId, toolCallId, summary, ... }
+- 新 channel `chat:tool-approval-respond` (renderer → main): { approvalId, approved, reason? }
+- main 维护一个 `Map<approvalId, resolver>`,响应到达时 resolve react-loop 的 await Promise
+
+**Step 4** (~1h): renderer ToolConfirmDialog 适配
 
 - 监听新 channel
-- 提交新 channel
-- 旧 chat:tool-confirm 删除
+- 提交新 channel (用 approvalId 取代 toolCallId)
+- 旧 chat:tool-confirm 监听删除
 
-**Step 4** (~1h): 集成测试 + 手动验证
+**Step 5** (~1h): 集成测试 + 手动验证
 
 - bash / write / edit / fallback SQL 四个路径都过一遍
+- 验证: deny 后 LLM 收到的 tool_result 是 "user denied" 类 envelope
 
-**Step 5** (~30min): 删除旧 confirmTool 路径
+**Step 6** (~1h): 删除旧 confirmTool 路径
 
-- `risk-gate.ts:gate()` 删除
+- `risk-gate.ts:gate()` 删除 (decide() 是唯一对外接口)
 - `ipc/tool-confirm.ts requestToolConfirm` 删除
-- ToolConfirmPort 类型保留(以防 build-tools 旧测试) 或一并删
+- `ToolConfirmPort` 类型 + `confirmTool` 参数 (build-tools / react-loop / ReactLoopOptions) 全删
+- 旧测试中 confirmTool mock 也清理
 
 ### 3.3 风险
 
@@ -613,7 +655,7 @@ npx electron-rebuild -f -w better-sqlite3  # for dev
 npm rebuild better-sqlite3                  # for vitest (前后切换需运行)
 
 # 2. baseline 验证
-npm test -- --run                # 应当全绿 1215 passed
+npm test -- --run                # 应当全绿 1227 passed (Phase 3 后 +12 tests)
 npm run typecheck                # 40 errors (pre-existing baseline)
 npm run dev                      # 启动跑通一轮对话
 
