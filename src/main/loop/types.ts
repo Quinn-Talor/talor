@@ -79,7 +79,6 @@ export interface ReactLoopOptions {
  *   - 'max_steps':         达到步数上限
  *   - 'fallback_summary':  整轮空文本兜底
  *   - 'repeated_error':    死循环 / 失败连击触发
- *   - 'tool_only_loop':    连续 N 步有工具调用但零文本输出
  *   - 'context_overflow':  prompt 估算 >= context_limit, 提交前短路
  *
  * 新增 (v3.7.3, LLM 自陈 + SDK 信号):
@@ -100,7 +99,6 @@ export type LoopExitReason =
   | 'max_steps'
   | 'fallback_summary'
   | 'repeated_error'
-  | 'tool_only_loop'
   | 'context_overflow'
   | 'declared_final'
   | 'continuation_injected'

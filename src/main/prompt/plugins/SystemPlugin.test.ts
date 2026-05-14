@@ -33,7 +33,14 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/8\. Finish when the task is done/)
     expect(content).toMatch(/9\. No silent exits/)
     expect(content).toMatch(/10\. Parallel tool calls/)
+    // v4.1: Principle 10 强化 — MUST-parallelize + 反例
+    expect(content).toMatch(/MANDATORY when applicable/)
+    expect(content).toMatch(/MUST-parallelize patterns/)
+    expect(content).toMatch(/WRONG \(10 sequential steps/)
     expect(content).toMatch(/11\. Always state intent/)
+    // v4.1: Principle 11 强化 — NO silent tool steps + progress-report hint 引用
+    expect(content).toMatch(/NO silent tool steps/)
+    expect(content).toMatch(/\[progress-report needed\]/)
     expect(content).toMatch(/12\. Promise then call/)
     expect(content).toMatch(/13\. \(Optional\) Mark turn-ending decisions/)
     expect(content).toMatch(/14\. Declare side effects before invoking/)

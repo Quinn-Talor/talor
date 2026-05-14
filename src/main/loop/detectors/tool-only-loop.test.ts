@@ -18,38 +18,62 @@ function facts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
   }
 }
 
-describe('ToolOnlyLoopDetector', () => {
-  it('有工具 + 无文本: 阈值 8 默认, 连续 8 次触发', () => {
-    const d = new ToolOnlyLoopDetector()
-    for (let i = 0; i < 7; i++) {
-      expect(d.observe(facts({ hasToolCall: true, hasText: false })).triggered).toBe(false)
+describe('ToolOnlyLoopDetector (v4.1 软提示, 不再 break)', () => {
+  it('observe 永远返回 triggered=false (不再硬切断)', () => {
+    const d = new ToolOnlyLoopDetector({ hintAt: 3 })
+    for (let i = 0; i < 20; i++) {
+      const v = d.observe(facts({ hasToolCall: true, hasText: false }))
+      expect(v.triggered).toBe(false)
     }
-    const v = d.observe(facts({ hasToolCall: true, hasText: false }))
-    expect(v.triggered).toBe(true)
-    expect(v.exitReason).toBe('tool_only_loop')
   })
 
-  it('有文本 → reset 计数', () => {
-    const d = new ToolOnlyLoopDetector({ limit: 3 })
-    d.observe(facts({ hasToolCall: true, hasText: false }))
-    d.observe(facts({ hasToolCall: true, hasText: false }))
-    d.observe(facts({ hasToolCall: false, hasText: true })) // reset
-    expect(d.observe(facts({ hasToolCall: true, hasText: false })).triggered).toBe(false)
+  it('counter < hintAt: nextHint 返 null', () => {
+    const d = new ToolOnlyLoopDetector({ hintAt: 3 })
+    d.observe(facts({ hasToolCall: true, hasText: false })) // 1
+    expect(d.nextHint?.()).toBeNull()
+    d.observe(facts({ hasToolCall: true, hasText: false })) // 2
+    expect(d.nextHint?.()).toBeNull()
   })
 
-  it('无工具 + 无文本 (empty_text) 不计数也不 reset', () => {
-    const d = new ToolOnlyLoopDetector({ limit: 3 })
+  it('counter ≥ hintAt: nextHint 返非空提示, 含 progress-report / 并行 / answer now', () => {
+    const d = new ToolOnlyLoopDetector({ hintAt: 3 })
     d.observe(facts({ hasToolCall: true, hasText: false }))
     d.observe(facts({ hasToolCall: true, hasText: false }))
-    // 穿插一步 empty: 不 reset, 不 bump
-    expect(d.observe(facts({ hasToolCall: false, hasText: false })).triggered).toBe(false)
-    // 再有工具无文本 → bump → 触发 (limit=3)
-    expect(d.observe(facts({ hasToolCall: true, hasText: false })).triggered).toBe(true)
+    d.observe(facts({ hasToolCall: true, hasText: false })) // 3 — 达到阈值
+    const hint = d.nextHint?.()
+    expect(hint).not.toBeNull()
+    expect(hint).toContain('progress-report needed')
+    expect(hint).toContain('PARALLEL tool calls')
+    expect(hint).toContain('ANSWER NOW')
   })
 
-  it('opts.limit 覆盖默认 8', () => {
-    const d = new ToolOnlyLoopDetector({ limit: 2 })
-    expect(d.observe(facts({ hasToolCall: true, hasText: false })).triggered).toBe(false)
-    expect(d.observe(facts({ hasToolCall: true, hasText: false })).triggered).toBe(true)
+  it('有文本 → reset → hint 消失', () => {
+    const d = new ToolOnlyLoopDetector({ hintAt: 3 })
+    d.observe(facts({ hasToolCall: true, hasText: false }))
+    d.observe(facts({ hasToolCall: true, hasText: false }))
+    d.observe(facts({ hasToolCall: true, hasText: false }))
+    expect(d.nextHint?.()).not.toBeNull()
+    d.observe(facts({ hasToolCall: true, hasText: true })) // reset
+    expect(d.nextHint?.()).toBeNull()
+  })
+
+  it('无工具无文本 (empty_text) 不计数也不 reset', () => {
+    const d = new ToolOnlyLoopDetector({ hintAt: 3 })
+    d.observe(facts({ hasToolCall: true, hasText: false })) // 1
+    d.observe(facts({ hasToolCall: true, hasText: false })) // 2
+    // 穿插 empty: 既不 reset 也不 bump
+    d.observe(facts({ hasToolCall: false, hasText: false }))
+    expect(d.nextHint?.()).toBeNull() // 还是 2 < 3
+    d.observe(facts({ hasToolCall: true, hasText: false })) // 3 — 达到阈值
+    expect(d.nextHint?.()).not.toBeNull()
+  })
+
+  it('默认 hintAt=3', () => {
+    const d = new ToolOnlyLoopDetector()
+    d.observe(facts({ hasToolCall: true, hasText: false }))
+    d.observe(facts({ hasToolCall: true, hasText: false }))
+    expect(d.nextHint?.()).toBeNull()
+    d.observe(facts({ hasToolCall: true, hasText: false }))
+    expect(d.nextHint?.()).not.toBeNull()
   })
 })

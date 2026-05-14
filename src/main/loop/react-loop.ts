@@ -8,7 +8,8 @@
 //
 // 检测器分布:
 //   src/main/loop/detectors/
-//     signature-dead-loop / failure-streak / tool-only-loop
+//     signature-dead-loop / failure-streak / tool-only-loop (软提示) /
+//     length-truncation-streak
 //
 // 强制摘要、累积状态、MCP 暴露状态、Outcome 派生信号已抽到各自模块。
 //
@@ -904,10 +905,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const mcpState = new McpExposureState(opts.agent)
 
   // Detector 顺序敏感 (业务属性, 显式排列):
-  //   L1 流程健康度 (硬阻断 / forced summary,**维度 A 系统职责**):
-  //     1. signature-dead-loop:  原地重试同一调用 (最敏感, 阈值 1/2)
-  //     2. failure-streak:       连续 N 次工具失败 (兜底 signature 没抓到的"换参全败")
-  //     3. tool-only-loop:       连续 N 步工具调用但零文本 (signature 抓不到的变种)
+  //   L1 流程健康度:
+  //     1. signature-dead-loop:  原地重试同一调用 (硬切断, 阈值 1/2)
+  //     2. failure-streak:       连续 N 次工具失败 (硬切断 + forced summary)
+  //     3. tool-only-loop:       连续 N 步零文本工具调用 (v4.1 软提示, 不再 break)
+  //     4. length-truncation:    连续 finishReason='length' (硬切断, 防 reasoning 烧 token 死循环)
   //
   // v3.7 移除: no-marker-streak + forced-closure (把"无 marker"当 bug 反而引发自答灾难)
   // v3.7.1 移除: wait-and-act-conflict + hallucinated-confirm
