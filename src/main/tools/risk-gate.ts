@@ -24,7 +24,7 @@ import { SideEffectLedger } from '../repos/side-effect-ledger'
 import { diagnoseInputMismatch } from './input-diagnostics'
 
 /**
- * Gate 决策。
+ * Gate 决策 (gate() 返回)。
  *
  *   - pass: 允许执行 (via 标记走哪条路径,Ledger 用)
  *   - deny: 拒绝执行 (返 USER_DENIED 类 envelope)
@@ -44,6 +44,34 @@ export interface GateDecision {
   summary?: string
   /** patternKey (走 memory 路径时填) */
   patternKey?: string
+}
+
+/**
+ * 纯决策结果 (decide() 返回)。
+ *
+ * v4 Phase 2: 把"决策"从"执行"中拆出。decide() 只回答"这个调用要不要 confirm",
+ * 不做任何副作用 (不弹 confirm / 不写 ledger)。SDK `tool({ needsApproval })`
+ * 路径直接消费这个结构;现有 gate() 流程内部也基于 decide() 决策。
+ *
+ *   - needsApproval=true:  需要弹 confirm
+ *   - needsApproval=false: 直通 (via 标 auto-low / memory)
+ *   - blocked=true:        直接 deny (输入诊断失败等),不走 confirm
+ */
+export interface RiskDecision {
+  needsApproval: boolean
+  /** 命中的判定路径 (与 GateDecision.via 语义一致) */
+  via: 'fallback' | 'memory' | 'auto-low' | 'high-static'
+  /** confirm 弹窗用的 summary / 诊断信息 */
+  summary?: string
+  /** SessionApprovalMemory patternKey (memory 路径填) */
+  patternKey?: string
+  /** 是否允许"记住此决定" (HIGH 静态 / fallback 都是 false) */
+  allowRemember: boolean
+  /**
+   * 输入诊断失败直接 block:不走 confirm,直接 deny。
+   * 例: bash 工具但 command 缺失/为空。
+   */
+  blocked?: boolean
 }
 
 /**
@@ -121,29 +149,25 @@ export class RiskGate {
   ) {}
 
   /**
-   * 评估某工具调用的风险等级 + 决定执行策略。
+   * 纯决策函数 (v4 Phase 2):评估某工具调用要不要 confirm。
    *
-   * 顺序很重要:
-   *   1. 静态 high riskLevel (HIGH static) → 系统生成 summary + 必须 confirm
-   *   2. 代码兜底 regex → fallback confirm
-   *   3. 默认 pass
+   * **零副作用**:不弹 confirm、不写 ledger、不阻塞。SDK `tool({ needsApproval })`
+   * 路径直接消费此结果;gate() 内部也基于此决策再做编排。
    *
-   * 通过 (action='pass' 且 via ∈ fallback/memory/high-static) 时,
-   * Gate 内部直接 record ledger,buildTools 不必再调一次。
-   * auto-low 路径不记账 (无风险信号,记账只会噪声化日志)。
+   * 顺序:
+   *   1. 静态 high riskLevel → 必须 confirm (或 blocked,若 summary 构造失败)
+   *   2. 代码兜底 regex → 必须 confirm
+   *   3. 默认 → auto-low (不需要 confirm)
+   *
+   * 当前不查询 SessionApprovalMemory — pattern 命中的"自动通过"由 gate() 在
+   * confirm 前判断 (decide 不知道 patternKey,因 patternKey 是 LLM block 字段,
+   * Phase 4b 已删除该路径)。未来 needsApproval 路径若需 memory 自动通过,在
+   * SDK approveRequest 监听端做。
    */
-  async gate(
-    tool: ToolDefinition,
-    input: unknown,
-    ctx: ToolExecuteContext,
-    confirmTool: ToolConfirmPort,
-  ): Promise<GateDecision> {
-    // 路径 1 (v3.7.2): HIGH 静态工具 (bash/write/edit) → 系统生成 summary,必须 confirm。
-    // 替代旧 pass-to-legacy 路径 (buildTools 嵌入 confirm 逻辑) — 现在统一回 Gate 内。
+  decide(tool: ToolDefinition, input: unknown): RiskDecision {
     if (tool.riskLevel === 'HIGH') {
       const summary = buildHighStaticSummary(tool.name, input)
       if (!summary.trim()) {
-        // 输入异常 — 用 diagnoseInputMismatch 给 LLM 一份可读诊断
         const params = (tool.parameters ?? {}) as {
           required?: string[]
           properties?: Record<string, { type?: string; description?: string }>
@@ -158,68 +182,90 @@ export class RiskGate {
             ? diagnoseInputMismatch(tool.name, params, input, missing)
             : `Invalid input for tool "${tool.name}": could not build a summary. Provided fields: [${Object.keys(inputObj).join(', ') || 'none'}].`
         return {
-          action: 'deny',
+          needsApproval: false,
           via: 'high-static',
           summary: diagMsg,
+          allowRemember: false,
+          blocked: true,
         }
       }
-      const decision = await this.callConfirm(confirmTool, {
-        sessionId: ctx.sessionId,
-        messageId: ctx.parentMessageIdForLedger,
-        toolCallId: extractToolCallId(ctx),
-        toolName: tool.name,
-        summary: `Run ${tool.name}`,
-        preview: summary,
-        inputSummary: summary, // 兼容 legacy ToolConfirmRequest 字段
-        inputFull: input,
-        allowRemember: false, // HIGH 静态工具不记忆 (与旧 legacy 行为一致, 每次都 confirm)
-        patternKey: undefined,
-        riskLevel: 'high',
-      })
-      this.recordLedger(
-        tool.name,
-        ctx,
-        'high-static',
-        `Run ${tool.name}`,
-        input,
-        decision.approved ? 'approved' : 'denied',
-      )
-      return decision.approved
-        ? { action: 'pass', via: 'high-static', summary: `Run ${tool.name}` }
-        : { action: 'deny', via: 'high-static', summary: `Run ${tool.name}` }
-    }
-
-    // 路径 2: 代码兜底 regex (input 含通用危险关键字)
-    const fallback = detectFallbackRisk(input)
-    if (fallback) {
-      log.warn(`[RiskGate] fallback risk detected for tool ${tool.name}: ${fallback.reason}`)
-      const decision = await this.callConfirm(confirmTool, {
-        sessionId: ctx.sessionId,
-        toolCallId: extractToolCallId(ctx),
-        toolName: tool.name,
-        summary: `⚠️ ${fallback.reason}`,
-        preview: safeStringify(input).slice(0, 500),
-        allowRemember: false, // 兜底路径不允许记忆 (regex 命中是粗粒度,不应永久放行)
-        patternKey: undefined,
-        riskLevel: 'high',
-      })
-      this.recordLedger(
-        tool.name,
-        ctx,
-        'fallback',
-        fallback.reason,
-        input,
-        decision.approved ? 'approved' : 'denied',
-      )
       return {
-        action: decision.approved ? 'pass' : 'deny',
-        via: 'fallback',
-        summary: fallback.reason,
+        needsApproval: true,
+        via: 'high-static',
+        summary,
+        allowRemember: false,
       }
     }
+    const fallback = detectFallbackRisk(input)
+    if (fallback) {
+      return {
+        needsApproval: true,
+        via: 'fallback',
+        summary: fallback.reason,
+        allowRemember: false,
+      }
+    }
+    return { needsApproval: false, via: 'auto-low', allowRemember: false }
+  }
 
-    // 路径 3: 无风险信号 → 直接通过, 不记账
-    return { action: 'pass', via: 'auto-low' }
+  /**
+   * 评估某工具调用的风险等级 + 执行 confirm 编排 (v3 接口,buildTools 当前调用方)。
+   *
+   * v4 Phase 2 之后 = decide() (纯决策) + 弹 confirm + 写 ledger 三步组合。
+   * needsApproval 路径上线后此方法可删,改为 buildTools 直接消费 decide() 结果。
+   *
+   * 通过 (action='pass' 且 via ∈ fallback/memory/high-static) 时,
+   * Gate 内部直接 record ledger,buildTools 不必再调一次。
+   * auto-low 路径不记账 (无风险信号,记账只会噪声化日志)。
+   */
+  async gate(
+    tool: ToolDefinition,
+    input: unknown,
+    ctx: ToolExecuteContext,
+    confirmTool: ToolConfirmPort,
+  ): Promise<GateDecision> {
+    const risk = this.decide(tool, input)
+
+    // 输入诊断失败 → 直接 deny,不走 confirm
+    if (risk.blocked) {
+      return { action: 'deny', via: risk.via, summary: risk.summary }
+    }
+
+    // auto-low → 直通, 不记账
+    if (!risk.needsApproval) {
+      return { action: 'pass', via: risk.via }
+    }
+
+    // 需要 confirm:high-static / fallback 共用此分支
+    if (risk.via === 'fallback') {
+      log.warn(`[RiskGate] fallback risk detected for tool ${tool.name}: ${risk.summary}`)
+    }
+    const decision = await this.callConfirm(confirmTool, {
+      sessionId: ctx.sessionId,
+      messageId: ctx.parentMessageIdForLedger,
+      toolCallId: extractToolCallId(ctx),
+      toolName: tool.name,
+      summary: risk.via === 'high-static' ? `Run ${tool.name}` : `⚠️ ${risk.summary}`,
+      preview:
+        risk.via === 'high-static' ? (risk.summary ?? '') : safeStringify(input).slice(0, 500),
+      inputSummary: risk.via === 'high-static' ? risk.summary : undefined,
+      inputFull: risk.via === 'high-static' ? input : undefined,
+      allowRemember: risk.allowRemember,
+      patternKey: risk.patternKey,
+      riskLevel: 'high',
+    })
+    this.recordLedger(
+      tool.name,
+      ctx,
+      risk.via as 'fallback' | 'high-static' | 'memory',
+      risk.via === 'high-static' ? `Run ${tool.name}` : risk.summary,
+      input,
+      decision.approved ? 'approved' : 'denied',
+    )
+    const passSummary = risk.via === 'high-static' ? `Run ${tool.name}` : risk.summary
+    return decision.approved
+      ? { action: 'pass', via: risk.via, summary: passSummary }
+      : { action: 'deny', via: risk.via, summary: passSummary }
   }
 
   /**
