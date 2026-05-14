@@ -1009,6 +1009,42 @@ v3.6 在这两个反模式上都踩过(`forced-closure` + `WaitAndAct` + `"type 
 
 ---
 
+## P14. SDK-native 优先 (v4)
+
+### 原则
+
+凡 AI SDK v6 已提供的能力,Talor **不再自造**:
+
+| Talor 自造                                      | SDK 原生                                                       | v4 状态                           |
+| ----------------------------------------------- | -------------------------------------------------------------- | --------------------------------- |
+| `createDeepSeekFetch` fetch 拦截                | `wrapLanguageModel({ middleware })`                            | ✅ Phase 1                        |
+| `generateText` + 字符串解析 (memory 压缩)       | `generateObject` + Zod schema                                  | ✅ Phase 5                        |
+| `pending_continuation` talor block + Policy     | `request_continuation` virtual tool                            | ✅ Phase 4a                       |
+| `pending_confirm` talor block + RiskGate path 2 | `tool({ needsApproval })`                                      | ⚠️ Phase 4b 删旧;Phase 2 完整待做 |
+| `react-loop.ts` 手工 for 循环                   | `streamText({ stopWhen, prepareStep, onStepFinish })` 内置多步 | ⚠️ Phase 3 待做                   |
+| `LoopDetector` 接口                             | `StopCondition` 函数 + 闭包 state                              | ⚠️ Phase 3 待做                   |
+| `stream-utils:wrapToolOutput`                   | `tool({ toModelOutput })`                                      | ⚠️ Phase 3 待做                   |
+| Zod 错信封 + LLM 下步重试                       | `experimental_repairToolCall` 同步修                           | ⚠️ Phase 3 待做                   |
+
+### 反模式: 引入 `streamObject`
+
+SDK 已 `@deprecated`。Talor 永不引入。详见 `standards.md` §F-NEVER-3。
+
+### 参考实现
+
+- v4 plan: [docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md](../../docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md)
+- middleware 模式: `src/main/providers/middleware/`
+- adapter 改造: `src/main/providers/adapters/openai-adapter.ts` (使用 wrapLanguageModel)
+- generateObject 应用: `src/main/memory/ShortTermMemory.ts:generateSummary`
+- virtual tool: `src/main/tools/builtin/request-continuation.ts`
+
+### 相关标准
+
+- **F-NEVER-3** · 禁止使用 `streamObject`
+- **J-SHOULD-3** · AI SDK 信号按"LLM 自陈 / 运行时真相"两类消费
+
+---
+
 ## 相关文档
 
 - **[standards.md](standards.md)** — 工程规范（MUST / SHOULD / NEVER）
