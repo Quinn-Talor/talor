@@ -1,8 +1,9 @@
-// src/renderer/components/TalorBlockRenderer.tsx —— renderer 组件:
+// src/renderer/components/TalorBlockRenderer.tsx —— renderer 组件 (v4):
 //
 // 把 message text 内的 ```talor JSONC fence 替换为对应的语义化卡片。
-// V1 块类型: done / need_input / blocked / pending_confirm / warning /
-//            pending_continuation (v3.7.3 新增)。
+// V1 块类型(v4 协议瘦身后): done / need_input / blocked / warning。
+//   pending_confirm 已迁到 SDK tool({ needsApproval }) approval flow。
+//   pending_continuation 已迁到 request_continuation virtual tool。
 //
 // 用法: 在 MessageBubble 渲染前调用 splitMessageWithTalorBlocks(text)
 // 切片, 然后对每个 segment 决定渲染成 markdown 还是 card。
@@ -184,13 +185,6 @@ function BlockedCard({ block }: CardProps<BlockedBlock>) {
   )
 }
 
-// v4 Phase 4b: PendingConfirmCard 删除 (pending_confirm block 被
-// SDK tool({ needsApproval }) 替代;UI approval dialog 改读 SDK ToolApprovalRequest part)。
-
-// v4 Phase 4a: PendingContinuationCard 删除 (pending_continuation block 被
-// request_continuation virtual tool 替代,LLM 调用即续 loop,无须 UI 卡片)。
-// 老 session history 含此 block 时,parser 归入 invalid → InvalidTalorBlockCard 渲染。
-
 function WarningCard({ block }: CardProps<WarningBlock>) {
   const sev = block.severity ?? 'medium'
   const styles =
@@ -282,14 +276,8 @@ export function TalorBlockCard({ block }: { block: TalorBlock }) {
       return <NeedInputCard block={block} />
     case 'blocked':
       return <BlockedCard block={block} />
-    case 'pending_confirm':
-      // v4 Phase 4b: deprecated. 老 session 含此 block → invalid 卡片
-      return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />
     case 'warning':
       return <WarningCard block={block} />
-    case 'pending_continuation':
-      // v4 Phase 4a: deprecated — 老 session 兼容,渲染为 invalid 卡片
-      return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />
     case 'plan':
       // V2 type, 暂用通用卡片渲染
       return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />

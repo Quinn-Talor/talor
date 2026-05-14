@@ -1,21 +1,19 @@
-// src/main/tools/risk-gate.ts —— 业务层: L3 风险 Gate (v3.7.2 路径统一版)
+// src/main/tools/risk-gate.ts —— 业务层: L3 风险 Gate (v4)
 //
 // 拦截工具调用 → 判断是否高危 → 弹 confirmTool 让用户决定。
 //
-// 评估优先级 (LLM 主控 + 系统兜底,见 J-SHOULD-2 协作矩阵):
+// 评估优先级:
 //   1. 静态 riskLevel='HIGH' (builtin bash/write/edit) → 系统生成 summary + 必须 confirm
-//      (v3.7.2: 旧 pass-to-legacy 路径已删,统一走 Gate 内的 high-static 分支)
-//   2. LLM 主动在 stepText emit pending_confirm block → confirm + 可记忆 (主路径)
-//   3. 代码通用 regex 扫 input 兜底 → confirm (无主动声明时的安全网)
+//   2. SessionApprovalMemory 命中 (基于 input 派生 patternKey) → 自动通过
+//   3. 代码通用 regex 扫 input 兜底 → confirm (DROP/INSERT/rm -rf/sudo 等关键字)
 //   4. 都没命中 → 直接通过
 //
-// 设计原则: 业务/语义判断交给 LLM (通过 pending_confirm block),
-// 代码只做执行管控 + 通用兜底, 不绑业务名 (regex 仅识别 DROP/INSERT/rm -rf 等
-// 通用语法层关键字)。HIGH static 是 framework 静态声明的"无条件 confirm" 工具,
-// 不依赖 LLM 主动声明 (因为可能 LLM 忘了 emit pending_confirm)。
+// 设计原则: 系统执行管控 + 通用兜底, 不绑业务名。LLM 不再 emit pending_confirm
+// fenced JSON (v4 协议瘦身)。业务级判断由 SessionApprovalMemory pattern 复用 +
+// fallback regex 配合处理;复杂业务规则未来通过 tool({ needsApproval }) 函数表达。
 //
 // 允许依赖: ./session-approval-memory, ./input-diagnostics,
-//          ../repos/side-effect-ledger, @shared/talor-blocks/*, ../ipc/tool-confirm (类型)
+//          ../repos/side-effect-ledger, ../ipc/tool-confirm (类型)
 // 禁止依赖: ipc/* 的实现 (端口注入)
 
 import log from 'electron-log'
@@ -26,7 +24,7 @@ import { SideEffectLedger } from '../repos/side-effect-ledger'
 import { diagnoseInputMismatch } from './input-diagnostics'
 
 /**
- * Gate 决策。v3.7.2 后只剩 2 种 action,所有路径统一回到 Gate 内处理。
+ * Gate 决策。
  *
  *   - pass: 允许执行 (via 标记走哪条路径,Ledger 用)
  *   - deny: 拒绝执行 (返 USER_DENIED 类 envelope)
@@ -36,19 +34,16 @@ import { diagnoseInputMismatch } from './input-diagnostics'
 export interface GateDecision {
   action: 'pass' | 'deny'
   /** 通过路径,给 Ledger 记账用。
-   *  - pendingBlock: LLM emit pending_confirm + 用户 confirm
-   *  - fallback:     无 LLM 声明,代码 regex 兜底命中 + 用户 confirm
+   *  - high-static:  HIGH 静态工具 (bash/write/edit),系统生成 summary + 用户 confirm
+   *  - fallback:     代码 regex 兜底命中 + 用户 confirm
    *  - memory:       命中 SessionApprovalMemory pattern,自动通过
    *  - auto-low:     无风险信号,直通(不进 ledger)
-   *  - high-static:  HIGH 静态工具 (bash/write/edit),系统生成 summary + 用户 confirm
    */
-  via: 'pendingBlock' | 'fallback' | 'memory' | 'auto-low' | 'high-static'
+  via: 'fallback' | 'memory' | 'auto-low' | 'high-static'
   /** confirm 弹窗用的 summary / deny 时的诊断信息 */
   summary?: string
   /** patternKey (走 memory 路径时填) */
   patternKey?: string
-  /** 用户是否选择 remember (走 pendingBlock + memory=false 路径时填) */
-  rememberRequested?: boolean
 }
 
 /**
@@ -90,8 +85,8 @@ function buildHighStaticSummary(toolName: string, input: unknown): string {
  * 代码兜底通用危险关键字 — 不绑业务名,只识别"操作类型"层。
  *
  * 命中 → 视为高危, 弹 confirm 让用户决定。
- * 业务层判断 (production schema / 关键表名 / 等) 由 LLM 通过 pending_confirm
- * 主动声明, 不在此处。
+ * 业务层判断 (production schema / 关键表名 / 等) 由 tool 自身的 needsApproval
+ * 函数表达 (v4 Phase 2),不在此处。
  */
 const FALLBACK_DANGER_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\b(DROP|TRUNCATE)\s+(TABLE|DATABASE|SCHEMA)\b/i, reason: 'SQL DDL: DROP/TRUNCATE' },
@@ -117,9 +112,8 @@ function stripSqlNoise(text: string): string {
 
 export class RiskGate {
   /**
-   * @param memory  session 级 approval memory (走 pendingBlock + remember 路径用)
-   * @param ledger  副作用日志 — Gate 内部决定通过后立即 record,buildTools 不必
-   *                再调一次。匹配方案 §5.2 的双注入契约。
+   * @param memory  session 级 approval memory(记忆用户对同 patternKey 的"记住"选择)
+   * @param ledger  副作用日志 — Gate 内部决定通过后立即 record,buildTools 不必再调一次。
    */
   constructor(
     private readonly memory: SessionApprovalMemory,
@@ -131,11 +125,10 @@ export class RiskGate {
    *
    * 顺序很重要:
    *   1. 静态 high riskLevel (HIGH static) → 系统生成 summary + 必须 confirm
-   *   2. LLM 主动声明 pending_confirm block → 主路径 confirm
-   *   3. 代码兜底 regex → fallback confirm
-   *   4. 默认 pass
+   *   2. 代码兜底 regex → fallback confirm
+   *   3. 默认 pass
    *
-   * 通过 (action='pass' 且 via ∈ pendingBlock/fallback/memory/high-static) 时,
+   * 通过 (action='pass' 且 via ∈ fallback/memory/high-static) 时,
    * Gate 内部直接 record ledger,buildTools 不必再调一次。
    * auto-low 路径不记账 (无风险信号,记账只会噪声化日志)。
    */
@@ -196,14 +189,7 @@ export class RiskGate {
         : { action: 'deny', via: 'high-static', summary: `Run ${tool.name}` }
     }
 
-    // v4 Phase 4b: 路径 2 (pending_confirm block) 已删除。
-    // LLM 不再 emit fenced JSON 声明副作用 — 改用 SDK tool({ needsApproval }) 模式
-    // (待 Phase 2 完整实施时把 RiskGate.gate 重构为 riskGate.decide 纯函数 +
-    // 在 buildTools 内接入 tool needsApproval)。
-    // 当前 v4 partial 状态:仅路径 1 (HIGH static) / 路径 3 (fallback) / 路径 4 (memory
-    // 由 SessionApprovalMemory 静默管理,不在 gate 内显式分支) / 路径 5 (auto-low) 生效。
-
-    // 路径 3: 代码兜底 regex (LLM 没主动声明但 input 含危险关键字)
+    // 路径 2: 代码兜底 regex (input 含通用危险关键字)
     const fallback = detectFallbackRisk(input)
     if (fallback) {
       log.warn(`[RiskGate] fallback risk detected for tool ${tool.name}: ${fallback.reason}`)
@@ -211,9 +197,9 @@ export class RiskGate {
         sessionId: ctx.sessionId,
         toolCallId: extractToolCallId(ctx),
         toolName: tool.name,
-        summary: `⚠️ Model did not declare ✋: ${fallback.reason}`,
+        summary: `⚠️ ${fallback.reason}`,
         preview: safeStringify(input).slice(0, 500),
-        allowRemember: false, // 兜底路径不允许记忆, 鼓励 LLM 主动声明
+        allowRemember: false, // 兜底路径不允许记忆 (regex 命中是粗粒度,不应永久放行)
         patternKey: undefined,
         riskLevel: 'high',
       })
@@ -232,7 +218,7 @@ export class RiskGate {
       }
     }
 
-    // 路径 4: 无风险信号 → 直接通过, 不记账 (auto-low 仅返决策, 不污染 ledger)
+    // 路径 3: 无风险信号 → 直接通过, 不记账
     return { action: 'pass', via: 'auto-low' }
   }
 
@@ -246,7 +232,7 @@ export class RiskGate {
   private recordLedger(
     toolName: string,
     ctx: ToolExecuteContext,
-    via: 'pendingBlock' | 'fallback' | 'memory' | 'high-static',
+    via: 'fallback' | 'memory' | 'high-static',
     summary: string | undefined,
     input: unknown,
     userDecision: 'approved' | 'denied' | 'auto',
@@ -293,8 +279,6 @@ export class RiskGate {
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────
-
-// v4 Phase 4b 删:findPendingConfirmBlock (pending_confirm block 退役)
 
 export function detectFallbackRisk(input: unknown): { reason: string } | null {
   // 扁平化提取所有字符串字段后再 stripSqlNoise + regex。

@@ -37,30 +37,11 @@ describe('parseTalorBlocks', () => {
       })
     })
 
-    // v4 Phase 4b: pending_confirm block 退役 (parser 归 invalid)
-    it('legacy pending_confirm block (deprecated) → invalid (unknown-type)', () => {
-      const text = '```talor\n{ "type": "pending_confirm", "summary": "INSERT 1 row" }\n```'
-      const { blocks, invalid } = parseTalorBlocks(text)
-      expect(blocks).toHaveLength(0)
-      expect(invalid).toHaveLength(1)
-      expect(invalid[0].reason).toContain('unknown-type')
-    })
-
     it('解析 warning block + severity', () => {
       const text =
         '```talor\n{\n  "type": "warning",\n  "message": "DROP 不可撤销",\n  "severity": "high"\n}\n```'
       const { blocks } = parseTalorBlocks(text)
       expect(blocks[0]).toEqual({ type: 'warning', message: 'DROP 不可撤销', severity: 'high' })
-    })
-
-    // v4 Phase 4a: pending_continuation block 退役 (替代为 request_continuation virtual tool)。
-    // 老 session 含此 block 时 parser 归入 invalid (unknown-type),不再解析为 V1 block。
-    it('legacy pending_continuation block (deprecated) → invalid (unknown-type)', () => {
-      const text = '```talor\n{ "type": "pending_continuation" }\n```'
-      const { blocks, invalid } = parseTalorBlocks(text)
-      expect(blocks).toHaveLength(0)
-      expect(invalid).toHaveLength(1)
-      expect(invalid[0].reason).toContain('unknown-type')
     })
 
     it('多个 block 同一 stepText 全部提取', () => {
@@ -210,8 +191,8 @@ describe('detectStreamingTalorType', () => {
 
   it('多个 block: 返回最后一个 (即流式中的"当前块")', () => {
     const text =
-      '```talor\n{ "type": "warning", "message": "..." }\n```\n\n```talor\n{ "type": "pending_confirm"'
-    expect(detectStreamingTalorType(text)).toBe('pending_confirm')
+      '```talor\n{ "type": "warning", "message": "..." }\n```\n\n```talor\n{ "type": "done"'
+    expect(detectStreamingTalorType(text)).toBe('done')
   })
 
   it('完全无 block → null', () => {
@@ -231,7 +212,7 @@ describe('detectStreamingTalorType', () => {
 
   it('多字段乱序 + type 在末尾 → 仍能识别', () => {
     const text =
-      '```talor\n{\n  "summary": "x",\n  "pattern": "sql:INSERT:t",\n  "type": "pending_confirm"\n}\n```'
-    expect(detectStreamingTalorType(text)).toBe('pending_confirm')
+      '```talor\n{\n  "summary": "x",\n  "result": { "id": 1 },\n  "type": "done"\n}\n```'
+    expect(detectStreamingTalorType(text)).toBe('done')
   })
 })

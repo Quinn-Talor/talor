@@ -15,12 +15,11 @@ import { getDb } from '../db'
 /**
  * 副作用日志一行。
  *
- * confirmed_by 枚举:
- *   - 'pendingBlock': LLM 主动 emit pending_confirm block, 走 confirm UI
- *   - 'fallback':     LLM 没 emit, 代码 regex 兜底命中, 走 confirm UI
- *   - 'memory':       命中 SessionApprovalMemory, 自动通过 (LLM 曾 emit pending_confirm)
+ * confirmed_by 枚举(v4):
+ *   - 'fallback':     代码 regex 兜底命中, 走 confirm UI
+ *   - 'memory':       命中 SessionApprovalMemory, 自动通过
+ *   - 'high-static':  HIGH 静态工具 (bash/write/edit), 系统生成 summary, 用户 confirm
  *   - 'auto-low':     无任何风险信号, 直接通过 (理论上不该进 ledger, 但保留兜底语义)
- *   - 'high-static':  v3.7.2: HIGH 静态工具 (bash/write/edit), 系统生成 summary, 用户 confirm
  */
 export interface SideEffectEntry {
   id: string
@@ -34,9 +33,9 @@ export interface SideEffectEntry {
   op: string
   /** 操作目标 (e.g. 'game.game' | '/path/file' | doc_id) */
   target: string
-  /** 给用户看的操作摘要 (来自 pending_confirm block summary 或 tool input) */
+  /** 给用户看的操作摘要 (来自 tool input 派生) */
   preview: string
-  confirmed_by: 'pendingBlock' | 'fallback' | 'memory' | 'auto-low' | 'high-static'
+  confirmed_by: 'fallback' | 'memory' | 'auto-low' | 'high-static'
   user_decision: 'approved' | 'denied' | 'auto'
   created_at: string
 }

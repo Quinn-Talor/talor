@@ -176,7 +176,7 @@ describe('RiskGate.gate', () => {
       expect(decision.action).toBe('pass')
       expect(decision.via).toBe('fallback')
       const req = confirmTool.mock.calls[0][0] as ToolConfirmRequest
-      expect(req.summary).toContain('did not declare')
+      expect(req.summary).toContain('SQL DML')
       expect(req.allowRemember).toBe(false)
     })
 
