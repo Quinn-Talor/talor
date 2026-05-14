@@ -55,6 +55,31 @@ describe('parseTalorBlocks', () => {
       expect(blocks[0]).toEqual({ type: 'warning', message: 'DROP 不可撤销', severity: 'high' })
     })
 
+    it('解析 pending_continuation block 最简形式 (零字段,v3.7.3)', () => {
+      const text = '```talor\n{ "type": "pending_continuation" }\n```'
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(invalid).toHaveLength(0)
+      expect(blocks).toEqual([{ type: 'pending_continuation' }])
+    })
+
+    it('解析 pending_continuation block + reason (v3.7.3)', () => {
+      const text =
+        '```talor\n{\n  "type": "pending_continuation",\n  "reason": "data collected, ready to persist"\n}\n```'
+      const { blocks } = parseTalorBlocks(text)
+      expect(blocks[0]).toEqual({
+        type: 'pending_continuation',
+        reason: 'data collected, ready to persist',
+      })
+    })
+
+    it('pending_continuation 的 reason 类型错时进 invalid (field-validation)', () => {
+      const text = '```talor\n{ "type": "pending_continuation", "reason": 42 }\n```'
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(blocks).toHaveLength(0)
+      expect(invalid).toHaveLength(1)
+      expect(invalid[0].reason).toContain('field-validation')
+    })
+
     it('多个 block 同一 stepText 全部提取', () => {
       const text = `
 准备开始。

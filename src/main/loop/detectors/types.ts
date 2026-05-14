@@ -79,4 +79,13 @@ export interface LoopDetector {
 export interface DetectorRawContext {
   /** 本步模型纯文本输出 (剔除 tool_use markup 后) */
   stepText: string
+  /**
+   * v3.7.3: SDK finishReason (LLM 自陈停止原因)。
+   *
+   * 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other'
+   *
+   * 给需要监控 SDK 信号的 detector 用 (例如 LengthTruncationStreakDetector
+   * 检测连续 'length' 死循环)。可选 — 旧 detector 不需要可忽略。
+   */
+  finishReason?: import('ai').FinishReason
 }

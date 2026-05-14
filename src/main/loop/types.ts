@@ -72,18 +72,26 @@ export interface ReactLoopOptions {
 /**
  * 循环终止原因枚举。
  *
- * - 'no_tool_calls':     模型无 tool 调用 → 自然 final 终态 (v3.7 后所有"无 tool"都走这条)
- * - 'empty_text':        既无工具调用也无文本(走 fallback summary)
- * - 'abort':             调用方主动中止
- * - 'max_steps':         达到步数上限
- * - 'fallback_summary':  整轮空文本兜底
- * - 'repeated_error':    死循环 / 失败连击触发
- * - 'tool_only_loop':    连续 N 步有工具调用但零文本输出
- * - 'context_overflow':  prompt 估算 >= context_limit, 提交前短路
+ * 既有 (v3.7):
+ *   - 'no_tool_calls':     LegacyNaturalFinalPolicy 兜底 (等价旧 natural FINAL)
+ *   - 'empty_text':        既无工具调用也无文本
+ *   - 'abort':             调用方主动中止
+ *   - 'max_steps':         达到步数上限
+ *   - 'fallback_summary':  整轮空文本兜底
+ *   - 'repeated_error':    死循环 / 失败连击触发
+ *   - 'tool_only_loop':    连续 N 步有工具调用但零文本输出
+ *   - 'context_overflow':  prompt 估算 >= context_limit, 提交前短路
  *
- * v3.7 移除:
- *   - 'no_tool_calls_no_marker': 旧版"无 marker"内部信号, 现已合并到 'no_tool_calls'
- *   - 'no_marker_max_attempts':  旧版 forced-closure 触发原因, 整路径删除
+ * 新增 (v3.7.3, LLM 自陈 + SDK 信号):
+ *   - 'declared_final':         LLM emit done/need_input/blocked block
+ *   - 'continuation_injected':  pending_continuation block 或 judge → continue + 注入 reminder
+ *   - 'judge_complete':         JudgeCompletionPolicy 判 COMPLETE (PR 2 启用)
+ *   - 'truncated':              SDK finishReason='length' (max_tokens 截断)
+ *   - 'content_filter':         SDK finishReason='content-filter'
+ *   - 'continuation_chain':     ContinuationChainDetector 防滥用触发
+ *
+ * 历史移除:
+ *   - 'no_tool_calls_no_marker' (v3.7) / 'no_marker_max_attempts' (v3.7 forced-closure)
  */
 export type LoopExitReason =
   | 'no_tool_calls'
@@ -94,6 +102,12 @@ export type LoopExitReason =
   | 'repeated_error'
   | 'tool_only_loop'
   | 'context_overflow'
+  | 'declared_final'
+  | 'continuation_injected'
+  | 'judge_complete'
+  | 'truncated'
+  | 'content_filter'
+  | 'continuation_chain'
 
 /**
  * 单步 ReAct 的结果, 由 runReactStep 返回给主循环。
@@ -119,4 +133,19 @@ export interface StepOutcome {
   signature: string
   allToolsFailed: boolean | null
   containsSubagentFailure: boolean
+  /**
+   * v3.7.3: turn-end policy 决定 'continue' 时携带的 hint,主 loop 注入到下一步
+   * 的 system message。final 路径 / 工具路径不设此字段。
+   *
+   * 当前生产者:PendingContinuationBlockPolicy(LLM 主声明)、SdkFinishReasonPolicy
+   * (finishReason='length' 截断兜底)、JudgeCompletionPolicy (PR 2)。
+   */
+  injectHint?: string
+  /**
+   * v3.7.3: SDK 报告的本步停止原因 (LLM 自陈)。
+   *
+   * 用途:detector 链消费 (例如 LengthTruncationStreakDetector 监控连续 'length')。
+   * 工具路径恒为 'tool-calls';无工具路径走 SDK 实际值。
+   */
+  finishReason?: import('ai').FinishReason
 }

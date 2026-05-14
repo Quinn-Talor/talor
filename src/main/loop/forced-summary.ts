@@ -172,6 +172,9 @@ export async function runForcedSummary(
     const { messages } = await ctx.pipeline.build(summaryPipelineCtx)
     const summaryResult = streamText({
       model: ctx.model,
+      // v3.7.3: forced summary 也用大输出预算,与主对话一致 (避免兜底摘要被 max_tokens 截断)。
+      // 64K = 现代 provider 安全交集 (Claude 4 / Gemini 2.5 上限),不能更高 (会被部分 API 拒)。
+      maxOutputTokens: 64_000,
       messages: [...messages, opts.guardrail],
       abortSignal: buildStreamSignal(ctx.abortSignal),
     })

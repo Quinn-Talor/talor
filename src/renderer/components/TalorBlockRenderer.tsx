@@ -1,7 +1,8 @@
 // src/renderer/components/TalorBlockRenderer.tsx —— renderer 组件:
 //
 // 把 message text 内的 ```talor JSONC fence 替换为对应的语义化卡片。
-// 5 个 V1 块类型: done / need_input / blocked / pending_confirm / warning。
+// V1 块类型: done / need_input / blocked / pending_confirm / warning /
+//            pending_continuation (v3.7.3 新增)。
 //
 // 用法: 在 MessageBubble 渲染前调用 splitMessageWithTalorBlocks(text)
 // 切片, 然后对每个 segment 决定渲染成 markdown 还是 card。
@@ -18,6 +19,7 @@ import type {
   BlockedBlock,
   PendingConfirmBlock,
   WarningBlock,
+  PendingContinuationBlock,
 } from '@shared/talor-blocks/talor-block-schema'
 import { parseTalorBlocks, detectStreamingTalorType } from '@shared/talor-blocks/talor-block-parser'
 
@@ -216,6 +218,21 @@ function PendingConfirmCard({ block }: CardProps<PendingConfirmBlock>) {
   )
 }
 
+function PendingContinuationCard({ block }: CardProps<PendingContinuationBlock>) {
+  // v3.7.3: 续做声明卡片 — 表达"任务未结束,框架正在驱动续做"。
+  // 视觉上轻量(浅色 chip),与 done/blocked 重终止卡区分;
+  // 与 warning (amber) / pending_confirm (amber) 色系区分,避免误读为"需要确认"。
+  return (
+    <div className="my-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
+      <div className="flex items-center gap-1.5 text-indigo-800">
+        <span className="text-base">▶</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wide">Continuing…</span>
+      </div>
+      {block.reason && <p className="mt-1 text-sm text-gray-700 italic">{block.reason}</p>}
+    </div>
+  )
+}
+
 function WarningCard({ block }: CardProps<WarningBlock>) {
   const sev = block.severity ?? 'medium'
   const styles =
@@ -260,7 +277,14 @@ function StreamingSkeletonCard({ streamingType }: { streamingType: string | null
               }
             : streamingType === 'warning'
               ? { border: 'border-amber-200', bg: 'bg-amber-50', icon: '⚠️', label: 'Warning' }
-              : { border: 'border-gray-200', bg: 'bg-gray-50', icon: '◌', label: 'Talor block' }
+              : streamingType === 'pending_continuation'
+                ? {
+                    border: 'border-indigo-200',
+                    bg: 'bg-indigo-50',
+                    icon: '▶',
+                    label: 'Continuing',
+                  }
+                : { border: 'border-gray-200', bg: 'bg-gray-50', icon: '◌', label: 'Talor block' }
 
   return (
     <div
@@ -318,6 +342,8 @@ export function TalorBlockCard({ block }: { block: TalorBlock }) {
       return <PendingConfirmCard block={block} />
     case 'warning':
       return <WarningCard block={block} />
+    case 'pending_continuation':
+      return <PendingContinuationCard block={block} />
     case 'plan':
       // V2 type, 暂用通用卡片渲染
       return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />

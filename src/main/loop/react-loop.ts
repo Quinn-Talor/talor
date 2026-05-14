@@ -43,6 +43,14 @@ import { composeHint } from './compose-hint'
 import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
 import { FailureStreakDetector } from './detectors/failure-streak'
 import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
+import { ContinuationChainDetector } from './detectors/continuation-chain'
+import { LengthTruncationStreakDetector } from './detectors/length-truncation-streak'
+import {
+  buildDefaultChain,
+  runPolicyChain,
+  type TurnEndPolicy,
+  type PolicyContext,
+} from './turn-end-policies'
 
 /**
  * 单步 prompt 估算到达该比例时,提醒模型收敛。
@@ -52,6 +60,32 @@ import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
 const CONTEXT_USAGE_WARNING_RATIO = 0.98
 
 const DEFAULT_MAX_STEPS = 1000
+
+/**
+ * v3.7.3: 主对话 streamText 的 maxOutputTokens 默认值。
+ *
+ * 取值 64_000 的原因 — "现代 provider 安全交集":
+ *
+ *   provider           |  实际允许上限     |  备注
+ *   -------------------|-------------------|----------------------------
+ *   Anthropic Claude 4 |  64K (含 thinking) | 上限即此值
+ *   OpenAI gpt-4o      |  128K              | 默认 16K,显式抬上去 64K 安全
+ *   Google Gemini 2.5  |  64K               | 上限即此值
+ *   DeepSeek V4 Flash  |  384K (393_216)    | 我们设小不浪费
+ *   DeepSeek V3 chat   |  8K                | SDK 透传后 provider clamp 内部
+ *   Ollama (本地)      |  按模型而定          | 一般 4K-32K
+ *
+ * 不能设更高:SDK 不 clamp 到 provider 上限,大于上限的值会被 API 直接拒
+ * (踩过坑:1_000_000 → DeepSeek 报 "Invalid max_tokens value, valid range [1, 393216]")。
+ *
+ * 不能设更低:reasoning-heavy model (DeepSeek-V3 reasoner / OpenAI o1 等) 默认 8K 不够,
+ * reasoning chain 占完后 visible text + tool_call 没空间 → finishReason='length' 死循环。
+ *
+ * Per-provider 覆盖:adapter.buildStreamOptions() 返 `{ maxOutputTokens: N }` 可顶替默认值
+ * (spread 顺序保证 streamOptions 在后,覆盖默认)。v3.7.4 后续会引入 Provider 配置字段
+ * 让用户在 UI 层指定。
+ */
+const DEFAULT_MAX_OUTPUT_TOKENS = 64_000
 
 const SEPARATOR = '──────────────────────────────────────────'
 const DOUBLE_SEPARATOR = '══════════════════════════════════════════'
@@ -80,6 +114,25 @@ interface StepContext {
   streamOptions?: Record<string, unknown>
   /** v3.6: 本 turn 起始时刻 (ISO),透传给 forced-summary 做 ledger 划界 */
   turnStartTime: string
+  /**
+   * v3.7.3: Turn-end policy 链。runReactLoop 入口构造一次后透传。
+   *
+   * 默认 buildDefaultChain() (PR 1: 不含 judge,等价 v3.7 行为 + 协议补完)。
+   * PR 2 加 JudgeCompletionPolicy;per-agent / per-provider 配置可覆盖。
+   */
+  turnEndPolicies: readonly TurnEndPolicy[]
+  /**
+   * v3.7.3: 上一步 SDK 报告的 token 用量 (provider 测得的精确值)。
+   *
+   * 用途:第二步起 context 预算检测用此值替代 estimate() (启发式估算偏差 ±15%),
+   * 让 context_overflow halt 阈值更准。第一步没有上步数据 → fallback 到 estimate。
+   *
+   * 仅记录 inputTokens (这是下一步 prompt 的近似大小);outputTokens 不影响下次 prompt。
+   * 缺失 (某些 provider 不报) → undefined,fallback 到 estimate。
+   *
+   * 状态(mutable):每步结束后更新。
+   */
+  lastInputTokens?: number
 }
 
 // StepOutcome / LoopExitReason 已迁移到 ./types.ts (Phase 1B 优化)
@@ -197,6 +250,13 @@ async function runReactStep(
   usedMcpToolNames: string[],
   /** 渐进式失败提示——streak=2 时由 runReactLoop 注入，让模型在最后机会前自我修正。 */
   failureHintMessage: string | null,
+  /**
+   * v3.7.3 turn-end policy 注入的 hint。
+   * 来源:上一步的 turn-end policy 返 'continue' 时携带的 injectHint
+   * (PendingContinuationBlockPolicy / SdkFinishReasonPolicy('length') / Judge('CONTINUE'))。
+   * 仅在本步生效一次,下一步若无新 policy hint 即清空。
+   */
+  policyHintMessage: string | null,
 ): Promise<StepOutcome> {
   const stepStart = Date.now()
 
@@ -219,18 +279,30 @@ async function runReactStep(
   //        看不到规则后开始凭空推断,这是真实的生产事故模式。与其提交请求后
   //        祈祷 provider 手下留情,不如本地短路,给用户一条明确的 halt 消息。
   // >98%:  软告警,追加 [CONTEXT NEARLY FULL] 让模型自觉收敛。
+  //
+  // v3.7.3: 优先用上一步 SDK usage.inputTokens (provider 测得精确值,J-SHOULD-3
+  // 类别 B 运行时真相)。缺失(首步 / 某些 provider) → fallback 估算。
   const limit = ctx.providerConfig.context_limit
   if (limit > 0) {
     let estimatedTokens = 0
-    for (const m of messages) {
-      const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-      estimatedTokens += estimate(text)
+    let usingPreciseUsage = false
+    if (ctx.lastInputTokens !== undefined && ctx.lastInputTokens > 0) {
+      // 第二步起:精确值 (减去 ~5% 缓冲 — 本步新增的 user/system message 估算量)
+      estimatedTokens = ctx.lastInputTokens
+      usingPreciseUsage = true
+    } else {
+      for (const m of messages) {
+        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+        estimatedTokens += estimate(text)
+      }
     }
     const usageRatio = estimatedTokens / limit
 
     if (usageRatio >= 1.0) {
       log.error(
-        `[ReactLoop]   context overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%). Halting before submission.`,
+        `[ReactLoop]   context overflow: ${estimatedTokens}/${limit} ` +
+          `(${(usageRatio * 100).toFixed(1)}%, source=${usingPreciseUsage ? 'SDK' : 'estimate'}). ` +
+          `Halting before submission.`,
       )
       const haltText =
         `[auto-halt] Context window exceeded (${estimatedTokens}/${limit} tokens, ${(usageRatio * 100).toFixed(0)}%). ` +
@@ -294,6 +366,13 @@ async function runReactStep(
     parentSessionIdForLedger: null,
   })
 
+  // v3.7.3: turn-end policy 的续做 hint 注入 (优先于 failure-streak hint)。
+  // 单 step 注入一次,runReactLoop 主循环负责单次清空。
+  if (policyHintMessage) {
+    messages.push({ role: 'system', content: policyHintMessage })
+    log.info(`[ReactLoop]   injected turn-end policy hint`)
+  }
+
   if (failureHintMessage) {
     messages.push({ role: 'system', content: failureHintMessage })
     log.info(`[ReactLoop]   injected failure-streak hint`)
@@ -320,6 +399,10 @@ async function runReactStep(
     model: ctx.model,
     messages,
     tools,
+    // v3.7.3: 显式给个大 output 预算 (1M),让 reasoning + 大输出 + tool call 都有空间。
+    // SDK 自动 clamp 到 provider 实际上限。adapter.buildStreamOptions() 可在
+    // ...ctx.streamOptions 中返自定义值覆盖此默认。
+    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     ...ctx.streamOptions,
     abortSignal: buildStreamSignal(ctx.abortSignal),
     onChunk({ chunk }) {
@@ -415,19 +498,119 @@ async function runReactStep(
     const durationMs = Date.now() - stepStart
     const toolNames = stepToolCalls.map((tc) => tc.toolName)
 
-    // v3.7: 无工具调用 + 有文本 → 自然 final (信任 LLM 自然语言结束)。
-    // 不再区分"显式 marker / 隐式问句 / no-marker streak":现代 LLM 不发 marker
-    // 也是合法结束 (问号本身就是信号, "无法做"就是 blocked 语义)。
-    // UI 渲染层用 inferIntent 启发式分类 (Phase B) 决定卡片样式。
+    // v3.7.3 SDK 信号统一拉取 (J-SHOULD-3 一等公民化):
+    //   - finishReason: LLM 自陈,turn-end policy 用
+    //   - usage:        运行时真相,下步 context 预算用 (优于 estimate)
+    //   - warnings:     provider 警告,观测用
+    //   - providerMetadata: Anthropic cache 命中等,日志/未来 dashboard 用
+    // 每项 Promise.resolve 包装 + .catch 兜底 — 容忍 mock 返 undefined / 非 Promise / reject,
+    // 不阻塞主路径。
+    const safeAwait = <T>(v: unknown): Promise<T | undefined> =>
+      Promise.resolve(v as Promise<T> | T | undefined).catch(() => undefined as T | undefined)
+    const [sdkFinishReason, sdkUsage, sdkProviderMetadata, sdkWarnings] = await Promise.all([
+      safeAwait<import('ai').FinishReason>(result.finishReason).then((r) => r ?? 'stop'),
+      safeAwait<{ inputTokens?: number; outputTokens?: number; totalTokens?: number }>(
+        result.usage,
+      ),
+      safeAwait<Record<string, unknown>>(result.providerMetadata),
+      safeAwait<import('ai').CallWarning[]>(result.warnings),
+    ])
+
+    // 更新 ctx.lastInputTokens 供下一步 context 预算 (精确值优于 estimate ~±15%)
+    if (sdkUsage && typeof sdkUsage.inputTokens === 'number') {
+      ctx.lastInputTokens = sdkUsage.inputTokens
+    }
+
+    // Provider 警告日志 (PR 1 仅 log;PR 2/3 可考虑入 Ledger / dashboard)
+    if (sdkWarnings && sdkWarnings.length > 0) {
+      for (const w of sdkWarnings) {
+        const wType =
+          typeof w === 'object' && w !== null && 'type' in w
+            ? String((w as { type?: unknown }).type)
+            : '?'
+        const wMsg =
+          typeof w === 'object' && w !== null && 'message' in w
+            ? String((w as { message?: unknown }).message)
+            : JSON.stringify(w)
+        log.warn(`[ReactLoop]   provider warning [${wType}]: ${wMsg}`)
+      }
+    }
+
+    // Anthropic cache 命中观测 (为 v3.7.4 prompt caching 铺路)
+    const anthroMeta = sdkProviderMetadata?.anthropic as
+      | { cacheReadInputTokens?: number; cacheCreationInputTokens?: number }
+      | undefined
+    if (anthroMeta && (anthroMeta.cacheReadInputTokens || anthroMeta.cacheCreationInputTokens)) {
+      log.info(
+        `[ReactLoop]   cache: read=${anthroMeta.cacheReadInputTokens ?? 0}t ` +
+          `create=${anthroMeta.cacheCreationInputTokens ?? 0}t`,
+      )
+    }
+
+    // v3.7.3: 无 tool call + 有 text → 候选 FINAL,跑 turn-end policy 链决定
+    //         无 tool call + 无 text → empty_text (维持原状,不走 policy)
+    //
+    // 策略链顺序 (default chain):
+    //   P0 SdkFinishReasonPolicy   — 'length'/'content-filter' 直接处理
+    //   P1 ExplicitTerminationBlockPolicy — done/need_input/blocked → final
+    //   P2 PendingContinuationBlockPolicy — pending_continuation → continue
+    //   [P3 JudgeCompletionPolicy   — PR 2 启用]
+    //   P4 LegacyNaturalFinalPolicy — v3.7 兜底 (永远 final)
     if (stepToolCalls.length === 0) {
-      if (stepText) {
-        log.info(
-          `[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms] — natural FINAL`,
-        )
-        log.info(`[ReactLoop]   → persist: assistant(text) [FINAL]`)
-        const finalParts: AssistantContent = []
-        if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
-        finalParts.push({ type: 'text', text: stepText })
+      if (!stepText) {
+        log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
+        persisted = true // 无东西可持久化,finally 不需兜底
+        return {
+          stepText: '',
+          wroteAssistantFinal: false,
+          shouldContinue: false,
+          durationMs,
+          toolNames,
+          exitReason: 'empty_text',
+          signature: '',
+          allToolsFailed: null,
+          containsSubagentFailure: false,
+          finishReason: sdkFinishReason,
+        }
+      }
+
+      log.info(
+        `[ReactLoop]   → text: ${stepText.length} chars (no tools) [${durationMs}ms] ` +
+          `finishReason=${sdkFinishReason} usage=${sdkUsage?.totalTokens ?? '?'}t`,
+      )
+
+      // 构造一个临时 outcome 给 policy 看 (signature/toolNames 等空)
+      const stepOutcome: StepOutcome = {
+        stepText,
+        wroteAssistantFinal: false,
+        shouldContinue: false,
+        durationMs,
+        toolNames,
+        signature: '',
+        allToolsFailed: null,
+        containsSubagentFailure: false,
+      }
+      const policyCtx: PolicyContext = {
+        agent: ctx.agent,
+        sessionId: ctx.sessionId,
+        stepIndex,
+        abortSignal: ctx.abortSignal,
+        sdkSignals: {
+          finishReason: sdkFinishReason,
+          usage: sdkUsage,
+          providerMetadata: sdkProviderMetadata,
+          warnings: sdkWarnings,
+        },
+      }
+      const decision = await runPolicyChain(ctx.turnEndPolicies, stepOutcome, policyCtx)
+
+      // 不管 final / continue 都要持久化 LLM 已经输出的文本 — 用户必须看到
+      const finalParts: AssistantContent = []
+      if (stepReasoning) finalParts.push({ type: 'reasoning', text: stepReasoning })
+      finalParts.push({ type: 'text', text: stepText })
+
+      if (decision.action === 'final') {
+        log.info(`[ReactLoop]   → persist: assistant(text) [FINAL] reason=${decision.exitReason}`)
         messageRepo.create({
           id: ctx.messageId,
           session_id: ctx.sessionId,
@@ -444,24 +627,41 @@ async function runReactStep(
           shouldContinue: false,
           durationMs,
           toolNames,
-          exitReason: 'no_tool_calls',
+          exitReason: decision.exitReason ?? 'no_tool_calls',
           signature: '',
           allToolsFailed: null,
           containsSubagentFailure: false,
+          finishReason: sdkFinishReason,
         }
       }
-      log.info(`[ReactLoop]   → empty (no text, no tools) [${durationMs}ms]`)
-      persisted = true // 无东西可持久化，finally 不需兜底
+
+      // decision.action === 'continue': 持久化为 mid-turn assistant (uuid,不用 ctx.messageId
+      // 保留给真正 FINAL),续 loop,把 injectHint 带回给主循环注入下一步
+      log.info(
+        `[ReactLoop]   → persist: assistant(text) [MID-TURN, continue] reason=${decision.exitReason}`,
+      )
+      messageRepo.create({
+        id: uuidv4(),
+        session_id: ctx.sessionId,
+        role: 'assistant',
+        content: finalParts,
+        agent_id: ctx.agentId,
+      })
+      sessionRepo.touch(ctx.sessionId)
+      ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
+      persisted = true
       return {
-        stepText: '',
+        stepText,
         wroteAssistantFinal: false,
-        shouldContinue: false,
+        shouldContinue: true,
         durationMs,
         toolNames,
-        exitReason: 'empty_text',
+        exitReason: decision.exitReason,
+        injectHint: decision.injectHint,
         signature: '',
         allToolsFailed: null,
         containsSubagentFailure: false,
+        finishReason: sdkFinishReason,
       }
     }
 
@@ -579,6 +779,7 @@ async function runReactStep(
       signature,
       allToolsFailed,
       containsSubagentFailure,
+      finishReason: sdkFinishReason,
     }
   } catch (streamErr) {
     const durationMs = Date.now() - stepStart
@@ -652,6 +853,10 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   log.info(`[ReactLoop] start | session: ${opts.sessionId} | maxSteps: ${maxSteps}`)
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
 
+  // v3.7.3: Turn-end policy 链构造。默认链 = SDK 信号 + 显式 block + 续做 + legacy 兜底。
+  // PR 2 加 JudgeCompletionPolicy;per-agent / per-provider 配置在此处覆盖即可。
+  const turnEndPolicies = buildDefaultChain()
+
   const ctx: StepContext = {
     model: opts.model,
     sessionId: opts.sessionId,
@@ -672,6 +877,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     events: opts.events,
     streamOptions: opts.streamOptions,
     turnStartTime,
+    turnEndPolicies,
   }
 
   const accumulator = new LoopAccumulator()
@@ -692,9 +898,15 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
     new ToolOnlyLoopDetector(),
+    // v3.7.3: 防 pending_continuation 滥用 (LLM 连 3 次声明续做却不动手 → break)
+    new ContinuationChainDetector(),
+    // v3.7.3: 防 'length' 截断死循环 (reasoning 烧 token / inline 大内容 → 连续 length → break)
+    new LengthTruncationStreakDetector(),
   ]
 
   let exitReason: LoopExitReason = 'no_tool_calls'
+  // v3.7.3: 上一步 turn-end policy 的续做 hint,本步一次性注入。
+  let nextPolicyHint: string | null = null
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
@@ -704,7 +916,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
     const hint = composeHint(detectors)
     const { expand, used } = mcpState.flags
-    const outcome = await runReactStep(ctx, step, maxSteps, expand, used, hint)
+    const policyHint = nextPolicyHint
+    nextPolicyHint = null // 单次注入,本步取走即清
+    const outcome = await runReactStep(ctx, step, maxSteps, expand, used, hint, policyHint)
+
+    // 上一步 turn-end policy 决定 'continue' 时携带的 hint → 缓存到下一步
+    if (outcome.injectHint) {
+      nextPolicyHint = outcome.injectHint
+    }
 
     mcpState.update(outcome)
     accumulator.observe(outcome)
@@ -713,7 +932,8 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
     // Detector 顺序遍历 — 第一个 triggered 即 break。
     // raw 仅 SemanticDetector 用 (旧 L1 detector 忽略此参数, 接口向后兼容)。
-    const rawCtx = { stepText: outcome.stepText }
+    // v3.7.3: finishReason 透传给 LengthTruncationStreakDetector 监控连续 'length' 截断。
+    const rawCtx = { stepText: outcome.stepText, finishReason: outcome.finishReason }
     let detectorBroke = false
     for (const detector of detectors) {
       const verdict = detector.observe(facts, accumulator.totalSteps, rawCtx)

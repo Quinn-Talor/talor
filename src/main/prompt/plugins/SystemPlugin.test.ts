@@ -35,63 +35,73 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/10\. Parallel tool calls/)
     expect(content).toMatch(/11\. Always state intent/)
     expect(content).toMatch(/12\. Promise then call/)
-    expect(content).toMatch(/13\. \(Optional\) Mark turn-ending decisions/)
+    expect(content).toMatch(/13\. \(Optional\) Mark turn decisions/)
     expect(content).toMatch(/14\. Declare side effects before invoking/)
   })
 
-  it('原则 12 "Promise then call" 明确"宣布行动必须同步执行"', async () => {
+  it('原则 12 "Promise then call" 列出四种 turn-end 形态 + 两类反模式 (v3.7.3 协议补完)', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    // prompt 有换行 + 缩进排版,断言用空白归一化避免跨行误判
     const norm = content.replace(/\s+/g, ' ')
 
     expect(norm).toContain('12. Promise then call')
-    // 触发:同一 turn 内必须配 tool_call
-    expect(norm).toContain('SAME turn MUST include the actual tool call')
-    // 触发:点名常见意图短语(中英双语,覆盖中文模型场景)
-    expect(norm).toContain('I will create X')
-    expect(norm).toContain('现在创建')
-    // 触发:与 Rule 9 的区分要说清楚
+    // 触发: 强调四种 turn-end 形态显式声明
+    expect(norm).toContain('Every turn ends in ONE of four shapes')
+    // 形态 A: 执行
+    expect(norm).toContain('A. Execute now')
+    // 形态 B: pending_continuation 延后 (v3.7.3 协议补完核心)
+    expect(norm).toContain('B. Defer with explicit handoff')
+    expect(norm).toContain('pending_continuation')
+    expect(norm).toContain('framework recalls this commitment')
+    // 形态 C: 显式终止
+    expect(norm).toContain('C. Declare turn end')
+    // 形态 D: promise-then-stop 反模式
+    expect(norm).toContain('D. ❌ Antipattern')
+    expect(norm).toContain('second-pass review')
+    // 形态 E: block + tool 共存反模式 (v3.7.3 新增)
+    expect(norm).toContain('E. ❌ Antipattern')
+    expect(norm).toContain('emit done/need_input/blocked block AND a tool call')
+    // 触发: 与 Rule 9 的区分
     expect(norm.toLowerCase()).toContain('different from rule 9')
-    // 触发:阻塞时应 ASK 或 REPORT,不应宣布
-    expect(norm).toContain('ASK the user')
-    expect(norm).toContain('REPORT what you found')
-    // v3.7: wait-for-user dual case 简化 —— 没有 marker 要求,只需 "drop the tool calls, end the turn"
-    expect(norm).toContain('do NOT call any tool in the SAME turn')
-    expect(norm).toContain('Truly wait')
-    expect(norm).toContain('Truly proceed')
-    // 触发: pending_confirm 引导(side-effect 工具配 confirm,不是矛盾的"等"+"做")
+    // 触发: Wait-for-user 不能同时调工具
+    expect(norm).toContain('Do NOT call any tool in the SAME turn')
+    // 触发: pending_confirm 引导 (Rule 14 配套)
     expect(norm).toContain('pending_confirm')
-    // 不触发:不应硬编码具体服务名(保持通用)
+    expect(norm).toContain('Rule 14')
+    // 不触发: 不应硬编码具体服务名 (保持通用)
     expect(content).not.toMatch(/MySQL|GitHub|Slack/i)
+    // 不再含旧版 self-discipline 标注 (v3.7.3 升级为主声明 + 兜底)
+    expect(norm).not.toContain('Self-discipline rule: not framework-enforced')
   })
 
-  it('原则 13 "(Optional) Mark turn-ending decisions with talor blocks" 退化为可选 UI 增强', async () => {
+  it('原则 13 列举 4 个可选 block 类型 (含 pending_continuation, v3.7.3)', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     const norm = content.replace(/\s+/g, ' ')
 
-    // v3.7: Rule 13 退化为可选段
-    expect(norm).toContain('13. (Optional) Mark turn-ending decisions with talor blocks')
+    // v3.7.3: Rule 13 标题改为 "Mark turn decisions" (不再限"ending",因 pending_continuation 不终止)
+    expect(norm).toContain('13. (Optional) Mark turn decisions')
     // 触发: 强调 turn end 由"无 tool call"决定,不需要 marker
     expect(norm).toContain('no tool call this step')
-    expect(norm).toContain("don't need any marker")
     // 触发: UI 推断说明
     expect(norm).toContain('UI will infer your intent')
-    expect(norm).toContain('need_input card')
-    expect(norm).toContain('blocked card')
-    expect(norm).toContain('done card')
-    // 触发: 可选用法 — fenced talor block 仍可主动 emit
+    // 触发: 4 个可选 block 类型都在
     expect(content).toMatch(/```talor/)
     expect(content).toMatch(/"type":"done"/)
     expect(content).toMatch(/"type":"need_input"/)
     expect(content).toMatch(/"type":"blocked"/)
-    // v3.7.1: 删除 "type FIRST key" 反 JSON 惯例约束 — streaming detector 已改位置无关
+    expect(content).toMatch(/"type":"pending_continuation"/)
+    // 触发: block-to-action 映射表 (v3.7.3 新增)
+    expect(norm).toContain('Block-to-action mapping')
+    expect(norm).toContain('framework continues')
+    // v3.7.1: 删除 "type FIRST key" 反 JSON 惯例约束
     expect(norm).not.toContain('FIRST key')
-    // 触发: Rule 14 引用 (mid-turn pending_confirm)
+    // 触发: Rule 12/14 交叉引用
+    expect(norm).toContain('Rule 12')
     expect(norm).toContain('Rule 14')
-    // 触发: 整体定位 "nice-to-have, not required"
-    expect(norm).toContain('nice-to-have')
+    // 触发: pending_continuation 推荐使用 (避免昂贵 second-pass)
+    expect(norm).toContain('pending_continuation')
+    expect(norm).toContain('RECOMMENDED')
   })
 
   it('原则 14 "Declare side effects before invoking" 定义 pending_confirm 契约', async () => {

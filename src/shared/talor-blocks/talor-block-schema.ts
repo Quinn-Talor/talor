@@ -106,6 +106,30 @@ export interface WarningBlock {
 }
 
 /**
+ * 续做声明 (v3.7.3) — LLM 完成了一部分但承诺下一步还有动作,框架据此续 loop。
+ *
+ * 设计:零必填字段。`type` 本身就是全部语义信号。
+ *
+ * 为什么不要 next_action 字段:
+ *   - LLM emit 此 block 之前的 text 已经说了"现在写入文档:"——这是单一事实源
+ *   - 强制 next_action 是字面重复,LLM 配合阻力↑,paraphrase 漂移风险↑
+ *   - 续做 hint 直接引用前文 ("look back at your last response"),不需 LLM 二次表达
+ *
+ * 与 Principle 12 "Promise then call" 配对,四种 turn-end 形态:
+ *   A. 执行    — 同 turn 调 tool (不需要本 block)
+ *   B. 延后    — emit pending_continuation,系统续做
+ *   C. 结束    — emit done/need_input/blocked
+ *   D. ❌      — 说要做但没动手也没 block — JudgePolicy 二审兜底
+ *
+ * 防滥用:连续 3 次 emit pending_continuation 而不调工具 → ContinuationChainDetector 强制 break。
+ */
+export interface PendingContinuationBlock {
+  type: 'pending_continuation'
+  /** 选填: 为什么 turn 在这里断 (UI 显示 + 日志 reviewer 用,框架不消费做决策) */
+  reason?: string
+}
+
+/**
  * 实施计划 — V2 预留,V1 不消费。
  */
 export interface PlanBlock {
@@ -130,6 +154,7 @@ export type TalorBlock =
   | BlockedBlock
   | PendingConfirmBlock
   | WarningBlock
+  | PendingContinuationBlock
   | PlanBlock
 
 export type TalorBlockType = TalorBlock['type']
@@ -141,4 +166,5 @@ export const V1_BLOCK_TYPES = [
   'blocked',
   'pending_confirm',
   'warning',
+  'pending_continuation',
 ] as const satisfies readonly TalorBlockType[]
