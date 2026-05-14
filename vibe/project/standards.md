@@ -448,7 +448,8 @@ Skill 内容例外：加 `trust="skill-content"`。
 
 **判别速记**: 系统能用 runtime 真相数据(tool output / fs / memory)验证的事 → 代码强制;系统只能用 regex 猜测意图的事 → 信任 LLM。
 
-- 依据: [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 依据(canonical): [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 持续清理: [docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md)(删 A2/B2 残留 + RiskGate 路径统一)
 - 前置: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
 - → `patterns.md` §P13
 

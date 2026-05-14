@@ -37,7 +37,6 @@ import { messageRepo } from '../repos/session-repo'
 import type { ChatMessage, sessionRepo as SessionRepoT } from '../repos/session-repo'
 import { ExecutionEventBus } from '../chat/events'
 import { SkillActivationTracker } from '../skills/registry'
-import { extractEntities, extractEntitySet } from './entity-extractor'
 
 import type { LanguageModel } from 'ai'
 import type { Provider } from '../store/config-store'
@@ -127,14 +126,11 @@ const HINTS: Record<string, string> = {
     'Subagent profile depends on an MCP server that failed to start. Check MCP server config.',
   SUBAGENT_MAX_STEPS:
     'Subagent reached maxSteps without producing a final answer. Increase maxSteps or simplify the task.',
-  INSTRUCTION_OUT_OF_SCOPE:
-    'The instruction references entities the subagent profile does not cover. Pick a different agent or rephrase.',
+  // v3.7.2: INSTRUCTION_OUT_OF_SCOPE / SUBAGENT_OFF_TARGET 已删除 (A2/B2 移除)。
   DELEGATION_BUDGET_EXHAUSTED:
     'This subagent has already been invoked the maximum number of times in this session. Try a different approach or agent.',
   SUBAGENT_RECOVERY:
     'Subagent entered failure-recovery mode (3+ consecutive tool failures). Treat as failure; investigate sub-session for details.',
-  SUBAGENT_OFF_TARGET:
-    'Subagent output does not mention any entity from the instruction. Output likely drifted to an unrelated subject.',
 }
 
 function makeEnvelope(
@@ -259,18 +255,9 @@ export function createDelegateAgentTool(
         }
       }
 
-      // ─ Step 1d (A2): 兼容性前置检查 ─
-      const compat = checkInstructionCompatibility(instruction, agent.profile)
-      if (!compat.compatible) {
-        log.info(`[DelegateAgent] scope-mismatch: agent=${agent_id} reason=${compat.reason}`)
-        return {
-          output: makeEnvelope('INSTRUCTION_OUT_OF_SCOPE', {
-            message: compat.reason,
-            instruction_entities: compat.instructionEntities,
-            profile_entities: compat.profileEntities,
-          }),
-        }
-      }
+      // v3.7.2: A2 instruction-scope check 已删除 —— regex 实体匹配做语义判断是
+      // "系统抢 LLM 活"反模式 (见 J-SHOULD-2)。父 agent 通过 A1 capability listing
+      // 自行判断该委托给哪个 agent;capability 不匹配时父 agent (LLM) 会自然不选。
 
       // ─ Step 2: limiter + 排队超时 race ─
       const limit = getLimiter(ctx.sessionId, runtime.config.maxConcurrencyPerSession)
@@ -406,145 +393,10 @@ function extractFirstSection(agentPrompt: string): string {
     .trim()
 }
 
-// ─── A2: 兼容性检查 ─────────────────────────────────────────────────
-
-interface CompatibilityResult {
-  compatible: boolean
-  reason: string
-  instructionEntities: string[]
-  profileEntities: string[]
-}
-
-/**
- * 判断一个抽取出的实体字符串是否"高置信具体"。
- *
- * 设计动机（specificity filter）：实体抽取器重叠滑窗会产出大量低置信短候选
- * （"股写" / "为百" / 单个 2 字中文等）。如果直接拿这些候选做 A2 拒绝判定,
- * 会把通用 agent（如 "为A股写诗"）误判为有"具体实体绑定",导致与
- * "为TSLA写诗" 这类 instruction 不匹配 → REJECT,父 agent 退缩。
- *
- * 高置信具体实体定义：
- *   - 中文 ≥ 3 字（"中际旭创" / "百度公司" 等真实命名实体长度区间）
- *   - 拉丁字母 ≥ 4 位 ticker（"BIDU" / "TSLA" / "NVDA"；2-3 位太多缩写假阳）
- *   - 任意 stock-code（6 位数字 + 交易所后缀,几乎不会假阳）
- *   - 任意 path（/x/y/z）
- */
-function isSpecificEntity(text: string): boolean {
-  if (!text) return false
-  // 中文 ≥3 字
-  if (/^[一-龥]{3,}$/.test(text)) return true
-  // 含拉丁: ticker (≥4 字) 或 stock-code 或 path
-  if (/^[A-Z]{4,}(?:\.[A-Z]{2})?$/.test(text)) return true
-  if (/^\d{6}\.[A-Z]{2}$/.test(text)) return true
-  if (/^\//.test(text)) return true
-  return false
-}
-
-/**
- * 检查 instruction 中的实体与 agent profile 是否有交集。
- *
- * 判定逻辑（保守 — 倾向放行）：
- *   1. instruction **高置信具体实体** 集合为空 → PASS（不强制要求）
- *   2. profile **高置信具体实体** 集合为空（通用 agent）→ PASS（无具体偏向,可处理任何输入）
- *   3. 双方均有具体实体, 且 instruction 实体在 profile 文本中无子串
- *      AND profile 实体在 instruction 文本中也无子串 → REJECT
- *   4. 否则 → PASS
- *
- * specificity filter（缺环 2）：仅"高置信具体"实体参与拒绝判定。
- * 抽取器返回的低置信短碎片（2 字中文 / 2-3 字 ticker / 滑窗内部纯字符组合）
- * 不参与, 否则会让通用 agent 被错误标记为"具有 specific 绑定"。
- */
-export function checkInstructionCompatibility(
-  instruction: string,
-  profile: import('@shared/types/agent').AgentProfile,
-): CompatibilityResult {
-  const profileText = collectProfileEntityText(profile)
-  const allIEntities = extractEntitySet(instruction)
-  const allPEntities = extractEntitySet(profileText)
-
-  // specificity filter: 仅高置信具体实体参与拒绝判定
-  const iSpecific = [...allIEntities].filter(isSpecificEntity)
-  const pSpecific = [...allPEntities].filter(isSpecificEntity)
-
-  if (iSpecific.length === 0 || pSpecific.length === 0) {
-    return {
-      compatible: true,
-      reason:
-        iSpecific.length === 0
-          ? 'instruction has no high-confidence specific entity'
-          : 'profile has no high-confidence specific entity (treated as generic)',
-      instructionEntities: iSpecific,
-      profileEntities: pSpecific,
-    }
-  }
-
-  // 双向 ALL-entity 子串匹配：
-  //   - 拒绝判定基于 specific 集合 (避免低置信噪声触发误判)
-  //   - 但 PASS 通道使用 ALL 实体集合做反向子串覆盖, 让 2 字 profile entity 能"接住"
-  //     3 字 instruction entity (如 instruction 含 "搜索百度"<=specific>, profile 提及
-  //     "百度"<=2字 in allPEntities>; "搜索百度".includes("百度") 应触发 PASS)。
-  for (const ie of iSpecific) {
-    if (profileText.includes(ie)) {
-      return {
-        compatible: true,
-        reason: `instruction entity "${ie}" found in profile text`,
-        instructionEntities: iSpecific,
-        profileEntities: pSpecific,
-      }
-    }
-    for (const pe of allPEntities) {
-      if (ie.includes(pe) && pe.length >= 2) {
-        return {
-          compatible: true,
-          reason: `profile entity "${pe}" is substring of instruction entity "${ie}"`,
-          instructionEntities: iSpecific,
-          profileEntities: pSpecific,
-        }
-      }
-    }
-  }
-  for (const pe of pSpecific) {
-    if (instruction.includes(pe)) {
-      return {
-        compatible: true,
-        reason: `profile entity "${pe}" found in instruction`,
-        instructionEntities: iSpecific,
-        profileEntities: pSpecific,
-      }
-    }
-    for (const ie of allIEntities) {
-      if (pe.includes(ie) && ie.length >= 2) {
-        return {
-          compatible: true,
-          reason: `instruction entity "${ie}" is substring of profile entity "${pe}"`,
-          instructionEntities: iSpecific,
-          profileEntities: pSpecific,
-        }
-      }
-    }
-  }
-
-  return {
-    compatible: false,
-    reason: `instruction references entities [${iSpecific.join(', ')}] but profile is bound to entities [${pSpecific.join(', ')}]; no overlap.`,
-    instructionEntities: iSpecific,
-    profileEntities: pSpecific,
-  }
-}
-
-function collectProfileEntityText(profile: import('@shared/types/agent').AgentProfile): string {
-  // v2.0: flat fields — name, description, agentPrompt
-  const parts: string[] = [
-    profile?.name ?? '',
-    profile?.description ?? '',
-    profile?.agentPrompt ?? '',
-  ]
-  // references may contain descriptions
-  for (const r of profile?.references ?? []) {
-    if (r?.description) parts.push(r.description)
-  }
-  return parts.filter(Boolean).join('\n')
-}
+// v3.7.2: A2 / B2 helpers (checkInstructionCompatibility / isSpecificEntity /
+// collectProfileEntityText / checkOffTarget) 已删除 — 用 regex 抽实体做语义判断
+// 是 J-SHOULD-2 反模式 "系统抢 LLM 活"。父 agent 通过 A1 capability listing 自行
+// 判断该委托给哪个 agent;子 agent 输出由父 agent 自然语言判断是否完成 instruction。
 
 // ─── 单次委托执行（限流后） ───────────────────────────────────────────
 
@@ -650,23 +502,9 @@ async function runDelegation(
         }
       }
 
-      // B2: instruction 实体硬绑定 — 子最终输出必须提及任一实体
-      const offTarget = checkOffTarget(instruction, lastAssistant.text)
-      if (offTarget) {
-        runtime.sessionRepo.updateStatus(childSession.id, 'completed')
-        log.warn(
-          `[DelegateAgent] off-target detected agent=${agent.id} session=${childSession.id} ` +
-            `expected=[${offTarget.expected.join(',')}]`,
-        )
-        return {
-          output: makeEnvelope('SUBAGENT_OFF_TARGET', {
-            message: `Subagent output does not mention any instruction entity (expected one of: ${offTarget.expected.join(', ')}).`,
-            expected_entities: offTarget.expected,
-            last_text: lastAssistant.text,
-            child_session_id: childSession.id,
-          }),
-        }
-      }
+      // v3.7.2: B2 entity-binding check 已删除 —— regex 实体匹配判"子 agent 是否答对"
+      // 是 "系统抢 LLM 活"反模式 (见 J-SHOULD-2)。父 agent 看到子输出后自己判断是否
+      // 完成 instruction;假阳 (同义词/翻译/上下文相关称呼) 反而误伤合理输出。
 
       runtime.sessionRepo.updateStatus(childSession.id, 'completed')
       log.info(
@@ -835,44 +673,7 @@ function detectRecoveryMarker(text: string): { marker: string; cleanedText: stri
   return null
 }
 
-// ─── B2: 实体偏离检测 ─────────────────────────────────────────────
-
-/**
- * 判断子 agent 输出是否漂离了 instruction 指向的实体。
- *
- * 仅在"高置信实体存在"时启用,避免对 translation 等跨语言任务误伤：
- *   - ticker / stock-code / path：始终视为锚点
- *   - cn-name：仅当长度 ≥ 3 AND 输出含中文字符时视为锚点
- *     (输出为纯外语时可能是 translation 任务,跳过 cn-name 检查)
- *
- * 命中任一锚点的子串即 PASS；全部不命中才返回 expected 列表用于失败信封。
- */
-function checkOffTarget(instruction: string, finalText: string): { expected: string[] } | null {
-  const iEntities = extractEntities(instruction)
-  if (iEntities.length === 0) return null
-
-  const outputHasChinese = /[一-龥]/.test(finalText)
-  const anchors: string[] = []
-  for (const e of iEntities) {
-    if (e.category === 'ticker' || e.category === 'stock-code' || e.category === 'path') {
-      anchors.push(e.text)
-    } else if (e.category === 'cn-name' && e.text.length >= 3 && outputHasChinese) {
-      anchors.push(e.text)
-    }
-  }
-  if (anchors.length === 0) return null
-
-  // 双向子串匹配：anchor 出现在输出，或输出的任一实体是 anchor 的子串。
-  // 后者覆盖 instruction 抽取出 3-char "为百度" 但输出含 2-char "百度" 的场景。
-  const outputEntityTexts = extractEntities(finalText).map((e) => e.text)
-  const hit = anchors.some((a) => {
-    if (finalText.includes(a)) return true
-    if (outputEntityTexts.some((o) => a.includes(o))) return true
-    return false
-  })
-  if (hit) return null
-  return { expected: anchors }
-}
+// v3.7.2: B2 checkOffTarget 删除 — 见 J-SHOULD-2 反模式。
 
 // ─── 错误分类 ─────────────────────────────────────────────────────────
 

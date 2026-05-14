@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractEntities, extractEntitySet, redactEntities } from './entity-extractor'
+import { extractEntities, redactEntities } from './entity-extractor'
 
 describe('extractEntities', () => {
   describe('Chinese names', () => {
@@ -110,14 +110,7 @@ describe('extractEntities', () => {
   })
 })
 
-describe('extractEntitySet', () => {
-  it('returns a Set of entity texts', () => {
-    const s = extractEntitySet('百度 BIDU 中际旭创')
-    expect(s.has('百度')).toBe(true)
-    expect(s.has('BIDU')).toBe(true)
-    expect(s.has('中际旭创')).toBe(true)
-  })
-})
+// v3.7.2: extractEntitySet 测试组删除 — function 已删除
 
 describe('redactEntities', () => {
   it('replaces Chinese names with <COMPANY_*> placeholders', () => {

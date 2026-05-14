@@ -387,13 +387,8 @@ export function extractEntities(text: string): ExtractedEntity[] {
   return out
 }
 
-/**
- * extractEntities 的去重 set 版本（仅 text，丢失 category）。
- * 用于 A2/C2 类匹配场景（只关心字符串是否存在）。
- */
-export function extractEntitySet(text: string): Set<string> {
-  return new Set(extractEntities(text).map((e) => e.text))
-}
+// v3.7.2: extractEntitySet 已删除 — 仅 delegate_agent A2/B2 使用,A2/B2 已删
+// (J-SHOULD-2 反模式)。extractEntities 仍保留供 redactEntities 内部使用。
 
 /**
  * 把文本中的实体替换为类别占位符。同 text 复用同一占位符。

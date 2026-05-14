@@ -101,7 +101,6 @@ function isSubagentFailureOutput(output: unknown): boolean {
   return (
     code.startsWith('SUBAGENT_') ||
     code === 'DELEGATION_BUDGET_EXHAUSTED' ||
-    code === 'INSTRUCTION_OUT_OF_SCOPE' ||
     code === 'DELEGATION_QUEUE_TIMEOUT'
   )
 }

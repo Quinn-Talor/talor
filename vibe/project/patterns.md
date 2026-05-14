@@ -974,20 +974,24 @@ v3.6 在这两个反模式上都踩过(`forced-closure` + `WaitAndAct` + `"type 
 
 ### 历史移除清单(对比 v3.6)
 
-| 移除项                                                 | 原因(反模式)                           |
-| ------------------------------------------------------ | -------------------------------------- |
-| `no-marker-streak` detector + `forced-closure` summary | 系统判 LLM "该终止" + 强制纠正灾难     |
-| `WaitAndActConflict` + `HallucinatedConfirm` detector  | 系统用 regex 判 LLM 意图 + 不强制      |
-| Rule 13 中 "type FIRST key" 约束                       | 系统侧 streaming 便利压给 LLM          |
-| `OutcomeFacts` 中 10+ LLM 输出衍生字段                 | 系统为 LLM 输出派生供后续判断的字段    |
-| Rule 13 / Rule 12 强制 talor block 教学                | Prompt 教模型严格 schema 但代码不强制  |
-| `PENDING_MARKER_HINT` / `STRONG_MARKER_HINT` 注入      | Detector 注入 hint 教 LLM "你刚才错了" |
+| 移除项                                                 | 版本   | 原因(反模式)                              |
+| ------------------------------------------------------ | ------ | ----------------------------------------- |
+| `no-marker-streak` detector + `forced-closure` summary | v3.7   | 系统判 LLM "该终止" + 强制纠正灾难        |
+| `WaitAndActConflict` + `HallucinatedConfirm` detector  | v3.7.1 | 系统用 regex 判 LLM 意图 + 不强制         |
+| Rule 13 中 "type FIRST key" 约束                       | v3.7.1 | 系统侧 streaming 便利压给 LLM             |
+| `OutcomeFacts` 中 10+ LLM 输出衍生字段                 | v3.7.1 | 系统为 LLM 输出派生供后续判断的字段       |
+| Rule 13 / Rule 12 强制 talor block 教学                | v3.7   | Prompt 教模型严格 schema 但代码不强制     |
+| `PENDING_MARKER_HINT` / `STRONG_MARKER_HINT` 注入      | v3.7   | Detector 注入 hint 教 LLM "你刚才错了"    |
+| `delegate_agent: checkInstructionCompatibility` (A2)   | v3.7.2 | 同 WaitAndAct (regex 实体匹配判 LLM 意图) |
+| `delegate_agent: checkOffTarget` (B2)                  | v3.7.2 | 同上,判子 agent "输出是否答对了"          |
+| `RiskGate: pass-to-legacy` + buildTools 嵌入 confirm   | v3.7.2 | 两套路径不统一 (HIGH static 路径独立)     |
 
 ### 参考实现
 
-- 协作模型文档: [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 协作模型文档 (canonical): [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 持续清理: [docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md)(删 delegate A2/B2 + RiskGate 路径统一)
 - 前置 v3.7: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
-- 维度 A 代表: `src/main/loop/detectors/signature-dead-loop.ts`、`src/main/tools/risk-gate.ts`
+- 维度 A 代表: `src/main/loop/detectors/signature-dead-loop.ts`、`src/main/tools/risk-gate.ts`(v3.7.2 路径统一)
 - 维度 B 启发式 (仅 UI): `src/shared/ui-rendering/intent-classifier.ts`、`src/shared/ui-rendering/text-heuristics.ts`
 - UI 渲染分发: `src/renderer/components/MessageBubble.tsx`(显式 talor block > InferredIntentCard > 普通 markdown)
 

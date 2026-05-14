@@ -86,15 +86,18 @@ CREATE TABLE IF NOT EXISTS account_keys (
 `
 
 /**
- * side_effect_log — v3.6 Talor Block 协议: 记录所有"副作用"工具调用 (写 DB /
- * 写文件 / 调外部 API 等)。供 forced summary 内嵌摘要 + UI 审计 + 用户回滚参考。
+ * side_effect_log — v3.6+ 副作用审计 (写 DB / 写文件 / 调外部 API 等)。
+ * 供 forced summary 内嵌摘要 + UI 审计 + 用户回滚参考。
  *
  * 设计要点:
  *   - parent_session_id: 子 session 副作用归属父 (root_session) 聚合查询
- *   - confirmed_by: 'pendingBlock' (LLM 主动 emit pending_confirm) /
- *                   'fallback' (代码 regex 兜底拦截) /
- *                   'memory' (session approval memory 自动通过) /
- *                   'auto-low' (无风险信号,直接执行)
+ *   - confirmed_by:
+ *       'pendingBlock' — LLM 主动 emit pending_confirm,用户 confirm
+ *       'fallback'     — 代码 regex 兜底拦截危险关键字,用户 confirm
+ *       'memory'       — SessionApprovalMemory pattern 自动通过
+ *       'auto-low'     — 无风险信号,直接执行(理论上不进 ledger,保留枚举兜底)
+ *       'high-static'  — v3.7.2: HIGH 静态工具 (bash/write/edit),系统生成 summary,用户 confirm
+ *                        (替代旧 'legacy' / pass-to-legacy 路径)
  *   - user_decision: 'approved' / 'denied' / 'auto' (auto = pattern memory / auto-low)
  *
  * 删除联动: session 删除时 FOREIGN KEY CASCADE 自动清理 entry。
@@ -110,7 +113,7 @@ CREATE TABLE IF NOT EXISTS side_effect_log (
   op                  TEXT NOT NULL,
   target              TEXT NOT NULL,
   preview             TEXT NOT NULL,
-  confirmed_by        TEXT NOT NULL CHECK(confirmed_by IN ('pendingBlock','fallback','memory','auto-low')),
+  confirmed_by        TEXT NOT NULL CHECK(confirmed_by IN ('pendingBlock','fallback','memory','auto-low','high-static')),
   user_decision       TEXT NOT NULL CHECK(user_decision IN ('approved','denied','auto')),
   created_at          TEXT NOT NULL,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -156,6 +159,10 @@ export function initChatDb(): Database.Database {
   db.exec(CREATE_MCP_SERVERS)
   db.exec(CREATE_SESSION_SUMMARIES)
   db.exec(CREATE_ACCOUNT_KEYS)
+  // v3.7.2: CHECK 约束 schema 变化时直接 DROP + 重建。
+  // SQLite 不支持 ALTER TABLE 改 CHECK,只能 drop;按项目策略 (不保留历史数据)。
+  recreateSideEffectLogIfOutdated(db)
+
   db.exec(CREATE_SIDE_EFFECT_LOG)
   db.exec(CREATE_SIDE_EFFECT_INDEXES)
 
@@ -227,6 +234,27 @@ export function recreateSessionsIfOutdated(db: Database.Database): void {
   )
   db.exec('DROP TABLE IF EXISTS messages;')
   db.exec('DROP TABLE IF EXISTS sessions;')
+}
+
+/**
+ * v3.7.2: side_effect_log CHECK 约束 schema-drift 检测 + DROP 重建。
+ *
+ * SQLite 的 CHECK 约束无法 ALTER,且我们不保留 ledger 历史(开发期数据可丢)。
+ * 启动时读 sqlite_master.sql 拿当前表定义,若 CHECK 列表不含最新枚举值
+ * (current canonical: 'high-static' 是 v3.7.2 加的),DROP 重建。
+ */
+function recreateSideEffectLogIfOutdated(db: Database.Database): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='side_effect_log'")
+    .get() as { sql?: string } | undefined
+  if (!row || !row.sql) return // 全新 DB,后续 CREATE 走默认路径
+  // canonical 枚举集:v3.7.2 必须含 high-static
+  if (row.sql.includes("'high-static'")) return // schema 已是最新
+  log.info(
+    "[ChatDB] side_effect_log CHECK constraint outdated (missing 'high-static'). " +
+      'Dropping and recreating (old ledger entries discarded).',
+  )
+  db.exec('DROP TABLE IF EXISTS side_effect_log;')
 }
 
 /** 返回缺失列名数组；表不存在返 null（区分"表不存在"vs"表存在但缺列"）。 */

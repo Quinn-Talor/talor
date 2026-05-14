@@ -44,14 +44,123 @@ describe('RiskGate.gate', () => {
     gate = new RiskGate(memory, ledger)
   })
 
-  describe('路径 1: 静态 HIGH riskLevel → pass-to-legacy', () => {
-    it('bash 工具 (HIGH) → pass-to-legacy, 不弹 confirm', async () => {
-      const tool = makeTool({ name: 'bash', riskLevel: 'HIGH' })
-      const confirmTool = vi.fn()
+  describe('路径 1 (v3.7.2): 静态 HIGH riskLevel → high-static', () => {
+    it('bash 工具 (HIGH) + 有效 command → confirm + pass', async () => {
+      const tool = makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+      const confirmTool = vi.fn().mockResolvedValue({ approved: true })
+      const decision = await gate.gate(tool, { command: 'echo hi' }, makeCtx(), confirmTool)
+      expect(decision.action).toBe('pass')
+      expect(decision.via).toBe('high-static')
+      expect(confirmTool).toHaveBeenCalledTimes(1)
+      const req = confirmTool.mock.calls[0][0] as ToolConfirmRequest
+      expect(req.preview).toContain('echo hi')
+      expect(req.allowRemember).toBe(false)
+    })
+
+    it('bash 工具 + 用户 deny → deny + via=high-static', async () => {
+      const tool = makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+      const confirmTool = vi.fn().mockResolvedValue({ approved: false })
       const decision = await gate.gate(tool, { command: 'rm -rf /' }, makeCtx(), confirmTool)
-      expect(decision.action).toBe('pass-to-legacy')
-      expect(decision.via).toBe('legacy')
+      expect(decision.action).toBe('deny')
+      expect(decision.via).toBe('high-static')
+    })
+
+    it('bash 工具 + 缺 command 字段 → deny + 诊断 summary', async () => {
+      const tool = makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+      const confirmTool = vi.fn()
+      const decision = await gate.gate(tool, {}, makeCtx(), confirmTool)
+      expect(decision.action).toBe('deny')
+      expect(decision.via).toBe('high-static')
+      expect(decision.summary).toContain('command') // 诊断提到缺失字段
       expect(confirmTool).not.toHaveBeenCalled()
+    })
+
+    it('write 工具 (HIGH) → preview 包含 path + content', async () => {
+      const tool = makeTool({
+        name: 'write',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { path: { type: 'string' }, content: { type: 'string' } },
+          required: ['path', 'content'],
+        },
+      })
+      const confirmTool = vi.fn().mockResolvedValue({ approved: true })
+      await gate.gate(tool, { path: '/tmp/x.txt', content: 'hello\nworld' }, makeCtx(), confirmTool)
+      const req = confirmTool.mock.calls[0][0] as ToolConfirmRequest
+      expect(req.preview).toContain('/tmp/x.txt')
+      expect(req.preview).toContain('hello')
+    })
+
+    it('HIGH static 通过后 → ledger 记 high-static', async () => {
+      const tool = makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+      const confirmTool = vi.fn().mockResolvedValue({ approved: true })
+      await gate.gate(tool, { command: 'echo hi' }, makeCtx(), confirmTool)
+      expect(ledgerRecordSpy).toHaveBeenCalledTimes(1)
+      const entry = ledgerRecordSpy.mock.calls[0][0]
+      expect(entry.confirmed_by).toBe('high-static')
+      expect(entry.user_decision).toBe('approved')
+    })
+
+    it('HIGH static deny → ledger 记 user_decision=denied', async () => {
+      const tool = makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+      const confirmTool = vi.fn().mockResolvedValue({ approved: false })
+      await gate.gate(tool, { command: 'rm -rf /' }, makeCtx(), confirmTool)
+      expect(ledgerRecordSpy.mock.calls[0][0].user_decision).toBe('denied')
+    })
+
+    it('HIGH static 缺字段不弹 confirm 也不记账', async () => {
+      const tool = makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+      await gate.gate(tool, {}, makeCtx(), vi.fn())
+      expect(ledgerRecordSpy).not.toHaveBeenCalled()
     })
   })
 
@@ -268,11 +377,7 @@ describe('RiskGate.gate', () => {
       expect(ledgerRecordSpy).not.toHaveBeenCalled()
     })
 
-    it('pass-to-legacy → 不记账 (legacy 路径自有 confirm/记账)', async () => {
-      const tool = makeTool({ name: 'bash', riskLevel: 'HIGH' })
-      await gate.gate(tool, { command: 'echo hi' }, makeCtx(), vi.fn())
-      expect(ledgerRecordSpy).not.toHaveBeenCalled()
-    })
+    // v3.7.2: pass-to-legacy 路径已删 (并入 high-static) — 见上方"路径 1" describe
 
     it('record 抛错不阻塞 gate (failsafe)', async () => {
       ledgerRecordSpy.mockImplementation(() => {
