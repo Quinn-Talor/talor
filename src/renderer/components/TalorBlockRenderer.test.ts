@@ -114,16 +114,15 @@ describe('splitMessageWithTalorBlocks', () => {
     }
   })
 
-  it('pending_confirm + risk_level=destructive', () => {
+  // v4 Phase 4b: pending_confirm block 退役 (替代为 tool needsApproval),
+  // 老 session 含此 block → parser 归入 invalid → 渲染为 InvalidTalorBlockCard
+  it('legacy pending_confirm block (deprecated) → invalid segment', () => {
     const text =
       '```talor\n' +
       '{"type":"pending_confirm","summary":"DROP TABLE","risk_level":"destructive"}\n' +
       '```'
     const segs = splitMessageWithTalorBlocks(text)
-    const blk = segs.find((s) => s.type === 'talor')?.block
-    expect(blk?.type).toBe('pending_confirm')
-    if (blk?.type === 'pending_confirm') {
-      expect(blk.risk_level).toBe('destructive')
-    }
+    const invalidSeg = segs.find((s) => s.type === 'invalid-talor')
+    expect(invalidSeg).toBeDefined()
   })
 })

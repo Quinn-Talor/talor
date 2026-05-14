@@ -65,34 +65,9 @@ export interface BlockedBlock {
   retry_hint?: string
 }
 
-/**
- * 高危操作确认 — 即将执行副作用操作,等用户批准。
- *
- * 用法: 作为 step text 末尾 block,同 step 紧接着调要执行的工具。
- * Risk Gate 检测到此 block 后弹 confirmTool 让用户决定。
- */
-export interface PendingConfirmBlock {
-  type: 'pending_confirm'
-  /** 必填: 一句话操作描述 (给用户的 UI 看) */
-  summary: string
-  /**
-   * 选填: approval memory key, 用于 session-level 自动批准。
-   * 建议格式: <tool>:<op>:<target>
-   *   - 'sql:INSERT:game.rule_param_config'
-   *   - 'bash:rm:/tmp'
-   *   - 'mcp:lark:doc_create:/workspace'
-   * 缺时框架用 summary 自身作 key (精确但不可宽匹配)。
-   */
-  pattern?: string
-  /** 选填: 详细预览 (如完整 SQL), UI 折叠展示 */
-  preview?: string
-  /**
-   * 选填: 风险级别。默认 'high'。
-   * - 'high': 走 confirm,可 remember
-   * - 'destructive': 走 confirm,但不允许 remember (强制每次都问)
-   */
-  risk_level?: 'high' | 'destructive'
-}
+// v4 Phase 4b 删除: PendingConfirmBlock。替代方案: SDK tool({ needsApproval })。
+// LLM 不再 emit fenced JSON 声明副作用 — 直接调工具,系统通过 needsApproval 函数读取
+// 工具 input + 历史 messages 决定是否需要审批。
 
 /**
  * 警告 — 中途提醒用户关注重要信息,不终止 turn。
@@ -105,19 +80,7 @@ export interface WarningBlock {
   severity?: 'low' | 'medium' | 'high'
 }
 
-/**
- * @deprecated v4 Phase 4a: 删除。改用 `request_continuation` virtual tool。
- *
- * 历史:v3.7.3 引入用于表达"延后执行"。v4 SDK-native 改造发现:LLM 调用
- * virtual tool 即可让 SDK 自然续 loop,无需 fenced JSON 协议。
- *
- * 老 session history 仍可能含此 block — parser 将其归入 invalid 列表,UI 不渲染。
- * Type 保留为 never-emit 以便兼容旧 session 反序列化(不破坏 history)。
- */
-export interface PendingContinuationBlock {
-  type: 'pending_continuation'
-  reason?: string
-}
+// v4 Phase 4a 删除: PendingContinuationBlock。替代方案: request_continuation virtual tool。
 
 /**
  * 实施计划 — V2 预留,V1 不消费。
@@ -138,26 +101,18 @@ export interface PlanBlock {
  *     }
  *   }
  */
-export type TalorBlock =
-  | DoneBlock
-  | NeedInputBlock
-  | BlockedBlock
-  | PendingConfirmBlock
-  | WarningBlock
-  | PendingContinuationBlock
-  | PlanBlock
+export type TalorBlock = DoneBlock | NeedInputBlock | BlockedBlock | WarningBlock | PlanBlock
 
 export type TalorBlockType = TalorBlock['type']
 
-/** V1 框架处理的 block 类型 (plan 暂留 V2)。
+/** V1 框架处理的 block 类型。
  *
- * v4 Phase 4a 删除 'pending_continuation' (用 request_continuation virtual tool 替代)。
- * Phase 4b (待 Phase 2 完成) 将删除 'pending_confirm' (用 tool({ needsApproval }) 替代)。
+ * v4 协议瘦身后:仅 4 个 UI 装饰类 block + plan(V2)。
+ * 系统消费 block 数:0(全部协议行为改用 SDK tool({ needsApproval }) + request_continuation)
  */
 export const V1_BLOCK_TYPES = [
   'done',
   'need_input',
   'blocked',
-  'pending_confirm',
   'warning',
 ] as const satisfies readonly TalorBlockType[]

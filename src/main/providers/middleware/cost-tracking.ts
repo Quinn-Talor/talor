@@ -14,9 +14,9 @@ import log from 'electron-log'
 import type { LanguageModelMiddleware } from 'ai'
 
 export const costTrackingMiddleware: LanguageModelMiddleware = {
-  middlewareVersion: 'v3',
+  specificationVersion: 'v3',
 
-  async wrapStream({ doStream, params, model }) {
+  async wrapStream({ doStream, model }) {
     const start = Date.now()
     const result = await doStream()
     // SDK 的 stream 是 promise of result;result.stream 还需要消费才能拿到最终 usage。

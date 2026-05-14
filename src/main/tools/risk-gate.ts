@@ -19,7 +19,6 @@
 // 禁止依赖: ipc/* 的实现 (端口注入)
 
 import log from 'electron-log'
-import type { PendingConfirmBlock, TalorBlock } from '@shared/talor-blocks/talor-block-schema'
 import type { ToolDefinition, ToolExecuteContext } from './types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
 import { SessionApprovalMemory } from './session-approval-memory'
@@ -197,53 +196,12 @@ export class RiskGate {
         : { action: 'deny', via: 'high-static', summary: `Run ${tool.name}` }
     }
 
-    // 路径 2: LLM 主动声明 pending_confirm block (主路径)
-    const pendingBlock = findPendingConfirmBlock(ctx.currentStepBlocks)
-    if (pendingBlock) {
-      // 检查 memory: 同 patternKey 已批准 → 自动通过
-      if (
-        pendingBlock.pattern &&
-        pendingBlock.risk_level !== 'destructive' &&
-        this.memory.isApproved(ctx.sessionId, pendingBlock.pattern)
-      ) {
-        this.recordLedger(tool.name, ctx, 'memory', pendingBlock.summary, input, 'auto')
-        return {
-          action: 'pass',
-          via: 'memory',
-          summary: pendingBlock.summary,
-          patternKey: pendingBlock.pattern,
-        }
-      }
-
-      // 走 confirm UI
-      const allowRemember = !!pendingBlock.pattern && pendingBlock.risk_level !== 'destructive'
-      const decision = await this.callConfirm(confirmTool, {
-        sessionId: ctx.sessionId,
-        toolCallId: extractToolCallId(ctx),
-        toolName: tool.name,
-        summary: pendingBlock.summary,
-        preview: pendingBlock.preview ?? safeStringify(input).slice(0, 500),
-        allowRemember,
-        patternKey: pendingBlock.pattern,
-        riskLevel: pendingBlock.risk_level ?? 'high',
-      })
-
-      if (decision.approved) {
-        if (decision.remember && allowRemember && pendingBlock.pattern) {
-          this.memory.approve(ctx.sessionId, pendingBlock.pattern)
-        }
-        this.recordLedger(tool.name, ctx, 'pendingBlock', pendingBlock.summary, input, 'approved')
-        return {
-          action: 'pass',
-          via: 'pendingBlock',
-          summary: pendingBlock.summary,
-          patternKey: pendingBlock.pattern,
-          rememberRequested: decision.remember,
-        }
-      }
-      this.recordLedger(tool.name, ctx, 'pendingBlock', pendingBlock.summary, input, 'denied')
-      return { action: 'deny', via: 'pendingBlock', summary: pendingBlock.summary }
-    }
+    // v4 Phase 4b: 路径 2 (pending_confirm block) 已删除。
+    // LLM 不再 emit fenced JSON 声明副作用 — 改用 SDK tool({ needsApproval }) 模式
+    // (待 Phase 2 完整实施时把 RiskGate.gate 重构为 riskGate.decide 纯函数 +
+    // 在 buildTools 内接入 tool needsApproval)。
+    // 当前 v4 partial 状态:仅路径 1 (HIGH static) / 路径 3 (fallback) / 路径 4 (memory
+    // 由 SessionApprovalMemory 静默管理,不在 gate 内显式分支) / 路径 5 (auto-low) 生效。
 
     // 路径 3: 代码兜底 regex (LLM 没主动声明但 input 含危险关键字)
     const fallback = detectFallbackRisk(input)
@@ -336,13 +294,7 @@ export class RiskGate {
 
 // ─── helpers ───────────────────────────────────────────────────────────
 
-function findPendingConfirmBlock(blocks: TalorBlock[] | undefined): PendingConfirmBlock | null {
-  if (!blocks || blocks.length === 0) return null
-  for (const b of blocks) {
-    if (b.type === 'pending_confirm') return b
-  }
-  return null
-}
+// v4 Phase 4b 删:findPendingConfirmBlock (pending_confirm block 退役)
 
 export function detectFallbackRisk(input: unknown): { reason: string } | null {
   // 扁平化提取所有字符串字段后再 stripSqlNoise + regex。
@@ -385,4 +337,4 @@ function extractToolCallId(ctx: ToolExecuteContext): string {
 }
 
 /** 测试用 export (内部 helper) */
-export const __TEST__ = { stripSqlNoise, detectFallbackRisk, findPendingConfirmBlock }
+export const __TEST__ = { stripSqlNoise, detectFallbackRisk }

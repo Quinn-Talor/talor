@@ -37,15 +37,13 @@ describe('parseTalorBlocks', () => {
       })
     })
 
-    it('解析 pending_confirm block + pattern + preview', () => {
-      const text =
-        '```talor\n{\n  "type": "pending_confirm",\n  "summary": "INSERT 1 row",\n  "pattern": "sql:INSERT:game.rule",\n  "preview": "INSERT INTO game.rule ..."\n}\n```'
-      const { blocks } = parseTalorBlocks(text)
-      expect(blocks[0]).toMatchObject({
-        type: 'pending_confirm',
-        summary: 'INSERT 1 row',
-        pattern: 'sql:INSERT:game.rule',
-      })
+    // v4 Phase 4b: pending_confirm block 退役 (parser 归 invalid)
+    it('legacy pending_confirm block (deprecated) → invalid (unknown-type)', () => {
+      const text = '```talor\n{ "type": "pending_confirm", "summary": "INSERT 1 row" }\n```'
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(blocks).toHaveLength(0)
+      expect(invalid).toHaveLength(1)
+      expect(invalid[0].reason).toContain('unknown-type')
     })
 
     it('解析 warning block + severity', () => {
@@ -73,16 +71,16 @@ describe('parseTalorBlocks', () => {
 { "type": "warning", "message": "注意操作" }
 \`\`\`
 
-正在执行。
+完成。
 
 \`\`\`talor
-{ "type": "pending_confirm", "summary": "INSERT 1 row", "pattern": "sql:INSERT:x" }
+{ "type": "done", "summary": "ok" }
 \`\`\`
       `
       const { blocks, invalid } = parseTalorBlocks(text)
       expect(blocks).toHaveLength(2)
       expect(invalid).toHaveLength(0)
-      expect(blocks.map((b) => b.type)).toEqual(['warning', 'pending_confirm'])
+      expect(blocks.map((b) => b.type)).toEqual(['warning', 'done'])
     })
   })
 

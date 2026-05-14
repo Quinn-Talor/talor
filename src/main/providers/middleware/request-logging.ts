@@ -13,7 +13,7 @@ import type { LanguageModelMiddleware } from 'ai'
 const isDev = process.env.NODE_ENV !== 'production'
 
 export const requestLoggingMiddleware: LanguageModelMiddleware = {
-  middlewareVersion: 'v3',
+  specificationVersion: 'v3',
 
   async transformParams({ type, params, model }) {
     if (!isDev) return params

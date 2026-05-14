@@ -17,7 +17,6 @@ import type {
   DoneBlock,
   NeedInputBlock,
   BlockedBlock,
-  PendingConfirmBlock,
   WarningBlock,
 } from '@shared/talor-blocks/talor-block-schema'
 import { parseTalorBlocks, detectStreamingTalorType } from '@shared/talor-blocks/talor-block-parser'
@@ -185,37 +184,8 @@ function BlockedCard({ block }: CardProps<BlockedBlock>) {
   )
 }
 
-function PendingConfirmCard({ block }: CardProps<PendingConfirmBlock>) {
-  const isDestructive = block.risk_level === 'destructive'
-  const borderColor = isDestructive ? 'border-red-300' : 'border-amber-300'
-  const bgColor = isDestructive ? 'bg-red-50' : 'bg-amber-50'
-  const textColor = isDestructive ? 'text-red-800' : 'text-amber-800'
-
-  return (
-    <div className={`my-2 rounded-lg border ${borderColor} ${bgColor} px-3 py-2`}>
-      <div className={`flex items-center gap-1.5 ${textColor}`}>
-        <span className="text-base">{isDestructive ? '⚠️' : '✋'}</span>
-        <span className="text-[11px] font-semibold uppercase tracking-wide">
-          {isDestructive ? 'Destructive — pending confirm' : 'Pending confirm'}
-        </span>
-        {block.pattern && (
-          <span className="ml-auto text-[10px] font-mono opacity-70">{block.pattern}</span>
-        )}
-      </div>
-      <p className="mt-1 text-sm text-gray-900">{block.summary}</p>
-      {block.preview && (
-        <details className="mt-1.5">
-          <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-700">
-            Preview
-          </summary>
-          <pre className="mt-1 text-[11px] font-mono bg-gray-900 text-green-400 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
-            {block.preview}
-          </pre>
-        </details>
-      )}
-    </div>
-  )
-}
+// v4 Phase 4b: PendingConfirmCard 删除 (pending_confirm block 被
+// SDK tool({ needsApproval }) 替代;UI approval dialog 改读 SDK ToolApprovalRequest part)。
 
 // v4 Phase 4a: PendingContinuationCard 删除 (pending_continuation block 被
 // request_continuation virtual tool 替代,LLM 调用即续 loop,无须 UI 卡片)。
@@ -256,16 +226,9 @@ function StreamingSkeletonCard({ streamingType }: { streamingType: string | null
         ? { border: 'border-blue-200', bg: 'bg-blue-50', icon: '❓', label: 'Need input' }
         : streamingType === 'blocked'
           ? { border: 'border-orange-200', bg: 'bg-orange-50', icon: '⏸', label: 'Blocked' }
-          : streamingType === 'pending_confirm'
-            ? {
-                border: 'border-amber-200',
-                bg: 'bg-amber-50',
-                icon: '✋',
-                label: 'Pending confirm',
-              }
-            : streamingType === 'warning'
-              ? { border: 'border-amber-200', bg: 'bg-amber-50', icon: '⚠️', label: 'Warning' }
-              : { border: 'border-gray-200', bg: 'bg-gray-50', icon: '◌', label: 'Talor block' }
+          : streamingType === 'warning'
+            ? { border: 'border-amber-200', bg: 'bg-amber-50', icon: '⚠️', label: 'Warning' }
+            : { border: 'border-gray-200', bg: 'bg-gray-50', icon: '◌', label: 'Talor block' }
 
   return (
     <div
@@ -320,7 +283,8 @@ export function TalorBlockCard({ block }: { block: TalorBlock }) {
     case 'blocked':
       return <BlockedCard block={block} />
     case 'pending_confirm':
-      return <PendingConfirmCard block={block} />
+      // v4 Phase 4b: deprecated. 老 session 含此 block → invalid 卡片
+      return <InvalidTalorCard raw={JSON.stringify(block, null, 2)} />
     case 'warning':
       return <WarningCard block={block} />
     case 'pending_continuation':

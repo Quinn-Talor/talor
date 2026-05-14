@@ -164,86 +164,6 @@ describe('RiskGate.gate', () => {
     })
   })
 
-  describe('路径 2: LLM emit pending_confirm block (主路径)', () => {
-    it('用户批准 → pass + via=pendingBlock', async () => {
-      const block: TalorBlock = {
-        type: 'pending_confirm',
-        summary: 'INSERT 1 row',
-        pattern: 'sql:INSERT:game.rule',
-      }
-      const confirmTool = vi.fn().mockResolvedValue({ approved: true, remember: false })
-      const decision = await gate.gate(
-        makeTool(),
-        { sql: 'INSERT INTO game.rule ...' },
-        makeCtx([block]),
-        confirmTool,
-      )
-      expect(decision.action).toBe('pass')
-      expect(decision.via).toBe('pendingBlock')
-      expect(decision.summary).toBe('INSERT 1 row')
-      expect(confirmTool).toHaveBeenCalledTimes(1)
-      const req = confirmTool.mock.calls[0][0] as ToolConfirmRequest
-      expect(req.summary).toBe('INSERT 1 row')
-      expect(req.allowRemember).toBe(true)
-    })
-
-    it('用户批准 + remember → memory.approve', async () => {
-      const block: TalorBlock = {
-        type: 'pending_confirm',
-        summary: '...',
-        pattern: 'sql:INSERT:x',
-      }
-      const confirmTool = vi.fn().mockResolvedValue({ approved: true, remember: true })
-      await gate.gate(makeTool(), {}, makeCtx([block]), confirmTool)
-      expect(memory.isApproved('s1', 'sql:INSERT:x')).toBe(true)
-    })
-
-    it('memory 已批准 → 自动通过, 不弹 confirm', async () => {
-      const block: TalorBlock = {
-        type: 'pending_confirm',
-        summary: '...',
-        pattern: 'sql:INSERT:x',
-      }
-      memory.approve('s1', 'sql:INSERT:x')
-      const confirmTool = vi.fn()
-      const decision = await gate.gate(makeTool(), {}, makeCtx([block]), confirmTool)
-      expect(decision.action).toBe('pass')
-      expect(decision.via).toBe('memory')
-      expect(confirmTool).not.toHaveBeenCalled()
-    })
-
-    it('用户拒绝 → deny', async () => {
-      const block: TalorBlock = { type: 'pending_confirm', summary: '...' }
-      const confirmTool = vi.fn().mockResolvedValue({ approved: false, remember: false })
-      const decision = await gate.gate(makeTool(), {}, makeCtx([block]), confirmTool)
-      expect(decision.action).toBe('deny')
-      expect(decision.via).toBe('pendingBlock')
-    })
-
-    it('risk_level=destructive → allowRemember=false', async () => {
-      const block: TalorBlock = {
-        type: 'pending_confirm',
-        summary: 'DROP table',
-        pattern: 'sql:DROP:x',
-        risk_level: 'destructive',
-      }
-      const confirmTool = vi.fn().mockResolvedValue({ approved: true, remember: true })
-      await gate.gate(makeTool(), {}, makeCtx([block]), confirmTool)
-      const req = confirmTool.mock.calls[0][0] as ToolConfirmRequest
-      expect(req.allowRemember).toBe(false)
-      expect(req.riskLevel).toBe('destructive')
-      // 即便用户勾 remember,destructive 也不入 memory
-      expect(memory.isApproved('s1', 'sql:DROP:x')).toBe(false)
-    })
-
-    it('confirmTool 返 boolean (legacy 兼容) → 仍能识别', async () => {
-      const block: TalorBlock = { type: 'pending_confirm', summary: '...' }
-      const confirmTool = vi.fn().mockResolvedValue(true)
-      const decision = await gate.gate(makeTool(), {}, makeCtx([block]), confirmTool)
-      expect(decision.action).toBe('pass')
-    })
-  })
-
   describe('路径 3: 代码兜底 regex', () => {
     it('SQL INSERT 无 pending_confirm block → 兜底弹 confirm', async () => {
       const confirmTool = vi.fn().mockResolvedValue({ approved: true })
@@ -308,51 +228,8 @@ describe('RiskGate.gate', () => {
   })
 
   describe('Ledger 记账 (Gate 内部职责)', () => {
-    it('pendingBlock approved → record(confirmed_by=pendingBlock, user_decision=approved)', async () => {
-      const block: TalorBlock = {
-        type: 'pending_confirm',
-        summary: 'INSERT 1 row',
-        pattern: 'sql:INSERT:x',
-      }
-      const confirmTool = vi.fn().mockResolvedValue({ approved: true, remember: false })
-      await gate.gate(
-        makeTool(),
-        { sql: 'INSERT INTO x VALUES (1)' },
-        makeCtx([block]),
-        confirmTool,
-      )
-
-      expect(ledgerRecordSpy).toHaveBeenCalledTimes(1)
-      const entry = ledgerRecordSpy.mock.calls[0][0]
-      expect(entry.confirmed_by).toBe('pendingBlock')
-      expect(entry.user_decision).toBe('approved')
-      expect(entry.op).toBe('mysql_query:invoke')
-      expect(entry.target).toContain('INSERT 1 row')
-    })
-
-    it('memory 自动通过 → record(confirmed_by=memory, user_decision=auto)', async () => {
-      const block: TalorBlock = {
-        type: 'pending_confirm',
-        summary: '...',
-        pattern: 'sql:INSERT:x',
-      }
-      memory.approve('s1', 'sql:INSERT:x')
-      await gate.gate(makeTool(), {}, makeCtx([block]), vi.fn())
-
-      expect(ledgerRecordSpy).toHaveBeenCalledTimes(1)
-      const entry = ledgerRecordSpy.mock.calls[0][0]
-      expect(entry.confirmed_by).toBe('memory')
-      expect(entry.user_decision).toBe('auto')
-    })
-
-    it('pendingBlock denied → record(user_decision=denied)', async () => {
-      const block: TalorBlock = { type: 'pending_confirm', summary: '...' }
-      const confirmTool = vi.fn().mockResolvedValue({ approved: false, remember: false })
-      await gate.gate(makeTool(), {}, makeCtx([block]), confirmTool)
-
-      expect(ledgerRecordSpy).toHaveBeenCalledTimes(1)
-      expect(ledgerRecordSpy.mock.calls[0][0].user_decision).toBe('denied')
-    })
+    // v4 Phase 4b: pendingBlock / memory-via-block 路径测试删除 (pending_confirm block 退役)。
+    // memory pattern 现在通过 SessionApprovalMemory 静默查询,不在 gate 内显式分支。
 
     it('fallback approved → record(confirmed_by=fallback)', async () => {
       const confirmTool = vi.fn().mockResolvedValue({ approved: true })
