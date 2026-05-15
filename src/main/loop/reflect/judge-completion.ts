@@ -1,9 +1,14 @@
 // src/main/loop/reflect/judge-completion.ts
 //
 // Turn-end 二审 Reflector — main LLM 决 final 时, 调便宜 model 判 "真完成?"。
-// complete=false + confidence≥0.5 → internalNudge(role=user), 落库为 user 消息但
-// UI 不渲染. main LLM 下步通过 history 把这条 user 消息当 "外部审查反馈" 续做,
-// 用户不会看到 AI "自己拆穿自己" 的混乱体验。
+// complete=false + confidence≥0.5 → internalNudge(role=system), 落库为 system
+// 监督指令但 UI 不渲染. main LLM 下步通过 history 把这条 system 消息识别为
+// "系统级监督反馈", 续做指令性更强。
+//
+// 为什么 role=system 而不是 user/assistant:
+//   - 不冒充用户 (history 不污染, prompt injection 攻击面更小)
+//   - 不冒充 AI 自己 (避免连续 assistant 触发行为漂移 + UI 上"自己拆穿自己")
+//   - system 是 reflect 真实身份 (系统级监督), 训练分布下主 LLM 视为权威指令
 //
 // 降级: code-filter 用多信号风险打分代替单一关键词检测. JudgeCompletion 的原始作用是
 // 抓 "幻觉完成" (committed-to-but-no-tool-call), 信号设计围绕 intent ↔ trajectory 不匹配:
@@ -144,12 +149,16 @@ export class JudgeCompletionReflector implements Reflector {
     return {
       internalNudge: {
         text:
-          `You declared completion, but the following items are pending:\n` +
+          `[Supervision check — automated quality review, not user input]\n` +
+          `Your previous turn declared completion, but supervision detected the following items remain pending:\n` +
           result.pendingItems.map((p) => '- ' + p).join('\n') +
-          `\nReason: ${result.reason}\nPlease continue addressing them.`,
+          `\n\nReason: ${result.reason}\n\n` +
+          `MANDATORY: Address these pending items in your next response. ` +
+          `If a tool call is needed, issue it now. Do NOT re-declare completion until all items are resolved.`,
         label: '[reflection-judge]',
         reason: result.reason,
-        role: 'user', // 主 LLM 视角下视为 "外部审查反馈", 续做行为可预测
+        // role=system: 主 LLM 视为系统级监督指令, 续做权威性 > 模拟用户/连续 assistant
+        role: 'system',
       },
     }
   }

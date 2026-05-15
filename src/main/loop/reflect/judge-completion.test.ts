@@ -87,7 +87,7 @@ describe('JudgeCompletionReflector', () => {
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })
 
-  it('complete=false, confidence>=0.5 → internalNudge (role=user, UI 不渲染)', async () => {
+  it('complete=false, confidence>=0.5 → internalNudge (role=system, 监督指令身份)', async () => {
     mockGenerateText.mockResolvedValueOnce({
       text: JSON.stringify({
         complete: false,
@@ -99,7 +99,9 @@ describe('JudgeCompletionReflector', () => {
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     const out = await r.reflect(turnEndCtx())
     expect(out?.internalNudge).toBeDefined()
-    expect(out!.internalNudge!.role).toBe('user')
+    // 'system' 而非 'user' — reflect 是系统级监督, 不是用户输入
+    // 不冒充用户避免 history 污染 + prompt injection 攻击面
+    expect(out!.internalNudge!.role).toBe('system')
     expect(out!.internalNudge!.label).toBe('[reflection-judge]')
     expect(out!.internalNudge!.text).toContain('Y not done')
     // 关键: 不能是 userOutput, 否则会被 UI 渲染
