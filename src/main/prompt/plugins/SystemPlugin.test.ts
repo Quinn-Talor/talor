@@ -44,6 +44,8 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/12\. Promise then call/)
     expect(content).toMatch(/13\. \(Optional\) Mark turn-ending decisions/)
     expect(content).toMatch(/14\. Declare side effects before invoking/)
+    expect(content).toMatch(/15\. Reflection signals/)
+    expect(content).toMatch(/\[reflection-judge\]/)
   })
 
   it('原则 12 "Promise then call" 列出四种 turn-end 形态 + 两类反模式 (v4 Phase 4a)', async () => {

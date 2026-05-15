@@ -162,6 +162,16 @@ export interface AgentPreferences {
     model?: string
     timeoutMs?: number
   }
+
+  /**
+   * Reflect 用的便宜 model id (Haiku / gpt-4o-mini / DeepSeek-V3 等)。
+   * 未设 → L2 LLM reflector (judge-completion / quote-correction / periodic /
+   * escalation) 自动跳过, L1 reflector 仍工作。
+   */
+  reflectModelId?: string
+
+  /** PeriodicReflector 触发间隔, 默认 5。0 = 关闭周期 reflect。 */
+  reflectEveryN?: number
 }
 
 // ═══ 运行时辅助类型 (基本沿用) ════════════════════════════════

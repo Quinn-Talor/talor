@@ -1,89 +1,78 @@
 // src/main/loop/detectors/length-truncation-streak.ts
 //
-// 防 finishReason='length' 截断死循环。
+// 防 finishReason='length' 截断死循环 — 混合体, 同实例双接口。
 //
-// 场景: provider 持续返 finishReason='length', SdkFinishReasonPolicy 每次都
-// continue, 但模型每步仍 length 截断 (典型: reasoning 烧 token / max_tokens
-// 配太小 / 模型试图 inline 大内容)。若不限, react-loop 永远在续做。
+// Detector 角色 (observe): chain ≥ limit (默认 3) 时硬切断。LLM 看不到 finishReason,
+//   不切断会陷无尽截断循环。
+// Reflector 角色 (reflect, post-step): chain == limit-1 时输出 hint, 教 LLM
+//   选 strategy (用 write tool / 收敛 reasoning / 拆任务)。
 //
-// 阈值 3:
-//   - chain=2 时 nextHint 警告 "再来一次就 break"
-//   - chain=3 时 triggered → exitReason='continuation_chain'
+// reset 条件: 任何非 'length' 的 finishReason → chain=0。
 //
-// reset 条件: 任何一步 finishReason 不是 'length' (例如 'stop' / 'tool-calls') → chain=0
-//
-// 允许依赖: ./types, electron-log
+// 允许依赖: ./types, ../reflect/types, ../outcome-facts, ai, electron-log
 // 禁止依赖: ipc/*
 
 import log from 'electron-log'
 import type { FinishReason } from 'ai'
-import type { LoopDetector, DetectorVerdict, DetectorRawContext } from './types'
+import type { Detector, DetectorVerdict, DetectorRawContext } from './types'
 import { NO_TRIGGER } from './types'
+import type {
+  Reflector,
+  ReflectorCapabilities,
+  ReflectorOutcome,
+  ReflectContext,
+} from '../reflect/types'
 import type { OutcomeFacts } from '../outcome-facts'
 
 export interface LengthTruncationStreakOpts {
-  /** 触发阈值。默认 3 (允许 2 次连续 length,第 3 次 break) */
-  limit?: number
+  limit?: number // 默认 3
 }
 
-/**
- * 从 DetectorRawContext 取 finishReason; 缺失返 undefined (静默)。
- */
-function getFinishReason(raw?: DetectorRawContext): FinishReason | undefined {
-  if (!raw) return undefined
-  const r = (raw as DetectorRawContext & { finishReason?: FinishReason }).finishReason
-  return r
-}
-
-export class LengthTruncationStreakDetector implements LoopDetector {
+export class LengthTruncationStreak implements Detector, Reflector {
   readonly name = 'length-truncation-streak'
+  readonly capabilities: ReflectorCapabilities = {
+    phases: ['post-step'],
+    maxPerTurn: 1,
+    priority: 20,
+  }
+
   private chain = 0
   private readonly limit: number
-  private pendingWarning: string | null = null
+  private pendingHint: string | null = null
 
   constructor(opts: LengthTruncationStreakOpts = {}) {
     this.limit = opts.limit ?? 3
   }
 
   observe(_facts: OutcomeFacts, _stepIndex?: number, raw?: DetectorRawContext): DetectorVerdict {
-    const finishReason = getFinishReason(raw)
-    if (finishReason === undefined) return NO_TRIGGER
-
-    if (finishReason === 'length') {
+    const fr = raw?.finishReason as FinishReason | undefined
+    if (fr === undefined) return NO_TRIGGER
+    if (fr === 'length') {
       this.chain++
-      log.info(`[LengthTruncationStreakDetector] chain=${this.chain}/${this.limit}`)
-
+      log.info(`[Detector] length-truncation chain=${this.chain}/${this.limit}`)
       if (this.chain >= this.limit) {
-        log.warn(
-          `[LengthTruncationStreakDetector] chain reached ${this.chain} (limit=${this.limit}), breaking. ` +
-            `Likely cause: reasoning consuming output budget, or trying to inline a huge artifact.`,
-        )
         this.chain = 0
-        return {
-          triggered: true,
-          exitReason: 'continuation_chain', // 与 pending_continuation 共用 exit code
-          markFinal: true,
-        }
+        return { triggered: true, exitReason: 'continuation_chain' }
       }
-
       if (this.chain === this.limit - 1) {
-        this.pendingWarning =
+        this.pendingHint =
           `Your output has been truncated by max_tokens ${this.chain} time(s) consecutively. ` +
           `The next length truncation will terminate the turn. Options:\n` +
-          `  - If outputting a large artifact: USE THE WRITE TOOL (its input budget is separate).\n` +
-          `  - If reasoning is consuming tokens: be concise, skip planning, act with tools directly.\n` +
-          `  - If the user request needs splitting: ask the user to break it into smaller steps.`
+          `  - If outputting a large artifact: USE THE WRITE TOOL (input budget is separate).\n` +
+          `  - If reasoning is consuming tokens: be concise, skip planning, act directly.\n` +
+          `  - If the user request is too big: ask the user to split it.`
       }
     } else {
-      // 任何非 length 的 finishReason → reset (loop 已经走出 length 模式)
       this.chain = 0
     }
     return NO_TRIGGER
   }
 
-  nextHint(): string | null {
-    const h = this.pendingWarning
-    this.pendingWarning = null
-    return h
+  async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
+    if (ctx.phase !== 'post-step') return null
+    const h = this.pendingHint
+    if (!h) return null
+    this.pendingHint = null
+    return { hint: h }
   }
 }

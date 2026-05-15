@@ -81,6 +81,13 @@ export interface Provider {
    *   - 'request-logging'    (dev mode 详细日志)
    */
   middleware?: string[]
+
+  /**
+   * Provider 默认 reflect model id (便宜 model)。
+   * agent.profile.preferences.reflectModelId 未设时 fallback 到此值;
+   * 仍未设则关闭 L2 LLM reflector。
+   */
+  reflect_model_id?: string
 }
 
 export interface ProviderInput {

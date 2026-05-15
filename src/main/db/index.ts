@@ -123,6 +123,34 @@ CREATE INDEX IF NOT EXISTS idx_side_effect_session ON side_effect_log(session_id
 CREATE INDEX IF NOT EXISTS idx_side_effect_parent ON side_effect_log(parent_session_id);
 `
 
+/**
+ * reflection_ledger — Reflector 决策审计。
+ * Reflector 每次产出 hint / wrapUp / directOutput 时落一行, 供 UI debug
+ * "系统如何引导 LLM" 与 reflect 数据驱动调优。
+ */
+const CREATE_REFLECTION_LEDGER = `
+CREATE TABLE IF NOT EXISTS reflection_ledger (
+  id                       TEXT PRIMARY KEY,
+  session_id               TEXT NOT NULL,
+  step_index               INTEGER NOT NULL,
+  reflector                TEXT NOT NULL,
+  output_kind              TEXT NOT NULL CHECK(output_kind IN ('hint','wrap_up','direct_output_end','direct_output_continue')),
+  judge_complete           INTEGER,
+  judge_pending_items      TEXT,
+  correction_mask_count    INTEGER,
+  direct_output_text       TEXT,
+  direct_output_label      TEXT,
+  confidence               REAL NOT NULL,
+  reason                   TEXT,
+  created_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+`
+
+const CREATE_REFLECTION_LEDGER_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_reflection_session ON reflection_ledger(session_id, step_index);
+`
+
 let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
@@ -163,6 +191,8 @@ export function initChatDb(): Database.Database {
 
   db.exec(CREATE_SIDE_EFFECT_LOG)
   db.exec(CREATE_SIDE_EFFECT_INDEXES)
+  db.exec(CREATE_REFLECTION_LEDGER)
+  db.exec(CREATE_REFLECTION_LEDGER_INDEXES)
 
   // Cleanup orphan running sub-sessions left from previous crashed runs.
   cleanupOrphanRunningSubSessions(db)

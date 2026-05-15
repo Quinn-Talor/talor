@@ -30,11 +30,16 @@ import type { ToolConfirmPort } from '../ipc/tool-confirm'
 import { LoopAccumulator } from './loop-accumulator'
 import { McpExposureState } from './mcp-exposure-state'
 import { runForcedSummary, FALLBACK_SUMMARY_OPTS } from './forced-summary'
-import { composeHint } from './compose-hint'
-import { SignatureDeadLoopDetector } from './detectors/signature-dead-loop'
-import { FailureStreakDetector } from './detectors/failure-streak'
-import { ToolOnlyLoopDetector } from './detectors/tool-only-loop'
-import { LengthTruncationStreakDetector } from './detectors/length-truncation-streak'
+import { SignatureDeadLoop } from './detectors/signature-dead-loop'
+import { LengthTruncationStreak } from './detectors/length-truncation-streak'
+import type { Detector } from './detectors/types'
+import { FailureStreakReflector } from './reflect/failure-streak'
+import { ToolOnlyLoopReflector } from './reflect/tool-only-loop'
+import { JudgeCompletionReflector } from './reflect/judge-completion'
+import { runReflectorChain } from './reflect/chain'
+import { resolveReflectModel } from './reflect/resolve-model'
+import type { Reflector } from './reflect/types'
+import { reflectionLedger } from '../repos/reflection-ledger'
 import {
   buildDefaultChain,
   runPolicyChain,
@@ -153,12 +158,22 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   //   2. failure-streak:         连续 N 次工具失败 (硬切断 + forced summary)
   //   3. tool-only-loop:         零文本工具链 (仅注入 nextHint, 从不 triggered)
   //   4. length-truncation:      连续 finishReason='length' 截断 (硬切断)
-  const detectors: import('./detectors/types').LoopDetector[] = [
-    new SignatureDeadLoopDetector(ctx),
-    new FailureStreakDetector(ctx),
-    new ToolOnlyLoopDetector(),
-    new LengthTruncationStreakDetector(),
+  const sharedSignatureDeadLoop = new SignatureDeadLoop(ctx)
+  const sharedLengthTruncation = new LengthTruncationStreak()
+  const detectors: Detector[] = [sharedSignatureDeadLoop, sharedLengthTruncation]
+
+  // Reflector chain — 混合体 (Detector + Reflector 双接口) + 纯 Reflector。
+  // requiresLLM=true 的 reflector 在 reflectModel=undefined 时被 runReflectorChain 跳过。
+  const reflectModel = resolveReflectModel(opts.agent, opts.provider)
+  const reflectors: Reflector[] = [
+    sharedSignatureDeadLoop,
+    sharedLengthTruncation,
+    new FailureStreakReflector(ctx),
+    new ToolOnlyLoopReflector(),
+    new JudgeCompletionReflector({ sessionId: opts.sessionId }),
   ]
+  const perTurnCounters = new Map<string, number>()
+  const recentHistory: import('./types').StepOutcome[] = []
 
   let exitReason: LoopExitReason = 'no_tool_calls'
   let nextPolicyHint: string | null = null
@@ -170,9 +185,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       break
     }
 
-    // 优先级: detector hint > turn-end policy hint
-    // (composeHint 当 detector 有非空 hint 时返非 null; 否则 fallback 到 policy hint)
-    const hint = composeHint(detectors) ?? nextPolicyHint
+    const hint = nextPolicyHint
     nextPolicyHint = null
 
     const { expand: mcpExpand, used: mcpUsed } = mcpState.flags
@@ -186,7 +199,6 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
         lastInputTokens,
       })
     } catch (err) {
-      // streamText 异常 / abort / provider crash — 主循环退出, 标记 abort
       log.error(`[ReactLoop] step ${step} threw:`, err)
       exitReason = opts.abortSignal.aborted ? 'abort' : 'fallback_summary'
       break
@@ -200,9 +212,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       exitReason = 'abort'
       break
     }
-
     if (!stepResult.step) {
-      // 不应发生:non-overflow non-abort 必有 step
       log.warn(`[ReactLoop] step ${step} returned null step without exit reason`)
       break
     }
@@ -212,33 +222,65 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     const outcome = outcomeFromStep(stepResult.step, stepResult.durationMs)
     accumulator.observe(outcome)
     mcpState.update(outcome)
+    recentHistory.push(outcome)
+    if (recentHistory.length > 20) recentHistory.shift()
 
-    // Detector chain — 顺序遍历, 第一个 triggered 即处理后 break
     const facts = factsFromStep(stepResult.step)
-    const rawCtx = {
-      stepText: outcome.stepText,
-      finishReason: outcome.finishReason,
-    }
-    let detectorBroke = false
-    for (const detector of detectors) {
-      const verdict = detector.observe(facts, step, rawCtx)
+    const rawCtx = { stepText: outcome.stepText, finishReason: outcome.finishReason }
+
+    // ── Detector chain — 硬切断侦测 (代码判定) ──
+    let detectorBreak: { exitReason: LoopExitReason } | null = null
+    for (const d of detectors) {
+      const verdict = d.observe(facts, step, rawCtx)
       if (!verdict.triggered) continue
-      log.warn(`[ReactLoop] Detector "${detector.name}" triggered (exit=${verdict.exitReason})`)
-      if (verdict.runSummary) {
-        try {
-          await verdict.runSummary()
-        } catch (e) {
-          log.error(`[ReactLoop] detector "${detector.name}" runSummary failed:`, e)
-        }
-      }
-      if (verdict.markFinal) accumulator.markFinal()
-      exitReason = verdict.exitReason ?? 'repeated_error'
-      detectorBroke = true
+      log.warn(`[ReactLoop] Detector "${d.name}" triggered (exit=${verdict.exitReason})`)
+      detectorBreak = { exitReason: verdict.exitReason ?? 'repeated_error' }
       break
     }
-    if (detectorBroke) break
 
-    // 无 tool 调用: turn-end policy 决定 final / continue
+    // ── Mid-turn Reflector chain (aboutToFinal=false) ──
+    const commonReflectFields = {
+      stepIndex: step,
+      userIntent: opts.userContent,
+      sessionId: opts.sessionId,
+      abortSignal: opts.abortSignal,
+      recentHistory: recentHistory.slice(),
+      reflectModel: reflectModel ?? undefined,
+    }
+    const midOut = await runReflectorChain(
+      'post-step',
+      reflectors,
+      { ...commonReflectFields, phase: 'post-step', facts, outcome, raw: rawCtx },
+      perTurnCounters,
+    )
+
+    // 决策优先级: wrapUp > detectorBreak > directOutput(end) > policy > directOutput(continue) > hint
+    if (midOut.wrapUp) {
+      try {
+        await midOut.wrapUp.runSummary()
+      } catch (e) {
+        log.error(`[ReactLoop] reflector "${midOut.from}" wrap-up failed:`, e)
+      }
+      if (midOut.wrapUp.markFinal) accumulator.markFinal()
+      exitReason = midOut.wrapUp.exitReason
+      break
+    }
+    if (detectorBreak) {
+      exitReason = detectorBreak.exitReason
+      break
+    }
+    if (midOut.directOutput) {
+      await persistReflectorDirectOutput(opts, step, midOut.from ?? 'unknown', midOut.directOutput)
+      if (midOut.directOutput.endTurn) {
+        exitReason = midOut.directOutput.exitReason ?? 'no_tool_calls'
+        break
+      }
+      // endTurn=false: 已落库, 下次 pipeline.build 读到, 继续 loop
+      continue
+    }
+
+    // ── Turn-end policy (无 tool 时) ──
+    let policyDecision: 'final' | 'continue' | null = null
     if (outcome.toolNames.length === 0) {
       if (!outcome.stepText) {
         log.info(`[ReactLoop]   → empty (no text, no tools)`)
@@ -250,26 +292,56 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
         sessionId: opts.sessionId,
         stepIndex: step,
         abortSignal: opts.abortSignal,
-        sdkSignals: stepResult.sdkSignals ?? {
-          finishReason: outcome.finishReason ?? 'stop',
-        },
+        sdkSignals: stepResult.sdkSignals ?? { finishReason: outcome.finishReason ?? 'stop' },
       }
       const decision = await runPolicyChain(turnEndPolicies, outcome, policyCtx)
-      if (decision.action === 'final') {
-        log.info(`[ReactLoop]   → FINAL by policy reason=${decision.exitReason ?? 'no_tool_calls'}`)
-        exitReason = decision.exitReason ?? 'no_tool_calls'
-        break
-      }
+      policyDecision = decision.action === 'final' ? 'final' : 'continue'
       if (decision.action === 'continue') {
         log.info(`[ReactLoop]   → CONTINUE by policy`)
         nextPolicyHint = decision.injectHint ?? null
-      } else {
-        // 'no-opinion' — 防御性 fallthrough (LegacyNaturalFinalPolicy 兜底应避免)
+      } else if (decision.action !== 'final') {
         log.warn(`[ReactLoop]   policy chain no-opinion; treating as FINAL`)
         exitReason = 'no_tool_calls'
         break
       }
     }
+
+    // ── End Reflector chain (仅 policy='final' 时) ──
+    if (policyDecision === 'final') {
+      const endOut = await runReflectorChain(
+        'turn-end',
+        reflectors,
+        {
+          ...commonReflectFields,
+          phase: 'turn-end',
+          facts,
+          outcome,
+          raw: rawCtx,
+          policyDecision: 'final',
+        },
+        perTurnCounters,
+      )
+      if (endOut.directOutput) {
+        await persistReflectorDirectOutput(
+          opts,
+          step,
+          endOut.from ?? 'unknown',
+          endOut.directOutput,
+        )
+        if (endOut.directOutput.endTurn) {
+          exitReason = endOut.directOutput.exitReason ?? 'no_tool_calls'
+          break
+        }
+        // judge 推翻 final: continue
+        continue
+      }
+      log.info(`[ReactLoop]   → FINAL by policy`)
+      exitReason = 'no_tool_calls'
+      break
+    }
+
+    // mid-reflector advisor hint 仅在没有 policy hint 时注入下步
+    if (midOut.hint && !nextPolicyHint) nextPolicyHint = midOut.hint
 
     if (step === maxSteps - 1) exitReason = 'max_steps'
   }
@@ -287,6 +359,35 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   log.info(`[ReactLoop] ${summary}`)
   log.info(`[ReactLoop]      | ${detail}`)
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
+}
+
+// ── persistReflectorDirectOutput — 落库 reflect directOutput ─────────────
+
+async function persistReflectorDirectOutput(
+  opts: ReactLoopOptions,
+  stepIndex: number,
+  reflectorName: string,
+  d: import('./reflect/types').ReflectorDirectOutput,
+): Promise<void> {
+  const text = `${d.label} ${d.text}`
+  messageRepo.create({
+    id: uuidv4(),
+    session_id: opts.sessionId,
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    agent_id: opts.agent.id,
+  })
+  sessionRepo.touch(opts.sessionId)
+  opts.callbacks.onTextDelta(text, stepIndex)
+  opts.callbacks.onMessagePersisted?.(opts.sessionId, stepIndex)
+  reflectionLedger.record({
+    sessionId: opts.sessionId,
+    stepIndex,
+    reflector: reflectorName,
+    outputKind: d.endTurn ? 'direct_output_end' : 'direct_output_continue',
+    direct: { text: d.text, label: d.label },
+    reason: d.reason,
+  })
 }
 
 // ── runReactStep — 单步 = 一次 streamText 调用 ──────────────────────────

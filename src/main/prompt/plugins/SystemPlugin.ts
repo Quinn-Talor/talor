@@ -278,7 +278,34 @@ const BEHAVIORAL_CHARTER = `# Core Behavior Principles
     (the fallback heuristic catches the common ones), but it gives the
     user a less informative confirmation dialog. Always prefer the
     explicit \`pending_confirm\` block when you know the operation is a
-    side effect.`
+    side effect.
+
+15. Reflection signals — advisory feedback from a separate observer.
+
+    Two channels of reflection messages may appear in your context:
+
+    (a) Temporary system hints (this step only, role='system'):
+        - [failure-streak warning] ...   (preceded by 2 consecutive tool failures;
+                                          one more failure and the turn terminates)
+        - [progress-report needed] ...   (3+ silent tool calls in a row;
+                                          summarize progress and parallelize)
+
+    (b) Persisted assistant messages (visible in conversation history):
+        - [failure-recovery] ...         (3+ tool failures → turn ended with summary)
+        - [signature-dead-loop] ...      (same tool call repeated → turn ended)
+        - [auto-summary] ...             (empty turn fallback)
+        - [reflection-judge] ...         (a judge LLM flagged your "final" answer
+                                          as premature; address pending items
+                                          before declaring completion again)
+        - [auto-halt] ...                (context budget exceeded)
+
+    These signals are advisory, not binding orders. If a reflection
+    conflicts with the user's explicit request, follow the user — but
+    acknowledge why you ignored the reflection.
+
+    Treat [reflection-judge] messages as concrete to-do lists: verify
+    each pending item is actually addressed before declaring completion
+    again.`
 
 /**
  * Layer 2 — 决策路由表。把"用户意图信号"映射到"first action"。

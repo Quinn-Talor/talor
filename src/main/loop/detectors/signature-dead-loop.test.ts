@@ -15,7 +15,7 @@ vi.mock('../forced-summary', () => ({
   })),
 }))
 
-import { SignatureDeadLoopDetector } from './signature-dead-loop'
+import { SignatureDeadLoop } from './signature-dead-loop'
 import type { OutcomeFacts } from '../outcome-facts'
 import type { ForcedSummaryCtx } from '../forced-summary'
 
@@ -32,21 +32,21 @@ function facts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
   }
 }
 
-describe('SignatureDeadLoopDetector', () => {
+describe('SignatureDeadLoop', () => {
   it('无 signature → 不触发', () => {
-    const d = new SignatureDeadLoopDetector(stubCtx)
+    const d = new SignatureDeadLoop(stubCtx)
     expect(d.observe(facts({ signature: '' })).triggered).toBe(false)
   })
 
   it('不同 signature → 不触发, 重置计数', () => {
-    const d = new SignatureDeadLoopDetector(stubCtx)
+    const d = new SignatureDeadLoop(stubCtx)
     expect(d.observe(facts({ signature: 'a' })).triggered).toBe(false)
     expect(d.observe(facts({ signature: 'b' })).triggered).toBe(false)
     expect(d.observe(facts({ signature: 'a' })).triggered).toBe(false)
   })
 
   it('带 error 同签名连续 2 次 (阈值 1) → 第 2 次触发', () => {
-    const d = new SignatureDeadLoopDetector(stubCtx)
+    const d = new SignatureDeadLoop(stubCtx)
     expect(d.observe(facts({ allToolsFailed: true })).triggered).toBe(false)
     const v = d.observe(facts({ allToolsFailed: true }))
     expect(v.triggered).toBe(true)
@@ -54,14 +54,14 @@ describe('SignatureDeadLoopDetector', () => {
   })
 
   it('无 error 同签名 2 次 (阈值 2) → 仍不触发; 3 次才触发', () => {
-    const d = new SignatureDeadLoopDetector(stubCtx)
+    const d = new SignatureDeadLoop(stubCtx)
     expect(d.observe(facts({ allToolsFailed: false })).triggered).toBe(false)
     expect(d.observe(facts({ allToolsFailed: false })).triggered).toBe(false)
     expect(d.observe(facts({ allToolsFailed: false })).triggered).toBe(true)
   })
 
   it('无 signature (中间步) 不 reset 计数', () => {
-    const d = new SignatureDeadLoopDetector(stubCtx)
+    const d = new SignatureDeadLoop(stubCtx)
     d.observe(facts({ signature: 'a', allToolsFailed: true })) // count=0
     // 穿插一步无工具调用
     expect(d.observe(facts({ signature: '' })).triggered).toBe(false)
@@ -70,32 +70,73 @@ describe('SignatureDeadLoopDetector', () => {
   })
 
   it('opts.noErrorThreshold 覆盖默认阈值', () => {
-    const d = new SignatureDeadLoopDetector(stubCtx, { noErrorThreshold: 1 })
+    const d = new SignatureDeadLoop(stubCtx, { noErrorThreshold: 1 })
     expect(d.observe(facts({ allToolsFailed: false })).triggered).toBe(false)
     expect(d.observe(facts({ allToolsFailed: false })).triggered).toBe(true) // 第 2 次即触发
   })
 
-  describe('触发时跑 forced summary (UX 修复)', () => {
+  describe('Reflector 角色: 触发后 reflect 输出 wrapUp', () => {
     beforeEach(() => {
       vi.clearAllMocks()
     })
 
-    it('verdict 含 runSummary + markFinal', () => {
-      const d = new SignatureDeadLoopDetector(stubCtx)
+    it('verdict 触发后 reflect 返 wrapUp 含 runSummary + markFinal', async () => {
+      const d = new SignatureDeadLoop(stubCtx)
       d.observe(facts({ allToolsFailed: true })) // count=0
-      const v = d.observe(facts({ allToolsFailed: true })) // count=1 = 阈值, 触发
+      const v = d.observe(facts({ allToolsFailed: true })) // 触发
       expect(v.triggered).toBe(true)
-      expect(v.markFinal).toBe(true)
-      expect(v.runSummary).toBeDefined()
       expect(v.exitReason).toBe('repeated_error')
+      const ctx = {
+        phase: 'post-step' as const,
+        stepIndex: 0,
+        userIntent: '',
+        sessionId: '',
+        abortSignal: new AbortController().signal,
+        recentHistory: [],
+        facts: facts(),
+        outcome: { stepText: '', toolNames: ['x'] } as never,
+        raw: { stepText: '' },
+      }
+      const out = await d.reflect(ctx)
+      expect(out?.wrapUp).toBeDefined()
+      expect(out?.wrapUp?.markFinal).toBe(true)
     })
 
-    it('runSummary 调用 forced summary', async () => {
-      const d = new SignatureDeadLoopDetector(stubCtx)
+    it('reflect 内的 runSummary 调用 forced summary', async () => {
+      const d = new SignatureDeadLoop(stubCtx)
       d.observe(facts({ allToolsFailed: true }))
-      const v = d.observe(facts({ allToolsFailed: true }))
-      await v.runSummary!()
+      d.observe(facts({ allToolsFailed: true }))
+      const ctx = {
+        phase: 'post-step' as const,
+        stepIndex: 0,
+        userIntent: '',
+        sessionId: '',
+        abortSignal: new AbortController().signal,
+        recentHistory: [],
+        facts: facts(),
+        outcome: { stepText: '', toolNames: ['x'] } as never,
+        raw: { stepText: '' },
+      }
+      const out = await d.reflect(ctx)
+      await out!.wrapUp!.runSummary()
       expect(mockRunForcedSummary).toHaveBeenCalledTimes(1)
+    })
+
+    it('未触发时 reflect 返 null', async () => {
+      const d = new SignatureDeadLoop(stubCtx)
+      d.observe(facts({ allToolsFailed: false })) // 阈值 2, 未触发
+      const ctx = {
+        phase: 'post-step' as const,
+        stepIndex: 0,
+        userIntent: '',
+        sessionId: '',
+        abortSignal: new AbortController().signal,
+        recentHistory: [],
+        facts: facts(),
+        outcome: { stepText: '', toolNames: [] } as never,
+        raw: { stepText: '' },
+      }
+      expect(await d.reflect(ctx)).toBeNull()
     })
   })
 })

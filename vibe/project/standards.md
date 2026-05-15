@@ -520,6 +520,51 @@ AI SDK 给我们的所有 metadata 信号按 J-SHOULD-2 分类纳入消费:
 - 案例: v3.7 react-loop step-end 旧实现用 `stepToolCalls.length + stepText` 启发,忽略 SDK `finishReason` (v3.7.3 修复)
 - 依据: [docs/superpowers/plans/2026-05-14-talor-v3.7.3-completion-fulfillment.md](../../docs/superpowers/plans/2026-05-14-talor-v3.7.3-completion-fulfillment.md) §2.1
 
+### J-SHOULD-4 · 故障侦测走 Detector chain, 进展反思走 Reflector chain
+
+两套独立 chain, 职责互不重叠:
+
+**Detector chain** (`src/main/loop/detectors/`):
+
+- 输入: `OutcomeFacts + DetectorRawContext` (含 finishReason / stepText)
+- 实现: 代码硬编码判定 (hash / SDK 信号), 无 LLM 调用
+- 输出: `DetectorVerdict { triggered, exitReason }` → 主循环 break
+- 何时用: **LLM 看不到 / 推不出**的故障模式 (e.g. SignatureDeadLoop hash 比对 / LengthTruncationStreak SDK 信号连击)
+
+**Reflector chain** (`src/main/loop/reflect/`):
+
+- 输入: `ReflectContext` (discriminated union, phase 字段做类型守卫)
+- 实现: L1 硬编码 (failure-streak / tool-only-loop) 或 L2 LLM `generateObject` (judge-completion / 未来 periodic / escalation / quote-correction)
+- 输出: `ReflectorOutcome` 三态:
+  - `hint`: 注入下一步 system message (post-step) 或本步 messages (pre-step)
+  - `wrapUp`: LLM forced-summary 当下产出 + break turn
+  - `directOutput`: reflect LLM 当下产出 user-facing 内容; `endTurn=true` break / `endTurn=false` 落库后继续
+- `ReflectorCapabilities` 元数据驱动调度: `phases` / `requiresLLM` / `maxPerTurn` / `priority`
+- 三个 phase: `pre-step` (上下文检查) / `post-step` (mid-turn 反思) / `turn-end` (final 决策后二审)
+
+**混合体** 允许同实例同时实现 Detector + Reflector 接口, 共享内部 state:
+
+- `SignatureDeadLoop`: Detector 硬切断 (observe 设 pendingWrapUp) + Reflector wrap-up forced-summary (reflect 消费)
+- `LengthTruncationStreak`: Detector chain≥limit 硬切断 + Reflector chain==limit-1 advisor hint
+
+**主循环决策优先级** (高→低):
+`wrapUp > detectorBreak > directOutput(end) > policy final > directOutput(continue 注入 history 续做) > advisor hint`
+
+**Reflect Agent 模式** (参考 `ShortTermMemory` 压缩 agent):
+
+- 每场景独立 `ReflectAgent<SNAPSHOT, RESULT>` (system prompt + Zod schema + maxOutputTokens + timeoutMs)
+- `runReflectAgent` 统一调 `generateObject` + abort + 失败静默 null
+- 便宜 model 由 `resolveReflectModel(agent, provider)` 解析 (优先级: agent.preferences.reflectModelId > provider.reflect_model_id > null)
+
+**关闭开关**: `reflectModelId=undefined` 时 `runReflectorChain` 自动跳过 `requiresLLM=true` 的 reflector, L1 reflector 仍工作, 行为退回当前。
+
+参考实现:
+
+- 接口: [src/main/loop/reflect/types.ts](../../src/main/loop/reflect/types.ts) / [chain.ts](../../src/main/loop/reflect/chain.ts)
+- Agent 基础: [src/main/loop/reflect/agents/types.ts](../../src/main/loop/reflect/agents/types.ts)
+- 混合体: [src/main/loop/detectors/signature-dead-loop.ts](../../src/main/loop/detectors/signature-dead-loop.ts) / [length-truncation-streak.ts](../../src/main/loop/detectors/length-truncation-streak.ts)
+- L2 LLM 例: [src/main/loop/reflect/judge-completion.ts](../../src/main/loop/reflect/judge-completion.ts) + [agents/judge-completion-agent.ts](../../src/main/loop/reflect/agents/judge-completion-agent.ts)
+
 ### J-NEVER-1 · 禁止把硬约束仅写在 prompt 而代码里无兜底
 
 Prompt 是软引导。凡"**必须**"级别的规则必须有代码实现。
