@@ -3,7 +3,8 @@ import { useChatStore } from '../../store/chatStore'
 import { useStreamingMessage } from '../../hooks/useStreamingMessage'
 import { talorAPI } from '../../api/talorAPI'
 import { MessageBubble } from '../../components/MessageBubble'
-import { SessionItem, getDateGroup, agentColor } from '../../components/SessionItem'
+import { agentColor } from '../../components/SessionItem'
+import { Sidebar } from './Sidebar'
 import { useUIStore } from '../../store/uiStore'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
@@ -636,15 +637,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     (s) => s.agent_id !== '__crystallizer__' && (showSubSessions || s.parent_session_id == null),
   )
 
-  // Group sessions by date
-  const todaySessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'today')
-  const yesterdaySessions = visibleSessions.filter(
-    (s) => getDateGroup(s.updated_at) === 'yesterday',
-  )
-  const earlierSessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'earlier')
-
-  const agentMap = new Map(agents.map((a) => [a.id, a]))
-
   return (
     <div
       className="flex h-full w-full overflow-hidden relative"
@@ -652,174 +644,20 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* ═══════════════════════════════════════════
-          DARK SIDEBAR  (260px)
-      ═══════════════════════════════════════════ */}
-      <div
-        className="flex flex-col shrink-0 select-none"
-        style={{ width: 260, background: 'linear-gradient(to bottom, #111827, #0f172a)' }}
-      >
-        {/* Drag region for native traffic lights (macOS) */}
-        <div
-          style={{ height: 36, WebkitAppRegion: 'drag', flexShrink: 0 } as React.CSSProperties}
-        />
-
-        {/* New session button */}
-        <div
-          className="px-[16px] pt-0 pb-0"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          <button
-            onClick={handleCreateSession}
-            className="w-full flex items-center justify-center text-[13px] font-semibold rounded-[10px] transition-colors hover:opacity-90"
-            style={{
-              height: 40,
-              background: 'rgba(59,130,246,0.12)',
-              border: '0.5px solid rgba(59,130,246,0.25)',
-              color: '#60a5fa',
-            }}
-          >
-            + 新建会话
-          </button>
-        </div>
-
-        {/* Session list */}
-        <div
-          className="flex-1 overflow-y-auto pt-[10px]"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          {sessions.length === 0 ? (
-            <div
-              className="text-center text-[12px] mt-8"
-              style={{ color: 'rgba(255,255,255,0.15)' }}
-            >
-              暂无会话
-            </div>
-          ) : (
-            <>
-              {todaySessions.length > 0 && (
-                <>
-                  <div
-                    className="px-[20px] py-[6px] text-[10px] font-semibold tracking-[0.05em]"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    今天
-                  </div>
-                  {todaySessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      isActive={s.id === currentSessionId}
-                      agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
-                      agentColor={agentColor(s.agent_id)}
-                      isRenaming={s.id === renamingSessionId}
-                      onStartRename={() => setRenamingSessionId(s.id)}
-                      onCommitRename={(t) => handleRenameSession(s.id, t)}
-                      onCancelRename={() => setRenamingSessionId(null)}
-                      onClick={() => setCurrentSession(s.id)}
-                      onDelete={() => setSessionToDelete(s.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {yesterdaySessions.length > 0 && (
-                <>
-                  <div
-                    className="px-[20px] py-[6px] text-[10px] font-semibold tracking-[0.05em]"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    昨天
-                  </div>
-                  {yesterdaySessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      isActive={s.id === currentSessionId}
-                      agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
-                      agentColor={agentColor(s.agent_id)}
-                      isRenaming={s.id === renamingSessionId}
-                      onStartRename={() => setRenamingSessionId(s.id)}
-                      onCommitRename={(t) => handleRenameSession(s.id, t)}
-                      onCancelRename={() => setRenamingSessionId(null)}
-                      onClick={() => setCurrentSession(s.id)}
-                      onDelete={() => setSessionToDelete(s.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {earlierSessions.length > 0 && (
-                <>
-                  <div
-                    className="px-[20px] py-[6px] text-[10px] font-semibold tracking-[0.05em]"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    更早
-                  </div>
-                  {earlierSessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      isActive={s.id === currentSessionId}
-                      agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
-                      agentColor={agentColor(s.agent_id)}
-                      isRenaming={s.id === renamingSessionId}
-                      onStartRename={() => setRenamingSessionId(s.id)}
-                      onCommitRename={(t) => handleRenameSession(s.id, t)}
-                      onCancelRename={() => setRenamingSessionId(null)}
-                      onClick={() => setCurrentSession(s.id)}
-                      onDelete={() => setSessionToDelete(s.id)}
-                    />
-                  ))}
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Bottom: settings */}
-        <div
-          style={
-            {
-              WebkitAppRegion: 'no-drag',
-              background: 'rgba(0,0,0,0.2)',
-              borderTop: '0.5px solid rgba(255,255,255,0.06)',
-              height: 70,
-              flexShrink: 0,
-            } as React.CSSProperties
-          }
-        >
-          <button
-            onClick={onOpenSettings}
-            className="w-full h-full flex items-center gap-[10px] px-[16px] transition-colors hover:opacity-90"
-          >
-            <div
-              className="flex items-center justify-center rounded-[10px]"
-              style={{ width: 40, height: 40, background: 'rgba(255,255,255,0.06)', flexShrink: 0 }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                style={{ color: 'rgba(255,255,255,0.5)' }}
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </div>
-            <div className="text-left">
-              <div className="text-[12px] font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                设置
-              </div>
-              <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.25)' }}>
-                快捷键 ⌘,
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
+      {/* Sidebar — A2 (spec §6): light surface + search chip + black solid + */}
+      <Sidebar
+        sessions={visibleSessions}
+        agents={agents}
+        currentSessionId={currentSessionId}
+        renamingSessionId={renamingSessionId}
+        onSelectSession={setCurrentSession}
+        onCreateSession={handleCreateSession}
+        onDeleteSession={(id) => setSessionToDelete(id)}
+        onStartRename={(id) => setRenamingSessionId(id)}
+        onCommitRename={handleRenameSession}
+        onCancelRename={() => setRenamingSessionId(null)}
+        onOpenSettings={onOpenSettings}
+      />
 
       {/* ═══════════════════════════════════════════
           CHAT AREA
