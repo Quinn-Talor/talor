@@ -125,6 +125,20 @@ body,
 .prose-talor ul {
   list-style: none;
 }
+.prose-talor ol {
+  list-style: decimal;
+}
+.prose-talor ol > li::marker {
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+.prose-talor li {
+  margin: 3px 0;
+  line-height: 1.6;
+}
+.prose-talor li > p {
+  margin: 4px 0;
+}
 .prose-talor ul > li {
   position: relative;
 }
