@@ -170,6 +170,67 @@ describe('JudgeCompletionReflector', () => {
       expect(mockGenerateText).not.toHaveBeenCalled()
     })
 
+    it('ACTION_VERBS 覆盖探索类中文 imperative ("看 X" / "看看" / "列出" / "总结")', async () => {
+      // 所有这些都属于 action intent (执行类), 零工作量时应该信号 A 触发
+      const exploreCases = [
+        '看 game 数据库里有什么',
+        '看看 game 数据库',
+        '看一下 users 表',
+        '列出所有表',
+        '总结 schema',
+        '探索这个项目',
+        '梳理一下代码结构',
+        '浏览这个 repo',
+        '比较 v1 和 v2',
+        'show me all tables',
+        'list everything',
+        'browse the repo',
+        'summarize the data',
+      ]
+      for (const intent of exploreCases) {
+        mockGenerateText.mockReset()
+        mockGenerateText.mockResolvedValueOnce({
+          text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
+        })
+        const r = new JudgeCompletionReflector({ sessionId: 's1' })
+        const ctx = turnEndCtx({
+          userIntent: intent,
+          recentHistory: makeHistory([]),
+          outcome: { stepText: '已经做完了。', toolNames: [] } as never,
+        })
+        await r.reflect(ctx)
+        // 命中后, score=5 (action + 0 tools) >= 阈值, 触发 LLM
+        expect(
+          mockGenerateText,
+          `intent "${intent}" should match ACTION_VERBS`,
+        ).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('ACTION_VERBS 仍排除询问类 ("解释" / "什么是" / "为什么")', async () => {
+      const questionCases = [
+        '解释 React hooks',
+        '什么是 dict',
+        '为什么 useState 这样设计',
+        'what is JSX',
+        'why does promise need then',
+      ]
+      for (const intent of questionCases) {
+        mockGenerateText.mockReset()
+        const r = new JudgeCompletionReflector({ sessionId: 's1' })
+        const ctx = turnEndCtx({
+          userIntent: intent,
+          recentHistory: makeHistory([]),
+          outcome: { stepText: 'Some explanation', toolNames: [] } as never,
+        })
+        await r.reflect(ctx)
+        expect(
+          mockGenerateText,
+          `question intent "${intent}" should NOT match ACTION_VERBS`,
+        ).not.toHaveBeenCalled()
+      }
+    })
+
     it('信号 A: action intent (查询/创建/写入) + 零 tool 工作量 → 强幻觉, 调 LLM', async () => {
       mockGenerateText.mockResolvedValueOnce({
         text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),

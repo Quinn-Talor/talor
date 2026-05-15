@@ -32,10 +32,15 @@ import { summarizeTrajectory } from './trajectory'
 import { runReflectAgent } from './agents/types'
 import { JudgeCompletionAgent } from './agents/judge-completion-agent'
 
-// 完整动词 + imperative 单字 (如 "查 users", "读 file.ts"; 用空格做边界,
-// 避免误抓 "查看 / 检查 / 查询" 等已含的多字词)
+// 三类完整动词 + imperative 单字 (空格边界):
+//   执行/写入/修改类 (中文): 查询/创建/写入/修改/删除/运行/执行/生成/编辑/搜索/查找/分析/审查/检查/读取
+//   探索/查看类 (中文): 查看/看看/看下/看一下/看一遍/列出/列举/浏览/探索/总结/梳理/概览/比较/对比/罗列/展示
+//   执行+探索类 (英文): build/create/write/modify/delete/run/exec/edit/search/find/grep/review/analyze/
+//     inspect/fetch/fix/implement/refactor / look/list/show/browse/explore/summarize/compare/overview/enumerate
+//   imperative 单字 (中文, 空格边界): 查/读/写/改/删/建/跑/找/看/列/总/搞/做
+// 排除询问类 (不命中, 走询问路径): 解释/什么是/为什么 / what/why/how/explain
 const ACTION_VERBS =
-  /(查询|创建|写入|修改|删除|运行|执行|生成|编辑|搜索|查找|分析|审查|检查|读取|build|create|write|modify|delete|run|exec|edit|search|find|grep|review|analyze|inspect|fetch|fix|implement|refactor|(?:^|\s|[,，;；:：])(?:查|读|写|改|删|建|跑|找)\s)/i
+  /(查询|创建|写入|修改|删除|运行|执行|生成|编辑|搜索|查找|分析|审查|检查|读取|查看|看看|看下|看一下|看一遍|列出|列举|浏览|探索|总结|梳理|概览|比较|对比|罗列|展示|build|create|write|modify|delete|run|exec|edit|search|find|grep|review|analyze|inspect|fetch|fix|implement|refactor|look|list|show|browse|explore|summarize|compare|overview|enumerate|(?:^|\s|[,，;；:：])(?:查|读|写|改|删|建|跑|找|看|列|总|搞|做)\s)/i
 const IO_CLAIM =
   /(wrote|saved|created|generated|written|输出到|写到|写入了|写入到|已写入|保存到|已保存|生成到|已生成|创建了|已创建)/i
 const IO_TOOL = /^(write|edit|create|insert|update)$/i
