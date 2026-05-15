@@ -1,24 +1,19 @@
-// src/main/loop/detectors/length-truncation-streak.ts — v3.7.3 follow-up
+// src/main/loop/detectors/length-truncation-streak.ts
 //
 // 防 finishReason='length' 截断死循环。
 //
-// 场景: provider 持续返 finishReason='length',SdkFinishReasonPolicy 每次都 continue,
-// 但模型每步仍 length 截断 (典型:reasoning 烧 token / max_tokens 配太小 / 模型试图
-// inline 大内容)。若不限,react-loop 永远在续做。
+// 场景: provider 持续返 finishReason='length', SdkFinishReasonPolicy 每次都
+// continue, 但模型每步仍 length 截断 (典型: reasoning 烧 token / max_tokens
+// 配太小 / 模型试图 inline 大内容)。若不限, react-loop 永远在续做。
 //
 // 阈值 3:
 //   - chain=2 时 nextHint 警告 "再来一次就 break"
-//   - chain=3 时 triggered → exit 'continuation_chain' (复用,与 pending_continuation 一类)
+//   - chain=3 时 triggered → exitReason='continuation_chain'
 //
-// reset 条件:任何一步 finishReason 不是 'length' (例如 'stop'/'tool-calls')→ chain=0
-//
-// 与 ContinuationChainDetector 区别:
-//   - ContinuationChainDetector:LLM 主动 emit pending_continuation 但不动手
-//   - LengthTruncationStreakDetector:provider 报 length,框架被动 continue
-// 两者机制不同但症状相似 (loop 续做但不前进),共用 exitReason='continuation_chain'。
+// reset 条件: 任何一步 finishReason 不是 'length' (例如 'stop' / 'tool-calls') → chain=0
 //
 // 允许依赖: ./types, electron-log
-// 禁止依赖: ipc/* (这是基础设施层 detector,可被业务层调用)
+// 禁止依赖: ipc/*
 
 import log from 'electron-log'
 import type { FinishReason } from 'ai'
@@ -32,10 +27,7 @@ export interface LengthTruncationStreakOpts {
 }
 
 /**
- * 检查 detector 用的 raw context 是否携带 finishReason。
- *
- * v3.7.3 扩展 DetectorRawContext 时这是新增字段;旧 detector 不传也兼容。
- * 缺失 → 静默 (向后兼容)。
+ * 从 DetectorRawContext 取 finishReason; 缺失返 undefined (静默)。
  */
 function getFinishReason(raw?: DetectorRawContext): FinishReason | undefined {
   if (!raw) return undefined

@@ -1,14 +1,13 @@
-// src/main/loop/persist-step.ts —— 业务层: SDK StepResult → DB 持久化 (v4 Phase 3)
+// src/main/loop/persist-step.ts —— 业务层: SDK StepResult → DB 持久化
 //
-// onStepFinish 拿到 SDK StepResult, 这里把它转成 AssistantContent + ToolContent 配对
-// (或单条 assistant text), 调 messageRepo.create/createBatch 落库。
+// 主循环 runReactStep 完成一次 streamText 后, 把 StepResult 转成
+// AssistantContent + ToolContent 配对 (或单条 assistant text), 落库。
 //
-// 关键约束 (v3 沿用):
-//   - assistant(tool_use) + tool(result) 必须同事务 (createBatch), 不能拆两次 create
-//   - 否则下次 rebuild prompt 时 SDK 抛 "Every tool_use must have a tool_result"
-//   - tool result 落库前要 wrapToolOutput + truncate (skill / 普通工具不同上限)
-//
-// FINAL 路径用调用方提供的 messageId; 中间 step 用 uuid。
+// 关键约束:
+//   - assistant(tool_use) + tool(result) 必须同事务 (createBatch), 不能拆两次 create —
+//     否则下次 rebuild prompt 时 SDK 抛 "Every tool_use must have a tool_result"
+//     破坏 session 不变量
+//   - tool result 落库前要 wrapToolOutput + truncate (skill 1MB / 其他 8KB)
 //
 // 允许依赖: ./stream-utils, ../repos/session-repo, ./step-adapter
 // 禁止依赖: ipc/*, ai/* (除 type)
@@ -29,11 +28,15 @@ export interface PersistStepOpts {
   sessionId: string
   agentId: string
   /**
-   * 仅当本 step 是 turn FINAL (无 tool + 有 text + turn-end policy 判 final) 时,
-   * assistant 消息用此 id (替代 placeholder); 中间 step 用 uuid。
+   * orchestrator 预生成的 wire id, 用于流式 chat:stream 协议关联消息。落库 id
+   * 当前一律用 uuid, 此字段保留以便将来 FINAL step 想用稳定 id 时改造。
    */
   finalMessageId?: string
-  /** v3.7.3: 是否标记为 mid-turn assistant text (继续 turn) vs FINAL text。 */
+  /**
+   * 标记本步为 turn 内的 mid-turn text 而非 FINAL text。当前 react-loop 总传 true,
+   * FINAL 决策完全由主循环的 turn-end policy 做; 此字段控制 fallback 到 finalMessageId
+   * 的逻辑 — false 时若无 tool 且有 text 才用 finalMessageId。
+   */
   isMidTurnText?: boolean
 }
 

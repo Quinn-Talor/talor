@@ -1,23 +1,16 @@
-// src/main/loop/react-loop.ts —— 业务层：ReAct 多步推理引擎 (v4.2)
-//
-// 设计取舍 (2026-05-15):
-//   v4 Phase 3 (commit 77cd8bd) 尝试用 SDK 内置多步 (streamText stopWhen + prepareStep
-//   + onStepFinish) 替代显式 for 循环。该方案在 Talor 的"每步动态重建 prompt/tools"
-//   需求面前不契合(skill / MCP search_tool 展开 / memory 压缩等需要 per-step
-//   pipeline.build),被推翻。
-//
-//   v4.2 回归"每步一次 streamText"的代码 loop,同时保留 v4 拆出的模块化收益:
-//     - step-adapter.ts: SDK StepResult → OutcomeFacts / StepOutcome 适配
-//     - persist-step.ts: 持久化逻辑独立可测
-//     - forced-summary.ts: 兜底摘要统一执行器 (沿用)
+// src/main/loop/react-loop.ts —— 业务层: ReAct 多步推理引擎
 //
 // 控制流:
-//   外层 for (step < maxSteps) 显式循环 — 每步:
+//   外层 for (step < maxSteps) 每步独立调一次 streamText (stepCountIs(1))。
+//   每步:
 //     1. composeHint(detectors) ?? nextPolicyHint
-//     2. runReactStep — pipeline.build → streamText (stepCountIs(1)) → persistStepFromResult
+//     2. runReactStep — pipeline.build → streamText → persistStepFromResult
 //     3. accumulator.observe + mcpState.update
-//     4. detector.observe 链 — 任一 triggered 即 break (forced summary 后)
-//     5. 无 tool: turn-end policy 链决定 final / continue
+//     4. detector chain — 任一 triggered 即 forced summary + break
+//     5. 无 tool: turn-end policy chain 决定 final / continue
+//
+// 关键设计: pipeline.build 每步重建 — skill / MCP search_tool / memory 压缩
+// 立即生效, 不积压到下次循环。
 //
 // 允许依赖: loop/*, repos/*, shared/*
 // 禁止依赖: ipc/*
@@ -56,10 +49,10 @@ const CONTEXT_USAGE_WARNING_RATIO = 0.98
 const DEFAULT_MAX_STEPS = 1000
 
 /**
- * v3.7.3: 主对话 streamText 的 maxOutputTokens 默认值。
+ * 主对话 streamText 的 maxOutputTokens 默认值。
  *
- * 64_000 = "现代 provider 安全交集" (Anthropic 4 / Gemini 2.5 上限);
- * DeepSeek V4 / OpenAI gpt-4o 支持更高但不浪费。
+ * 64_000 = 现代 provider 安全交集 (Anthropic / Gemini 上限);
+ * DeepSeek / OpenAI 支持更高但不浪费。
  */
 const DEFAULT_MAX_OUTPUT_TOKENS = 64_000
 
@@ -106,7 +99,7 @@ interface StepRunResult {
 // ── runReactLoop ────────────────────────────────────────────────────────
 
 /**
- * ReAct 循环顶层 (v4.2 自做 loop)。
+ * ReAct 循环顶层。
  *
  * 终止条件:
  *   a. abortSignal.aborted
@@ -116,7 +109,7 @@ interface StepRunResult {
  *   e. empty_text (无 tool + 无 text)
  *   f. context_overflow (prompt 估算 ≥ 100% halt)
  *
- * 兜底:循环结束后,若 accumulator.needsFallback() 且非 abort/context_overflow,
+ * 兜底: 循环结束后, 若 accumulator.needsFallback() 且非 abort/context_overflow,
  * 调一次 runForcedSummary 让用户至少看到一段文本。
  */
 export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
@@ -156,10 +149,10 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const mcpState = new McpExposureState(opts.agent)
 
   // Detector 顺序敏感 (业务属性, 显式排列):
-  //   1. signature-dead-loop:    原地重试同一调用 (硬切断)
+  //   1. signature-dead-loop:    原地重试同一调用 (硬切断 + forced summary)
   //   2. failure-streak:         连续 N 次工具失败 (硬切断 + forced summary)
-  //   3. tool-only-loop:         零文本工具链 (软提示, 不再 break)
-  //   4. length-truncation:      连续 finishReason='length' (硬切断)
+  //   3. tool-only-loop:         零文本工具链 (仅注入 nextHint, 从不 triggered)
+  //   4. length-truncation:      连续 finishReason='length' 截断 (硬切断)
   const detectors: import('./detectors/types').LoopDetector[] = [
     new SignatureDeadLoopDetector(ctx),
     new FailureStreakDetector(ctx),
@@ -398,24 +391,24 @@ async function runReactStep(
     parentSessionIdForLedger: null,
   })
 
-  // 5. v4 Phase 1 streamText params (provider + agent prefs)
+  // 5. streamText 参数 — 优先级: agent prefs > provider config > 默认值
   const provider = ctx.provider
   const agentPrefs = ctx.agent?.profile?.preferences ?? undefined
-  const v4Params: Record<string, unknown> = {
+  const streamParams: Record<string, unknown> = {
     maxOutputTokens:
       agentPrefs?.maxOutputTokens ?? provider.max_output_tokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     maxRetries: provider.max_retries,
     headers: provider.headers,
   }
-  if (agentPrefs?.temperature !== undefined) v4Params.temperature = agentPrefs.temperature
-  if (agentPrefs?.topP !== undefined) v4Params.topP = agentPrefs.topP
-  if (agentPrefs?.seed !== undefined) v4Params.seed = agentPrefs.seed
-  if (agentPrefs?.toolChoice !== undefined) v4Params.toolChoice = agentPrefs.toolChoice
-  if (provider.request_timeout_ms !== undefined) v4Params.timeout = provider.request_timeout_ms
+  if (agentPrefs?.temperature !== undefined) streamParams.temperature = agentPrefs.temperature
+  if (agentPrefs?.topP !== undefined) streamParams.topP = agentPrefs.topP
+  if (agentPrefs?.seed !== undefined) streamParams.seed = agentPrefs.seed
+  if (agentPrefs?.toolChoice !== undefined) streamParams.toolChoice = agentPrefs.toolChoice
+  if (provider.request_timeout_ms !== undefined) streamParams.timeout = provider.request_timeout_ms
   const adapterProviderOpts =
     (ctx.streamOptions as { providerOptions?: Record<string, unknown> } | undefined)
       ?.providerOptions ?? {}
-  v4Params.providerOptions = { ...adapterProviderOpts, ...(provider.provider_options ?? {}) }
+  streamParams.providerOptions = { ...adapterProviderOpts, ...(provider.provider_options ?? {}) }
 
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
   log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)
@@ -426,7 +419,7 @@ async function runReactStep(
     messages,
     tools,
     ...ctx.streamOptions,
-    ...v4Params,
+    ...streamParams,
     abortSignal: buildStreamSignal(ctx.abortSignal),
     stopWhen: stepCountIs(1),
 
@@ -485,9 +478,9 @@ async function runReactStep(
     await result.consumeStream()
 
     // 7. 拉单步 StepResult + SDK 信号
-    //    Cast: result.steps 推断的 TOOLS 是 tools 入参的精确类型,
-    //    与 persist-step / step-adapter 的 StepResult<ToolSet> 不匹配。
-    //    类型安全:运行时字段相同,TOOLS 泛型不影响 v4.2 消费字段。
+    //    Cast 必要: result.steps 推断的 TOOLS 是 tools 入参的精确类型, 与
+    //    persist-step / step-adapter 的 StepResult<ToolSet> 不直接兼容。
+    //    运行时字段相同, 安全。
     const steps = (await result.steps) as unknown as StepResult<ToolSet>[]
     const step = steps[0]
     if (!step) {
@@ -508,7 +501,7 @@ async function runReactStep(
 
     const durationMs = Date.now() - stepStart
 
-    // 8. 持久化 (复用 v4 persist-step 模块)
+    // 8. 持久化 (persistStepFromResult: tool-pair createBatch 或 text-only create)
     try {
       await persistStepFromResult(step, {
         sessionId: ctx.sessionId,

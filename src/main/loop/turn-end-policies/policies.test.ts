@@ -1,13 +1,10 @@
 // src/main/loop/turn-end-policies/policies.test.ts —— 单 policy + chain 行为
 //
-// 测试覆盖 (v4 Phase 4a 后):
+// 覆盖:
 //   - SdkFinishReasonPolicy 5 分支 (tool-calls / length / content-filter / stop / error+other)
-//   - ExplicitTerminationBlockPolicy (done/need_input/blocked)
+//   - ExplicitTerminationBlockPolicy (done / need_input / blocked)
 //   - LegacyNaturalFinalPolicy (永远 final + 永不 no-opinion)
 //   - runPolicyChain 顺序生效 + 链末 legacy 兜底 + 单个 policy throw fail-open
-//
-// 已移除 (Phase 4a):
-//   - PendingContinuationBlockPolicy — pending_continuation block 退役
 
 import { describe, it, expect } from 'vitest'
 import {
@@ -115,10 +112,8 @@ describe('ExplicitTerminationBlockPolicy', () => {
     expect(d.action).toBe('no-opinion')
   })
 
-  // v4 Phase 4a: pending_continuation block 已删除,parser 归入 invalid,
-  // ExplicitTerminationBlockPolicy 拿不到此 block,直接 no-opinion (无任何已知 terminal block)
-  it('legacy pending_continuation block (deprecated) → no-opinion', async () => {
-    const text = '稍候\n```talor\n{"type":"pending_continuation"}\n```'
+  it('未知 block type (parser 归 invalid) → no-opinion', async () => {
+    const text = '稍候\n```talor\n{"type":"unknown_type"}\n```'
     const d = await policy.evaluate(mockOutcome(text), mockCtx())
     expect(d.action).toBe('no-opinion')
   })
@@ -172,11 +167,9 @@ describe('runPolicyChain', () => {
     expect(d.exitReason).toBe('declared_final')
   })
 
-  it('legacy pending_continuation block (deprecated) + stop → P2 legacy fallback (no continue)', async () => {
-    // v4 Phase 4a: pending_continuation block 退役。老 session 含此 block 时,
-    // parser 归入 invalid → 链中无任何 policy 命中 → legacy 兜底 final。
+  it('未知 block type + stop → 无 policy 命中 → P2 legacy 兜底 final', async () => {
     const chain = buildDefaultChain()
-    const text = '```talor\n{"type":"pending_continuation"}\n```'
+    const text = '```talor\n{"type":"unknown_type"}\n```'
     const d = await runPolicyChain(chain, mockOutcome(text), mockCtx({ finishReason: 'stop' }))
     expect(d.action).toBe('final')
     expect(d.exitReason).toBe('no_tool_calls')
@@ -223,7 +216,7 @@ describe('runPolicyChain', () => {
 })
 
 describe('buildDefaultChain', () => {
-  it('v4 Phase 4a 链含 3 个 policy (无 judge / 无 pending-continuation), 末尾是 LegacyNaturalFinalPolicy', () => {
+  it('默认链含 3 个 policy, 末尾是 LegacyNaturalFinalPolicy 兜底', () => {
     const chain = buildDefaultChain()
     expect(chain).toHaveLength(3)
     expect(chain[0].name).toBe('sdk-finish-reason')

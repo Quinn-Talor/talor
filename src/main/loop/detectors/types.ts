@@ -1,12 +1,12 @@
 // src/main/loop/detectors/types.ts —— 业务层: Loop Detector 接口与 verdict
 //
-// 每个 detector 自治: 自带 state (counter / 上次签名 etc) + 阈值 + reset 条件 + 触发 verdict。
+// 每个 detector 自治: 自带 state (counter / 上次签名) + 阈值 + reset 条件 + verdict。
 // 主循环只调度: 顺序遍历 detectors, 看 verdict.triggered 决定是否 break。
 //
 // 设计要点:
-//   - Verdict 不强制每个 detector 都有 forced summary 或 markFinal —— 由具体业务决定
-//   - 顺序在主循环显式排列 (signature → failure → tool-only → no-marker), 不靠 priority 数字
-//     避免"重排 priority 引入意外行为"
+//   - Verdict 不强制每个 detector 都带 forced summary / markFinal — 由具体 detector 选择
+//   - 顺序在主循环显式排列 (signature → failure → tool-only → length-truncation),
+//     不靠 priority 数字, 避免"重排 priority 引入意外行为"
 //
 // 允许依赖: ../outcome-facts, ../types
 // 禁止依赖: ipc/*
@@ -38,54 +38,43 @@ export const NO_TRIGGER: DetectorVerdict = { triggered: false }
  * Loop Detector 接口。
  *
  * 实现要点:
- *   - observe 是唯一的 state 入口; 内部维护自己的 counter / 签名等
- *   - nextHint (可选) 用于在下一步注入 system hint (如 streak 警告 / marker 提示)
+ *   - observe 是唯一 state 入口; 内部维护自己的 counter / 签名等
+ *   - nextHint 可选 — 用于在下一步注入 system hint (streak 警告 / 软提示)
  *   - 不强制每个 detector 都有 nextHint
- *
- * v3.6 SemanticDetector 扩展:
- *   - 部分语义判定 (WaitAndActConflict / HallucinatedConfirm) 需要原始 stepText
- *     做 regex 兜底,facts.blocks 已经覆盖结构化判定但 raw text 信号仍有价值。
- *   - observe 的 stepIndex 改为可选第二参数,raw 走第三参数 (向后兼容旧 detector
- *     不需要 raw 的签名)。
  */
 export interface LoopDetector {
-  /** 用于日志的人类可读名 (e.g. 'signature-dead-loop' / 'failure-streak') */
+  /** 人类可读名, 用于日志 (e.g. 'signature-dead-loop' / 'failure-streak')。 */
   readonly name: string
 
   /**
    * 观察一步的 facts, 决定是否触发。
-   * stepIndex 用于 forced summary 闭包内捕获当前步数; 不需要 forced summary 的
-   * detector (signature / tool-only) 可省略此参数。
-   * raw 仅 SemanticDetector 用 — 提供 stepText 等供 regex 判定;非 raw-aware
-   * detector 可忽略。
+   * stepIndex 用于 forced summary 闭包捕获当前步数; 不跑 forced summary 的
+   * detector 可忽略此参数。
+   * raw 提供 stepText + finishReason 给需要原文/SDK 信号判定的 detector。
    */
   observe(facts: OutcomeFacts, stepIndex?: number, raw?: DetectorRawContext): DetectorVerdict
 
   /**
-   * 返回给"下一步"注入的 system hint, 或 null。
-   * 主循环用 composeHint(detectors) 取第一个非空的 hint (按 detectors 数组顺序)。
+   * 返回下一步注入的 system hint, 或 null。
+   * 主循环用 composeHint(detectors) 取第一个非空的 hint (按数组顺序)。
    */
   nextHint?(): string | null
 }
 
 /**
- * SemanticDetector 用的 raw 信号。
+ * raw 上下文信号 — observe 第三参数。
  *
- * 不放进 OutcomeFacts (OutcomeFacts 是"派生信号", raw 是"原文") — 把
- * stepText 这种粗糙信息再塞进 facts 会污染其他 detector 的判定。
- *
- * 字段最小化原则: 只暴露 SemanticDetector 真正需要的信号。需要时再加。
+ * 不放进 OutcomeFacts (OutcomeFacts 是派生信号; raw 是原文) — 把 stepText
+ * 这种粗糙信息塞进 facts 会污染其他 detector 的判定。
+ * 字段最小化, 仅暴露当前 detector 实际消费的信号, 需要时再加。
  */
 export interface DetectorRawContext {
-  /** 本步模型纯文本输出 (剔除 tool_use markup 后) */
+  /** 本步模型纯文本输出 (剔除 tool_use markup)。 */
   stepText: string
   /**
-   * v3.7.3: SDK finishReason (LLM 自陈停止原因)。
-   *
+   * SDK finishReason (LLM 自陈停止原因)。
    * 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other'
-   *
-   * 给需要监控 SDK 信号的 detector 用 (例如 LengthTruncationStreakDetector
-   * 检测连续 'length' 死循环)。可选 — 旧 detector 不需要可忽略。
+   * 当前仅 LengthTruncationStreakDetector 消费 ('length' 连续 → 死循环)。
    */
   finishReason?: import('ai').FinishReason
 }

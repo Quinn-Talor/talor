@@ -16,7 +16,7 @@ function makeOutcome(overrides: Partial<StepOutcome> = {}): StepOutcome {
   }
 }
 
-describe('classify (v3.7.1 瘦身后 — 仅维度 A 信号)', () => {
+describe('classify — 仅维度 A 信号派生', () => {
   it('无工具 + 有 text → hasToolCall=false, hasText=true', () => {
     const facts = classify(makeOutcome({ stepText: 'done', toolNames: [] }))
     expect(facts.hasToolCall).toBe(false)
@@ -49,8 +49,7 @@ describe('classify (v3.7.1 瘦身后 — 仅维度 A 信号)', () => {
     expect(classify(makeOutcome({ stepText: '   \n\t  ' })).hasText).toBe(false)
   })
 
-  // v3.7.1: 删除字段 — 不应在 facts 上存在
-  it('已删除字段不再 派生', () => {
+  it('OutcomeFacts 不暴露 talor block / LLM marker 衍生字段', () => {
     const factsRaw = classify(
       makeOutcome({ stepText: '```talor\n{"type":"done"}\n```' }),
     ) as unknown as Record<string, unknown>

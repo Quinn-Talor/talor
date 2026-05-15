@@ -137,9 +137,6 @@ describe('runForcedSummary', () => {
     })
   })
 
-  // v3.7: forcedClosureSummaryOpts 已删除 — 见 forced-summary.ts 头注释。
-  // 相关 describe('forcedClosureSummaryOpts') 整段移除。
-
   describe('Verify tag 拼接 (applyVerification=true 路径)', () => {
     it('unverifiedCount > 0 → label 含 "N unverifiable quote(s) masked"', async () => {
       vi.mocked(verifyQuotedFacts).mockReturnValueOnce({
@@ -210,8 +207,6 @@ describe('runForcedSummary', () => {
         /^\[failure-recovery • 2 unverifiable quotes masked; 1 ungrounded entity masked\]/,
       )
     })
-
-    // v3.7: forced-closure 测试整段删除 (forcedClosureSummaryOpts 已移除)。
   })
 
   describe('signatureDeadLoopSummaryOpts', () => {
@@ -332,11 +327,9 @@ describe('runForcedSummary', () => {
       expect(text).toContain('[auto-halt]')
       expect(text).toContain('Task blocked by 3 consecutive tool failures')
     })
-
-    // v3.7: forced-closure 错误兜底测试删除 (forcedClosureSummaryOpts 已移除)。
   })
 
-  describe('v3.6 — sideEffectLedger summary 拼接', () => {
+  describe('sideEffectLedger summary 拼接', () => {
     it('ledger 有 entries → forced summary 内嵌 "Side effects this turn"', async () => {
       mockLedgerBuildSummary.mockReturnValueOnce(
         '\n## Side effects this turn\n\n- ✓ sql:INSERT on game.rule (approved)',
@@ -372,8 +365,6 @@ describe('runForcedSummary', () => {
       expect(text).not.toContain('Side effects')
     })
 
-    // v3.7: forced-closure ledger 拼接测试删除 (forcedClosureSummaryOpts 已移除)。
-
     it('opts.includeLedgerSummary=false → 跳过 ledger 调用', async () => {
       mockLedgerBuildSummary.mockReturnValue('SHOULD_NOT_APPEAR')
       mockTextStream('clean summary')
@@ -389,7 +380,7 @@ describe('runForcedSummary', () => {
     })
   })
 
-  describe('v3.6 — guardrail 教模型优先 talor block', () => {
+  describe('guardrail 教模型优先 talor block', () => {
     /** 从 mockStreamText 的最后一次调用里捕获 guardrail system message 的 content */
     function extractLastGuardrailContent(): string {
       const lastCall = mockStreamText.mock.calls[mockStreamText.mock.calls.length - 1]
@@ -398,8 +389,6 @@ describe('runForcedSummary', () => {
       const last = args.messages[args.messages.length - 1]
       return last.content
     }
-
-    // v3.7: forcedClosureSummaryOpts guardrail 测试删除 (函数已移除)。
 
     it('signatureDeadLoopSummaryOpts: guardrail 含 need_input/blocked talor block 模板', async () => {
       mockTextStream('repeated error.')

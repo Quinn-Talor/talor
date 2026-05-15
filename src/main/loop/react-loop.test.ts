@@ -1,12 +1,12 @@
-// src/main/loop/react-loop.test.ts (v4.2 — 自做 loop)
+// src/main/loop/react-loop.test.ts
 //
-// 测试模式: 1 mockStreamText 调用 = 1 step (v3 风格,但内部仍构造 SDK StepResult
-// 用于 persistStepFromResult + factsFromStep 等 v4 模块)。
+// 测试模式: 1 mockStreamText 调用 = 1 step。mock 内部构造 SDK StepResult
+// 供 persistStepFromResult + factsFromStep 消费。
 //
 // 覆盖:
 //   - 文本响应基本路径
 //   - abort 前/中 退出
-//   - context budget 软告警/硬阻断
+//   - context budget 软告警 / 硬阻断
 //   - dead-loop 检测 (signature 阈值差异化)
 //   - failure-streak (3 步全失败 → forced-recovery summary)
 //   - turn-end policy 续做 + final
@@ -91,7 +91,8 @@ import type { ReactLoopOptions } from './types'
 // ── 测试 helpers ───────────────────────────────────────────────────────
 
 /**
- * 构造一个最小 StepResult (mock). 只填 v4.2 react-loop 实际消费的字段。
+ * 构造一个最小 StepResult (mock). 只填 react-loop / step-adapter / persist-step
+ * 实际消费的字段, 其余以 unknown 断言补齐 SDK 类型。
  */
 function makeStepResult(o: {
   text?: string

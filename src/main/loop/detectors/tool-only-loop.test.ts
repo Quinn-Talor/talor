@@ -18,8 +18,8 @@ function facts(overrides: Partial<OutcomeFacts> = {}): OutcomeFacts {
   }
 }
 
-describe('ToolOnlyLoopDetector (v4.1 软提示, 不再 break)', () => {
-  it('observe 永远返回 triggered=false (不再硬切断)', () => {
+describe('ToolOnlyLoopDetector — 软提示模式, 从不 triggered', () => {
+  it('observe 永远返回 triggered=false', () => {
     const d = new ToolOnlyLoopDetector({ hintAt: 3 })
     for (let i = 0; i < 20; i++) {
       const v = d.observe(facts({ hasToolCall: true, hasText: false }))

@@ -1,7 +1,8 @@
 // src/main/loop/turn-end-policies/sdk-finish-reason.ts — P0: SDK finishReason 优先消费
 //
-// AI SDK 给的 finishReason 是 LLM/provider 的自陈信号 (v3.7.3 J-SHOULD-3 类别 A),
-// 应作为 turn-end 决策的最高优先级信号,而非靠 stepToolCalls.length + stepText 启发推断。
+// AI SDK 给的 finishReason 是 LLM / provider 的自陈信号 (§J-SHOULD-3 类别 A),
+// 作为 turn-end 决策的最高优先级信号, 而非靠 stepToolCalls.length + stepText
+// 启发推断。
 //
 // 各 finishReason 处理:
 //   - 'tool-calls':       不该走到这里 (react-loop 在 stepToolCalls>0 时直接续 loop,

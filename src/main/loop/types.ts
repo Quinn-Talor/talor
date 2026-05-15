@@ -17,24 +17,18 @@ export interface ReactLoopCallbacks {
   ) => void
   onToolResult: (toolCallId: string, toolName: string, output: unknown, durationMs: number) => void
   /**
-   * v3.6: 一条消息落库后触发(messageRepo.create / createBatch 之后)。
+   * 一条消息落库后触发 (messageRepo.create / createBatch 之后)。
    *
-   * 用途: 替代 renderer 端的 3s polling — 入口层把这个回调桥接到
-   * `webContents.send('chat:message-persisted', { sessionId, stepIndex })`,
-   * 前端收到事件立即调 loadMessages,延迟从秒级降到 IPC RTT 量级 (<50ms)。
+   * 入口层把回调桥接到 `webContents.send('chat:message-persisted', {sessionId,
+   * stepIndex})`, renderer 立即 loadMessages。延迟从秒级降到 IPC RTT 量级。
    *
-   * stepIndex 设计 (v3.6 dedupe fix):
-   *   - renderer 拿到这个值后, 清掉 streamItems 中 stepIndex <= 该值的项,
-   *     避免"已落库 message 的 ToolCallMessage" 与 "streamItems 的 ToolCallLog"
-   *     同时显示同一步工具调用列表 (1:1 视觉重复)
-   *   - forced-summary 等非具体 step 的 persist 用 react-loop 的 accumulator
-   *     总 step 数, 仍能正确划界
+   * stepIndex 语义:
+   *   - renderer 用此值清掉 streamItems 中 stepIndex ≤ 该值的项, 避免
+   *     "已落库消息" + "流式 log" 同时显示同一步的视觉重复
+   *   - forced-summary 等非具体 step 的 persist 用 accumulator 总 step 数
    *
-   * 设计:
-   *   - 不带 message 内容 — 只通知"有新消息了 + 边界在哪",renderer 自行 loadMessages
-   *   - 兼容旧调用方: 可选回调,缺省即退化为 polling 路径
-   *   - subagent 透传: 子 loop 的 persist 也应该让父 session UI 知道。
-   *     V1 只透传顶层 sessionId — subagent 落库时也用父 sessionId 触发刷新。
+   * subagent 透传: 子 loop 的 persist 也应让父 session UI 看到 — 当前实现
+   * 仅透传顶层 sessionId, subagent 落库时也用父 sessionId 触发刷新。
    */
   onMessagePersisted?: (sessionId: string, stepIndex: number) => void
 }
@@ -72,8 +66,8 @@ export interface ReactLoopOptions {
 /**
  * 循环终止原因枚举。
  *
- * 既有 (v3.7):
- *   - 'no_tool_calls':     LegacyNaturalFinalPolicy 兜底 (等价旧 natural FINAL)
+ * 基础:
+ *   - 'no_tool_calls':     LegacyNaturalFinalPolicy 兜底 — LLM 自然停, 无工具
  *   - 'empty_text':        既无工具调用也无文本
  *   - 'abort':             调用方主动中止
  *   - 'max_steps':         达到步数上限
@@ -81,16 +75,13 @@ export interface ReactLoopOptions {
  *   - 'repeated_error':    死循环 / 失败连击触发
  *   - 'context_overflow':  prompt 估算 >= context_limit, 提交前短路
  *
- * 新增 (v3.7.3, LLM 自陈 + SDK 信号):
+ * Turn-end policy 决策:
  *   - 'declared_final':         LLM emit done/need_input/blocked block
- *   - 'continuation_injected':  pending_continuation block 或 judge → continue + 注入 reminder
- *   - 'judge_complete':         JudgeCompletionPolicy 判 COMPLETE (PR 2 启用)
+ *   - 'continuation_injected':  policy 判 continue + 注入 reminder
+ *   - 'judge_complete':         JudgeCompletionPolicy 判 COMPLETE
  *   - 'truncated':              SDK finishReason='length' (max_tokens 截断)
  *   - 'content_filter':         SDK finishReason='content-filter'
  *   - 'continuation_chain':     ContinuationChainDetector 防滥用触发
- *
- * 历史移除:
- *   - 'no_tool_calls_no_marker' (v3.7) / 'no_marker_max_attempts' (v3.7 forced-closure)
  */
 export type LoopExitReason =
   | 'no_tool_calls'
@@ -132,18 +123,17 @@ export interface StepOutcome {
   allToolsFailed: boolean | null
   containsSubagentFailure: boolean
   /**
-   * v3.7.3: turn-end policy 决定 'continue' 时携带的 hint,主 loop 注入到下一步
-   * 的 system message。final 路径 / 工具路径不设此字段。
+   * turn-end policy 决 continue 时携带的 hint, 主 loop 注入到下一步 system message。
+   * final 路径 / 工具路径不设此字段。
    *
-   * 当前生产者:PendingContinuationBlockPolicy(LLM 主声明)、SdkFinishReasonPolicy
-   * (finishReason='length' 截断兜底)、JudgeCompletionPolicy (PR 2)。
+   * 当前生产者: SdkFinishReasonPolicy ('length' 截断兜底)、JudgeCompletionPolicy。
    */
   injectHint?: string
   /**
-   * v3.7.3: SDK 报告的本步停止原因 (LLM 自陈)。
+   * SDK 报告的本步停止原因 (LLM 自陈)。
    *
-   * 用途:detector 链消费 (例如 LengthTruncationStreakDetector 监控连续 'length')。
-   * 工具路径恒为 'tool-calls';无工具路径走 SDK 实际值。
+   * 用途: detector 链消费 (LengthTruncationStreakDetector 监控连续 'length')。
+   * 工具路径恒为 'tool-calls'; 无工具路径走 SDK 实际值。
    */
   finishReason?: import('ai').FinishReason
 }

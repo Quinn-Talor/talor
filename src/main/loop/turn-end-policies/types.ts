@@ -1,17 +1,18 @@
 // src/main/loop/turn-end-policies/types.ts — 业务层: Turn-end Policy 接口
 //
-// 抽象 react-loop step-end 的决策点 (无 tool call + 有 text 时该 final 还是 continue),
-// 引入 Strategy + Chain-of-Responsibility 模式,使未来扩展 turn-end 判断逻辑零修改 react-loop。
+// 抽象 react-loop step-end 的决策点 (无 tool call + 有 text 时该 final 还是
+// continue), Strategy + Chain-of-Responsibility 模式 — 扩展 turn-end 判断
+// 逻辑零修改 react-loop。
 //
-// 协作模型 (v3.7.3 J-SHOULD-2):
+// 协作模型 (见 standards.md §J-SHOULD-2 / §J-SHOULD-3):
 //   - LLM 自陈信号 (finishReason, talor block) → policy 链直接消费 (信任 LLM)
-//   - 运行时真相 (usage, providerMetadata) → 系统观测,detector / Ledger 消费
-//   - LLM judge 二审 → 调度 LLM 判 LLM,非 regex (兜底)
+//   - 运行时真相 (usage, providerMetadata) → 系统观测, detector / Ledger 消费
+//   - LLM judge 二审 → 调度 LLM 判 LLM, 非 regex
 //
 // 设计要点:
-//   - 每个 policy 独立模块,可单测,可组合
-//   - PolicyContext 把 SDK 信号作为一等参数注入,所有 policy 都能直接消费
-//   - decision.action='no-opinion' 让 chain 跳过本 policy,交给下一个
+//   - 每个 policy 独立模块, 可单测, 可组合
+//   - PolicyContext 把 SDK 信号作为一等参数注入, 所有 policy 都能直接消费
+//   - decision.action='no-opinion' 让 chain 跳过本 policy, 交给下一个
 //   - LegacyNaturalFinalPolicy 永远在链末尾兜底 (永不返 no-opinion)
 //
 // 允许依赖: ../types, ../../agent/agent, ai (类型), shared/talor-blocks/*
@@ -44,8 +45,8 @@ export interface TurnEndDecision {
 /**
  * 传递给 policy 的上下文。
  *
- * SDK 信号 (sdkSignals) 是一等参数 — 按 v3.7.3 J-SHOULD-3 协作原则,SDK 给的
- * 结构化信号是 policy 链直接消费的素材,不再用启发式重新推断。
+ * SDK 信号 (sdkSignals) 是一等参数 — 按 §J-SHOULD-3 协作原则, SDK 给的
+ * 结构化信号是 policy 链直接消费的素材, 不再用启发式重新推断。
  */
 export interface PolicyContext {
   agent: Agent
@@ -54,10 +55,10 @@ export interface PolicyContext {
   abortSignal: AbortSignal
 
   /**
-   * SDK 给的 LLM 自陈信号 + 运行时真相 (v3.7.3 一等公民化)。
+   * SDK 给的 LLM 自陈信号 + 运行时真相。
    *
    * 类别 A (LLM 自陈): finishReason
-   * 类别 B (运行时真相): usage, providerMetadata, warnings
+   * 类别 B (运行时真相): usage / providerMetadata / warnings
    */
   sdkSignals: {
     /** SDK FinishReason: 'stop' | 'length' | 'tool-calls' | 'content-filter' | 'error' | 'other' | 'unknown' */
@@ -75,9 +76,9 @@ export interface PolicyContext {
   }
 
   /**
-   * Judge call 用的 model factory (JudgeCompletionPolicy 才需要,PR 2 启用)。
+   * Judge call 用的 model factory (JudgeCompletionPolicy 消费)。
    * 工厂模式而非直接 model 实例: judge model 可能与主对话 model 不同,
-   * 用 factory 让 policy 在需要时再 resolve,避免 PR 1 不用 judge 时也强制初始化。
+   * factory 让 policy 在需要时再 resolve, 不用 judge 时不强制初始化。
    */
   judgeProvider?: () => Promise<LanguageModel>
 }

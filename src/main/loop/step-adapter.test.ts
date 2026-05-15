@@ -234,7 +234,7 @@ describe('factsFromStep — 集成派生', () => {
   })
 })
 
-describe('outcomeFromStep — 兼容 v3 StepOutcome', () => {
+describe('outcomeFromStep — 派生 StepOutcome', () => {
   it('工具步 — shouldContinue=true, toolNames 列出', () => {
     const o = outcomeFromStep(
       makeStep({

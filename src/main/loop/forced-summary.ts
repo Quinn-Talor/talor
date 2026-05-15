@@ -1,15 +1,12 @@
 // src/main/loop/forced-summary.ts —— 业务层: 统一的"强制摘要"执行器
 //
-// 合并原 fallback / failure-recovery / signature-dead-loop 三种维度 A 兜底场景的
+// 合并 fallback / failure-recovery / signature-dead-loop 三类维度 A 兜底场景的
 // 共同流程: build prompt → streamText 禁工具 → 净化三件套 → 落库带 label。
 //
 // 三个 OPTS 常量工厂分别对应三类触发场景:
 //   - FALLBACK_SUMMARY_OPTS:               整轮无 text 时兜底
 //   - failureStreakSummaryOpts(N):         连续 N 次工具失败时兜底
 //   - signatureDeadLoopSummaryOpts(...):   同 tool+input+output 重复 N 次时兜底
-//
-// v3.7 移除: forcedClosureSummaryOpts ("连续无 marker 强制收尾") —— 这是过度
-// 补偿,模型在压力下自答制造更大灾难。react-loop 现在"无 tool = 自然 final"。
 //
 // 允许依赖: ./types, ../repos/session-repo, ./quote-verifier
 // 禁止依赖: ipc/*
@@ -57,17 +54,16 @@ function collectRecentToolOutputs(sessionId: string, k: number): string[] {
  * 风格 markup 当文本输出 (DSML / invoke / parameter / tool_calls)。直接显示
  * 给用户混乱。
  *
- * 支持的 markup 形式 (历史踩坑总结):
+ * 支持的 markup 形式:
  *   1. ASCII pipe:   <||DSML||tool_calls>
  *   2. 全角 pipe:    <｜｜DSML｜｜tool_calls>  (U+FF5C FULLWIDTH VERTICAL LINE)
- *      — deepseek / qwen 等中文模型常输出全角变体
+ *      — 中文 model (DeepSeek / Qwen) 常输出全角变体
  *   3. XML 标签:     <invoke> / <parameter> / <tool_call> / <tool_calls> / <tool_use>
  *
- * 替换策略: 把 markup 标签替换为 ⟨tool-call-attempt⟩ 占位, 不直接删除以保留
- * "曾尝试调工具"的事实信号。
+ * 替换为 ⟨tool-call-attempt⟩ 占位 (不删除) — 保留"曾尝试调工具"的事实信号。
  *
- * 不导出 (内部 helper); 任何 forced-summary 路径都应通过 runForcedSummary
- * 间接调用,以保证 strip 一定被执行。
+ * 任何 forced-summary 路径都应通过 runForcedSummary 间接调用此函数, 保证
+ * strip 必跑。
  */
 export function stripToolCallMarkup(text: string): string {
   if (!text) return text
@@ -102,15 +98,13 @@ export interface ForcedSummaryCtx {
   events: import('../chat/events').ExecutionEventBus
   callbacks: {
     onTextDelta: (delta: string, stepIndex: number) => void
-    /** v3.6: forced summary 落库后通知 renderer 立即刷新 (替代 polling) */
+    /** forced summary 落库后通知 renderer 立即刷新, 避免轮询。 */
     onMessagePersisted?: (sessionId: string, stepIndex: number) => void
   }
   /**
-   * v3.6: 本 turn 起始时刻 (ISO timestamp)。
-   * forced summary 拼接 sideEffectLedger.buildSummary 时用,只取本 turn 内
-   * record 的 entries — 避免把历史 turn 的副作用也列一遍。
-   *
-   * runReactLoop 进入时 snapshot new Date().toISOString() 透传。
+   * 本 turn 起始时刻 (ISO timestamp), runReactLoop 入口 snapshot。
+   * forced summary 拼接 sideEffectLedger.buildSummary 时用此时间划界,
+   * 仅取本 turn 内 record 的 entries (不混入历史 turn 的副作用)。
    */
   turnStartTime: string
 }
@@ -120,20 +114,19 @@ export interface ForcedSummaryOpts {
   logName: string
   /** Guardrail system message (注入到 messages 末尾, 禁工具语境) */
   guardrail: ModelMessage
-  /** 输出消息前缀 label, 不含 verify tag (e.g. '[auto-summary]' / '[failure-recovery]' / '[forced-closure]') */
+  /** 输出消息前缀 label (e.g. '[auto-summary]' / '[failure-recovery]')。 */
   label: string
-  /** 是否在输出文本上运行 verify-quote / verify-entity / strip-markup 三件套 */
+  /** 是否对输出文本运行 verify-quote / verify-entity / strip-markup 三件套。 */
   applyVerification: boolean
-  /** 模型空输出时的兜底文案; undefined → 空文本时直接跳过落库 (fallback summary 行为) */
+  /** 模型空输出时的兜底文案; undefined → 空文本时直接跳过落库 (fallback 行为)。 */
   fallbackTextIfEmpty?: string
-  /** 输出文本的后处理 (forced-closure 用来补 ⏸ Blocked) */
+  /** 输出文本的后处理 (例如补显式 marker)。 */
   postProcess?: (text: string) => string
-  /** catch 块落库的兜底文案 (内部错误兜底) */
+  /** catch 块落库的兜底文案 (内部异常路径)。 */
   errorFallbackText: string
   /**
-   * v3.6: 是否在 forced summary 内嵌副作用 ledger 摘要。
-   * 默认 true — 用户在中断/兜底场景下尤其需要知道本 turn 已经发生了哪些写操作。
-   * 仅在测试/特殊场景关。
+   * 是否在 forced summary 内嵌副作用 ledger 摘要。默认 true —
+   * 用户在中断/兜底场景下需要知道本 turn 已经发生了哪些写操作。
    */
   includeLedgerSummary?: boolean
 }
@@ -172,8 +165,8 @@ export async function runForcedSummary(
     const { messages } = await ctx.pipeline.build(summaryPipelineCtx)
     const summaryResult = streamText({
       model: ctx.model,
-      // v3.7.3: forced summary 也用大输出预算,与主对话一致 (避免兜底摘要被 max_tokens 截断)。
-      // 64K = 现代 provider 安全交集 (Claude 4 / Gemini 2.5 上限),不能更高 (会被部分 API 拒)。
+      // 64K = 现代 provider 安全交集 (Anthropic / Gemini 上限); 与主对话保持
+      // 一致避免兜底摘要被 max_tokens 截断。
       maxOutputTokens: 64_000,
       messages: [...messages, opts.guardrail],
       abortSignal: buildStreamSignal(ctx.abortSignal),
@@ -228,11 +221,11 @@ export async function runForcedSummary(
     // 必须剥, 否则模型尝试 DSML / invoke / XML 都会原封显示给用户 (本次 bug)。
     cleaned = stripToolCallMarkup(cleaned)
 
-    // postProcess (forced-closure 用 — 补 ⏸ Blocked 等)
+    // postProcess (例如补显式 marker)
     if (opts.postProcess) cleaned = opts.postProcess(cleaned)
 
-    // v3.6: 副作用 ledger 摘要拼接 — 让用户在兜底场景仍能看到本 turn 已发生的写操作
-    // 用 turnStartTime (ISO) 划界, 只拼本 turn 的副作用, 不拉历史 turn
+    // 副作用 ledger 摘要拼接 — 兜底场景下让用户看到本 turn 已发生的写操作。
+    // 用 turnStartTime (ISO) 划界, 只拼本 turn 的副作用, 不混入历史 turn。
     if (opts.includeLedgerSummary !== false) {
       try {
         const ledgerSummary = sideEffectLedger.buildSummary(ctx.sessionId, ctx.turnStartTime)
@@ -378,7 +371,3 @@ export function signatureDeadLoopSummaryOpts(
     errorFallbackText: `[signature-dead-loop failed]\n⏸ Blocked — internal error during dead-loop recovery (signature repeated ${repeatCount + 1}x). Please retry with different approach.`,
   }
 }
-
-// v3.7: forcedClosureSummaryOpts 删除 —— "无 marker 强制收尾"是过度补偿。
-// 现代 LLM 不发 marker 也是合法结束;强制后反而让模型在压力下自答 (截图灾难)。
-// react-loop 现在"无 tool = 自然 final",不再有 no-marker streak 路径。

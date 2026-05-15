@@ -1,13 +1,10 @@
-// src/main/loop/step-adapter.ts —— 业务层: SDK StepResult → Talor 内部模型 (v4 Phase 3)
+// src/main/loop/step-adapter.ts —— 业务层: SDK StepResult → Talor 内部模型
 //
 // 作用:
-//   AI SDK 的 onStepFinish 回调拿到 StepResult<TOOLS>, 字段是 SDK 的 schema。
-//   detector / forced-summary / 持久化路径用的是 Talor 内部 OutcomeFacts / StepOutcome。
-//   本模块负责单向转换 + 复用 v3 已有的 stepSignature / extractRawForHash 等纯函数。
-//
-//   v3 同款逻辑(canonicalizeJson / extractRawForHash / sha8 / stepSignature /
-//   isSubagentFailureOutput)从 react-loop.ts 搬过来 — runReactStep 删除后这些
-//   helper 留在此处独立可测。
+//   AI SDK 的 streamText.result.steps 给的 StepResult<TOOLS> 字段是 SDK schema。
+//   detector / forced-summary / 持久化路径用的是 Talor 内部 OutcomeFacts /
+//   StepOutcome。本模块负责单向转换 + 暴露纯函数 helper (签名 hash / 错误判定)
+//   供 react-loop 与单元测试共享。
 //
 // 允许依赖: ./types, ./outcome-facts, ./stream-utils (isErrorOutput / extractOutputText)
 // 禁止依赖: ipc/*, ../repos/*
@@ -18,7 +15,7 @@ import type { OutcomeFacts } from './outcome-facts'
 import type { StepOutcome } from './types'
 import { isErrorOutput } from './stream-utils'
 
-// ── 纯哈希 / 签名 helper (v3 → step-adapter) ────────────────────────────
+// ── 纯哈希 / 签名 helper ─────────────────────────────────────────────────
 
 export function sha8(s: string): string {
   return createHash('sha1').update(s).digest('hex').slice(0, 8)
@@ -98,13 +95,10 @@ export function isSubagentFailureOutput(output: unknown): boolean {
 // ── SDK StepResult → Talor 内部模型 ────────────────────────────────────
 
 /**
- * 从 SDK StepResult.content 抽出纯文本 (合并所有 text 段)。
- *
- * SDK content 是 ContentPart 联合; text 段 type='text', value 在 .text。
- * reasoning 段不在此处合并 (单独 extractReasoningFromStep)。
+ * 从 StepResult 抽出纯文本 (SDK 已拼接所有 text part)。
+ * Reasoning 单独由 extractReasoningFromStep 取出。
  */
 export function extractTextFromStep(step: StepResult<ToolSet>): string {
-  // SDK v6 直接提供 step.text — 是所有 text part 的拼接。
   return step.text ?? ''
 }
 
@@ -163,8 +157,8 @@ export function factsFromStep(step: StepResult<ToolSet>): OutcomeFacts {
 /**
  * 从 SDK StepResult 派生 StepOutcome (turn-end policy 链消费)。
  *
- * 兼容 v3 主循环 StepOutcome 接口 — policy 链不用改。
- * wroteAssistantFinal / shouldContinue 由调用方根据上下文设定 (此 adapter 默认 false)。
+ * wroteAssistantFinal 字段在此处恒为 false — 由主循环根据 turn-end policy
+ * 决策结果填充语义。shouldContinue 默认 = (toolNames.length > 0)。
  */
 export function outcomeFromStep(step: StepResult<ToolSet>, durationMs = 0): StepOutcome {
   const toolCalls = toolCallsFromStep(step)

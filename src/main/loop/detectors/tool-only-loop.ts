@@ -1,19 +1,17 @@
 // src/main/loop/detectors/tool-only-loop.ts
 //
-// 软提示 (v4.1): 模型连续 N 步调用工具但零文本输出 → 注入 hint 鼓励
-// 总结进展 + 并行调用。**不再硬切断 turn** (旧 break 行为对合法多表/
-// 多文件探索误判过强 — DeepSeek 等 reasoning-light provider 会沉默连查
-// 10+ 张表)。
+// 软提示侦测: 模型连续 N 步调用工具但零文本输出 → 注入 nextHint 鼓励
+// 总结进展 + 并行调用。从不 triggered=true (不硬切断 turn)。
 //
-// 与 signature-dead-loop / failure-streak 区别:
-//   - signature 抓"同参数重试"        (硬切断, 真死循环)
-//   - failure-streak 抓"连续失败"      (硬切断 + forced summary)
-//   - tool-only 抓"每步换参但永远沉默" (软提示, 让 LLM 自救)
+// 与同模块其他 detector 的分工:
+//   - signature-dead-loop:  同参数重试 (硬切断 + forced summary)
+//   - failure-streak:       连续失败 (硬切断 + forced summary)
+//   - tool-only:            零文本工具链 (仅提示, 让 LLM 自救)
+//   - length-truncation:    连续 finishReason='length' (硬切断)
 //
 // 设计原则 (J-SHOULD-1 协作模型):
-//   "用户感知差" ≠ "系统故障"。系统给 LLM 信号, 让 LLM 决定如何处理 —
-//   而不是系统单方面切断。真死循环 (同参数重试 / 连续失败 / length 截断)
-//   由其他三个 detector 兜底。
+//   "用户感知差" ≠ "系统故障"。系统给信号, LLM 决定如何处理 —
+//   不由系统单方面切断。真死循环由其他三个 detector 兜底。
 //
 // 允许依赖: ./types, ../outcome-facts, ../streak-counter
 // 禁止依赖: ipc/*
@@ -25,10 +23,7 @@ import type { OutcomeFacts } from '../outcome-facts'
 import { StreakCounter } from '../streak-counter'
 
 export interface ToolOnlyLoopOpts {
-  /**
-   * Hint 触发阈值。默认 3 — 第 3 步连续零文本就开始注入 hint, 给 LLM
-   * 自救机会。注意这是 hint 阈值, 不是 break 阈值 (本 detector 不再 break)。
-   */
+  /** Hint 触发阈值。默认 3 — 连续 3 步零文本即开始注入 hint。 */
   hintAt?: number
 }
 
