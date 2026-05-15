@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
-import { ToolCallMessage } from '../../components/ToolCallMessage'
+import { ToolDispatch } from '../../components/tool-calls/ToolDispatch'
 // ToolConfirmDialog 和 PermissionDialog 已下线到 PermissionsPopover 内嵌渲染,
 // UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
 // 但 Chat 页面不再消费它们。
@@ -272,15 +272,22 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               .map((b) => (b as { text?: string }).text ?? '')
               .join('')
               .trim()
+            const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r]))
             acc.push(
-              <div key={msg.id} className="mb-0.5">
+              <div key={msg.id} className="pl-[32px] mb-1">
                 {textContent && (
-                  <div className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate">
+                  <div className="text-[12px] text-mute mb-1 truncate">
                     {textContent.slice(0, 80)}
                     {textContent.length > 80 ? '…' : ''}
                   </div>
                 )}
-                <ToolCallMessage toolUses={toolUses} toolResults={toolResults} />
+                {toolUses.map((tu) => (
+                  <ToolDispatch
+                    key={tu.toolCallId}
+                    use={tu}
+                    result={resultMap.get(tu.toolCallId)}
+                  />
+                ))}
               </div>,
             )
             return acc
