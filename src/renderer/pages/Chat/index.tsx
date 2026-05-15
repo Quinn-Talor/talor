@@ -1099,24 +1099,17 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center">
                     <div
-                      className="flex items-center justify-center mx-auto mb-3 rounded-[16px]"
+                      className="font-bold text-3xl mb-2"
                       style={{
-                        width: 48,
-                        height: 48,
-                        background: 'rgba(59,130,246,0.08)',
-                        border: '1px solid rgba(59,130,246,0.15)',
+                        background: 'linear-gradient(135deg, var(--accent), var(--indigo))',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
                       }}
                     >
-                      <span className="font-bold text-xl" style={{ color: '#3b82f6' }}>
-                        T
-                      </span>
+                      T
                     </div>
-                    <p className="text-[14px] font-semibold mb-1" style={{ color: '#334155' }}>
-                      开始对话
-                    </p>
-                    <p className="text-[13px]" style={{ color: '#94a3b8' }}>
-                      在下方输入消息开始对话
-                    </p>
+                    <p className="text-[15px] font-semibold mb-1 text-text">开始对话</p>
+                    <p className="text-[13px] text-mute">下方输入消息，或拖入文件 / 图片</p>
                   </div>
                 </div>
               ) : (
@@ -1124,44 +1117,30 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   {renderedMessages}
                   {streamState === 'streaming' && <ToolCallLog />}
                   {streamState === 'error' && error && (
-                    <div
-                      className="flex items-start gap-2 p-3 rounded-xl text-[13px]"
-                      style={{
-                        background: '#fef2f2',
-                        border: '1px solid #fee2e2',
-                        color: '#dc2626',
-                      }}
-                    >
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg text-[13px] bg-[#fef2f2] border border-[#fecaca] text-err">
                       <svg
-                        width="15"
-                        height="15"
+                        width="14"
+                        height="14"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
-                        style={{ flexShrink: 0, marginTop: 1 }}
+                        className="shrink-0 mt-0.5"
                       >
                         <circle cx="12" cy="12" r="10" />
                         <line x1="12" y1="8" x2="12" y2="12" />
                         <line x1="12" y1="16" x2="12.01" y2="16" />
                       </svg>
                       <div>
-                        <span className="font-semibold block">{error.code}</span>
-                        <span>{error.message}</span>
+                        <div className="font-mono text-[11px] text-[#991b1b]">{error.code}</div>
+                        <div>{error.message}</div>
                       </div>
                     </div>
                   )}
 
-                  {/* Crystallize workbench panel — spec §B.9.2 */}
+                  {/* Crystallize workbench — spec §11.5: dashed separator instead of purple box */}
                   {ws.isOpen && (
-                    <div
-                      className="rounded-lg overflow-hidden"
-                      style={{
-                        border: '1px solid #c084fc',
-                        background: '#faf5ff',
-                      }}
-                      data-testid="crystallize-workbench"
-                    >
+                    <div className="my-4" data-testid="crystallize-workbench">
                       <CrystallizeSeparator
                         collapsed={separatorCollapsed}
                         basedOnMessageCount={messages.length}
@@ -1169,12 +1148,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                       />
                       {!separatorCollapsed && (
                         <>
-                          <div className="px-3 py-3 space-y-2">
+                          {/* 内容区: 2px indigo 左竖线 + 内嵌 message 列表 */}
+                          <div className="pl-2 border-l-2 border-[#e0e7ff] py-2 space-y-2">
                             {ws.workbenchMessages.length === 0 ? (
-                              <div
-                                className="text-[12px] text-center py-4"
-                                style={{ color: '#94a3b8' }}
-                              >
+                              <div className="text-[12px] text-center py-4 text-subtle">
                                 工作台已就绪。在下方输入"开始"或"请基于这段对话提议 agent"，让
                                 Crystallizer 提议草稿。
                               </div>
