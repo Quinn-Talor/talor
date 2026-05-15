@@ -171,6 +171,79 @@ describe('parseTalorBlocks', () => {
       expect(blocks).toHaveLength(1)
     })
   })
+
+  describe('proposal block (Phase 2 · 通用动作提议)', () => {
+    it('解析最小化 proposal', () => {
+      const text = `\`\`\`talor
+{
+  "type": "proposal",
+  "summary": "Send email to wang@acme.com",
+  "action": {
+    "label": "Send",
+    "tool": "gmail.send_draft",
+    "args": { "draft_id": "abc123" }
+  }
+}
+\`\`\``
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(invalid).toHaveLength(0)
+      expect(blocks).toHaveLength(1)
+      const b = blocks[0]
+      expect(b.type).toBe('proposal')
+      if (b.type === 'proposal') {
+        expect(b.summary).toBe('Send email to wang@acme.com')
+        expect(b.action.tool).toBe('gmail.send_draft')
+        expect(b.action.args).toEqual({ draft_id: 'abc123' })
+      }
+    })
+
+    it('解析含 preview + secondary_actions 的 proposal', () => {
+      const text = `\`\`\`talor
+{
+  "type": "proposal",
+  "summary": "Draft reply ready",
+  "preview": "Hi Wang,\\n\\nThanks for your...",
+  "action": { "label": "Send", "tool": "gmail.send_draft", "args": {} },
+  "secondary_actions": [
+    { "label": "Edit", "emit": "I want to revise" },
+    { "label": "Rewrite", "emit": "Use a different tone" }
+  ]
+}
+\`\`\``
+      const { blocks } = parseTalorBlocks(text)
+      expect(blocks).toHaveLength(1)
+      const b = blocks[0]
+      if (b.type === 'proposal') {
+        expect(b.preview).toMatch(/^Hi Wang/)
+        expect(b.secondary_actions).toHaveLength(2)
+        expect(b.secondary_actions?.[0]).toEqual({ label: 'Edit', emit: 'I want to revise' })
+      }
+    })
+
+    it('拒绝缺 action 的 proposal', () => {
+      const text = '```talor\n{ "type": "proposal", "summary": "missing action" }\n```'
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(blocks).toHaveLength(0)
+      expect(invalid).toHaveLength(1)
+      expect(invalid[0].reason).toMatch(/field-validation: proposal/)
+    })
+
+    it('拒绝 action.tool 为空字符串', () => {
+      const text =
+        '```talor\n{ "type": "proposal", "summary": "s", "action": { "label": "Go", "tool": "", "args": {} } }\n```'
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(blocks).toHaveLength(0)
+      expect(invalid[0].reason).toMatch(/field-validation: proposal/)
+    })
+
+    it('拒绝 action.label 缺失', () => {
+      const text =
+        '```talor\n{ "type": "proposal", "summary": "s", "action": { "tool": "x", "args": {} } }\n```'
+      const { blocks, invalid } = parseTalorBlocks(text)
+      expect(blocks).toHaveLength(0)
+      expect(invalid[0].reason).toMatch(/field-validation: proposal/)
+    })
+  })
 })
 
 describe('detectStreamingTalorType', () => {

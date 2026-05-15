@@ -80,6 +80,42 @@ export interface WarningBlock {
   severity?: 'low' | 'medium' | 'high'
 }
 
+/**
+ * 用户可一键确认的动作提议 — 任意 tool + args + label。
+ *
+ * 用法: 任何"提议执行一个动作并由用户确认"的场景统一使用 (发邮件 / 创建会议 /
+ * 保存配置 / 调用外部 API ...)。取代 v3 时期的 draft_detected (只能用于
+ * agent profile 保存)。
+ *
+ * 设计原则:
+ *   - UI 不感知 tool 业务概念,仅渲染 summary + preview + CTA
+ *   - 用户点 CTA 时 Talor 用 toolRegistry.invoke(action.tool, action.args)
+ *     走标准 tool 调用链路 (含权限校验)
+ *   - secondary_actions 不直接调工具,而是把 emit 字符串塞回 LLM 上下文 (让 LLM
+ *     进入修改流程)
+ */
+export interface ProposalBlock {
+  type: 'proposal'
+  /** 必填: 一行摘要 — 描述将要发生什么 */
+  summary: string
+  /** 选填: markdown preview,给用户看完整内容 */
+  preview?: string
+  /** 必填: 主动作 */
+  action: {
+    /** 按钮文字 */
+    label: string
+    /** 必须是 registry 注册的 tool name */
+    tool: string
+    /** 工具参数,由对应 tool 的 schema 校验 */
+    args: Record<string, unknown>
+  }
+  /** 选填: 二级动作 — 不触发 tool,将 emit 字符串塞回 LLM 上下文 */
+  secondary_actions?: Array<{
+    label: string
+    emit: string
+  }>
+}
+
 // v4 Phase 4a 删除: PendingContinuationBlock。替代方案: request_continuation virtual tool。
 
 /**
@@ -101,18 +137,26 @@ export interface PlanBlock {
  *     }
  *   }
  */
-export type TalorBlock = DoneBlock | NeedInputBlock | BlockedBlock | WarningBlock | PlanBlock
+export type TalorBlock =
+  | DoneBlock
+  | NeedInputBlock
+  | BlockedBlock
+  | WarningBlock
+  | ProposalBlock
+  | PlanBlock
 
 export type TalorBlockType = TalorBlock['type']
 
 /** V1 框架处理的 block 类型。
  *
- * v4 协议瘦身后:仅 4 个 UI 装饰类 block + plan(V2)。
- * 系统消费 block 数:0(全部协议行为改用 SDK tool({ needsApproval }) + request_continuation)
+ * 5 个 UI block + plan(V2 预留)。
+ * 系统消费 block 数:0(协议行为改用 SDK tool({ needsApproval }) + request_continuation);
+ * UI 渲染消费 5 个 (done / need_input / blocked / warning / proposal)。
  */
 export const V1_BLOCK_TYPES = [
   'done',
   'need_input',
   'blocked',
   'warning',
+  'proposal',
 ] as const satisfies readonly TalorBlockType[]

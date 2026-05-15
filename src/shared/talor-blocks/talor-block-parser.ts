@@ -117,7 +117,15 @@ function isV1Type(t: string): t is TalorBlockType {
   // v4 协议瘦身:仅保留 UI 装饰类 block + plan(V2)。
   // 已删:pending_continuation (Phase 4a, → request_continuation tool)
   //      pending_confirm (Phase 4b, → tool needsApproval)
-  return t === 'done' || t === 'need_input' || t === 'blocked' || t === 'warning' || t === 'plan'
+  // Phase 5 新增:proposal (通用动作提议,替代 draft_detected)
+  return (
+    t === 'done' ||
+    t === 'need_input' ||
+    t === 'blocked' ||
+    t === 'warning' ||
+    t === 'proposal' ||
+    t === 'plan'
+  )
 }
 
 /**
@@ -136,9 +144,32 @@ function validateBlockFields(type: TalorBlockType, obj: Record<string, unknown>)
       return typeof obj.reason === 'string' && obj.reason.length > 0
     case 'warning':
       return typeof obj.message === 'string' && obj.message.length > 0
+    case 'proposal':
+      return validateProposalFields(obj)
     case 'plan':
       return Array.isArray(obj.steps)
     default:
       return false
   }
+}
+
+function validateProposalFields(obj: Record<string, unknown>): boolean {
+  if (typeof obj.summary !== 'string' || obj.summary.length === 0) return false
+  if (typeof obj.action !== 'object' || obj.action === null || Array.isArray(obj.action))
+    return false
+  const action = obj.action as Record<string, unknown>
+  if (typeof action.label !== 'string' || action.label.length === 0) return false
+  if (typeof action.tool !== 'string' || action.tool.length === 0) return false
+  if (typeof action.args !== 'object' || action.args === null || Array.isArray(action.args))
+    return false
+  if (obj.preview !== undefined && typeof obj.preview !== 'string') return false
+  if (obj.secondary_actions !== undefined) {
+    if (!Array.isArray(obj.secondary_actions)) return false
+    for (const sa of obj.secondary_actions) {
+      if (typeof sa !== 'object' || sa === null) return false
+      const s = sa as Record<string, unknown>
+      if (typeof s.label !== 'string' || typeof s.emit !== 'string') return false
+    }
+  }
+  return true
 }
