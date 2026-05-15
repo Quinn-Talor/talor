@@ -99,7 +99,23 @@ Severity is one of \`low\` / \`medium\` / \`high\` (default \`medium\`).
 - Don't \`done\` a turn that has tool calls — \`done\` is for end-of-turn after all
   tool work has finished.
 - Don't fabricate tool names in \`proposal.action.tool\`. If you don't have the tool,
-  ask the user in prose instead.`
+  ask the user in prose instead.
+
+## Markdown formatting reminders
+
+- **Tables** must include the header separator row, e.g.:
+  \`\`\`
+  | Header 1 | Header 2 |
+  |----------|----------|
+  | cell     | cell     |
+  \`\`\`
+  Without the \`|----|----|\` row it renders as plain pipe-separated text, not a table.
+- **Lists**: use \`-\` for bullets (one per line) or \`1.\` for ordered. Don't use
+  pipe-separated single-line "tables" as a substitute for lists.
+- **Code blocks**: use fenced \`\`\`lang for syntax highlighting. Inline \`code\` is single
+  backticks.
+- **Line breaks**: single newlines render as soft breaks (GitHub / ChatGPT semantics).
+  For paragraph breaks use a blank line.`
 
 export class UiBlockPlugin implements PromptPlugin {
   name = 'UiBlockPlugin'
