@@ -1,24 +1,19 @@
-// src/main/loop/react-loop.test.ts (v4 — SDK 多步重写)
+// src/main/loop/react-loop.test.ts (v4.2 — 自做 loop)
 //
-// v4 改造后, react-loop 用 streamText 内置多步 (stopWhen + prepareStep + onStepFinish)。
-// 测试 mock 模式从 "1 streamText = 1 step" 改为 "1 streamText = N step" — 用
-// driveStreamText helper 驱动多步 lifecycle 回调。
+// 测试模式: 1 mockStreamText 调用 = 1 step (v3 风格,但内部仍构造 SDK StepResult
+// 用于 persistStepFromResult + factsFromStep 等 v4 模块)。
 //
 // 覆盖:
 //   - 文本响应基本路径
 //   - abort 前/中 退出
 //   - context budget 软告警/硬阻断
 //   - dead-loop 检测 (signature 阈值差异化)
-//   - failure-streak 加权 + hint 注入
-//   - signature canonical / output-hash 跳过指引前缀
-//   - tool result fallback (unknown name / empty / mcp not loaded)
-//   - MCP exposure flags (search_tool / used set)
+//   - failure-streak (3 步全失败 → forced-recovery summary)
+//   - turn-end policy 续做 + final
 //   - 持久化配对事务 (tool 步 createBatch) / 纯文本步 create
-//   - turn-end policy 续做 (基本 cover)
-//
-// forced-summary 内部已由 src/main/loop/forced-summary.test.ts 覆盖, 此处只 smoke。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { StepResult, ToolSet } from 'ai'
 
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -91,8 +86,144 @@ vi.mock('../tools/build-tools', () => ({
 }))
 
 import { runReactLoop } from './react-loop'
-import { driveStreamText } from './test-helpers/mock-stream-text'
 import type { ReactLoopOptions } from './types'
+
+// ── 测试 helpers ───────────────────────────────────────────────────────
+
+/**
+ * 构造一个最小 StepResult (mock). 只填 v4.2 react-loop 实际消费的字段。
+ */
+function makeStepResult(o: {
+  text?: string
+  reasoning?: string
+  toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>
+  toolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>
+  finishReason?: import('ai').FinishReason
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+}): StepResult<ToolSet> {
+  return {
+    text: o.text ?? '',
+    reasoningText: o.reasoning,
+    reasoning: o.reasoning ? [{ type: 'reasoning', text: o.reasoning }] : [],
+    toolCalls: (o.toolCalls ?? []) as unknown as StepResult<ToolSet>['toolCalls'],
+    toolResults: (o.toolResults ?? []) as unknown as StepResult<ToolSet>['toolResults'],
+    finishReason: o.finishReason ?? 'stop',
+    usage: (o.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }) as never,
+    warnings: undefined as never,
+    providerMetadata: undefined as never,
+    content: [],
+    files: [],
+    sources: [],
+    staticToolCalls: [],
+    dynamicToolCalls: [],
+    staticToolResults: [],
+    dynamicToolResults: [],
+    rawFinishReason: undefined,
+    request: {} as never,
+    response: { messages: [] } as never,
+  } as unknown as StepResult<ToolSet>
+}
+
+/**
+ * 单步 streamText mock impl — 驱动 onChunk + tool lifecycle, 返 result.steps[0] 等。
+ */
+type StepDef = {
+  text?: string
+  reasoning?: string
+  toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>
+  toolResults?: Array<{
+    toolCallId: string
+    toolName: string
+    output: unknown
+    isError?: boolean
+    durationMs?: number
+  }>
+  finishReason?: import('ai').FinishReason
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+}
+
+function mockSingleStep(step: StepDef) {
+  return (params: {
+    onChunk?: (arg: { chunk: { type: string; text?: string } }) => void
+    experimental_onToolCallStart?: (event: {
+      toolCall: { toolCallId: string; toolName: string; input: unknown }
+    }) => void
+    experimental_onToolCallFinish?: (
+      event:
+        | {
+            toolCall: { toolCallId: string; toolName: string; input: unknown }
+            durationMs: number
+            success: true
+            output: unknown
+          }
+        | {
+            toolCall: { toolCallId: string; toolName: string; input: unknown }
+            durationMs: number
+            success: false
+            error: unknown
+          },
+    ) => void
+    messages?: unknown[]
+  }) => {
+    // forced-summary 路径检测: 缺 onChunk + 缺 tool callbacks → textStream only
+    if (!params.onChunk && !params.experimental_onToolCallStart) {
+      const text = step.text ?? ''
+      return {
+        consumeStream: vi.fn().mockResolvedValue(undefined),
+        textStream: (async function* () {
+          if (text) yield text
+        })(),
+      }
+    }
+
+    // 主路径: 流式 text + tool lifecycle
+    if (step.text) {
+      params.onChunk?.({ chunk: { type: 'text-delta', text: step.text } })
+    }
+    if (step.reasoning) {
+      params.onChunk?.({ chunk: { type: 'reasoning-delta', text: step.reasoning } })
+    }
+    for (const tc of step.toolCalls ?? []) {
+      params.experimental_onToolCallStart?.({ toolCall: tc })
+      const result = step.toolResults?.find((tr) => tr.toolCallId === tc.toolCallId)
+      if (!result) {
+        params.experimental_onToolCallFinish?.({
+          toolCall: tc,
+          durationMs: 1,
+          success: false,
+          error: 'no result mocked',
+        })
+        continue
+      }
+      if (result.isError) {
+        params.experimental_onToolCallFinish?.({
+          toolCall: tc,
+          durationMs: result.durationMs ?? 1,
+          success: false,
+          error: result.output,
+        })
+      } else {
+        params.experimental_onToolCallFinish?.({
+          toolCall: tc,
+          durationMs: result.durationMs ?? 1,
+          success: true,
+          output: result.output,
+        })
+      }
+    }
+
+    const stepResult = makeStepResult(step)
+    return {
+      consumeStream: vi.fn().mockResolvedValue(undefined),
+      steps: Promise.resolve([stepResult]),
+      toolResults: Promise.resolve(step.toolResults ?? []),
+      finishReason: Promise.resolve(stepResult.finishReason),
+      usage: Promise.resolve(stepResult.usage),
+      providerMetadata: Promise.resolve(undefined),
+      warnings: Promise.resolve([]),
+    }
+  }
+}
 
 function makeOpts(overrides: Partial<ReactLoopOptions> = {}): ReactLoopOptions {
   const controller = new AbortController()
@@ -145,9 +276,9 @@ beforeEach(() => {
 
 // ── 基本路径 ───────────────────────────────────────────────────────────
 
-describe('runReactLoop — text-only response (v4)', () => {
+describe('runReactLoop — text-only response', () => {
   it('单步纯文本 → onTextDelta + 落 assistant', async () => {
-    mockStreamText.mockImplementation(driveStreamText([{ text: 'hello' }]))
+    mockStreamText.mockImplementation(mockSingleStep({ text: 'hello' }))
     const opts = makeOpts()
     await runReactLoop(opts)
     expect(opts.callbacks.onTextDelta).toHaveBeenCalledWith('hello', expect.any(Number))
@@ -172,7 +303,7 @@ describe('runReactLoop — abort', () => {
 
 describe('runReactLoop — context budget guard', () => {
   it('prompt ≥ 100% → 不调 streamText, 写 [auto-halt]', async () => {
-    const bigText = 'x'.repeat(1000) // estimate ≈ 250 tokens
+    const bigText = 'x'.repeat(1000)
     const opts = makeOpts({
       providerConfig: {
         context_limit: 50,
@@ -201,11 +332,11 @@ describe('runReactLoop — context budget guard', () => {
     const captured: unknown[][] = []
     mockStreamText.mockImplementation((params: { messages: unknown[] }) => {
       captured.push(params.messages)
-      return driveStreamText([{ text: 'ok' }])(params as never) as unknown as ReturnType<
+      return mockSingleStep({ text: 'ok' })(params as never) as unknown as ReturnType<
         typeof mockStreamText
       >
     })
-    const bigText = 'x'.repeat(197) // estimate ≈ 50 tokens
+    const bigText = 'x'.repeat(197)
     const opts = makeOpts({
       providerConfig: {
         context_limit: 51,
@@ -230,7 +361,7 @@ describe('runReactLoop — context budget guard', () => {
     const captured: unknown[][] = []
     mockStreamText.mockImplementation((params: { messages: unknown[] }) => {
       captured.push(params.messages)
-      return driveStreamText([{ text: 'ok' }])(params as never) as unknown as ReturnType<
+      return mockSingleStep({ text: 'ok' })(params as never) as unknown as ReturnType<
         typeof mockStreamText
       >
     })
@@ -251,9 +382,9 @@ describe('runReactLoop — context budget guard', () => {
   })
 })
 
-// ── Dead-loop detection (signature) ────────────────────────────────────
+// ── Dead-loop detection ─────────────────────────────────────────────────
 
-describe('runReactLoop — signature dead-loop (v4)', () => {
+describe('runReactLoop — signature dead-loop', () => {
   function agent(names: string[] = ['bash']): ReactLoopOptions['agent'] {
     return {
       id: '__chat__',
@@ -265,90 +396,71 @@ describe('runReactLoop — signature dead-loop (v4)', () => {
     } as unknown as ReactLoopOptions['agent']
   }
 
-  it('带 error 同签名第 2 次即 break (阈值 1)', async () => {
-    // 同 input + 同 output (都是 error) 重复 2 次 → signature-dead-loop trigger
-    mockStreamText.mockImplementation(
-      driveStreamText([
-        {
-          toolCalls: [{ toolCallId: 'tc1', toolName: 'bash', input: { cmd: 'ls' } }],
-          toolResults: [
-            { toolCallId: 'tc1', toolName: 'bash', output: 'Error: same', isError: true },
-          ],
-        },
-        {
-          toolCalls: [{ toolCallId: 'tc2', toolName: 'bash', input: { cmd: 'ls' } }],
-          toolResults: [
-            { toolCallId: 'tc2', toolName: 'bash', output: 'Error: same', isError: true },
-          ],
-        },
-        // 第 3 步不应触发 (stopWhen 在 step 2 onStepFinish 后命中)
-        {
-          toolCalls: [{ toolCallId: 'tc3', toolName: 'bash', input: { cmd: 'ls' } }],
-          toolResults: [{ toolCallId: 'tc3', toolName: 'bash', output: 'Error: same' }],
-        },
-      ]),
-    )
+  it('带 error 同签名第 2 次即 break (阈值 1) — streamText 2 次后停', async () => {
+    const stepDef: StepDef = {
+      toolCalls: [{ toolCallId: 'tc1', toolName: 'bash', input: { cmd: 'ls' } }],
+      toolResults: [{ toolCallId: 'tc1', toolName: 'bash', output: 'Error: same', isError: true }],
+    }
+    mockStreamText.mockImplementation(mockSingleStep(stepDef))
     const opts = makeOpts({ maxSteps: 10, agent: agent() })
     await runReactLoop(opts)
-    // 2 步落库 (tool-pair createBatch ×2), 不到 3 步
-    expect(mockMessageCreateBatch.mock.calls.length).toBe(2)
+    // 第 2 步触发 dead-loop → break。主对话 streamText 调 2 次 (forced-summary 额外 1 次)
+    const mainCalls = mockStreamText.mock.calls.filter(
+      (c) => (c[0] as { onChunk?: unknown })?.onChunk,
+    ).length
+    expect(mainCalls).toBe(2)
   })
 
   it('不带 error 同签名需到第 3 次才 break (阈值 2)', async () => {
-    mockStreamText.mockImplementation(
-      driveStreamText([
-        {
-          toolCalls: [{ toolCallId: 'tc1', toolName: 'read', input: { path: 'a' } }],
-          toolResults: [{ toolCallId: 'tc1', toolName: 'read', output: 'content' }],
-        },
-        {
-          toolCalls: [{ toolCallId: 'tc2', toolName: 'read', input: { path: 'a' } }],
-          toolResults: [{ toolCallId: 'tc2', toolName: 'read', output: 'content' }],
-        },
-        {
-          toolCalls: [{ toolCallId: 'tc3', toolName: 'read', input: { path: 'a' } }],
-          toolResults: [{ toolCallId: 'tc3', toolName: 'read', output: 'content' }],
-        },
-        // 第 4 步不应跑
-        {
-          toolCalls: [{ toolCallId: 'tc4', toolName: 'read', input: { path: 'a' } }],
-          toolResults: [{ toolCallId: 'tc4', toolName: 'read', output: 'content' }],
-        },
-      ]),
-    )
+    const stepDef: StepDef = {
+      toolCalls: [{ toolCallId: 'tc1', toolName: 'read', input: { path: 'a' } }],
+      toolResults: [{ toolCallId: 'tc1', toolName: 'read', output: 'content' }],
+    }
+    mockStreamText.mockImplementation(mockSingleStep(stepDef))
     const opts = makeOpts({ maxSteps: 10, agent: agent(['read']) })
     await runReactLoop(opts)
-    expect(mockMessageCreateBatch.mock.calls.length).toBe(3)
+    const mainCalls = mockStreamText.mock.calls.filter(
+      (c) => (c[0] as { onChunk?: unknown })?.onChunk,
+    ).length
+    expect(mainCalls).toBe(3)
   })
 
   it('同命令字段顺序不同 → 同 signature → 同签名触发', async () => {
-    mockStreamText.mockImplementation(
-      driveStreamText([
-        {
-          toolCalls: [{ toolCallId: 'tc1', toolName: 'bash', input: { a: 1, b: 2 } }],
-          toolResults: [{ toolCallId: 'tc1', toolName: 'bash', output: 'Error: x', isError: true }],
-        },
-        {
-          // 同 input 不同键顺序
-          toolCalls: [{ toolCallId: 'tc2', toolName: 'bash', input: { b: 2, a: 1 } }],
-          toolResults: [{ toolCallId: 'tc2', toolName: 'bash', output: 'Error: x', isError: true }],
-        },
-        {
-          toolCalls: [{ toolCallId: 'tc3', toolName: 'bash', input: { a: 1, b: 2 } }],
-          toolResults: [{ toolCallId: 'tc3', toolName: 'bash', output: 'Error: x' }],
-        },
-      ]),
-    )
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      if (!(params as { onChunk?: unknown }).onChunk) {
+        return mockSingleStep({})(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      stepIdx++
+      const input = stepIdx === 2 ? { b: 2, a: 1 } : { a: 1, b: 2 } // 中间步顺序不同
+      const stepDef: StepDef = {
+        toolCalls: [{ toolCallId: `tc${stepIdx}`, toolName: 'bash', input }],
+        toolResults: [
+          {
+            toolCallId: `tc${stepIdx}`,
+            toolName: 'bash',
+            output: 'Error: x',
+            isError: true,
+          },
+        ],
+      }
+      return mockSingleStep(stepDef)(params as never) as unknown as ReturnType<
+        typeof mockStreamText
+      >
+    })
     const opts = makeOpts({ maxSteps: 10, agent: agent() })
     await runReactLoop(opts)
-    // 第 2 步 break, 第 3 步不应跑
-    expect(mockMessageCreateBatch.mock.calls.length).toBe(2)
+    // 第 2 步签名跟第 1 步相同 (canonical 化后) → 阈值 1 触发 break
+    const mainCalls = mockStreamText.mock.calls.filter(
+      (c) => (c[0] as { onChunk?: unknown })?.onChunk,
+    ).length
+    expect(mainCalls).toBe(2)
   })
 })
 
 // ── Failure-streak ──────────────────────────────────────────────────────
 
-describe('runReactLoop — failure-streak (v4)', () => {
+describe('runReactLoop — failure-streak', () => {
   function agent(names: string[] = ['bash']): ReactLoopOptions['agent'] {
     return {
       id: '__chat__',
@@ -361,32 +473,33 @@ describe('runReactLoop — failure-streak (v4)', () => {
   }
 
   it('连续 3 步全部失败 → 进入 failure-recovery summary', async () => {
-    mockStreamText.mockImplementation(
-      driveStreamText([
-        {
-          toolCalls: [{ toolCallId: 'tc1', toolName: 'bash', input: { cmd: 'a' } }],
-          toolResults: [
-            { toolCallId: 'tc1', toolName: 'bash', output: 'Error: e1', isError: true },
-          ],
-        },
-        {
-          toolCalls: [{ toolCallId: 'tc2', toolName: 'bash', input: { cmd: 'b' } }],
-          toolResults: [
-            { toolCallId: 'tc2', toolName: 'bash', output: 'Error: e2', isError: true },
-          ],
-        },
-        {
-          toolCalls: [{ toolCallId: 'tc3', toolName: 'bash', input: { cmd: 'c' } }],
-          toolResults: [
-            { toolCallId: 'tc3', toolName: 'bash', output: 'Error: e3', isError: true },
-          ],
-        },
-      ]),
-    )
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      const hasOnChunk = (params as { onChunk?: unknown }).onChunk
+      if (!hasOnChunk) {
+        return mockSingleStep({ text: 'Tried 3 times, all failed.' })(
+          params as never,
+        ) as unknown as ReturnType<typeof mockStreamText>
+      }
+      stepIdx++
+      return mockSingleStep({
+        toolCalls: [
+          { toolCallId: `tc${stepIdx}`, toolName: 'bash', input: { cmd: `c${stepIdx}` } },
+        ],
+        toolResults: [
+          {
+            toolCallId: `tc${stepIdx}`,
+            toolName: 'bash',
+            output: `Error: e${stepIdx}`,
+            isError: true,
+          },
+        ],
+      })(params as never) as unknown as ReturnType<typeof mockStreamText>
+    })
     const opts = makeOpts({ maxSteps: 10, agent: agent() })
     await runReactLoop(opts)
-    // 第 3 步触发 failure-streak detector → 跑 forced-summary → 落一条 [failure-recovery] 消息
-    // (forced summary 通过另一次 streamText 调用产出, 但走 textStream 路径)
+
+    // 第 3 步触发 failure-streak → forced-summary 跑一次, 落一条 [failure-recovery]
     const recoveryCall = mockMessageCreate.mock.calls.find(
       (c) =>
         Array.isArray(c[0].content) &&
@@ -397,12 +510,12 @@ describe('runReactLoop — failure-streak (v4)', () => {
   })
 })
 
-// ── Turn-end policy: 普通文本 final (LegacyNaturalFinalPolicy 兜底) ─────
+// ── Turn-end policy ─────────────────────────────────────────────────────
 
-describe('runReactLoop — turn-end policy (v4)', () => {
+describe('runReactLoop — turn-end policy', () => {
   it('单步无工具 + 有文本 → LegacyNaturalFinalPolicy → FINAL', async () => {
     mockStreamText.mockImplementation(
-      driveStreamText([{ text: 'final answer', finishReason: 'stop' }]),
+      mockSingleStep({ text: 'final answer', finishReason: 'stop' }),
     )
     const opts = makeOpts()
     await runReactLoop(opts)
@@ -410,30 +523,33 @@ describe('runReactLoop — turn-end policy (v4)', () => {
     expect(opts.callbacks.onTextDelta).toHaveBeenCalledWith('final answer', expect.any(Number))
   })
 
-  it('多步 (tool → text) → tool 配对落库 + 最终 text 落库', async () => {
-    mockStreamText.mockImplementation(
-      driveStreamText([
-        {
+  it('多步 (tool → text) → tool 配对 createBatch + 最终 text create', async () => {
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      if (!(params as { onChunk?: unknown }).onChunk) {
+        return mockSingleStep({})(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      stepIdx++
+      if (stepIdx === 1) {
+        return mockSingleStep({
           toolCalls: [{ toolCallId: 'tc1', toolName: 'read', input: { path: 'a' } }],
           toolResults: [{ toolCallId: 'tc1', toolName: 'read', output: 'content' }],
-        },
-        { text: 'done', finishReason: 'stop' },
-      ]),
-    )
+        })(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      return mockSingleStep({ text: 'done', finishReason: 'stop' })(
+        params as never,
+      ) as unknown as ReturnType<typeof mockStreamText>
+    })
     const opts = makeOpts({
       agent: {
         id: '__chat__',
-        toolRegistry: {
-          listTools: () => [],
-          getToolNames: () => ['read'],
-          listMcpTools: () => [],
-        },
+        toolRegistry: { listTools: () => [], getToolNames: () => ['read'], listMcpTools: () => [] },
       } as unknown as ReactLoopOptions['agent'],
     })
     await runReactLoop(opts)
-    // step 1: tool-pair → createBatch
+    // step 1: tool-pair createBatch
     expect(mockMessageCreateBatch).toHaveBeenCalledTimes(1)
-    // step 2: text-only → create
+    // step 2: text-only create
     const textCreates = mockMessageCreate.mock.calls.filter(
       (c) =>
         Array.isArray(c[0].content) &&
@@ -445,17 +561,24 @@ describe('runReactLoop — turn-end policy (v4)', () => {
 
 // ── Persistence transactionality ───────────────────────────────────────
 
-describe('runReactLoop — persistence (v4)', () => {
+describe('runReactLoop — persistence', () => {
   it('tool 步用 createBatch (assistant + tool 配对事务)', async () => {
-    mockStreamText.mockImplementation(
-      driveStreamText([
-        {
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      if (!(params as { onChunk?: unknown }).onChunk) {
+        return mockSingleStep({})(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      stepIdx++
+      if (stepIdx === 1) {
+        return mockSingleStep({
           toolCalls: [{ toolCallId: 'tc1', toolName: 'read', input: { p: 'a' } }],
           toolResults: [{ toolCallId: 'tc1', toolName: 'read', output: 'x' }],
-        },
-        { text: 'done' },
-      ]),
-    )
+        })(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      return mockSingleStep({ text: 'done' })(params as never) as unknown as ReturnType<
+        typeof mockStreamText
+      >
+    })
     const opts = makeOpts({
       agent: {
         id: '__chat__',
@@ -471,7 +594,7 @@ describe('runReactLoop — persistence (v4)', () => {
   })
 
   it('纯文本步用 create (单条)', async () => {
-    mockStreamText.mockImplementation(driveStreamText([{ text: 'answer' }]))
+    mockStreamText.mockImplementation(mockSingleStep({ text: 'answer' }))
     const opts = makeOpts()
     await runReactLoop(opts)
     expect(mockMessageCreate).toHaveBeenCalled()
