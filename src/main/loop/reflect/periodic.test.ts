@@ -4,8 +4,8 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-const { mockGenerateObject, mockLedgerRecord } = vi.hoisted(() => ({
-  mockGenerateObject: vi.fn(),
+const { mockGenerateText, mockLedgerRecord } = vi.hoisted(() => ({
+  mockGenerateText: vi.fn(),
   mockLedgerRecord: vi.fn(),
 }))
 
@@ -13,7 +13,7 @@ vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
     ...actual,
-    generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+    generateText: (...args: unknown[]) => mockGenerateText(...args),
   }
 })
 
@@ -40,7 +40,7 @@ function postCtx(stepIndex: number): ReflectContext {
 }
 
 beforeEach(() => {
-  mockGenerateObject.mockReset()
+  mockGenerateText.mockReset()
   mockLedgerRecord.mockReset()
 })
 
@@ -54,18 +54,18 @@ describe('PeriodicReflector', () => {
   it('stepIndex < every-1 → null', async () => {
     const r = new PeriodicReflector({ every: 5 })
     expect(await r.reflect(postCtx(3))).toBeNull()
-    expect(mockGenerateObject).not.toHaveBeenCalled()
+    expect(mockGenerateText).not.toHaveBeenCalled()
   })
 
   it('stepIndex+1 % every == 0 触发, confidence ≥ 0.5 返 hint', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         progressSoFar: '已完成 X',
         blockerIdentified: null,
         strategyShift: 'continue',
         nextStepGuidance: '继续 Y',
         confidence: 0.8,
-      },
+      }),
     })
     const r = new PeriodicReflector({ every: 5 })
     const out = await r.reflect(postCtx(4)) // stepIndex 4, (4+1)%5==0
@@ -75,14 +75,14 @@ describe('PeriodicReflector', () => {
   })
 
   it('confidence < 0.5 → 丢弃 hint 但记 ledger', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         progressSoFar: 'x',
         blockerIdentified: null,
         strategyShift: 'continue',
         nextStepGuidance: 'y',
         confidence: 0.3,
-      },
+      }),
     })
     const r = new PeriodicReflector({ every: 5 })
     expect(await r.reflect(postCtx(4))).toBeNull()
@@ -90,14 +90,14 @@ describe('PeriodicReflector', () => {
   })
 
   it('blockerIdentified 非空时 hint 含 Blocker:', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         progressSoFar: '已查 3 张表',
         blockerIdentified: '第 4 张表 schema 不全',
         strategyShift: 'switch_tool',
         nextStepGuidance: '试 DESCRIBE',
         confidence: 0.7,
-      },
+      }),
     })
     const r = new PeriodicReflector({ every: 5 })
     const out = await r.reflect(postCtx(4))
@@ -105,7 +105,7 @@ describe('PeriodicReflector', () => {
   })
 
   it('LLM 失败 → null', async () => {
-    mockGenerateObject.mockRejectedValueOnce(new Error('LLM down'))
+    mockGenerateText.mockRejectedValueOnce(new Error('LLM down'))
     const r = new PeriodicReflector({ every: 5 })
     expect(await r.reflect(postCtx(4))).toBeNull()
   })

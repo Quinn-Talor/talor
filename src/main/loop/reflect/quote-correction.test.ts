@@ -5,13 +5,13 @@ vi.mock('electron-log', () => ({
 }))
 
 const {
-  mockGenerateObject,
+  mockGenerateText,
   mockListBySession,
   mockLedgerRecord,
   mockVerifyQuoted,
   mockVerifyEntity,
 } = vi.hoisted(() => ({
-  mockGenerateObject: vi.fn(),
+  mockGenerateText: vi.fn(),
   mockListBySession: vi.fn(() => [] as unknown[]),
   mockLedgerRecord: vi.fn(),
   mockVerifyQuoted: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
     ...actual,
-    generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+    generateText: (...args: unknown[]) => mockGenerateText(...args),
   }
 })
 
@@ -59,7 +59,7 @@ function turnEndCtx(stepText = 'final answer'): ReflectContext {
 }
 
 beforeEach(() => {
-  mockGenerateObject.mockReset()
+  mockGenerateText.mockReset()
   mockListBySession.mockReset()
   mockLedgerRecord.mockReset()
   mockVerifyQuoted.mockReset()
@@ -99,14 +99,14 @@ describe('QuoteCorrectionReflector', () => {
     mockVerifyEntity.mockReturnValue({ cleaned: 'x', ungroundedCount: 0 })
     const r = new QuoteCorrectionReflector({ maskThreshold: 2 })
     expect(await r.reflect(turnEndCtx())).toBeNull()
-    expect(mockGenerateObject).not.toHaveBeenCalled()
+    expect(mockGenerateText).not.toHaveBeenCalled()
   })
 
   it('mask >= 阈值 + confidence >= 0.5 → directOutput end', async () => {
     mockVerifyQuoted.mockReturnValue({ cleaned: 'x', unverifiedCount: 2 })
     mockVerifyEntity.mockReturnValue({ cleaned: 'x', ungroundedCount: 1 })
-    mockGenerateObject.mockResolvedValueOnce({
-      object: { rewritten: 'corrected version', confidence: 0.8 },
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({ rewritten: 'corrected version', confidence: 0.8 }),
     })
     const r = new QuoteCorrectionReflector({ maskThreshold: 2 })
     const out = await r.reflect(turnEndCtx())
@@ -119,8 +119,8 @@ describe('QuoteCorrectionReflector', () => {
   it('confidence < 0.5 → null (放行原文)', async () => {
     mockVerifyQuoted.mockReturnValue({ cleaned: 'x', unverifiedCount: 2 })
     mockVerifyEntity.mockReturnValue({ cleaned: 'x', ungroundedCount: 0 })
-    mockGenerateObject.mockResolvedValueOnce({
-      object: { rewritten: 'r', confidence: 0.3 },
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({ rewritten: 'r', confidence: 0.3 }),
     })
     const r = new QuoteCorrectionReflector({ maskThreshold: 2 })
     expect(await r.reflect(turnEndCtx())).toBeNull()
@@ -130,7 +130,7 @@ describe('QuoteCorrectionReflector', () => {
   it('LLM 失败 → null', async () => {
     mockVerifyQuoted.mockReturnValue({ cleaned: 'x', unverifiedCount: 2 })
     mockVerifyEntity.mockReturnValue({ cleaned: 'x', ungroundedCount: 0 })
-    mockGenerateObject.mockRejectedValueOnce(new Error('LLM down'))
+    mockGenerateText.mockRejectedValueOnce(new Error('LLM down'))
     const r = new QuoteCorrectionReflector({ maskThreshold: 2 })
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })

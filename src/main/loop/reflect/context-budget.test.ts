@@ -4,15 +4,15 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-const { mockGenerateObject } = vi.hoisted(() => ({
-  mockGenerateObject: vi.fn(),
+const { mockGenerateText } = vi.hoisted(() => ({
+  mockGenerateText: vi.fn(),
 }))
 
 vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
     ...actual,
-    generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+    generateText: (...args: unknown[]) => mockGenerateText(...args),
   }
 })
 
@@ -60,8 +60,8 @@ describe('ContextBudgetReflector', () => {
   })
 
   it('ratio >= 1.0 → 调 FriendlyHaltAgent + directOutput end', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: { friendlyMessage: 'Sorry, ran out of context. Try smaller task.' },
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({ friendlyMessage: 'Sorry, ran out of context. Try smaller task.' }),
     })
     const r = new ContextBudgetReflector()
     const out = await r.reflect(preCtx({ estimatedTokens: 200, contextLimit: 100 }))
@@ -70,11 +70,11 @@ describe('ContextBudgetReflector', () => {
     expect(out!.directOutput!.label).toBe('[auto-halt]')
     expect(out!.directOutput!.text).toContain('Sorry, ran out of context')
     expect(out!.directOutput!.exitReason).toBe('context_overflow')
-    expect(mockGenerateObject).toHaveBeenCalledTimes(1)
+    expect(mockGenerateText).toHaveBeenCalledTimes(1)
   })
 
   it('FriendlyHalt LLM 调用失败 → fallback 硬编码', async () => {
-    mockGenerateObject.mockRejectedValueOnce(new Error('LLM down'))
+    mockGenerateText.mockRejectedValueOnce(new Error('LLM down'))
     const r = new ContextBudgetReflector()
     const out = await r.reflect(preCtx({ estimatedTokens: 200, contextLimit: 100 }))
     expect(out?.directOutput!.text).toMatch(/Context window exceeded/)

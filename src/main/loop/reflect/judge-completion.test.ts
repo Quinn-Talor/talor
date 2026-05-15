@@ -4,15 +4,15 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-const { mockGenerateObject } = vi.hoisted(() => ({
-  mockGenerateObject: vi.fn(),
+const { mockGenerateText } = vi.hoisted(() => ({
+  mockGenerateText: vi.fn(),
 }))
 
 vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
     ...actual,
-    generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+    generateText: (...args: unknown[]) => mockGenerateText(...args),
   }
 })
 
@@ -41,7 +41,7 @@ describe('JudgeCompletionReflector', () => {
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     const ctx = { ...turnEndCtx(), phase: 'post-step' as const } as never
     expect(await r.reflect(ctx)).toBeNull()
-    expect(mockGenerateObject).not.toHaveBeenCalled()
+    expect(mockGenerateText).not.toHaveBeenCalled()
   })
 
   it('outcome.toolNames 非空 → null (final 必无 tool)', async () => {
@@ -57,21 +57,21 @@ describe('JudgeCompletionReflector', () => {
   })
 
   it('complete=true → null (放行 final)', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: { complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 },
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
     })
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })
 
   it('complete=false, confidence>=0.5 → directOutput(endTurn=false)', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         complete: false,
         pendingItems: ['Y not done'],
         reason: 'Y missing',
         confidence: 0.8,
-      },
+      }),
     })
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     const out = await r.reflect(turnEndCtx())
@@ -82,15 +82,15 @@ describe('JudgeCompletionReflector', () => {
   })
 
   it('confidence < 0.5 → 丢弃 (放行 final)', async () => {
-    mockGenerateObject.mockResolvedValueOnce({
-      object: { complete: false, pendingItems: ['x'], reason: 'r', confidence: 0.3 },
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({ complete: false, pendingItems: ['x'], reason: 'r', confidence: 0.3 }),
     })
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })
 
   it('generateObject 抛错 → null (失败静默, 不阻塞)', async () => {
-    mockGenerateObject.mockRejectedValueOnce(new Error('LLM down'))
+    mockGenerateText.mockRejectedValueOnce(new Error('LLM down'))
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })

@@ -3,7 +3,8 @@
 // 参考 src/main/memory/ShortTermMemory.ts 的压缩 agent 模式:
 //   - 独立 system prompt (按场景细化规则)
 //   - Zod schema 强制结构化输出
-//   - generateObject 调用便宜 model
+//   - generateText + 手动 JSON 解析 (跨 provider 兼容; 不依赖 response_format 特性 —
+//     DeepSeek 等 provider 不支持 json_schema 模式, 用 generateObject 会失败)
 //   - timeout + abortSignal 双重保护
 //   - 失败静默 (返 null) 不阻塞主流程
 //
@@ -13,7 +14,7 @@
 // 允许依赖: ai, zod, electron-log
 // 禁止依赖: ipc/*
 
-import { generateObject, type LanguageModel } from 'ai'
+import { generateText, type LanguageModel } from 'ai'
 import type { z } from 'zod'
 import log from 'electron-log'
 
@@ -38,10 +39,15 @@ export interface ReflectAgent<SNAPSHOT, RESULT> {
   readonly timeoutMs?: number
 }
 
+const JSON_INSTRUCTION =
+  '\n\nRespond ONLY with a valid JSON object matching the required schema. ' +
+  'No markdown code fences. No prose before or after. Output starts with { and ends with }.'
+
 /**
- * 通用 agent 调用包装 — generateObject + system/user prompt + timeout 三件套。
+ * 通用 agent 调用包装 — generateText + 手动 JSON 解析 + Zod 校验。
  *
- * 任何调用方失败回退到 null, 调用方应据此降级 (不阻塞主 turn)。
+ * 任何调用方失败 (网络 / schema 不通过 / JSON 解析失败) 回退到 null, 调用方
+ * 应据此降级 (不阻塞主 turn)。
  */
 export async function runReflectAgent<SNAPSHOT, RESULT>(
   agent: ReflectAgent<SNAPSHOT, RESULT>,
@@ -52,20 +58,45 @@ export async function runReflectAgent<SNAPSHOT, RESULT>(
   const timeoutMs = agent.timeoutMs ?? 30_000
   const combinedSignal = AbortSignal.any([abortSignal, AbortSignal.timeout(timeoutMs)])
   try {
-    const { object } = await generateObject({
+    const { text } = await generateText({
       model,
-      schema: agent.schema,
       messages: [
-        { role: 'system', content: agent.systemPrompt },
+        { role: 'system', content: agent.systemPrompt + JSON_INSTRUCTION },
         { role: 'user', content: agent.buildUserPrompt(snapshot) },
       ],
       maxOutputTokens: agent.maxOutputTokens,
       abortSignal: combinedSignal,
     })
+    const cleaned = stripJsonFence(text)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch (err) {
+      log.warn(`[ReflectAgent/${agent.name}] JSON parse failed:`, err, 'raw:', text.slice(0, 200))
+      return null
+    }
+    const validated = agent.schema.safeParse(parsed)
+    if (!validated.success) {
+      log.warn(`[ReflectAgent/${agent.name}] schema validation failed:`, validated.error.issues)
+      return null
+    }
     log.info(`[ReflectAgent/${agent.name}] succeeded`)
-    return object
+    return validated.data
   } catch (err) {
     log.warn(`[ReflectAgent/${agent.name}] failed:`, err)
     return null
   }
+}
+
+/**
+ * 剥离可能存在的 markdown JSON 代码围栏 (```json ... ``` 或 ``` ... ```)。
+ * Provider 即使被指示不要 fence, 中文 / reasoning 模型仍可能输出。
+ */
+function stripJsonFence(text: string): string {
+  let s = text.trim()
+  // 开头 fence
+  s = s.replace(/^```(?:json)?\s*\n?/i, '')
+  // 结尾 fence
+  s = s.replace(/\n?```\s*$/, '')
+  return s.trim()
 }

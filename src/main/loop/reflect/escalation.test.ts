@@ -4,8 +4,8 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-const { mockGenerateObject, mockLedgerRecord } = vi.hoisted(() => ({
-  mockGenerateObject: vi.fn(),
+const { mockGenerateText, mockLedgerRecord } = vi.hoisted(() => ({
+  mockGenerateText: vi.fn(),
   mockLedgerRecord: vi.fn(),
 }))
 
@@ -13,7 +13,7 @@ vi.mock('ai', async () => {
   const actual = await vi.importActual<typeof import('ai')>('ai')
   return {
     ...actual,
-    generateObject: (...args: unknown[]) => mockGenerateObject(...args),
+    generateText: (...args: unknown[]) => mockGenerateText(...args),
   }
 })
 
@@ -40,7 +40,7 @@ function postCtx(stepIndex: number): ReflectContext {
 }
 
 beforeEach(() => {
-  mockGenerateObject.mockReset()
+  mockGenerateText.mockReset()
   mockLedgerRecord.mockReset()
 })
 
@@ -57,14 +57,14 @@ describe('EscalationReflector', () => {
 
   it('L1 streak == threshold → 触发 LLM', async () => {
     const hinted = true
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         progressSoFar: 'x',
         blockerIdentified: 'y',
         strategyShift: 'ask_user',
         nextStepGuidance: 'ask',
         confidence: 0.7,
-      },
+      }),
     })
     const r = new EscalationReflector({
       threshold: 2,
@@ -78,14 +78,14 @@ describe('EscalationReflector', () => {
 
   it('触发后 streak reset', async () => {
     const hinted = true
-    mockGenerateObject.mockResolvedValue({
-      object: {
+    mockGenerateText.mockResolvedValue({
+      text: JSON.stringify({
         progressSoFar: 'x',
         blockerIdentified: null,
         strategyShift: 'continue',
         nextStepGuidance: 'g',
         confidence: 0.7,
-      },
+      }),
     })
     const r = new EscalationReflector({
       threshold: 2,
@@ -111,14 +111,14 @@ describe('EscalationReflector', () => {
 
   it('confidence < 0.5 → null (但 ledger 记)', async () => {
     const hinted = true
-    mockGenerateObject.mockResolvedValueOnce({
-      object: {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
         progressSoFar: 'x',
         blockerIdentified: null,
         strategyShift: 'continue',
         nextStepGuidance: 'g',
         confidence: 0.3,
-      },
+      }),
     })
     const r = new EscalationReflector({
       threshold: 2,
