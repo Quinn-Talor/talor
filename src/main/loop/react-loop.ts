@@ -92,7 +92,8 @@ interface LoopCtx {
 
 /** 跨 step 共享的运行时状态。reflectModel 沿用主对话 model (类似 ShortTermMemory 压缩 agent)。 */
 interface ReflectRuntime {
-  reflectors: readonly Reflector[]
+  /** runReactStep 入口 pre-step chain 用 (context-budget 等). 只放 pre-step reflectors. */
+  preStepReflectors: readonly Reflector[]
   perTurnCounters: Map<string, number>
   recentHistory: import('./types').StepOutcome[]
   reflectModel: import('ai').LanguageModel
@@ -171,18 +172,18 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const sharedLengthTruncation = new LengthTruncationStreak()
   const detectors: Detector[] = [sharedSignatureDeadLoop, sharedLengthTruncation]
 
-  // Reflector chain — 混合体 (Detector + Reflector 双接口) + 纯 Reflector +
-  // L2 LLM reflector (按 ReflectAgent 模式实现, 独立 system prompt + Zod schema)。
+  // Reflector chain — 按 phase 显式分组. 混合体 (Detector + Reflector 双接口)
+  // 在 detectors[] + postStepReflectors[] 同时引用 (同一实例, 共享 state)。
   // reflectModel 沿用主对话 model (参考 ShortTermMemory 压缩 agent), 无独立配置。
   const reflectModel = opts.model
   // mutable closure 跨 step 跟踪上步是否有 L1 reflector 输出 hint。
   // EscalationReflector 用此判定 L1 hint 连续 N 步未生效 → 升级 LLM reflect。
-
   let lastL1Hinted = false
-  const reflectors: Reflector[] = [
-    // pre-step
-    new ContextBudgetReflector(),
-    // post-step (混合体先跑, 复用 detector state)
+
+  const preStepReflectors: Reflector[] = [new ContextBudgetReflector()]
+
+  const postStepReflectors: Reflector[] = [
+    // 混合体先跑, 复用 detector state (priority=20 < 默认 100)
     sharedSignatureDeadLoop,
     sharedLengthTruncation,
     new FailureStreakReflector(ctx),
@@ -193,14 +194,17 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     new EscalationReflector({
       wasPreviousStepL1Hinted: () => lastL1Hinted,
     }),
-    // turn-end
+  ]
+
+  const turnEndReflectors: Reflector[] = [
     new JudgeCompletionReflector({ sessionId: opts.sessionId }),
     new QuoteCorrectionReflector(),
   ]
+
   const perTurnCounters = new Map<string, number>()
   const recentHistory: import('./types').StepOutcome[] = []
   const runtime: ReflectRuntime = {
-    reflectors,
+    preStepReflectors,
     perTurnCounters,
     recentHistory,
     reflectModel,
@@ -282,7 +286,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     }
     const midOut = await runReflectorChain(
       'post-step',
-      reflectors,
+      postStepReflectors,
       { ...commonReflectFields, phase: 'post-step', facts, outcome, raw: rawCtx },
       perTurnCounters,
     )
@@ -352,7 +356,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     if (policyDecision === 'final') {
       const endOut = await runReflectorChain(
         'turn-end',
-        reflectors,
+        turnEndReflectors,
         {
           ...commonReflectFields,
           phase: 'turn-end',
@@ -521,7 +525,7 @@ async function runReactStep(
   }
   const preOut = await runReflectorChain(
     'pre-step',
-    runtime.reflectors,
+    runtime.preStepReflectors,
     {
       phase: 'pre-step',
       stepIndex,
