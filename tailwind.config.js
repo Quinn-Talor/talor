@@ -4,6 +4,23 @@ export default {
   theme: {
     extend: {
       colors: {
+        // ─── New design tokens ──────────────────────────────
+        // Map CSS variables to Tailwind names for class-based use.
+        text: 'var(--text)',
+        body: 'var(--body)',
+        mute: 'var(--mute)',
+        subtle: 'var(--subtle)',
+        line: 'var(--line)',
+        'line-2': 'var(--line-2)',
+        surface: 'var(--surface)',
+        canvas: 'var(--canvas)',
+        ok: 'var(--ok)',
+        warn: 'var(--warn)',
+        err: 'var(--err)',
+        info: 'var(--info)',
+
+        // ─── Legacy palettes (kept during Phase 12 transition) ───
+        // TODO: purge these and update consumers in Phase 12.2
         primary: {
           50: '#eff6ff',
           100: '#dbeafe',
@@ -23,7 +40,14 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['var(--font-ui)'],
+        mono: ['var(--font-mono)'],
+      },
+      borderRadius: {
+        sm: 'var(--r-sm)',
+        DEFAULT: 'var(--r-md)',
+        md: 'var(--r-md)',
+        lg: 'var(--r-lg)',
       },
     },
   },
