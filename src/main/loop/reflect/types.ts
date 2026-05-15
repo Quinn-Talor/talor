@@ -2,7 +2,7 @@
 //
 // Reflector 是反思的统一入口, 跟 Detector (硬切断) 互补。
 // 三个 phase: pre-step / post-step / turn-end, 用 discriminated union 类型守卫保证字段安全。
-// Capabilities 元数据驱动主循环调度 (phases 过滤 / maxPerTurn 上限 / requiresLLM 自动跳过 / priority 排序)。
+// Capabilities 元数据驱动主循环调度 (phases 过滤 / maxPerTurn 上限 / priority 排序)。
 //
 // 三态输出:
 //   hint:          pre-step 注入本步 messages; post-step 注入下步 nextPolicyHint
@@ -28,8 +28,8 @@ interface CommonFields {
   sessionId: string
   abortSignal: AbortSignal
   recentHistory: readonly StepOutcome[]
-  /** L2 reflector 才用; L1 / 不需要 LLM 的 reflector 忽略。 */
-  reflectModel?: LanguageModel
+  /** 反思用 model (沿用主对话 model)。L1 / 不需要 LLM 的 reflector 忽略。 */
+  reflectModel: LanguageModel
 }
 
 export type ReflectContext =
@@ -81,8 +81,6 @@ export interface ReflectorOutcome {
 export interface ReflectorCapabilities {
   /** 哪些 phase 触发本 reflector */
   phases: ReadonlyArray<ReflectPhase>
-  /** L2 标记: reflectModel=undefined 时主循环跳过 */
-  requiresLLM?: boolean
   /** 每 turn 触发上限 */
   maxPerTurn?: number
   /** chain 内排序 (数字小先跑), 默认 100 */

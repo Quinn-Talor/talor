@@ -82,11 +82,6 @@ describe('QuoteCorrectionReflector', () => {
     expect(await r.reflect(ctx)).toBeNull()
   })
 
-  it('reflectModel undefined 返 null', async () => {
-    const r = new QuoteCorrectionReflector()
-    expect(await r.reflect({ ...turnEndCtx(), reflectModel: undefined })).toBeNull()
-  })
-
   it('outcome.toolNames 非空 返 null', async () => {
     const r = new QuoteCorrectionReflector()
     const ctx = { ...turnEndCtx(), outcome: { stepText: 'x', toolNames: ['bash'] } } as never

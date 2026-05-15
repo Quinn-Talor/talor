@@ -27,6 +27,7 @@ function postCtx(f: OutcomeFacts): ReflectContext {
     sessionId: '',
     abortSignal: new AbortController().signal,
     recentHistory: [],
+    reflectModel: {} as never,
     facts: f,
     outcome: { stepText: '', toolNames: [] } as never,
     raw: { stepText: '' },

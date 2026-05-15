@@ -18,6 +18,7 @@ function ctx(
     sessionId: 's1',
     abortSignal: new AbortController().signal,
     recentHistory: [],
+    reflectModel: {} as never,
   }
   if (phase === 'pre-step') {
     return {
@@ -75,21 +76,6 @@ describe('runReflectorChain — phase 过滤', () => {
     const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
     expect(res.kind).toBe('hint')
     expect(res.hint).toBe('x')
-  })
-})
-
-describe('runReflectorChain — requiresLLM 过滤', () => {
-  it('requiresLLM=true 且 reflectModel undefined → 跳过', async () => {
-    const r = mockReflector('llm-r', ['post-step'], { hint: 'x' }, { requiresLLM: true })
-    const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
-    expect(res.kind).toBe('none')
-  })
-
-  it('requiresLLM=true 且 reflectModel 提供 → 调用', async () => {
-    const r = mockReflector('llm-r', ['post-step'], { hint: 'x' }, { requiresLLM: true })
-    const c = ctx('post-step', { reflectModel: {} as never })
-    const res = await runReflectorChain('post-step', [r], c, new Map())
-    expect(res.kind).toBe('hint')
   })
 })
 

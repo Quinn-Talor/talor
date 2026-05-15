@@ -18,7 +18,6 @@ export class PeriodicReflector implements Reflector {
   readonly name = 'periodic'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['post-step'],
-    requiresLLM: true,
   }
 
   private readonly every: number
@@ -29,7 +28,6 @@ export class PeriodicReflector implements Reflector {
 
   async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
     if (ctx.phase !== 'post-step') return null
-    if (!ctx.reflectModel) return null
     if (this.every <= 0) return null
     // 第 (every-1) 步触发 (stepIndex 0-based): step=4 满足 (4+1)%5==0
     if (ctx.stepIndex < this.every - 1) return null

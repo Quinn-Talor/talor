@@ -7,7 +7,6 @@
 //
 // Capability 驱动调度:
 //   - phases 过滤: 不声明 phase 的 reflector 跳过
-//   - requiresLLM 过滤: reflectModel=undefined 时自动跳过 L2
 //   - maxPerTurn 检查: perTurnCounters 跟踪本 turn 已触发次数
 //   - priority 排序: 数字小先跑 (默认 100)
 //
@@ -35,7 +34,6 @@ export async function runReflectorChain(
 ): Promise<ReflectorChainResult> {
   const candidates = reflectors
     .filter((r) => r.capabilities.phases.includes(phase))
-    .filter((r) => !r.capabilities.requiresLLM || !!ctx.reflectModel)
     .sort((a, b) => (a.capabilities.priority ?? 100) - (b.capabilities.priority ?? 100))
 
   for (const r of candidates) {

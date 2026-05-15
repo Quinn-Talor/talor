@@ -24,7 +24,7 @@ vi.mock('../../repos/reflection-ledger', () => ({
 import { PeriodicReflector } from './periodic'
 import type { ReflectContext } from './types'
 
-function postCtx(stepIndex: number, hasModel = true): ReflectContext {
+function postCtx(stepIndex: number): ReflectContext {
   return {
     phase: 'post-step',
     stepIndex,
@@ -32,7 +32,7 @@ function postCtx(stepIndex: number, hasModel = true): ReflectContext {
     sessionId: 's1',
     abortSignal: new AbortController().signal,
     recentHistory: [],
-    reflectModel: hasModel ? ({} as never) : undefined,
+    reflectModel: {} as never,
     facts: {} as never,
     outcome: { stepText: 'x', toolNames: [] } as never,
     raw: { stepText: 'x' },
@@ -49,11 +49,6 @@ describe('PeriodicReflector', () => {
     const r = new PeriodicReflector({ every: 5 })
     const ctx = { ...postCtx(4), phase: 'turn-end' as const } as never
     expect(await r.reflect(ctx)).toBeNull()
-  })
-
-  it('reflectModel undefined → null', async () => {
-    const r = new PeriodicReflector({ every: 5 })
-    expect(await r.reflect(postCtx(4, false))).toBeNull()
   })
 
   it('stepIndex < every-1 → null', async () => {

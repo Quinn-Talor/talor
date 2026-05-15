@@ -41,7 +41,6 @@ import { PeriodicReflector } from './reflect/periodic'
 import { EscalationReflector } from './reflect/escalation'
 import { QuoteCorrectionReflector } from './reflect/quote-correction'
 import { runReflectorChain } from './reflect/chain'
-import { resolveReflectModel } from './reflect/resolve-model'
 import type { Reflector } from './reflect/types'
 import { reflectionLedger } from '../repos/reflection-ledger'
 import {
@@ -91,12 +90,12 @@ interface LoopCtx {
   turnEndPolicies: readonly TurnEndPolicy[]
 }
 
-/** 跨 step 共享的运行时状态 (reflector + perTurnCounters + recentHistory + reflectModel)。 */
+/** 跨 step 共享的运行时状态。reflectModel 沿用主对话 model (类似 ShortTermMemory 压缩 agent)。 */
 interface ReflectRuntime {
   reflectors: readonly Reflector[]
   perTurnCounters: Map<string, number>
   recentHistory: import('./types').StepOutcome[]
-  reflectModel: import('ai').LanguageModel | null
+  reflectModel: import('ai').LanguageModel
 }
 
 /** runReactStep 返回的单步结果 (供主循环消费)。 */
@@ -174,8 +173,8 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
   // Reflector chain — 混合体 (Detector + Reflector 双接口) + 纯 Reflector +
   // L2 LLM reflector (按 ReflectAgent 模式实现, 独立 system prompt + Zod schema)。
-  // requiresLLM=true 的 reflector 在 reflectModel=undefined 时被 runReflectorChain 跳过。
-  const reflectModel = resolveReflectModel(opts.agent, opts.provider)
+  // reflectModel 沿用主对话 model (参考 ShortTermMemory 压缩 agent), 无独立配置。
+  const reflectModel = opts.model
   // mutable closure 跨 step 跟踪上步是否有 L1 reflector 输出 hint。
   // EscalationReflector 用此判定 L1 hint 连续 N 步未生效 → 升级 LLM reflect。
 

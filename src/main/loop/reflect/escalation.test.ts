@@ -128,11 +128,4 @@ describe('EscalationReflector', () => {
     expect(await r.reflect(postCtx(1))).toBeNull()
     expect(mockLedgerRecord).toHaveBeenCalled()
   })
-
-  it('reflectModel undefined → null', async () => {
-    const r = new EscalationReflector({ threshold: 2, wasPreviousStepL1Hinted: () => true })
-    const ctx = { ...postCtx(0), reflectModel: undefined }
-    await r.reflect(ctx)
-    expect(await r.reflect(ctx)).toBeNull()
-  })
 })

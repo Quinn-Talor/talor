@@ -48,23 +48,19 @@ export class ContextBudgetReflector implements Reflector {
       log.error(
         `[Reflect/context-budget] overflow ${ctx.estimatedTokens}/${ctx.contextLimit} (${pct}%)`,
       )
-      let friendly: string | null = null
-      if (ctx.reflectModel) {
-        const r = await runReflectAgent(
-          FriendlyHaltAgent,
-          {
-            userIntent: ctx.userIntent,
-            estimatedTokens: ctx.estimatedTokens,
-            contextLimit: ctx.contextLimit,
-          },
-          ctx.reflectModel,
-          ctx.abortSignal,
-        )
-        friendly = r?.friendlyMessage ?? null
-      }
-      const text = friendly
-        ? friendly
-        : `Context window exceeded (${ctx.estimatedTokens}/${ctx.contextLimit} tokens, ${pct}%). ` +
+      const r = await runReflectAgent(
+        FriendlyHaltAgent,
+        {
+          userIntent: ctx.userIntent,
+          estimatedTokens: ctx.estimatedTokens,
+          contextLimit: ctx.contextLimit,
+        },
+        ctx.reflectModel,
+        ctx.abortSignal,
+      )
+      const text =
+        r?.friendlyMessage ??
+        `Context window exceeded (${ctx.estimatedTokens}/${ctx.contextLimit} tokens, ${pct}%). ` +
           `Task stopped to avoid silent provider truncation. Please start a new session or trim history.`
       return {
         directOutput: {

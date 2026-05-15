@@ -22,7 +22,6 @@ export class QuoteCorrectionReflector implements Reflector {
   readonly name = 'quote-correction'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['turn-end'],
-    requiresLLM: true,
     maxPerTurn: 1,
   }
 
@@ -34,7 +33,6 @@ export class QuoteCorrectionReflector implements Reflector {
 
   async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
     if (ctx.phase !== 'turn-end') return null
-    if (!ctx.reflectModel) return null
     if (ctx.outcome.toolNames.length > 0 || !ctx.outcome.stepText) return null
 
     const toolOutputs = collectRecentToolOutputs(ctx.sessionId, 10)

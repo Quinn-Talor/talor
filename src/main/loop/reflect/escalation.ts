@@ -25,7 +25,6 @@ export class EscalationReflector implements Reflector {
   readonly name = 'escalation'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['post-step'],
-    requiresLLM: true,
     maxPerTurn: 2,
   }
 
@@ -40,7 +39,6 @@ export class EscalationReflector implements Reflector {
 
   async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
     if (ctx.phase !== 'post-step') return null
-    if (!ctx.reflectModel) return null
 
     if (this.wasPreviousStepL1Hinted()) this.hintStreak++
     else this.hintStreak = 0

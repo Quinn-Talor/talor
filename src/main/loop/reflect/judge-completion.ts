@@ -23,7 +23,6 @@ export class JudgeCompletionReflector implements Reflector {
   readonly name = 'judge-completion'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['turn-end'],
-    requiresLLM: true,
     maxPerTurn: 2,
   }
 
@@ -34,7 +33,6 @@ export class JudgeCompletionReflector implements Reflector {
 
   async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
     if (ctx.phase !== 'turn-end') return null
-    if (!ctx.reflectModel) return null
     if (ctx.outcome.toolNames.length > 0 || !ctx.outcome.stepText) return null
 
     const result = await runReflectAgent(

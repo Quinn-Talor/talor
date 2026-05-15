@@ -44,12 +44,6 @@ describe('JudgeCompletionReflector', () => {
     expect(mockGenerateObject).not.toHaveBeenCalled()
   })
 
-  it('reflectModel undefined → null (主循环过滤会先拦, 但本身也防御)', async () => {
-    const r = new JudgeCompletionReflector({ sessionId: 's1' })
-    const ctx = turnEndCtx({ reflectModel: undefined })
-    expect(await r.reflect(ctx)).toBeNull()
-  })
-
   it('outcome.toolNames 非空 → null (final 必无 tool)', async () => {
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     const ctx = turnEndCtx({ outcome: { stepText: 'x', toolNames: ['bash'] } as never })
