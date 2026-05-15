@@ -40,6 +40,18 @@ export class McpExposureState {
   }
 
   /**
+   * 强制下一步 expand=true。
+   *
+   * 用于 reflect 推翻 final 并 continue 的场景: 此时上一步 outcome 为纯文本 final
+   * (toolNames=[]), 正常 update 路径会将 expandNext 设为 false, 导致下一步丢失
+   * MCP 工具集; 模型从历史看到 MCP 工具名却拿不到 schema, 会幻觉调用 → tool_use
+   * 没有对应 tool_result, 下一步 streamText 校验失败。
+   */
+  forceExpandNext(): void {
+    this.expandNext = (this.agent.toolRegistry?.listMcpTools?.().length ?? 0) > 0
+  }
+
+  /**
    * 根据 step 结果更新内部状态。
    *
    * 规则:

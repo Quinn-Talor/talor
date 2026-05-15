@@ -370,7 +370,9 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
           exitReason = endOut.directOutput.exitReason ?? 'no_tool_calls'
           break
         }
-        // judge 推翻 final: continue
+        // judge 推翻 final: 强制下一步 expand MCP 全集 (上一步为 final 纯文本,
+        // mcpState.update 会把 expandNext 设为 false, 必须重置避免 mcp 工具丢失)
+        mcpState.forceExpandNext()
         continue
       }
       log.info(`[ReactLoop]   → FINAL by policy`)

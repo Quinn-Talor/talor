@@ -71,6 +71,20 @@ describe('McpExposureState', () => {
     expect(state.flags.used).toEqual(['m1'])
   })
 
+  it('forceExpandNext: 上一步 final 纯文本后调用 → 下一步 expand=true', () => {
+    const state = new McpExposureState(makeAgent(['m1']))
+    state.update(makeOutcome({ toolNames: [] })) // 纯文本 final → expandNext=false
+    expect(state.flags.expand).toBe(false)
+    state.forceExpandNext()
+    expect(state.flags.expand).toBe(true)
+  })
+
+  it('forceExpandNext: agent 无 MCP 工具 → 仍 expand=false', () => {
+    const state = new McpExposureState(makeAgent([]))
+    state.forceExpandNext()
+    expect(state.flags.expand).toBe(false)
+  })
+
   it('search_tool → m1 → m1 链路: 第三步 expand=false 但 used 仍有 m1', () => {
     const state = new McpExposureState(makeAgent(['m1']))
     state.update(makeOutcome({ toolNames: ['search_tool'] }))
