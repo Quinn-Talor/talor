@@ -10,15 +10,35 @@
 import { z } from 'zod'
 import type { ReflectAgent } from './types'
 
+// 防御性 schema: 所有字段提供默认值. DeepSeek 等 provider 在长 system prompt
+// 下倾向漏字段输出, 用 .nullish().transform() 兜底为 default 而不是 schema 失败,
+// 避免 ~1k tokens 调用打水漂. 字段语义由 reflector 消费层进一步兜底。
+const optionalString = (d = '') =>
+  z
+    .string()
+    .nullish()
+    .transform((v) => v ?? d)
+
 export const PeriodicReflectionSchema = z.object({
-  progressSoFar: z.string().describe('1-2 sentences on what has been accomplished so far'),
+  progressSoFar: optionalString().describe('1-2 sentences on what has been accomplished so far'),
   blockerIdentified: z
     .string()
-    .nullable()
+    .nullish()
+    .transform((v) => v ?? null)
     .describe('Current blocker, or null if progress is healthy'),
-  strategyShift: z.enum(['continue', 'switch_tool', 'parallelize', 'ask_user', 'wrap_up']),
-  nextStepGuidance: z.string().describe('Concrete guidance for the main LLM next step, terse'),
-  confidence: z.number().min(0).max(1),
+  strategyShift: z
+    .enum(['continue', 'switch_tool', 'parallelize', 'ask_user', 'wrap_up'])
+    .nullish()
+    .transform((v) => v ?? 'continue'),
+  nextStepGuidance: optionalString().describe(
+    'Concrete guidance for the main LLM next step, terse',
+  ),
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .nullish()
+    .transform((v) => v ?? 0.5),
 })
 
 export type PeriodicReflection = z.infer<typeof PeriodicReflectionSchema>

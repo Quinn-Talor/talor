@@ -8,9 +8,21 @@
 import { z } from 'zod'
 import type { ReflectAgent } from './types'
 
+// 防御性 schema: 字段允许漏并 fallback. provider 输出不可信。
 export const QuoteCorrectionSchema = z.object({
-  rewritten: z.string().describe('Rewrite based only on actual tool results, preserve structure'),
-  confidence: z.number().min(0).max(1),
+  // rewritten 缺失 → '' (与 confidence 默认 0 协同: 主流程会丢弃重写, 放行原文)
+  rewritten: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? '')
+    .describe('Rewrite based only on actual tool results, preserve structure'),
+  // confidence 缺失 → 0 (低于 0.5 阈值, reflector 会 discard, 放行原 final)
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .nullish()
+    .transform((v) => v ?? 0),
 })
 
 export type QuoteCorrectionResult = z.infer<typeof QuoteCorrectionSchema>

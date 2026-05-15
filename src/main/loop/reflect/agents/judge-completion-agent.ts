@@ -13,13 +13,33 @@
 import { z } from 'zod'
 import type { ReflectAgent } from './types'
 
+// 防御性 schema: 字段允许漏并 fallback. provider 输出不可信 (DeepSeek 在长
+// system prompt 下漏字段是常态), schema 失败 = ~1k tokens 调用打水漂, 不值得。
 export const JudgeCompletionSchema = z.object({
-  complete: z.boolean().describe('Whether the agent truly fulfilled the user request'),
+  // complete 缺失 → 默认 true (保守: 不轻易推翻 final, 让主 LLM 走 happy path)
+  complete: z
+    .boolean()
+    .nullish()
+    .transform((v) => v ?? true)
+    .describe('Whether the agent truly fulfilled the user request'),
   pendingItems: z
     .array(z.string())
+    .nullish()
+    .transform((v) => v ?? [])
     .describe('Specific items the agent committed to or implied but did not actually do'),
-  reason: z.string().describe('Brief justification, max 2 sentences'),
-  confidence: z.number().min(0).max(1).describe('Confidence 0..1; <0.5 will be discarded'),
+  reason: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? '')
+    .describe('Brief justification, max 2 sentences'),
+  // confidence 缺失 → 0.4 (低于 0.5 阈值, reflector 会 discard, 等效于不推翻)
+  confidence: z
+    .number()
+    .min(0)
+    .max(1)
+    .nullish()
+    .transform((v) => v ?? 0.4)
+    .describe('Confidence 0..1; <0.5 will be discarded'),
 })
 
 export type JudgeCompletionResult = z.infer<typeof JudgeCompletionSchema>

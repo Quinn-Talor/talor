@@ -142,6 +142,17 @@ describe('JudgeCompletionReflector', () => {
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })
 
+  it('防御性 schema: 漏字段 (e.g. DeepSeek 输出残缺) → fallback 默认值, 行为等效 complete=true', async () => {
+    // 模拟 provider 仅输出 reason, 缺 complete / confidence / pendingItems
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({ reason: 'partial output' }),
+    })
+    const r = new JudgeCompletionReflector({ sessionId: 's1' })
+    // complete 默认 true → reflector 返 null 放行 final, 不浪费这次 LLM 调用
+    const out = await r.reflect(turnEndCtx())
+    expect(out).toBeNull()
+  })
+
   // ── code-filter: 多信号风险打分 (回归 JudgeCompletion 抓 "幻觉完成" 的原始作用) ──
   describe('code-filter — 风险打分驱动', () => {
     it('询问类 intent + 有工作量 + 具体 final → 低风险, 不调 LLM', async () => {
