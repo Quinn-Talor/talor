@@ -129,6 +129,17 @@ export interface ForcedSummaryOpts {
    * 用户在中断/兜底场景下需要知道本 turn 已经发生了哪些写操作。
    */
   includeLedgerSummary?: boolean
+  /**
+   * 是否跳过 PromptPipeline, 直接用最小 messages = [user(userContent)] + guardrail。
+   *
+   * 场景: session history 可能因 SDK partial success / orphan tool_use 被污染,
+   * 走完整 pipeline 会让 streamText 立刻抛 AI_MissingToolResultsError → 兜底失败。
+   * fallback summary 必须永远能产出文本, 因此 P0-3 把 FALLBACK_SUMMARY_OPTS 切到此模式。
+   *
+   * failure-streak / dead-loop 仍用默认 false — 它们在主 LLM 已成功运行后触发,
+   * history 通常配对完整, 需要历史 tool_output 给模型做摘要。
+   */
+  useMinimalMessages?: boolean
 }
 
 /**
@@ -152,17 +163,24 @@ export async function runForcedSummary(
   const summaryStart = Date.now()
 
   try {
-    const summaryPipelineCtx = {
-      sessionId: ctx.sessionId,
-      currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
-      provider: ctx.provider,
-      providerConfig: ctx.providerConfig,
-      workspacePath: ctx.workspace || undefined,
-      agent: ctx.agent,
-      skillTracker: ctx.skillTracker,
-      events: ctx.events,
+    // P0-3: useMinimalMessages=true 跳过 PromptPipeline, 绕开可能受污染的 history
+    // (orphan tool_use 会让 streamText 校验失败 → 兜底失败)。
+    let messages: ModelMessage[]
+    if (opts.useMinimalMessages) {
+      messages = [{ role: 'user', content: ctx.userContent }]
+    } else {
+      const summaryPipelineCtx = {
+        sessionId: ctx.sessionId,
+        currentMessage: { text: ctx.userContent, attachments: ctx.mappedAttachments },
+        provider: ctx.provider,
+        providerConfig: ctx.providerConfig,
+        workspacePath: ctx.workspace || undefined,
+        agent: ctx.agent,
+        skillTracker: ctx.skillTracker,
+        events: ctx.events,
+      }
+      messages = (await ctx.pipeline.build(summaryPipelineCtx)).messages as ModelMessage[]
     }
-    const { messages } = await ctx.pipeline.build(summaryPipelineCtx)
     const summaryResult = streamText({
       model: ctx.model,
       // 64K = 现代 provider 安全交集 (Anthropic / Gemini 上限); 与主对话保持
@@ -310,14 +328,25 @@ const FAILURE_STREAK_GUARDRAIL: ModelMessage = {
     '"I was unable to complete the task because <verbatim summary of last tool error>. Please advise."',
 }
 
-/** Fallback summary (空文本整轮兜底)。空 text 时不落库 — 与原 runFallbackSummary 行为一致。 */
+/**
+ * Fallback summary — 整轮零文本兜底。
+ *
+ * P0-3: useMinimalMessages=true → 跳过 PromptPipeline, 直接喂 [user(userContent), guardrail]
+ * 给模型, 不依赖 session history。受污染 session (orphan tool_use) 也能稳定产出文本。
+ *
+ * fallbackTextIfEmpty 改为有内容: 进了 fallback 说明 react-loop 检测到用户什么都没看到,
+ * 必须给一段话, 不能 silent return。
+ */
 export const FALLBACK_SUMMARY_OPTS: ForcedSummaryOpts = {
   logName: 'fallback summary',
   guardrail: FALLBACK_GUARDRAIL,
   label: '[auto-summary]',
   applyVerification: true,
-  fallbackTextIfEmpty: undefined,
-  errorFallbackText: '[auto-summary failed] Internal error generating fallback summary.',
+  fallbackTextIfEmpty:
+    'Sorry, this turn failed to produce any output. The session history may have ended in an inconsistent state. Please start a new conversation or rephrase your request.',
+  errorFallbackText:
+    '[auto-summary failed] Internal error generating fallback summary. Please start a new conversation.',
+  useMinimalMessages: true,
 }
 
 /** Failure-streak summary (连续工具失败兜底)。 */

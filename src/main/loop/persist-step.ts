@@ -95,6 +95,34 @@ export async function persistStepFromResult(
     })
   }
 
+  // 不变量守门: 每个 tool_use 必须有对应 tool_result, 否则下次 streamText 校验
+  // messages 时会抛 AI_MissingToolResultsError → session 永久污染。
+  // SDK partial success (stream 中断 / provider 异常 / 工具未注册) 时缺失的
+  // tool_result 必须用 SDK_TOOL_MISSING_RESULT 错误占位补齐。
+  const resultsById = new Map(toolResults.map((tr) => [tr.toolCallId, tr]))
+  const missing: string[] = []
+  for (const tc of toolCalls) {
+    if (!resultsById.has(tc.toolCallId)) {
+      missing.push(tc.toolCallId)
+      toolResults.push({
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        output: {
+          __talor_error: true,
+          code: 'SDK_TOOL_MISSING_RESULT',
+          message: `Tool "${tc.toolName}" was called but no result was returned by the SDK / provider. This usually indicates a tool was not registered for this step (e.g. MCP tool dropped) or the stream was interrupted before tool execution completed.`,
+        },
+      })
+    }
+  }
+  if (missing.length > 0) {
+    log.error(
+      `[Persist] tool_use/tool_result mismatch: ${toolCalls.length} calls vs ${toolResults.length - missing.length} real results. ` +
+        `Filling ${missing.length} missing with SDK_TOOL_MISSING_RESULT placeholders (orphan ids: ${missing.join(', ')}). ` +
+        `Session would otherwise be poisoned (AI_MissingToolResultsError on next stream).`,
+    )
+  }
+
   const toolParts: ToolContent = toolResults.map((tr) => {
     const rawText = extractOutputText(tr.output)
     const truncated =

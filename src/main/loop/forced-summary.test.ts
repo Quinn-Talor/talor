@@ -111,10 +111,47 @@ describe('runForcedSummary', () => {
       expect(text).toContain('the answer is X')
     })
 
-    it('空输出 → 不落库 (fallback summary 设计)', async () => {
+    it('空输出 → 落库 hardcoded 兜底文案 (P0-3: 受污染 session 也必须给用户文本)', async () => {
       mockTextStream('')
       await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
-      expect(mockMessageCreate).not.toHaveBeenCalled()
+      expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+      const text = mockMessageCreate.mock.calls[0][0].content[0].text
+      expect(text).toContain('[auto-summary]')
+      // 兜底文案应该提示用户系统出错 + 可恢复操作
+      expect(text.length).toBeGreaterThan(20)
+    })
+
+    it('useMinimalMessages=true → 跳过 pipeline.build, streamText 仅收 [user, guardrail]', async () => {
+      mockTextStream('recovered text')
+      const ctx = makeCtx()
+      await runForcedSummary(ctx, 0, FALLBACK_SUMMARY_OPTS)
+
+      // pipeline.build 不被调用 — 受污染 history 永远绕开
+      expect(ctx.pipeline.build).not.toHaveBeenCalled()
+
+      // streamText 收到的 messages: 至少含 user 角色携带 userContent, 不含 tool/assistant 历史
+      const callArg = mockStreamText.mock.calls[0][0] as {
+        messages: Array<{ role: string; content: unknown }>
+      }
+      const roles = callArg.messages.map((m) => m.role)
+      expect(roles).toContain('user')
+      expect(roles).not.toContain('tool')
+      // assistant 角色可以有 (guardrail 也可能用 system), 但绝不能有 tool-use parts
+      const hasToolUseHistory = callArg.messages.some((m) => {
+        if (typeof m.content === 'string') return false
+        if (!Array.isArray(m.content)) return false
+        return (m.content as Array<{ type: string }>).some((p) => p.type === 'tool-call')
+      })
+      expect(hasToolUseHistory).toBe(false)
+    })
+  })
+
+  describe('failureStreakSummaryOpts — 仍走 full pipeline (history 通常干净)', () => {
+    it('useMinimalMessages 默认 false → 调用 pipeline.build', async () => {
+      mockTextStream('failure recap')
+      const ctx = makeCtx()
+      await runForcedSummary(ctx, 0, failureStreakSummaryOpts(3))
+      expect(ctx.pipeline.build).toHaveBeenCalledTimes(1)
     })
   })
 
