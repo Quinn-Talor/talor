@@ -1,0 +1,992 @@
+<h2>其他平台怎么解决"工具输出渲染"问题</h2>
+<p class="subtitle">6 个代表性产品的渲染策略对照 — 各家做法都跟产品定位强相关。</p>
+
+<style>
+  .cmp {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --info: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--canvas);
+  }
+  .card .head {
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--line-2);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .card .head .name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .card .head .tag {
+    font-size: 11px;
+    color: var(--mute);
+    margin-left: auto;
+  }
+  .card .head .desc {
+    display: none;
+  }
+  .card .pitch {
+    padding: 8px 16px 12px;
+    font-size: 12.5px;
+    color: var(--body);
+    line-height: 1.55;
+  }
+  .card .demo {
+    padding: 0;
+    background: var(--surface);
+  }
+  .card .meta {
+    padding: 10px 16px;
+    background: var(--canvas);
+    border-top: 1px solid var(--line-2);
+  }
+  .card .pros,
+  .card .cons {
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+  .card .pros {
+    color: var(--ok);
+    margin-bottom: 4px;
+  }
+  .card .cons {
+    color: var(--err);
+  }
+  .card .pros::before {
+    content: '+ ';
+    font-weight: 700;
+  }
+  .card .cons::before {
+    content: '− ';
+    font-weight: 700;
+  }
+
+  /* Manus: split pane mock */
+  .manus {
+    display: flex;
+    height: 200px;
+    font-size: 10px;
+  }
+  .manus .chat {
+    width: 38%;
+    background: var(--canvas);
+    padding: 8px;
+    border-right: 1px solid var(--line);
+  }
+  .manus .computer {
+    flex: 1;
+    background: #1c1917;
+    color: #fafaf9;
+    padding: 8px;
+    position: relative;
+  }
+  .manus .chat .msg {
+    font-size: 9.5px;
+    padding: 5px 7px;
+    margin-bottom: 4px;
+    line-height: 1.4;
+    color: var(--body);
+  }
+  .manus .chat .msg.bot {
+    background: var(--line-2);
+    border-radius: 5px;
+  }
+  .manus .chat .plan {
+    font-size: 9px;
+    color: var(--mute);
+    padding: 4px 7px;
+  }
+  .manus .chat .step {
+    font-size: 9px;
+    color: var(--body);
+    padding: 2px 7px;
+  }
+  .manus .chat .step .check {
+    color: var(--ok);
+  }
+  .manus .computer .pane-tag {
+    font-size: 8px;
+    color: #78716c;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .manus .computer .browser-bar {
+    background: #292524;
+    padding: 3px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    color: #a8a29e;
+    font-family: monospace;
+    margin-bottom: 4px;
+  }
+  .manus .computer .ss {
+    background: #e7e5e4;
+    height: 115px;
+    border-radius: 3px;
+    padding: 6px;
+    color: #1c1917;
+    font-size: 9px;
+    line-height: 1.3;
+  }
+  .manus .computer .ss strong {
+    font-weight: 600;
+  }
+
+  /* Claude.ai: chat + artifact */
+  .claude {
+    display: flex;
+    height: 200px;
+    font-size: 10px;
+  }
+  .claude .chat {
+    flex: 1;
+    background: var(--canvas);
+    padding: 8px;
+  }
+  .claude .chat .msg {
+    font-size: 9.5px;
+    padding: 5px 8px;
+    margin-bottom: 4px;
+    line-height: 1.4;
+    color: var(--body);
+  }
+  .claude .chat .tool-min {
+    font-size: 9px;
+    color: var(--mute);
+    padding: 2px 8px;
+    font-family: monospace;
+  }
+  .claude .chat .artifact-ref {
+    font-size: 9.5px;
+    color: var(--info);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 5px 8px;
+    margin: 4px 0;
+    background: var(--canvas);
+    cursor: pointer;
+  }
+  .claude .artifact {
+    width: 46%;
+    background: var(--surface);
+    border-left: 1px solid var(--line);
+    padding: 8px;
+  }
+  .claude .artifact .a-tag {
+    font-size: 8px;
+    color: var(--mute);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    letter-spacing: 0.06em;
+  }
+  .claude .artifact .a-doc {
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 8px;
+    height: 140px;
+    font-size: 9px;
+    line-height: 1.5;
+    color: var(--body);
+  }
+
+  /* ChatGPT: inline specialized cards */
+  .gpt {
+    padding: 10px;
+    font-size: 10px;
+  }
+  .gpt .msg {
+    font-size: 9.5px;
+    color: var(--body);
+    padding: 5px 8px;
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  .gpt .web-result {
+    display: flex;
+    gap: 6px;
+    padding: 4px 8px;
+    margin-bottom: 3px;
+    font-size: 9px;
+  }
+  .gpt .web-result .fav {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    background: #2563eb;
+    flex-shrink: 0;
+  }
+  .gpt .web-result .body {
+    flex: 1;
+  }
+  .gpt .web-result .ttl {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .gpt .web-result .url {
+    color: var(--info);
+    font-size: 8.5px;
+  }
+  .gpt .code-int {
+    background: #1c1917;
+    color: #fafaf9;
+    padding: 6px 8px;
+    border-radius: 5px;
+    font-family: monospace;
+    font-size: 9px;
+    margin: 4px 0;
+    line-height: 1.4;
+  }
+  .gpt .code-int .out {
+    color: #a8a29e;
+    margin-top: 4px;
+  }
+  .gpt .img {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    height: 60px;
+    border-radius: 5px;
+    margin: 4px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 11px;
+  }
+  .gpt .citation {
+    display: inline-block;
+    padding: 1px 4px;
+    background: var(--surface);
+    border-radius: 3px;
+    font-size: 8.5px;
+    color: var(--info);
+    font-weight: 600;
+    margin: 0 1px;
+  }
+
+  /* Cursor: inline log */
+  .cursor {
+    padding: 10px;
+    font-size: 10px;
+  }
+  .cursor .msg {
+    font-size: 9.5px;
+    color: var(--body);
+    padding: 4px 8px;
+    margin-bottom: 5px;
+    line-height: 1.45;
+  }
+  .cursor .tool {
+    font-family: monospace;
+    font-size: 9px;
+    padding: 3px 8px;
+    color: var(--body);
+  }
+  .cursor .tool .ok {
+    color: var(--ok);
+  }
+  .cursor .diff {
+    font-family: monospace;
+    font-size: 8.5px;
+    margin: 3px 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .cursor .diff .h {
+    padding: 2px 6px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    font-size: 8px;
+    color: var(--mute);
+  }
+  .cursor .diff .add {
+    background: #f0fdf4;
+    padding: 1px 6px;
+    color: var(--ok);
+  }
+  .cursor .diff .del {
+    background: #fef2f2;
+    padding: 1px 6px;
+    color: var(--err);
+  }
+
+  /* Devin: multi-tab */
+  .devin {
+    display: grid;
+    grid-template-rows: 24px 1fr;
+    height: 200px;
+    font-size: 10px;
+  }
+  .devin .tabs {
+    display: flex;
+    gap: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .devin .tab {
+    padding: 4px 10px;
+    font-size: 9.5px;
+    color: var(--mute);
+    border-right: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .devin .tab.active {
+    background: var(--canvas);
+    color: var(--text);
+    font-weight: 500;
+  }
+  .devin .body {
+    padding: 8px;
+    background: var(--canvas);
+  }
+  .devin .plan-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    font-size: 9.5px;
+    color: var(--body);
+  }
+  .devin .plan-row .num {
+    background: var(--line-2);
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    font-size: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+    font-family: monospace;
+    flex-shrink: 0;
+  }
+  .devin .plan-row .check {
+    color: var(--ok);
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .devin .plan-row .running {
+    color: var(--info);
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+  .devin .plan-row .pending {
+    color: var(--subtle);
+    width: 14px;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  /* Vercel v0 / Generative UI */
+  .v0 {
+    padding: 10px;
+    font-size: 10px;
+  }
+  .v0 .msg {
+    font-size: 9.5px;
+    color: var(--body);
+    padding: 4px 8px;
+    margin-bottom: 5px;
+    line-height: 1.45;
+  }
+  .v0 .gen-card {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px;
+    margin: 5px 0;
+    background: var(--canvas);
+  }
+  .v0 .gen-card .gtype {
+    font-size: 8px;
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+    font-family: monospace;
+  }
+  .v0 .gen-card .gbody {
+    font-size: 10px;
+    color: var(--text);
+  }
+  .v0 .stock {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 6px 0 4px;
+    border-bottom: 1px solid var(--line-2);
+    font-size: 9.5px;
+  }
+  .v0 .stock .sym {
+    font-weight: 600;
+  }
+  .v0 .stock .up {
+    color: var(--ok);
+    font-weight: 500;
+  }
+  .v0 .stock .dn {
+    color: var(--err);
+    font-weight: 500;
+  }
+
+  /* Talor (us) */
+  .talor {
+    padding: 10px;
+    font-size: 10px;
+  }
+  .talor .msg {
+    font-size: 9.5px;
+    color: var(--body);
+    padding: 4px 8px;
+    margin-bottom: 5px;
+    line-height: 1.45;
+  }
+  .talor .tool {
+    font-family: monospace;
+    font-size: 9px;
+    padding: 3px 8px;
+    color: var(--body);
+  }
+  .talor .tool .ok {
+    color: var(--ok);
+  }
+  .talor table {
+    font-size: 9px;
+    margin: 4px 8px;
+    border-collapse: collapse;
+  }
+  .talor th {
+    color: var(--mute);
+    font-size: 8px;
+    text-transform: uppercase;
+    padding: 3px 8px 3px 0;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+  }
+  .talor td {
+    padding: 3px 8px 3px 0;
+    border-bottom: 1px solid var(--line-2);
+    color: var(--body);
+  }
+  .talor .prop {
+    padding: 4px 0 4px 10px;
+    border-left: 2px solid var(--indigo);
+    margin: 5px 8px;
+  }
+  .talor .prop .s {
+    font-size: 9.5px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .talor .prop .cta {
+    background: var(--text);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 9px;
+    margin-top: 4px;
+    display: inline-block;
+  }
+
+  /* Spectrum */
+  .spectrum {
+    margin: 24px 0 14px;
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .spectrum h4 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--mute);
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .spec-bar {
+    position: relative;
+    height: 60px;
+  }
+  .spec-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 30px;
+    height: 2px;
+    background: var(--line);
+  }
+  .spec-point {
+    position: absolute;
+    top: 24px;
+    transform: translateX(-50%);
+  }
+  .spec-point .dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--canvas);
+    border: 2px solid var(--text);
+    margin: 0 auto;
+  }
+  .spec-point .lbl {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .spec-point.highlight .dot {
+    background: var(--indigo);
+    border-color: var(--indigo);
+  }
+  .spec-axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--mute);
+    margin-top: 14px;
+  }
+</style>
+
+<div class="cmp">
+  <div class="grid">
+    <!-- MANUS -->
+    <div class="card">
+      <div class="head">
+        <div class="name">Manus</div>
+        <div class="tag">computer-use agent</div>
+      </div>
+      <div class="pitch">
+        左聊天右"agent 的电脑"，浏览器 / 终端 / 文件编辑器实时滚动。每一步的工具调用对应右侧画面变化
+        — 你在<b>看 agent 干活</b>。
+      </div>
+      <div class="demo">
+        <div class="manus">
+          <div class="chat">
+            <div class="plan">📋 计划</div>
+            <div class="step"><span class="check">✓</span> 1. 搜索竞品</div>
+            <div class="step"><span class="check">✓</span> 2. 抓 5 家定价页</div>
+            <div class="step">▶ 3. 整理报表</div>
+            <div class="msg bot" style="margin-top: 5px">正在浏览 producthunt.com</div>
+          </div>
+          <div class="computer">
+            <div class="pane-tag">Computer · browser</div>
+            <div class="browser-bar">🌐 producthunt.com/ai-agents</div>
+            <div class="ss">
+              <strong style="font-size: 10px">Top AI Agents 2025</strong><br />
+              <span style="color: #78716c">1. Manus · ¥299/mo</span><br />
+              <span style="color: #78716c">2. Devin · $500/mo</span><br />
+              <span style="color: #78716c">3. Claude · $20/mo</span><br />
+              <span style="color: #78716c">4. ChatGPT · $20/mo</span><br />
+              <span style="color: #78716c; font-size: 8.5px">↓ 鼠标点击轨迹动画...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pros">视觉信息密度最高，agent 自主性可感知</div>
+        <div class="cons">必须依赖 computer-use（截屏 + 鼠标）；纯 API 类工具用不上</div>
+      </div>
+    </div>
+
+    <!-- CLAUDE.AI -->
+    <div class="card">
+      <div class="head">
+        <div class="name">Claude.ai</div>
+        <div class="tag">artifacts + prose</div>
+      </div>
+      <div class="pitch">
+        聊天 prose 为主，工具调用极简（仅一行 "Claude used X"）。"富内容"（代码 / 文档 / React /
+        SVG）单独开一个 <b>Artifacts 面板</b>。MCP 工具走通用 JSON 折叠。
+      </div>
+      <div class="demo">
+        <div class="claude">
+          <div class="chat">
+            <div class="msg">帮我起份周报模板。</div>
+            <div class="msg" style="background: var(--line-2); border-radius: 5px">
+              收到。我会做一份可复用的 markdown 模板放到 Artifacts 里 →
+            </div>
+            <div class="tool-min">○ Used web_search</div>
+            <div class="artifact-ref">📄 周报模板 · markdown</div>
+            <div class="msg">模板包含进度 / 阻塞 / 下周计划三块，可以直接编辑。</div>
+          </div>
+          <div class="artifact">
+            <div class="a-tag">Artifact · weekly_report.md</div>
+            <div class="a-doc">
+              # 第 X 周周报<br /><br />
+              ## 本周进展<br />
+              - ...<br /><br />
+              ## 阻塞<br />
+              - ...<br /><br />
+              ## 下周计划<br />
+              - ...
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pros">长文 / 代码 / 组件单独占视野，编辑 / 复制方便；聊天保持轻盈</div>
+        <div class="cons">短工具调用挤一起难扫；MCP 工具结果没专门 UI</div>
+      </div>
+    </div>
+
+    <!-- CHATGPT -->
+    <div class="card">
+      <div class="head">
+        <div class="name">ChatGPT</div>
+        <div class="tag">specialized inline + canvas</div>
+      </div>
+      <div class="pitch">
+        他们自己的工具（web search / code interpreter / DALL·E）每种都<b>硬编码专门 UI</b
+        >：搜索结果是 source pill + 行内 [1][2] 引用；代码解释器是 notebook 风；图像直接 inline。<b
+          >MCP 是私有生态</b
+        >，第三方工具入口窄。
+      </div>
+      <div class="demo">
+        <div class="gpt">
+          <div class="msg">最新的 AI agent 平台有哪些？</div>
+          <div class="web-result">
+            <div class="fav"></div>
+            <div class="body">
+              <div class="ttl">2025 AI Agent Platforms Compared</div>
+              <div class="url">techcrunch.com</div>
+            </div>
+          </div>
+          <div class="web-result">
+            <div class="fav" style="background: #16a34a"></div>
+            <div class="body">
+              <div class="ttl">Manus vs Devin: Field Review</div>
+              <div class="url">a16z.com</div>
+            </div>
+          </div>
+          <div class="msg">
+            主流的有 Manus<span class="citation">1</span>、Devin<span class="citation">1</span
+            ><span class="citation">2</span>、Claude<span class="citation">2</span>。
+          </div>
+          <div class="img">📊 generated chart</div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pros">每种 native 工具 UI 都精致；视觉规范明确</div>
+        <div class="cons">硬编码方案，扩展性差；第三方 MCP 工具没法获得同等待遇</div>
+      </div>
+    </div>
+
+    <!-- CURSOR -->
+    <div class="card">
+      <div class="head">
+        <div class="name">Cursor</div>
+        <div class="tag">inline tool log</div>
+      </div>
+      <div class="pitch">
+        聊天里直接出现 tool log + diff + terminal output。<b>不开第二个面板</b>，所有东西在 chat
+        流里展开（编辑就是行内 diff）。Code-first 场景下最高效。
+      </div>
+      <div class="demo">
+        <div class="cursor">
+          <div class="msg">把 step_id 漂移检测改为带 reason 抛错。</div>
+          <div class="tool"><span class="ok">✓</span> read react-loop.ts</div>
+          <div class="diff">
+            <div class="h">react-loop.ts</div>
+            <div class="del">− throw new Error('halt')</div>
+            <div class="add">+ throw new ContextHaltError(stepId, 'duplicate')</div>
+          </div>
+          <div class="tool"><span class="ok">✓</span> bash · npm test (24/24 ✓)</div>
+          <div class="msg">改完跑过了。</div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pros">单流好扫；diff 直观；最贴近"AI pair programmer"心智</div>
+        <div class="cons">长 agent 任务工具堆多会很长；非代码内容（图 / 表）只能 markdown</div>
+      </div>
+    </div>
+
+    <!-- DEVIN -->
+    <div class="card">
+      <div class="head">
+        <div class="name">Devin</div>
+        <div class="tag">multi-pane dev env</div>
+      </div>
+      <div class="pitch">
+        像在 agent 旁边坐着 — 顶 tab 切换
+        <b>Plan / Shell / Editor / Browser</b>。聊天窄一条侧边。所有工作产物对应一个 pane 视图。
+      </div>
+      <div class="demo">
+        <div class="devin">
+          <div class="tabs">
+            <div class="tab active">📋 Plan</div>
+            <div class="tab">$ Shell</div>
+            <div class="tab">Editor</div>
+            <div class="tab">Browser</div>
+          </div>
+          <div class="body">
+            <div class="plan-row">
+              <span class="num">1</span><span class="check">✓</span><span>调研竞品架构</span>
+            </div>
+            <div class="plan-row">
+              <span class="num">2</span><span class="check">✓</span><span>起 ADR 草稿</span>
+            </div>
+            <div class="plan-row">
+              <span class="num">3</span><span class="check">✓</span><span>建初始 schema</span>
+            </div>
+            <div class="plan-row">
+              <span class="num">4</span><span class="running">▶</span
+              ><span style="color: var(--info)">写迁移脚本</span>
+            </div>
+            <div class="plan-row">
+              <span class="num">5</span><span class="pending">○</span
+              ><span style="color: var(--subtle)">跑单测</span>
+            </div>
+            <div class="plan-row">
+              <span class="num">6</span><span class="pending">○</span
+              ><span style="color: var(--subtle)">提 PR</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pros">长任务 / 多步骤可视化最强；plan-driven</div>
+        <div class="cons">学习成本高；短任务过度工程</div>
+      </div>
+    </div>
+
+    <!-- V0 -->
+    <div class="card">
+      <div class="head">
+        <div class="name">Vercel v0 / Generative UI</div>
+        <div class="tag">LLM 选 component</div>
+      </div>
+      <div class="pitch">
+        提供一<b>套预定义 React 组件</b>（StockCard / WeatherCard / FlightCard / Chart...），LLM
+        在响应中"调用"组件，server 实例化渲染。<b>跟我们的 block 方案最接近</b>。
+      </div>
+      <div class="demo">
+        <div class="v0">
+          <div class="msg">看下 AAPL 最近表现</div>
+          <div
+            class="tool"
+            style="font-family: monospace; font-size: 9px; padding: 3px 8px; color: var(--mute)"
+          >
+            ✓ get_stock_price · AAPL
+          </div>
+          <div class="gen-card">
+            <div class="gtype">StockCard</div>
+            <div class="gbody">
+              <div class="stock">
+                <span class="sym">AAPL</span><span class="up">$237.42 ↑ 1.8%</span>
+              </div>
+              <div class="stock" style="border-bottom: none">
+                <span style="color: var(--mute)">市值</span><span>3.61T</span>
+              </div>
+            </div>
+          </div>
+          <div class="msg">本周 +3.2%，关键支撑 230。</div>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="pros">视觉丰富 + 可扩展；LLM 不会乱发明 UI</div>
+        <div class="cons">组件库要预先维护；新场景要先发布组件再让 LLM 用</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SPECTRUM -->
+  <div class="spectrum">
+    <h4>渲染策略光谱</h4>
+    <div class="spec-bar">
+      <div class="spec-line"></div>
+      <div class="spec-point" style="left: 8%">
+        <div class="dot"></div>
+        <div class="lbl">Manus</div>
+      </div>
+      <div class="spec-point" style="left: 24%">
+        <div class="dot"></div>
+        <div class="lbl">Devin</div>
+      </div>
+      <div class="spec-point" style="left: 40%">
+        <div class="dot"></div>
+        <div class="lbl">Claude.ai</div>
+      </div>
+      <div class="spec-point highlight" style="left: 56%">
+        <div class="dot"></div>
+        <div class="lbl"><b>Talor</b> · v0</div>
+      </div>
+      <div class="spec-point" style="left: 75%">
+        <div class="dot"></div>
+        <div class="lbl">ChatGPT</div>
+      </div>
+      <div class="spec-point" style="left: 92%">
+        <div class="dot"></div>
+        <div class="lbl">Cursor</div>
+      </div>
+    </div>
+    <div class="spec-axis">
+      <span>← 看 agent 干活（视觉为主）</span>
+      <span>读 agent 输出（结构化为主）→</span>
+    </div>
+  </div>
+
+  <!-- ANALYSIS -->
+  <div
+    style="
+      padding: 18px 20px;
+      background: var(--canvas);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 12px;
+      "
+    >
+      Talor 该放哪里 · 分析
+    </div>
+    <ul
+      style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--body)"
+    >
+      <li>
+        <b>Manus / Devin 路线不适合 Talor</b> — 这两家依赖 computer-use（截屏 + 鼠标 + 实时
+        GUI）。Talor 的 MCP 工具返回 JSON，没"画面"可看 — 强行做 split pane 右侧没内容。
+      </li>
+      <li>
+        <b>ChatGPT 路线扩展性差</b> — 每种工具硬编码
+        UI，把生态封闭。我们之前否决的"注册表"方案就是这条路。
+      </li>
+      <li><b>Cursor 路线适合代码场景</b>但 Talor 是通用 agent，邮件 / 表格 / 报表也要好看。</li>
+      <li>
+        <b>Claude.ai 的 Artifact 思路值得借鉴</b> — 长文档 / 长代码 /
+        多步骤计划这类"富内容"可考虑单独 pane（但 v1 不做，先做好 inline）。
+      </li>
+      <li>
+        <b>v0 generative UI 跟我们的 block 方案最接近</b> — 都是"LLM 在小套预定义组件里挑"。Talor 的
+        5 个 block + markdown 就是它的 mini 版。
+      </li>
+    </ul>
+  </div>
+
+  <!-- DEEPER -->
+  <div
+    style="
+      margin-top: 14px;
+      padding: 16px 18px;
+      background: var(--surface);
+      border: 1px solid var(--line-2);
+      border-radius: 10px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 8px;
+      "
+    >
+      Talor 跟 v0 的差异
+    </div>
+    <ul
+      style="margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; color: var(--body)"
+    >
+      <li>
+        <b>v0 组件库针对业务</b>（Stock / Weather / Flight）— 跟特定场景绑死，要扩展须发布新组件
+      </li>
+      <li>
+        <b>Talor block 是<u>交互模式</u>而非业务</b>（need_input = 让用户选 / proposal =
+        让用户确认）— 任何业务场景都用同一套 block，配合 markdown 表达内容
+      </li>
+      <li>
+        v0 适合<b>明确的垂直域产品</b>（StockGPT、TravelGPT），Talor
+        是<b>通用平台</b>，必须避免业务耦合
+      </li>
+    </ul>
+    <div style="margin-top: 10px; font-size: 12.5px; color: var(--mute); line-height: 1.55">
+      所以 Talor 不该照搬 v0 的组件库思路，而是把 block 词典做得<b>小而抽象</b>（5-6
+      个），把表达力交给 markdown + LLM。
+    </div>
+  </div>
+
+  <!-- FUTURE -->
+  <div
+    style="
+      margin-top: 14px;
+      padding: 16px 18px;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 8px;
+      "
+    >
+      v2 可以考虑的增强
+    </div>
+    <ul
+      style="margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; color: var(--body)"
+    >
+      <li>
+        <b>Artifact 面板</b>（Claude.ai 风）— agent 生成长 markdown / 代码 / 报表时单独占右侧
+        pane。v1 暂不做（inline 够用）。
+      </li>
+      <li>
+        <b>Plan tab</b>（Devin 风）— 长任务时左侧加一个 plan tab，显示步骤列表 + 进度。Talor 当前
+        agent 任务多是单 turn 完成，v2 多步骤复杂任务上线时考虑。
+      </li>
+      <li>
+        <b>"computer use" via MCP</b>（Manus 风）— 如果加 browser-use MCP server，需要右侧 pane
+        显示截图。当前不是主路径。
+      </li>
+    </ul>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 18px">
+  小结：Talor 当前方向（inline + 5-6 个抽象 block + markdown）跟 v0 generative UI 最像，但更<b
+    >抽象 / 跨域</b
+  >。v2 可考虑借鉴 Claude.ai 的 artifact 面板。
+</p>

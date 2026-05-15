@@ -1,0 +1,1402 @@
+<h2>A · 全部场景渲染效果</h2>
+<p class="subtitle">
+  所有场景按"对话流 / 工具类型 / Talor block / 富内容 /
+  边界态"分组。每个场景都是逐像素的渲染结果，不是示意。
+</p>
+
+<style>
+  /* ============ TOKENS ============ */
+  .demo {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #ffffff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --info: #2563eb;
+    --add-bg: #f0fdf4;
+    --add-line: #16a34a;
+    --del-bg: #fef2f2;
+    --del-line: #dc2626;
+    background: var(--canvas);
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.65;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .demo .section {
+    padding: 24px 24px 20px;
+    border-bottom: 1px dashed var(--line);
+  }
+  .demo .section:last-child {
+    border-bottom: none;
+  }
+  .demo .section-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--mute);
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .demo .section-head .num {
+    background: var(--text);
+    color: white;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .demo .ex {
+    margin-bottom: 12px;
+  }
+  .demo .ex-label {
+    font-size: 10.5px;
+    color: var(--subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+
+  /* Turn rail */
+  .turn {
+    position: relative;
+    padding-left: 32px;
+    padding-bottom: 4px;
+  }
+  .turn + .turn {
+    margin-top: 20px;
+  }
+  .turn::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 22px;
+    bottom: 0;
+    width: 1px;
+    background: var(--line);
+  }
+  .turn:last-child::before {
+    display: none;
+  }
+  .avatar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+  }
+  .avatar.user {
+    background: var(--text);
+  }
+  .avatar.bot {
+    background: linear-gradient(135deg, var(--accent), var(--indigo));
+  }
+  .avatar.sub {
+    background: linear-gradient(135deg, #8b5cf6, #ec4899);
+    font-size: 9px;
+  }
+
+  /* Prose */
+  .prose {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  .prose p {
+    margin: 0 0 8px;
+  }
+  .prose h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 14px 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .prose h4 {
+    font-size: 13.5px;
+    font-weight: 600;
+    margin: 10px 0 4px;
+    color: var(--body);
+  }
+  .prose ul,
+  .prose ol {
+    margin: 6px 0 8px;
+    padding-left: 20px;
+  }
+  .prose li {
+    margin: 3px 0;
+  }
+  .prose blockquote {
+    border-left: 2px solid var(--line);
+    padding: 2px 0 2px 12px;
+    color: var(--body);
+    margin: 8px 0;
+    font-style: normal;
+  }
+  .prose a {
+    color: var(--info);
+    text-decoration: none;
+    border-bottom: 1px solid currentColor;
+  }
+  .prose a:hover {
+    color: var(--text);
+  }
+  .prose code.inline {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .prose table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+    width: auto;
+  }
+  .prose th,
+  .prose td {
+    padding: 6px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+  }
+  .prose th {
+    font-weight: 600;
+    color: var(--mute);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom-width: 1px;
+  }
+  .prose tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Tool row */
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 8px;
+    margin: 4px -8px;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+    color: var(--body);
+    cursor: pointer;
+  }
+  .tool:hover {
+    background: var(--surface);
+  }
+  .tool .stat {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tool .stat svg {
+    width: 12px;
+    height: 12px;
+  }
+  .tool .tname {
+    color: var(--text);
+    font-weight: 500;
+    min-width: 38px;
+  }
+  .tool .targ {
+    color: var(--mute);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool .dur {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+  .stat.ok {
+    color: var(--ok);
+  }
+  .stat.err {
+    color: var(--err);
+  }
+  .stat.run {
+    color: var(--info);
+  }
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--line);
+    border-top-color: var(--info);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .check-svg {
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+
+  /* Tool expanded body */
+  .tool-body {
+    margin: 2px 0 8px 4px;
+    padding: 10px 12px;
+    border-left: 2px solid var(--line);
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .tool-body .lbl {
+    color: var(--subtle);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 3px;
+    font-family: -apple-system, sans-serif;
+    font-weight: 500;
+  }
+  .tool-body .lbl + .lbl {
+    margin-top: 8px;
+  }
+  .tool-body pre {
+    margin: 0;
+    color: var(--body);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+
+  /* Code block */
+  .code {
+    margin: 10px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fcfcfc;
+    overflow: hidden;
+  }
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line-2);
+    font-size: 11px;
+    color: var(--mute);
+    font-family: 'SF Mono', monospace;
+  }
+  .code-head .copy {
+    font-size: 10px;
+    cursor: pointer;
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .code-head .copy:hover {
+    background: var(--line-2);
+    color: var(--text);
+  }
+  .code pre {
+    margin: 0;
+    padding: 12px 14px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .kw {
+    color: #7c3aed;
+  }
+  .fn {
+    color: #2563eb;
+  }
+  .str {
+    color: #16a34a;
+  }
+  .cm {
+    color: var(--subtle);
+    font-style: italic;
+  }
+  .var {
+    color: #db2777;
+  }
+  .num {
+    color: #ea580c;
+  }
+
+  /* Done pill */
+  .done-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px 2px 8px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    color: var(--ok);
+    border: 1px solid #bbf7d0;
+    margin-top: 10px;
+    font-weight: 500;
+  }
+  .done-pill .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+
+  /* Action block */
+  .action {
+    margin: 10px 0;
+    padding: 12px 14px 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--info);
+    background: var(--canvas);
+  }
+  .action.warn {
+    border-left-color: var(--warn);
+  }
+  .action.err {
+    border-left-color: var(--err);
+  }
+  .action.draft {
+    border-left-color: var(--indigo);
+  }
+  .action .lbl {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    color: var(--info);
+    margin-bottom: 6px;
+  }
+  .action.warn .lbl {
+    color: var(--warn);
+  }
+  .action.err .lbl {
+    color: var(--err);
+  }
+  .action.draft .lbl {
+    color: var(--indigo);
+  }
+  .action .q {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .action .reason {
+    font-size: 12.5px;
+    color: var(--mute);
+    margin-top: 4px;
+  }
+  .opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .opt-btn {
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    background: var(--canvas);
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .opt-btn:hover {
+    background: var(--surface);
+    border-color: var(--subtle);
+  }
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 5px 12px 5px 10px;
+    border-radius: 6px;
+    background: var(--text);
+    color: white;
+    font-size: 12.5px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  /* Diff */
+  .diff {
+    margin: 10px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fcfcfc;
+    overflow: hidden;
+    font-family: 'SF Mono', monospace;
+    font-size: 12.5px;
+  }
+  .diff .head {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line-2);
+    font-size: 11px;
+    color: var(--mute);
+    display: flex;
+    justify-content: space-between;
+  }
+  .diff .row {
+    display: flex;
+    padding: 0 12px;
+    min-height: 20px;
+    align-items: center;
+  }
+  .diff .row.add {
+    background: var(--add-bg);
+  }
+  .diff .row.del {
+    background: var(--del-bg);
+  }
+  .diff .row .sign {
+    color: var(--subtle);
+    width: 14px;
+    flex-shrink: 0;
+  }
+  .diff .row.add .sign {
+    color: var(--add-line);
+    font-weight: 700;
+  }
+  .diff .row.del .sign {
+    color: var(--del-line);
+    font-weight: 700;
+  }
+  .diff .row .ln {
+    color: var(--subtle);
+    width: 30px;
+    flex-shrink: 0;
+    text-align: right;
+    padding-right: 12px;
+    font-size: 11px;
+  }
+  .diff .row .txt {
+    white-space: pre;
+  }
+
+  /* Bash terminal output */
+  .term {
+    margin: 10px 0 8px 4px;
+    padding: 10px 14px;
+    border-left: 2px solid var(--line);
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--body);
+    white-space: pre-wrap;
+  }
+  .term .stderr {
+    color: var(--err);
+  }
+  .term .ok {
+    color: var(--ok);
+  }
+  .term .meta {
+    color: var(--subtle);
+    font-size: 11px;
+    margin-top: 4px;
+    font-family: -apple-system, sans-serif;
+  }
+
+  /* Grep match list */
+  .grep {
+    margin: 6px 0 8px 4px;
+    padding-left: 12px;
+    border-left: 2px solid var(--line);
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+  .grep .match {
+    display: flex;
+    gap: 12px;
+    padding: 2px 0;
+    color: var(--body);
+  }
+  .grep .file {
+    color: var(--info);
+  }
+  .grep .lnum {
+    color: var(--subtle);
+    min-width: 30px;
+    text-align: right;
+  }
+  .grep .text {
+    color: var(--body);
+  }
+  .grep .hit {
+    background: #fef3c7;
+    color: var(--text);
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+
+  /* Image / file attachment */
+  .att {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--canvas);
+    font-size: 12.5px;
+  }
+  .att .ic {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    background: var(--line-2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .att .nm {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .att .sz {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+  .img-att {
+    display: inline-block;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    max-width: 280px;
+  }
+  .img-att .ph {
+    background: linear-gradient(135deg, #fde68a, #fbbf24, #f59e0b);
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 24px;
+  }
+  .img-att .meta {
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--mute);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Mermaid placeholder */
+  .mermaid {
+    margin: 10px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--canvas);
+    padding: 16px;
+  }
+  .mermaid .head {
+    font-size: 11px;
+    color: var(--mute);
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'SF Mono', monospace;
+  }
+  .mermaid svg {
+    display: block;
+    margin: 0 auto;
+  }
+  .mermaid .node {
+    fill: var(--canvas);
+    stroke: var(--text);
+    stroke-width: 1.2;
+  }
+  .mermaid .nodelabel {
+    font-family: -apple-system, sans-serif;
+    font-size: 11px;
+    fill: var(--text);
+  }
+  .mermaid .edge {
+    stroke: var(--mute);
+    stroke-width: 1;
+    fill: none;
+  }
+
+  /* History snapshot */
+  .snapshot {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--mute);
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .snapshot:hover {
+    border-color: var(--subtle);
+    color: var(--body);
+  }
+  .snapshot .ic {
+    font-family: 'SF Mono', monospace;
+    color: var(--subtle);
+  }
+
+  /* Crystallize workbench (refactored) */
+  .crystal-bar {
+    margin: 16px 0;
+    border-top: 1px dashed var(--indigo);
+    position: relative;
+  }
+  .crystal-bar::after {
+    content: 'Crystallize workbench · 5 turns from this point';
+    position: absolute;
+    left: 50%;
+    top: -8px;
+    transform: translateX(-50%);
+    background: var(--canvas);
+    padding: 0 10px;
+    font-size: 10.5px;
+    color: var(--indigo);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .crystal-content {
+    padding-top: 14px;
+    padding-left: 8px;
+    border-left: 2px solid #e0e7ff;
+  }
+
+  /* Error banner (conversation level) */
+  .err-banner {
+    margin: 10px 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: var(--err);
+    font-size: 13px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .err-banner .ic {
+    font-family: 'SF Mono', monospace;
+    color: var(--err);
+  }
+  .err-banner .body {
+    flex: 1;
+  }
+  .err-banner .code {
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    color: #991b1b;
+    margin-bottom: 2px;
+  }
+  .err-banner .retry {
+    color: var(--err);
+    font-size: 12px;
+    cursor: pointer;
+    font-weight: 500;
+    border-bottom: 1px solid currentColor;
+  }
+
+  /* Subagent nested */
+  .subagent {
+    margin: 4px 0 8px;
+    padding: 8px 12px 8px 14px;
+    border-left: 2px solid var(--line);
+    margin-left: 4px;
+    border-radius: 0 6px 6px 0;
+    background: linear-gradient(to right, var(--surface), transparent 40%);
+  }
+  .subagent .head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--mute);
+    margin-bottom: 4px;
+  }
+  .subagent .head .av {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, #8b5cf6, #ec4899);
+    color: white;
+    font-size: 8px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .subagent .head .nm {
+    color: var(--text);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .subagent .head .dur {
+    margin-left: auto;
+    color: var(--subtle);
+    font-size: 11px;
+  }
+  .subagent .summary {
+    font-size: 12.5px;
+    color: var(--body);
+  }
+
+  /* Empty state */
+  .empty {
+    padding: 80px 24px;
+    text-align: center;
+  }
+  .empty .ic {
+    font-size: 32px;
+    margin-bottom: 12px;
+  }
+  .empty .tt {
+    font-size: 15px;
+    color: var(--text);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .empty .sub {
+    font-size: 13px;
+    color: var(--mute);
+  }
+</style>
+
+<div class="demo">
+  <!-- ================================================== -->
+  <!-- 1. CONVERSATION FLOW                                -->
+  <!-- ================================================== -->
+  <div class="section">
+    <div class="section-head"><span class="num">1</span>对话流 · markdown 完整渲染</div>
+
+    <div class="turn">
+      <div class="avatar user">Q</div>
+      <div>解释 Talor 的 ReAct 循环，再给个状态机示意。</div>
+    </div>
+
+    <div class="turn">
+      <div class="avatar bot">T</div>
+      <div class="prose">
+        <p>简而言之，<code class="inline">ReactLoop</code> 是 Talor 主进程里的核心控制流。</p>
+
+        <h3>核心步骤</h3>
+        <ol>
+          <li>从 <code class="inline">PromptPipeline</code> 拉到完整 messages</li>
+          <li>调用 provider 流式 generate</li>
+          <li>每个 <code class="inline">tool_use</code> 进 registry 执行</li>
+          <li>结果回灌 → 下一轮，直到 <code class="inline">done</code> 或上限</li>
+        </ol>
+
+        <h4>不变量</h4>
+        <blockquote>
+          <code class="inline">assistant(tool_use)</code> 和
+          <code class="inline">tool(result)</code> 必须同事务落盘 — 一旦破坏配对，session
+          永久废。详见 <a href="#">standards.md §I-MUST-1</a>。
+        </blockquote>
+
+        <h4>关键参数</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>参数</th>
+              <th>默认</th>
+              <th>作用</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code class="inline">maxIterations</code></td>
+              <td>20</td>
+              <td>死循环上限</td>
+            </tr>
+            <tr>
+              <td><code class="inline">contextWindow</code></td>
+              <td>200k</td>
+              <td>触发压缩阈值</td>
+            </tr>
+            <tr>
+              <td><code class="inline">stepIdCheck</code></td>
+              <td>on</td>
+              <td>halt 检测开关</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="done-pill"><span class="dot"></span>Done</div>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- 2. TOOL CALLS BY TYPE                              -->
+  <!-- ================================================== -->
+  <div class="section">
+    <div class="section-head"><span class="num">2</span>各类工具调用的特有渲染</div>
+
+    <!-- BASH -->
+    <div class="ex">
+      <div class="ex-label">bash — 命令 + stdout / stderr 流</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">bash</span>
+        <span class="targ">npm test -- --reporter=verbose</span>
+        <span class="dur">2.4s</span>
+      </div>
+      <div class="term">
+        <span class="ok">PASS</span> src/main/loop/react-loop.test.ts (1.8s)
+        <span class="ok">PASS</span> src/main/tools/registry.test.ts (0.6s)
+        <span class="stderr">FAIL</span> src/main/prompt/PromptPipeline.test.ts ● should preserve
+        tool_use/result pairing Expected: 2 messages Received: 3 messages
+        <div class="meta">3 suites · 42 tests · 41 passed · 1 failed</div>
+      </div>
+    </div>
+
+    <!-- EDIT -->
+    <div class="ex">
+      <div class="ex-label">edit — 内联 diff（最常被用、最值得做好）</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">edit</span>
+        <span class="targ">src/main/loop/react-loop.ts · 1 replace</span>
+      </div>
+      <div class="diff">
+        <div class="head"><span>src/main/loop/react-loop.ts</span><span>−2 / +3 lines</span></div>
+        <div class="row del">
+          <span class="sign">−</span><span class="ln">141</span
+          ><span class="txt"> if (seenIds.has(stepId)) {</span>
+        </div>
+        <div class="row del">
+          <span class="sign">−</span><span class="ln">142</span
+          ><span class="txt"> throw new Error('context halt')</span>
+        </div>
+        <div class="row add">
+          <span class="sign">+</span><span class="ln">141</span
+          ><span class="txt"> if (seenIds.has(stepId)) {</span>
+        </div>
+        <div class="row add">
+          <span class="sign">+</span><span class="ln">142</span
+          ><span class="txt"> logger.warn('halting on duplicate step', { stepId })</span>
+        </div>
+        <div class="row add">
+          <span class="sign">+</span><span class="ln">143</span
+          ><span class="txt"> throw new ContextHaltError(stepId)</span>
+        </div>
+        <div class="row">
+          <span class="sign"> </span><span class="ln">144</span><span class="txt"> }</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- READ -->
+    <div class="ex">
+      <div class="ex-label">read — 命中文件 + 行数（默认折叠）</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">read</span>
+        <span class="targ">src/main/loop/react-loop.ts (1-200)</span>
+        <span class="dur">8ms</span>
+      </div>
+    </div>
+
+    <!-- GREP -->
+    <div class="ex">
+      <div class="ex-label">grep — 匹配高亮 + 文件分组</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">grep</span>
+        <span class="targ">"ToolErrorEnvelope" — 4 matches in 3 files</span>
+        <span class="dur">14ms</span>
+      </div>
+      <div class="grep">
+        <div class="match"><span class="file">src/shared/types/tool-error.ts</span></div>
+        <div class="match">
+          <span class="lnum">12</span
+          ><span class="text">export interface <span class="hit">ToolErrorEnvelope</span> {</span>
+        </div>
+        <div class="match"><span class="file">src/main/loop/react-loop.ts</span></div>
+        <div class="match">
+          <span class="lnum">87</span
+          ><span class="text"> const env: <span class="hit">ToolErrorEnvelope</span> = {</span>
+        </div>
+        <div class="match">
+          <span class="lnum">142</span
+          ><span class="text">
+            if (isToolError(r)) return r as <span class="hit">ToolErrorEnvelope</span></span
+          >
+        </div>
+        <div class="match"><span class="file">src/main/tools/builtin/bash.ts</span></div>
+        <div class="match">
+          <span class="lnum">54</span
+          ><span class="text">
+            throw new <span class="hit">ToolErrorEnvelope</span>('BASH_DENIED', ...)</span
+          >
+        </div>
+      </div>
+    </div>
+
+    <!-- WRITE -->
+    <div class="ex">
+      <div class="ex-label">write — 新建文件 + size 摘要</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">write</span>
+        <span class="targ">docs/superpowers/specs/ui-redesign.md · 4.2 KB</span>
+        <span class="dur">3ms</span>
+      </div>
+    </div>
+
+    <!-- LS -->
+    <div class="ex">
+      <div class="ex-label">ls — 目录 tree</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">ls</span>
+        <span class="targ">src/main/loop/ · 4 entries</span>
+      </div>
+      <div class="term" style="color: var(--body)">
+        react-loop.ts 12.3 KB context-manager.ts 4.1 KB stream-utils.ts 2.8 KB quote-verifier.ts 1.9
+        KB
+      </div>
+    </div>
+
+    <!-- ERROR -->
+    <div class="ex">
+      <div class="ex-label">edit — 错误（结构化 envelope）</div>
+      <div class="tool">
+        <div class="stat err">
+          <svg viewBox="0 0 24 24" class="check-svg">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="15" y1="9" x2="9" y2="15" />
+            <line x1="9" y1="9" x2="15" y2="15" />
+          </svg>
+        </div>
+        <span class="tname">edit</span>
+        <span class="targ" style="color: var(--err)"
+          >EDIT_AMBIGUOUS_MATCH · 3 matches for old_string</span
+        >
+      </div>
+      <div class="tool-body">
+        <div class="lbl">Error</div>
+        <pre style="color: var(--err)">
+{
+  "__talor_error": true,
+  "code": "EDIT_AMBIGUOUS_MATCH",
+  "message": "Found 3 occurrences of old_string. Use a longer context to disambiguate."
+}</pre
+        >
+      </div>
+    </div>
+
+    <!-- SUBAGENT -->
+    <div class="ex">
+      <div class="ex-label">subagent — 嵌套 agent，独立 turn rail 内联</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">subagent</span>
+        <span class="targ">Explore — 找所有 message repo 引用</span>
+        <span class="dur">4.7s</span>
+      </div>
+      <div class="subagent">
+        <div class="head">
+          <div class="av">E</div>
+          <span class="nm">Explore</span>
+          <span style="color: var(--mute); font-size: 11px">→ 3 grep · 2 read</span>
+          <span class="dur">4.7s</span>
+        </div>
+        <div class="summary">
+          在 src/main/repos/ 找到 messageRepo 主定义；6 个文件引用：react-loop, chat-send,
+          crystallizer, message-batch, session-batch, repo-tests。
+        </div>
+      </div>
+    </div>
+
+    <!-- MULTI COLLAPSED -->
+    <div class="ex">
+      <div class="ex-label">5+ 连续工具 — 自动折叠为概览（避免长上下文 agent 把屏幕塞满）</div>
+      <div
+        class="tool"
+        style="
+          background: var(--surface);
+          border: 1px dashed var(--line);
+          color: var(--mute);
+          font-family: -apple-system, sans-serif;
+        "
+      >
+        <div class="stat" style="color: var(--mute)">⋯</div>
+        <span style="font-size: 12px">8 个工具调用 · 全部成功 · 共 340ms</span>
+        <span style="margin-left: auto; font-size: 11px">展开 ▾</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- 3. TALOR BLOCKS                                     -->
+  <!-- ================================================== -->
+  <div class="section">
+    <div class="section-head"><span class="num">3</span>Talor 结构化 block 各形态</div>
+
+    <div class="ex">
+      <div class="ex-label">done — 末尾 pill（不再是色卡）</div>
+      <div class="done-pill"><span class="dot"></span>Done · 12ms · 1 file modified</div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">need_input — 带选项按钮（用户必须响应）</div>
+      <div class="action">
+        <div class="lbl">Need input</div>
+        <div class="q">
+          是要把 <code class="inline">agentPrompt</code> 改成自由 markdown，还是保留 yaml 结构？
+        </div>
+        <div class="opts">
+          <button class="opt-btn">改成 markdown</button>
+          <button class="opt-btn">保留 yaml</button>
+          <button class="opt-btn">两个都做</button>
+        </div>
+        <div class="reason">影响 Schema 2.0 字段语义。如果改 markdown，validator 需要重写。</div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">blocked — 阻塞，给出 retry hint</div>
+      <div class="action warn">
+        <div class="lbl">Blocked · permission</div>
+        <div class="q">需要 <code class="inline">~/.ssh/</code> 的读权限才能继续。</div>
+        <div class="reason">
+          Hint: 在设置 → 权限里添加 <code class="inline">~/.ssh/config</code> 白名单后重试。
+        </div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">warning — 3 个严重度（only border-left 颜色变）</div>
+      <div class="action" style="border-left-color: var(--info)">
+        <div class="lbl">Warning · low</div>
+        <div class="q">检测到 <code class="inline">.env</code> 文件可能被读取，已自动跳过。</div>
+      </div>
+      <div class="action warn">
+        <div class="lbl">Warning · medium</div>
+        <div class="q">执行的 bash 命令包含 <code class="inline">curl | sh</code> 模式。</div>
+      </div>
+      <div class="action err">
+        <div class="lbl">Warning · high</div>
+        <div class="q">检测到 <code class="inline">rm -rf</code> 命令。已拦截，未执行。</div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">draft_detected — 从对话中识别到 agent 草稿</div>
+      <div class="action draft">
+        <div class="lbl">Draft detected</div>
+        <div class="q">
+          从对话中提取到完整 agent profile（name: 数据周报员工 / model: opus-4-7）。
+        </div>
+        <button class="cta">审阅并保存 →</button>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">invalid_block — JSON 损坏的兜底态</div>
+      <div class="action" style="border-left-color: var(--mute); background: var(--surface)">
+        <div class="lbl" style="color: var(--mute)">Malformed block</div>
+        <div class="q" style="color: var(--mute); font-size: 12.5px">
+          检测到不完整的 talor 块（缺少闭合 fence）。已按 markdown 渲染原文。
+        </div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">inferred_intent — LLM 漏发结构化 block，系统从文本推断</div>
+      <div
+        class="action"
+        style="border-left-color: var(--subtle); background: var(--surface); border-style: solid"
+      >
+        <div class="lbl" style="color: var(--subtle)">Inferred · clarification</div>
+        <div class="q" style="font-size: 13.5px">
+          这段文本结尾包含一个疑问句，可能是在请求用户输入。点击转为 need_input 卡片以方便回复。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- 4. RICH MEDIA & ATTACHMENTS                        -->
+  <!-- ================================================== -->
+  <div class="section">
+    <div class="section-head"><span class="num">4</span>富媒体 / 附件</div>
+
+    <div class="ex">
+      <div class="ex-label">user 消息附图片（inline thumbnail，点击放大）</div>
+      <div class="turn" style="padding-bottom: 0">
+        <div class="avatar user">Q</div>
+        <div>
+          <div style="margin-bottom: 8px">这张设计稿的间距哪儿不对？</div>
+          <div class="img-att">
+            <div class="ph">🖼</div>
+            <div class="meta"><span>design-v2.png</span><span>1240 × 800 · 184 KB</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">user 消息附文件（非图片）</div>
+      <div class="turn" style="padding-bottom: 0">
+        <div class="avatar user">Q</div>
+        <div>
+          <div style="margin-bottom: 8px">麻烦读一下这份 PRD：</div>
+          <div class="att">
+            <div class="ic">PDF</div>
+            <div>
+              <div class="nm">redesign-prd-v3.pdf</div>
+              <div class="sz">2.1 MB</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">assistant 返回图（截图 / 图表）— 跟代码块同语言</div>
+      <div class="code" style="padding: 0">
+        <div class="code-head"><span>image · png</span><span class="copy">save</span></div>
+        <div
+          style="
+            background: linear-gradient(135deg, #93c5fd, #6366f1);
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+          "
+        >
+          [ 生成的截图 / 图表 占位 ]
+        </div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">mermaid 图（直接渲染，源码隐藏在 view source）</div>
+      <div class="mermaid">
+        <div class="head">
+          <span>mermaid · flowchart</span><span class="copy">view source</span>
+        </div>
+        <svg width="100%" height="160" viewBox="0 0 480 160">
+          <rect class="node" x="20" y="60" width="80" height="40" rx="6" />
+          <text class="nodelabel" x="60" y="84" text-anchor="middle">user</text>
+          <rect class="node" x="140" y="60" width="100" height="40" rx="6" />
+          <text class="nodelabel" x="190" y="84" text-anchor="middle">PromptPipeline</text>
+          <rect class="node" x="280" y="60" width="80" height="40" rx="6" />
+          <text class="nodelabel" x="320" y="84" text-anchor="middle">ReactLoop</text>
+          <rect class="node" x="400" y="30" width="70" height="40" rx="6" />
+          <text class="nodelabel" x="435" y="54" text-anchor="middle">tool</text>
+          <rect class="node" x="400" y="90" width="70" height="40" rx="6" />
+          <text class="nodelabel" x="435" y="114" text-anchor="middle">done</text>
+          <path class="edge" d="M100 80 L 140 80" marker-end="url(#arrow)" />
+          <path class="edge" d="M240 80 L 280 80" marker-end="url(#arrow)" />
+          <path class="edge" d="M360 75 Q 380 50 400 50" marker-end="url(#arrow)" />
+          <path class="edge" d="M360 85 Q 380 110 400 110" marker-end="url(#arrow)" />
+          <path
+            class="edge"
+            d="M400 50 Q 360 30 320 60"
+            marker-end="url(#arrow)"
+            stroke-dasharray="3 3"
+          />
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M0,0 L6,4 L0,8" fill="none" stroke="#71717a" stroke-width="1" />
+            </marker>
+          </defs>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- 5. EDGE STATES                                     -->
+  <!-- ================================================== -->
+  <div class="section">
+    <div class="section-head"><span class="num">5</span>边界态</div>
+
+    <div class="ex">
+      <div class="ex-label">空 session（新建后）</div>
+      <div class="empty">
+        <div
+          style="
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), var(--indigo));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 4px;
+          "
+        >
+          T
+        </div>
+        <div class="tt">开始对话</div>
+        <div class="sub">下方输入框输入消息，或拖入文件 / 图片</div>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">流式中 — 光标 + spinner + 骨架</div>
+      <div class="turn" style="padding-bottom: 0">
+        <div class="avatar bot">T</div>
+        <div>
+          <div class="prose">
+            <p>
+              分析中。先看一下 prompt pipeline 的入口<span
+                style="
+                  display: inline-block;
+                  width: 2px;
+                  height: 14px;
+                  background: var(--body);
+                  vertical-align: text-bottom;
+                  margin-left: 2px;
+                  animation: blink 1s steps(2) infinite;
+                "
+              ></span>
+            </p>
+          </div>
+          <div class="tool">
+            <div class="stat run"><div class="spinner"></div></div>
+            <span class="tname">grep</span>
+            <span class="targ">"PromptPipeline" in src/main/prompt</span>
+          </div>
+        </div>
+      </div>
+      <style>
+        @keyframes blink {
+          50% {
+            opacity: 0;
+          }
+        }
+      </style>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">API / network 错误（对话级，红色 banner，带 retry）</div>
+      <div class="err-banner">
+        <span class="ic">!</span>
+        <div class="body">
+          <div class="code">PROVIDER_RATE_LIMITED · 429</div>
+          <div>Anthropic API 触发 1m token 限额，等 38s 后重试。</div>
+        </div>
+        <span class="retry">立即重试</span>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">history snapshot — Crystallize 注入的历史上下文（默认折叠）</div>
+      <div class="snapshot">
+        <span class="ic">⊟</span>
+        <span>历史对话快照 · 24 条消息</span>
+        <span style="color: var(--subtle); font-size: 11px; margin-left: 8px">点击展开</span>
+      </div>
+    </div>
+
+    <div class="ex">
+      <div class="ex-label">crystallize workbench 分隔（不再是紫色块，改为虚线 + 居中 label）</div>
+      <div>
+        <div class="turn" style="padding-bottom: 0">
+          <div class="avatar bot">T</div>
+          <div class="prose"><p>到这里基本搞清楚 ReactLoop 的死循环保护机制了。</p></div>
+          <div class="done-pill"><span class="dot"></span>Done</div>
+        </div>
+
+        <div class="crystal-bar"></div>
+
+        <div class="crystal-content">
+          <div class="turn" style="padding-bottom: 0">
+            <div class="avatar bot" style="background: linear-gradient(135deg, #8b5cf6, #6366f1)">
+              🔮
+            </div>
+            <div class="prose">
+              <p style="color: var(--indigo); font-weight: 500">
+                基于上面的对话，我提议把这段沉淀为 agent：<b>react-loop-explainer</b>。
+              </p>
+              <p>
+                该 agent 专精解释 Talor 主循环；会优先 grep 而非 read，输出包含 mermaid 流程图。
+              </p>
+            </div>
+            <div class="action draft">
+              <div class="lbl">Draft proposed</div>
+              <div class="q">react-loop-explainer · opus-4-7</div>
+              <button class="cta">审阅并保存 →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 24px">
+  全部场景覆盖完了。看看：<br />
+  · 还有遗漏吗（permission 确认弹窗 / MCP 工具特殊呈现 / 流式被中断 / agent 切换分隔线 /
+  引用消息时的回链）？<br />
+  · 哪一类要继续打磨细节？<br />
+  · 整体节奏 / 配色 / 字号是否要再调？<br />
+  · 满意的话，我把这套渲染规范落到 spec 文档里，下一步走 writing-plans 出实施计划。
+</p>

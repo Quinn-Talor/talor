@@ -1,0 +1,352 @@
+<h2>当前 Chat 工作区 — 我看到的问题</h2>
+<p class="subtitle">
+  下面是当前布局的近似还原，红色编号是我认为"看起来不自然"的根因。先看你认不认同。
+</p>
+
+<style>
+  .diagnosis-mock {
+    display: flex;
+    height: 480px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.06);
+    border: 1px solid #e5e7eb;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    position: relative;
+  }
+  .dm-sidebar {
+    width: 220px;
+    background: linear-gradient(to bottom, #111827, #0f172a);
+    display: flex;
+    flex-direction: column;
+    color: rgba(255, 255, 255, 0.6);
+  }
+  .dm-sidebar .new-btn {
+    margin: 36px 14px 8px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(59, 130, 246, 0.12);
+    border: 0.5px solid rgba(59, 130, 246, 0.25);
+    color: #60a5fa;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+  }
+  .dm-sidebar .group {
+    padding: 6px 18px;
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.3);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+  }
+  .dm-sidebar .sess {
+    height: 48px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 4px;
+    border-radius: 8px;
+  }
+  .dm-sidebar .sess.active {
+    background: rgba(59, 130, 246, 0.12);
+  }
+  .dm-sidebar .avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    background: rgba(96, 165, 250, 0.15);
+    color: #60a5fa;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dm-sidebar .avatar.orange {
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+  }
+  .dm-sidebar .avatar.purple {
+    background: rgba(139, 92, 246, 0.15);
+    color: #8b5cf6;
+  }
+  .dm-sidebar .avatar.green {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+  }
+  .dm-sidebar .stitle {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+  }
+  .dm-sidebar .smeta {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.25);
+    margin-top: 2px;
+  }
+  .dm-sidebar .settings {
+    margin-top: auto;
+    height: 60px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 0.5px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+  }
+  .dm-chat {
+    flex: 1;
+    background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+    display: flex;
+    flex-direction: column;
+  }
+  .dm-topbar {
+    height: 44px;
+    background: #fff;
+    border-bottom: 0.5px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px;
+  }
+  .dm-topbar .chip {
+    height: 28px;
+    padding: 0 8px;
+    background: #f8fafc;
+    border: 0.5px solid #e2e8f0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #334155;
+  }
+  .dm-msgs {
+    flex: 1;
+    padding: 16px;
+    overflow: hidden;
+  }
+  .bubble {
+    background: #fff;
+    border: 1px solid #f1f5f9;
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #334155;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    max-width: 70%;
+  }
+  .bubble.user {
+    background: #2563eb;
+    color: white;
+    margin-left: auto;
+    border-color: transparent;
+  }
+  .bubble.crystal {
+    background: #faf5ff;
+    border-color: #c084fc;
+    color: #6b21a8;
+    max-width: 100%;
+  }
+  .dm-input {
+    margin: 0 16px 12px;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 8px 12px;
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.05);
+    height: 76px;
+    font-size: 11px;
+    color: #94a3b8;
+  }
+
+  /* Annotations */
+  .pin {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #dc2626;
+    color: white;
+    font-weight: 700;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(220, 38, 38, 0.5);
+    z-index: 10;
+  }
+  .issues {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 24px;
+    margin-top: 20px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .issues .num {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #dc2626;
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+  .issues li {
+    display: flex;
+    align-items: flex-start;
+    padding: 4px 0;
+    list-style: none;
+  }
+</style>
+
+<div class="diagnosis-mock">
+  <!-- Sidebar -->
+  <div class="dm-sidebar">
+    <div class="new-btn">+ 新建会话</div>
+    <div class="group">今天</div>
+    <div class="sess active">
+      <div class="avatar">T</div>
+      <div>
+        <div class="stitle">设计讨论</div>
+        <div class="smeta">Talor · 1小时前</div>
+      </div>
+    </div>
+    <div class="sess">
+      <div class="avatar orange">报</div>
+      <div>
+        <div class="stitle">数据周报</div>
+        <div class="smeta">分析师 · 2小时前</div>
+      </div>
+    </div>
+    <div class="group">昨天</div>
+    <div class="sess">
+      <div class="avatar purple">研</div>
+      <div>
+        <div class="stitle">竞品调研</div>
+        <div class="smeta">研究员 · 昨天</div>
+      </div>
+    </div>
+    <div class="sess">
+      <div class="avatar green">开</div>
+      <div>
+        <div class="stitle">需求拆解</div>
+        <div class="smeta">PM · 昨天</div>
+      </div>
+    </div>
+    <div class="settings">
+      <div
+        class="avatar"
+        style="
+          width: 32px;
+          height: 32px;
+          background: rgba(255, 255, 255, 0.06);
+          color: rgba(255, 255, 255, 0.5);
+          border-radius: 10px;
+        "
+      >
+        ⚙
+      </div>
+      <div>
+        <div class="stitle">设置</div>
+        <div class="smeta">⌘,</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat -->
+  <div class="dm-chat">
+    <div class="dm-topbar">
+      <div class="chip">▣ Talor ⌄</div>
+      <div class="chip">🔵 Claude Opus 4 ⌄</div>
+      <div style="margin-left: auto" class="chip">🔮 Crystallizer</div>
+    </div>
+    <div class="dm-msgs">
+      <div class="bubble user">帮我优化一下登录页 UI</div>
+      <div class="bubble">好的，我先读一下现有代码……</div>
+      <div class="bubble crystal">🔮 Crystallizer 沉淀模式 — 工作台已就绪</div>
+      <div class="bubble">这里是分析结果</div>
+    </div>
+    <div class="dm-input">📁 ~/work/talor · 🔒 权限<br /><br />给 Talor 发消息...</div>
+  </div>
+
+  <!-- Annotations -->
+  <div class="pin" style="top: 32px; left: 30px">1</div>
+  <div class="pin" style="top: 140px; left: 80px">2</div>
+  <div class="pin" style="top: 220px; left: 230px">3</div>
+  <div class="pin" style="top: 60px; right: 30px">4</div>
+  <div class="pin" style="top: 310px; left: 280px">5</div>
+  <div class="pin" style="top: 160px; right: 60px">6</div>
+  <div class="pin" style="bottom: 90px; right: 30px">7</div>
+  <div class="pin" style="bottom: 30px; left: 30px">8</div>
+</div>
+
+<ul class="issues">
+  <li>
+    <span class="num">1</span>
+    <div>
+      <b>深色侧栏 vs. 浅灰主区，两个世界硬拼。</b>
+      没有共享的强调色、字体节奏或圆角语言，像是两个不同 app 贴在一起。
+    </div>
+  </li>
+  <li>
+    <span class="num">2</span>
+    <div>
+      <b>会话头像随机彩虹色</b> (橙/紫/绿/红/粉)，跟侧栏蓝调和主区蓝调都不协调，看起来"杂"。
+    </div>
+  </li>
+  <li>
+    <span class="num">3</span>
+    <div>
+      <b>"+ 新建会话" 按钮太弱</b>。深色背景上叠 12% 透明蓝，几乎看不见，又是全宽 borderless —
+      应是主操作却最不显眼。
+    </div>
+  </li>
+  <li>
+    <span class="num">4</span>
+    <div>
+      <b>顶栏全是同款 chip</b>。Agent / 模型 / Crystallizer
+      用一样的样式排成一排，但语义完全不同（一个是"当前
+      agent"，一个是"模型选择"，一个是"模式切换"），层级被压平。
+    </div>
+  </li>
+  <li>
+    <span class="num">5</span>
+    <div>
+      <b>Crystallize 紫块违和。</b> 整个 UI 是冷蓝灰调，突然来一块紫色面板，没有过渡，像 PPT 加
+      callout。
+    </div>
+  </li>
+  <li>
+    <span class="num">6</span>
+    <div>
+      <b>气泡多种背景叠多种边框。</b> 用户=纯蓝，assistant=白+1px
+      灰边+阴影，crystal=浅紫+紫边，错误=浅红+红边 — 视觉噪音重，没有一个统一的"卡片"语言。
+    </div>
+  </li>
+  <li>
+    <span class="num">7</span>
+    <div>
+      <b>输入区像表单不像聊天。</b> 14px 圆角 + 1px 边 + 投影 + 内嵌工作目录小按钮 + 内嵌权限
+      popover，所有东西挤在一张白卡里。
+    </div>
+  </li>
+  <li>
+    <span class="num">8</span>
+    <div>
+      <b>像素级写死、字号过细。</b> 代码里 text-[9px] / [10px] / [11px] / [12px] / [13px] / [14px]
+      全用了，圆角 6/7/8/10/14/16 全用了 — 没有节奏，肉眼会感觉"不对齐又说不上哪不对齐"。
+    </div>
+  </li>
+</ul>
+
+<p class="subtitle" style="margin-top: 24px">回到终端告诉我：哪几条最戳？还有我漏掉的吗？</p>

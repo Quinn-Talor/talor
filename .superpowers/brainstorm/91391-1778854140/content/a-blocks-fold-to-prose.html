@@ -1,0 +1,748 @@
+<h2>Block 折回 prose · 删除独立视觉语言</h2>
+<p class="subtitle">
+  warning / blocked / need_input 不再渲染为 UI 元素 — agent 在 prose
+  里用自然语言说，结构化数据继续在底层流转（DB、IPC、agent 路由用），只是<b>不抢用户视野</b>。
+</p>
+
+<style>
+  .x {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --info: #2563eb;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .x .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px dashed var(--line);
+  }
+  .x .row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+  }
+  .x .col {
+    padding-left: 14px;
+    border-left: 2px solid var(--line-2);
+  }
+  .x .col.killed {
+    opacity: 0.55;
+  }
+  .x .lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .x .lbl.before {
+    color: var(--err);
+  }
+  .x .lbl.after {
+    color: var(--ok);
+  }
+  .x .case {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .x .note {
+    font-size: 12px;
+    color: var(--mute);
+    margin-top: 8px;
+    font-style: italic;
+  }
+  .x code.inl {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+
+  /* Turn rail */
+  .turn {
+    position: relative;
+    padding-left: 32px;
+    padding-bottom: 2px;
+  }
+  .turn::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 22px;
+    bottom: 0;
+    width: 1px;
+    background: var(--line);
+  }
+  .turn:last-child::before {
+    display: none;
+  }
+  .av {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+  }
+  .av.user {
+    background: var(--text);
+  }
+  .av.bot {
+    background: linear-gradient(135deg, var(--accent), var(--indigo));
+  }
+  .prose {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  .prose p {
+    margin: 0 0 8px;
+  }
+  .prose p:last-child {
+    margin-bottom: 0;
+  }
+  .prose ul {
+    margin: 6px 0;
+    padding-left: 18px;
+  }
+  .prose ul li {
+    margin: 2px 0;
+    position: relative;
+    list-style: none;
+  }
+  .prose ul li::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 11px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--mute);
+  }
+  .prose strong {
+    font-weight: 600;
+  }
+
+  /* OLD blocks — for showing what's being removed */
+  .old-input {
+    padding: 4px 0 4px 14px;
+    border-left: 2px solid var(--info);
+    margin: 6px 0;
+  }
+  .old-input .l {
+    font-size: 11.5px;
+    color: var(--info);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .old-input .q {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .old-input .opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .old-input .opt {
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    background: #fff;
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--text);
+    font-family: inherit;
+  }
+  .old-input .reason {
+    font-size: 12px;
+    color: var(--mute);
+    margin-top: 8px;
+  }
+
+  .old-blocked {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    padding: 2px 0;
+  }
+  .old-blocked .marker {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .old-blocked .label {
+    color: var(--mute);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .old-blocked .body {
+    flex: 1;
+    color: var(--text);
+  }
+
+  .old-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    padding: 2px 0;
+  }
+  .old-warn .marker {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--err);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .old-warn .label {
+    color: var(--mute);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .old-warn .body {
+    flex: 1;
+    color: var(--err);
+    font-weight: 500;
+  }
+
+  /* draft kept */
+  .draft {
+    padding: 4px 0 4px 14px;
+    border-left: 2px solid var(--indigo);
+    margin: 6px 0;
+  }
+  .draft .l {
+    font-size: 11.5px;
+    color: var(--indigo);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .draft .q {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .draft .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--text);
+    color: white;
+    font-size: 12.5px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .killed-tag {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--err);
+    font-weight: 600;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: 'SF Mono', monospace;
+  }
+  .kept-tag {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--ok);
+    font-weight: 600;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: 'SF Mono', monospace;
+  }
+  .telemetry {
+    font-size: 11px;
+    color: var(--subtle);
+    font-family: 'SF Mono', monospace;
+    margin-top: 6px;
+    padding: 4px 8px;
+    background: var(--surface);
+    border-radius: 4px;
+  }
+</style>
+
+<div class="x">
+  <!-- NEED_INPUT -->
+  <div class="row">
+    <div class="col killed">
+      <div class="lbl before">before · 独立 UI 卡<span class="killed-tag">remove</span></div>
+      <div class="case">场景：用户问"agentPrompt 怎么设计"，agent 觉得需要明确方向</div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>看了 schema 2.0 的字段定义，主要影响这里的选择：</p>
+          <div class="old-input">
+            <div class="l">need input</div>
+            <div class="q">
+              是要把 <code class="inl">agentPrompt</code> 改成自由 markdown，还是保留 yaml？
+            </div>
+            <div class="opts">
+              <button class="opt">改成 markdown</button>
+              <button class="opt">保留 yaml</button>
+              <button class="opt">两个都做</button>
+            </div>
+            <div class="reason">影响 Schema 2.0 字段语义。validator 需要重写。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="lbl after">after · 折回 prose<span class="kept-tag">prose</span></div>
+      <div class="case">agent 用自然语言提问，markdown list 自带选项语义</div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>
+            看了 schema 2.0 的字段定义，<code class="inl">agentPrompt</code> 的形式我看到三种走法：
+          </p>
+          <ul>
+            <li><strong>改成自由 markdown</strong> — 灵活，但 validator 需要重写</li>
+            <li><strong>保留 yaml 结构</strong> — 稳定，但表达力受限</li>
+            <li><strong>两层兼容</strong> — yaml 框 + markdown body，迁移成本最低</li>
+          </ul>
+          <p>你倾向哪个？</p>
+        </div>
+      </div>
+      <div class="telemetry">
+        // 底层数据 {"type":"need_input"...} 仍然落 DB，用于 metric / 路由 / 后续 IPC 上报，<b
+          >UI 不渲染</b
+        >
+      </div>
+      <div class="note">
+        为什么折回？agent 用 prose 提问完全等价；选项当 markdown
+        list；用户在输入框打答案。没有什么是"按钮"才能解决的。
+      </div>
+    </div>
+  </div>
+
+  <!-- BLOCKED -->
+  <div class="row">
+    <div class="col killed">
+      <div class="lbl before">before · 独立 UI 行<span class="killed-tag">remove</span></div>
+      <div class="case">场景：agent 跑到一半发现没权限</div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>正在比对 ssh host 配置。</p>
+          <div class="old-blocked">
+            <span class="marker"></span>
+            <span class="label">blocked</span>
+            <div class="body">需要 <code class="inl">~/.ssh/</code> 的读权限才能继续。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="lbl after">after · 折回 prose<span class="kept-tag">prose</span></div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>正在比对 ssh host 配置时，发现读 <code class="inl">~/.ssh/config</code> 没有权限。</p>
+          <p>
+            麻烦你在 <strong>设置 → 权限</strong> 里把
+            <code class="inl">~/.ssh/config</code> 加进白名单，加完跟我说一声"重试"就行。
+          </p>
+        </div>
+      </div>
+      <div class="telemetry">
+        // {"type":"blocked","reason":"permission","retry_hint":...} 保留在 message
+        metadata，给系统判断"该 turn 是否需要 retry"
+      </div>
+    </div>
+  </div>
+
+  <!-- WARNING -->
+  <div class="row">
+    <div class="col killed">
+      <div class="lbl before">before · 独立 UI 行<span class="killed-tag">remove</span></div>
+      <div class="case">场景：agent 拦截了 rm -rf 后告知用户</div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>开始清理 .next 目录。</p>
+          <div class="old-warn">
+            <span class="marker"></span>
+            <span class="label">warning</span>
+            <div class="body">检测到 <code class="inl">rm -rf</code> 命令，已拦截。</div>
+          </div>
+          <p>改用安全的 npm script 重新清理。</p>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="lbl after">after · 折回 prose<span class="kept-tag">prose</span></div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>
+            开始清理 <code class="inl">.next</code> 目录。我本来想用
+            <code class="inl">rm -rf</code>，但被权限层拦截了 — 这是预期行为（高危命令默认禁），改用
+            <code class="inl">npm run clean</code> 走 build script。
+          </p>
+        </div>
+      </div>
+      <div class="telemetry">
+        // {"type":"warning","sev":"high","code":"BASH_DENIED_RM_RF"} 仍记 telemetry，方便后续审计
+      </div>
+      <div class="note">
+        用户视野里这只是 agent 的一段自然叙述。高危拦截事件在<b>系统审计页 / settings → 安全日志</b
+        >里另有专门视图，不挤聊天流。
+      </div>
+    </div>
+  </div>
+
+  <!-- KEPT: DRAFT -->
+  <div class="row">
+    <div class="col">
+      <div class="lbl after">keep · draft<span class="kept-tag">UI</span></div>
+      <div class="case">
+        场景：从对话里识别到 agent 草稿 — 这是<b>系统</b>给用户的动作建议，不是 agent 在说话
+      </div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>沉淀完成。这个 agent 主要负责数据周报，使用 opus-4-7，附了 3 个 prompt example。</p>
+        </div>
+        <div class="draft">
+          <div class="l">draft detected</div>
+          <div class="q">
+            系统从对话中提取到完整 agent profile · <code class="inl">数据周报员工</code> / opus-4-7
+          </div>
+          <button class="cta">审阅并保存 →</button>
+        </div>
+      </div>
+      <div class="note">
+        draft 之所以保留 UI：它不是 agent 在叙事，是<b>系统提议你做一个不可逆动作</b>（保存到 agent
+        registry）。需要明确 CTA。
+      </div>
+    </div>
+    <div class="col">
+      <div class="lbl after">keep · done<span class="kept-tag">optional</span></div>
+      <div class="case">场景：长任务结束</div>
+      <div class="turn">
+        <div class="av bot">T</div>
+        <div class="prose">
+          <p>验证通过：所有 24 个 test case 全绿，typecheck 干净。</p>
+        </div>
+        <span
+          style="
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--mute);
+            margin-top: 4px;
+          "
+        >
+          <span style="width: 4px; height: 4px; border-radius: 50%; background: var(--ok)"></span>
+          <b style="font-weight: 500; color: var(--body)">Done</b> · 1m 24s · 8 tools
+        </span>
+      </div>
+      <div class="note">
+        可选。长任务里用户扫一眼就知道完没完。短任务（如 1-2 tool 一句话回答）可以不渲染 —
+        留给用户阅读"消息后没新工具调用"的隐式信号。
+      </div>
+    </div>
+  </div>
+
+  <!-- TELEMETRY-ONLY -->
+  <div class="row" style="border-bottom: none">
+    <div class="col killed">
+      <div class="lbl before">before · invalid<span class="killed-tag">remove from UI</span></div>
+      <div class="case">解析器检测到损坏的 talor fence</div>
+      <div class="prose">
+        <p>...这里是 LLM 输出的正文 markdown...</p>
+        <div style="font-size: 12px; color: var(--subtle); font-style: italic; padding: 2px 0">
+          ⊘ malformed talor block · 已按 markdown 渲染原文
+        </div>
+      </div>
+    </div>
+    <div class="col killed">
+      <div class="lbl before">before · inferred<span class="killed-tag">remove from UI</span></div>
+      <div class="case">系统从 prose 推断"这是个问句"</div>
+      <div class="prose">
+        <p>所以你看你想要 markdown 还是 yaml？</p>
+        <div
+          style="
+            font-size: 12px;
+            color: var(--mute);
+            padding: 2px 0;
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+          "
+        >
+          <span style="color: var(--subtle); font-family: 'SF Mono', monospace; font-size: 11px"
+            >↳</span
+          >
+          <span style="color: var(--subtle); font-size: 11px">inferred · clarification</span>
+          <span
+            style="
+              color: var(--info);
+              cursor: pointer;
+              border-bottom: 1px solid rgba(37, 99, 235, 0.3);
+              margin-left: auto;
+            "
+            >转为可点选项 →</span
+          >
+        </div>
+      </div>
+      <div class="note" style="color: var(--err)">
+        这俩本来就是"系统在自言自语"，用户根本不关心。invalid 是 parser debug，inferred 是系统试图把
+        prose 升级成结构化 — 都搬到开发者工具（settings → debug log）里。
+      </div>
+    </div>
+  </div>
+
+  <!-- DECISION TABLE -->
+  <div
+    style="
+      margin-top: 24px;
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 14px;
+      "
+    >
+      最终决策表
+    </div>
+    <table style="border-collapse: collapse; font-size: 13px; width: 100%">
+      <thead>
+        <tr>
+          <th
+            style="
+              text-align: left;
+              padding: 6px 14px 6px 0;
+              font-weight: 600;
+              color: var(--mute);
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            Block 类型
+          </th>
+          <th
+            style="
+              text-align: left;
+              padding: 6px 14px 6px 0;
+              font-weight: 600;
+              color: var(--mute);
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            渲染策略
+          </th>
+          <th
+            style="
+              text-align: left;
+              padding: 6px 0;
+              font-weight: 600;
+              color: var(--mute);
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            底层数据
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding: 6px 14px 6px 0"><code class="inl">need_input</code></td>
+          <td style="padding: 6px 14px 6px 0; color: var(--body)">
+            折回 prose（markdown list 即选项）
+          </td>
+          <td
+            style="
+              padding: 6px 0;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            仍记 DB / IPC
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 14px 6px 0"><code class="inl">blocked</code></td>
+          <td style="padding: 6px 14px 6px 0; color: var(--body)">折回 prose</td>
+          <td
+            style="
+              padding: 6px 0;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            仍记，给 retry 路由用
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 14px 6px 0"><code class="inl">warning</code></td>
+          <td style="padding: 6px 14px 6px 0; color: var(--body)">
+            折回 prose；高危事件去安全日志
+          </td>
+          <td
+            style="
+              padding: 6px 0;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            仍记 telemetry
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 14px 6px 0"><code class="inl">done</code></td>
+          <td style="padding: 6px 14px 6px 0; color: var(--body)">可选小尾标（长任务）</td>
+          <td
+            style="
+              padding: 6px 0;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            用作 turn 结束 marker
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 14px 6px 0"><code class="inl">draft_detected</code></td>
+          <td style="padding: 6px 14px 6px 0; color: var(--text); font-weight: 500">
+            保留 UI（系统级 CTA）
+          </td>
+          <td
+            style="
+              padding: 6px 0;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            必须，含 profile payload
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 14px 6px 0"><code class="inl">invalid</code></td>
+          <td style="padding: 6px 14px 6px 0; color: var(--body)">不渲染 → 开发者日志</td>
+          <td
+            style="
+              padding: 6px 0;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            parser debug only
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 14px 6px 0; border-bottom: none">
+            <code class="inl">inferred_intent</code>
+          </td>
+          <td style="padding: 6px 14px 6px 0; border-bottom: none; color: var(--body)">
+            不渲染 → 删除（产品价值低）
+          </td>
+          <td
+            style="
+              padding: 6px 0;
+              border-bottom: none;
+              color: var(--subtle);
+              font-family: 'SF Mono', monospace;
+              font-size: 11.5px;
+            "
+          >
+            建议直接砍
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 24px">
+  <b>核心信念</b>：聊天 UI 只渲染 <b>agent 的话</b> 和 <b>系统的动作邀请</b>（draft）。其他 block
+  是基础设施 — 它们在 DB / IPC / metric 里活着，但不抢用户视野。<br /><br />
+  这个判断对吗？还是某些 block 你认为有保留独立 UI 的价值？比如
+  <code
+    style="
+      background: rgba(0, 0, 0, 0.05);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 12px;
+    "
+    >need_input</code
+  >
+  的选项按钮其实点起来比打字快 — 是个真实的可用性增益。
+</p>

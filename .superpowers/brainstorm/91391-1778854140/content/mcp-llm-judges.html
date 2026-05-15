@@ -1,0 +1,733 @@
+<h2>LLM 判断渲染 · 通用 block 抽象</h2>
+<p class="subtitle">
+  UI 不认识 email / calendar / web，只认识一小套通用 block。LLM 看 tool 输出后选择用什么 block
+  呈现。Talor 完全 MCP-agnostic。
+</p>
+
+<style>
+  .x {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --info: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  }
+  .x .section {
+    padding: 22px 24px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin-bottom: 18px;
+    background: var(--canvas);
+  }
+  .x .section-head {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--mute);
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .x .section-head .num {
+    background: var(--text);
+    color: white;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+
+  /* Block vocabulary table */
+  table.vocab {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+  }
+  table.vocab th {
+    text-align: left;
+    padding: 8px 14px 8px 0;
+    font-weight: 600;
+    color: var(--mute);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--line);
+  }
+  table.vocab td {
+    padding: 8px 14px 8px 0;
+    border-bottom: 1px solid var(--line-2);
+    color: var(--text);
+    vertical-align: top;
+  }
+  table.vocab td code {
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--body);
+  }
+  table.vocab td .new {
+    background: #f0fdf4;
+    color: var(--ok);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    margin-left: 6px;
+  }
+  table.vocab td .ext {
+    background: #eff6ff;
+    color: var(--info);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    margin-left: 6px;
+  }
+
+  /* JSON spec */
+  pre.spec {
+    margin: 0;
+    padding: 12px 14px;
+    background: #fcfcfc;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--body);
+    overflow-x: auto;
+  }
+  pre.spec .k {
+    color: #7c3aed;
+  }
+  pre.spec .s {
+    color: #16a34a;
+  }
+  pre.spec .c {
+    color: var(--subtle);
+    font-style: italic;
+  }
+  pre.spec .n {
+    color: #ea580c;
+  }
+
+  /* Turn rail */
+  .turn {
+    position: relative;
+    padding-left: 32px;
+    margin: 6px 0;
+  }
+  .av {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+  }
+  .av.bot {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  .av.user {
+    background: var(--text);
+  }
+  .pr {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .pr p {
+    margin: 0 0 6px;
+  }
+  .pr strong {
+    font-weight: 600;
+  }
+  .pr code.inl {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+  }
+  .pr table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 12.5px;
+    width: 100%;
+  }
+  .pr th {
+    text-align: left;
+    padding: 5px 12px 5px 0;
+    font-weight: 600;
+    color: var(--mute);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--line);
+  }
+  .pr td {
+    padding: 5px 12px 5px 0;
+    border-bottom: 1px solid var(--line-2);
+    color: var(--text);
+  }
+  .pr tr:last-child td {
+    border-bottom: none;
+  }
+
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+    padding: 0 6px;
+    margin: 4px 0;
+    border-radius: 5px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11.5px;
+    color: var(--body);
+  }
+  .tool .stat {
+    width: 11px;
+    height: 11px;
+    color: var(--ok);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tool .stat svg {
+    width: 11px;
+    height: 11px;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    fill: none;
+  }
+  .tool .tname {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .tool .targ {
+    color: var(--mute);
+    flex: 1;
+  }
+  .tool .dur {
+    color: var(--subtle);
+    font-size: 10.5px;
+  }
+
+  /* need_input block */
+  .ni {
+    padding: 4px 0 4px 14px;
+    border-left: 2px solid var(--info);
+    margin: 6px 0;
+  }
+  .ni .q {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .ni .opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .ni .opt {
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    background: var(--canvas);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .ni .opt:hover {
+    background: var(--surface);
+    border-color: var(--subtle);
+  }
+
+  /* proposal block (renamed/extended from draft_detected) */
+  .prop {
+    padding: 6px 0 6px 14px;
+    border-left: 2px solid var(--indigo);
+    margin: 8px 0;
+  }
+  .prop .summary {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .prop .preview {
+    margin: 6px 0;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--body);
+    max-height: 120px;
+    overflow: hidden;
+    position: relative;
+  }
+  .prop .preview::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 24px;
+    background: linear-gradient(transparent, var(--surface));
+  }
+  .prop .actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .prop .cta {
+    background: var(--text);
+    color: white;
+    padding: 4px 10px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .prop .secondary {
+    background: var(--canvas);
+    color: var(--body);
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .principle {
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 14px;
+  }
+  .principle h4 {
+    font-size: 12.5px;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .principle ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12.5px;
+    color: var(--body);
+  }
+  .principle li {
+    margin: 4px 0;
+    line-height: 1.55;
+  }
+  .principle code {
+    background: var(--line-2);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11.5px;
+  }
+</style>
+
+<div class="x">
+  <!-- 1. Block vocabulary -->
+  <div class="section">
+    <div class="section-head"><span class="num">1</span>通用 block 词典 · LLM 的"渲染原语"</div>
+    <p style="font-size: 13px; color: var(--body); margin-bottom: 12px; line-height: 1.65">
+      Talor 已有 5 个 block，加一个
+      <code
+        style="
+          background: var(--line-2);
+          padding: 1px 5px;
+          border-radius: 3px;
+          font-family: 'SF Mono', monospace;
+          font-size: 12px;
+        "
+        >proposal</code
+      >（泛化版 draft_detected）就足够。<b>UI 完全不认识 email / calendar / web</b>，只认识这 6 个
+      block 类型 + markdown。
+    </p>
+    <table class="vocab">
+      <thead>
+        <tr>
+          <th>Block</th>
+          <th>用途</th>
+          <th>状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>done</code></td>
+          <td>turn 结束 · 摘要</td>
+          <td>已有</td>
+        </tr>
+        <tr>
+          <td><code>need_input</code></td>
+          <td>问问题 · 提供 2-5 个选项让用户点</td>
+          <td>已有</td>
+        </tr>
+        <tr>
+          <td><code>blocked</code></td>
+          <td>跑不下去了 · 让用户处理某事后 retry</td>
+          <td>已有</td>
+        </tr>
+        <tr>
+          <td><code>warning</code></td>
+          <td>提醒一件事（非阻塞）</td>
+          <td>已有</td>
+        </tr>
+        <tr>
+          <td><code>proposal</code><span class="ext">改名</span></td>
+          <td>提议一个用户可<b>一键确认</b>的动作（发邮件 / 保存 agent / 创建会议 ...）</td>
+          <td>由 draft_detected 泛化</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="font-size: 13px; color: var(--body); margin-top: 14px; line-height: 1.65">
+      所有"邮件 / 日历 / 网搜 / 报表"等业务概念都通过 <b>markdown</b>（table / list / blockquote /
+      heading）+ 上述 block 表达。LLM 看到 tool JSON 输出后，自主决定：
+    </p>
+    <ul
+      style="
+        margin: 6px 0;
+        padding-left: 18px;
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--body);
+      "
+    >
+      <li>展示数据用 <b>markdown table / list</b></li>
+      <li>
+        需要用户做选择题用
+        <code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >need_input</code
+        >
+      </li>
+      <li>
+        需要用户确认一个动作（不可逆 / 重要）用
+        <code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >proposal</code
+        >
+      </li>
+      <li>
+        需要提醒用
+        <code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >warning</code
+        >
+        /
+        <code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >blocked</code
+        >
+      </li>
+    </ul>
+  </div>
+
+  <!-- 2. proposal schema -->
+  <div class="section">
+    <div class="section-head"><span class="num">2</span>proposal block · schema</div>
+    <pre class="spec">{
+  <span class="k">"type"</span>: <span class="s">"proposal"</span>,
+  <span class="k">"summary"</span>: <span class="s">"邮件草稿 · 王总（Acme） · Q4 续约方案"</span>,  <span class="c">// 一行摘要</span>
+  <span class="k">"preview"</span>: <span class="s">"王总你好，\n\n收到你的来信..."</span>,            <span class="c">// markdown preview，可滚动 / 截断</span>
+  <span class="k">"action"</span>: {
+    <span class="k">"label"</span>: <span class="s">"发送"</span>,
+    <span class="k">"tool"</span>: <span class="s">"gmail.send_draft"</span>,                       <span class="c">// 任意 MCP / 内置工具</span>
+    <span class="k">"args"</span>: { <span class="k">"draft_id"</span>: <span class="s">"abc-123"</span> }                  <span class="c">// 工具参数</span>
+  },
+  <span class="k">"secondary_actions"</span>: [                                <span class="c">// 可选</span>
+    { <span class="k">"label"</span>: <span class="s">"编辑"</span>, <span class="k">"emit"</span>: <span class="s">"edit_draft"</span> },        <span class="c">// 触发 LLM 再次响应</span>
+    { <span class="k">"label"</span>: <span class="s">"重写"</span>, <span class="k">"emit"</span>: <span class="s">"rewrite_draft"</span> }
+  ]
+}</pre>
+    <div class="principle">
+      <h4>设计要点</h4>
+      <ul>
+        <li><b>summary 是必填</b> — 单行概括"将要发生什么"</li>
+        <li><b>preview 可选</b> — 给用户看完整内容（markdown，可滚动）</li>
+        <li>
+          <b>action.tool 是任意 tool name</b> — 可以是 MCP 工具、可以是内置工具。UI
+          不关心，只负责"用户点了就调用"
+        </li>
+        <li>
+          <b>secondary_actions 用 emit</b> — 不直接调工具，而是把字符串塞回 LLM 上下文（让 LLM
+          进入修改流程）
+        </li>
+        <li>
+          <b>UI 渲染恒定</b> — 不论 action 是发邮件还是保存 agent，UI 都是"2px 紫左竖线 + summary +
+          preview + CTA"
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 3. Full example -->
+  <div class="section">
+    <div class="section-head"><span class="num">3</span>完整流程示例 · 邮件草稿场景</div>
+    <p style="font-size: 13px; color: var(--body); margin-bottom: 8px; line-height: 1.65">
+      把之前"email card + draft email card"的场景重做 — 全部用 markdown + 2 种 block，UI 不认识
+      email 概念。
+    </p>
+
+    <div class="turn">
+      <div class="av user">Q</div>
+      <div class="pr">看看本周重点客户邮件，哪封紧急？</div>
+    </div>
+
+    <div class="turn">
+      <div class="av bot">秘</div>
+      <div class="pr"><p>查一下重点客户标签下的本周邮件。</p></div>
+
+      <div class="tool">
+        <div class="stat">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">gmail.search</span>
+        <span class="targ">label:重点客户 · 12 results</span>
+        <span class="dur">340ms</span>
+      </div>
+
+      <div class="pr" style="margin-top: 6px">
+        <p>本周 12 封邮件，<strong>3 封紧急未回</strong>：</p>
+        <table>
+          <thead>
+            <tr>
+              <th>发件人</th>
+              <th>主题</th>
+              <th>时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>王总（Acme）</td>
+              <td>Q4 续约方案二问</td>
+              <td>周一 10:24</td>
+            </tr>
+            <tr>
+              <td>陈经理（Beta）</td>
+              <td>下周访谈调期</td>
+              <td>周二 16:08</td>
+            </tr>
+            <tr>
+              <td>林女士（Gamma）</td>
+              <td>11 月账单</td>
+              <td>周三 09:42</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>建议先回 <strong>Acme</strong>（关系 Q4 KPI）。要我起份草稿吗？</p>
+      </div>
+
+      <div class="ni">
+        <div class="q">起草 Acme 那封的回复？</div>
+        <div class="opts">
+          <button class="opt">起草</button>
+          <button class="opt">先看下原文</button>
+          <button class="opt">回我自己写</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="turn">
+      <div class="av user">Q</div>
+      <div class="pr">起草，专业但不要太正式。</div>
+    </div>
+
+    <div class="turn">
+      <div class="av bot">秘</div>
+      <div class="pr"><p>好。先查一下 Pro 等级的 SLA 细则。</p></div>
+
+      <div class="tool">
+        <div class="stat">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">read_doc</span>
+        <span class="targ">SLA 说明 v2.3</span>
+        <span class="dur">12ms</span>
+      </div>
+
+      <div class="tool">
+        <div class="stat">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">gmail.create_draft</span>
+        <span class="targ">to: wang@acme.com · subject: Re: Q4 续约</span>
+        <span class="dur">280ms</span>
+      </div>
+
+      <div class="pr" style="margin-top: 6px">
+        <p>起好了，按你要求"专业但不太正式"的语气写的：</p>
+      </div>
+
+      <!-- proposal block - 通用，不是 "email card" -->
+      <div class="prop">
+        <div class="summary">📮 邮件草稿 · 王总（Acme） · Re: Q4 续约方案</div>
+        <div class="preview">
+          王总你好，<br /><br />
+          收到你的来信，关于 Pro 等级的两个问题，整理如下：<br /><br />
+          <strong>1. 7×24 客服</strong> — Pro 默认包含，承诺 4 小时内响应。<br />
+          <strong>2. 升级流程</strong> — 续约时直接选 Pro，原 Standard 余下时长按比例折算...
+        </div>
+        <div class="actions">
+          <button class="cta">发送</button>
+          <button class="secondary">编辑</button>
+          <button class="secondary">重写</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="principle">
+      <h4>这个 UI 渲染的什么</h4>
+      <ul>
+        <li><code>tool row</code> · 通用</li>
+        <li><code>markdown 表格</code> · 通用</li>
+        <li><code>need_input</code> · 通用</li>
+        <li><code>proposal</code> · 通用（这里 action.tool 是 gmail.send_draft，但 UI 不知道）</li>
+      </ul>
+      <div style="margin-top: 8px; font-size: 12.5px; color: var(--mute); line-height: 1.55">
+        所有"邮件感"由 LLM 在 prose / preview 文本里营造（"📮 邮件草稿" emoji + 收件人格式 +
+        邮件正文）。UI 完全 MCP-agnostic。
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. Compare -->
+  <div class="section">
+    <div class="section-head"><span class="num">4</span>三种方案对比</div>
+    <table class="vocab">
+      <thead>
+        <tr>
+          <th></th>
+          <th>A · 注册表硬编码</th>
+          <th>B · 纯 markdown</th>
+          <th>C · LLM 选 block（推荐）</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color: var(--mute)">业务知识</td>
+          <td>UI 知道邮件 / 日历 / 网搜</td>
+          <td>UI 不知道</td>
+          <td>UI 不知道</td>
+        </tr>
+        <tr>
+          <td style="color: var(--mute)">新 MCP 工具</td>
+          <td style="color: var(--err)">要改 UI 代码</td>
+          <td style="color: var(--ok)">开箱即用</td>
+          <td style="color: var(--ok)">开箱即用</td>
+        </tr>
+        <tr>
+          <td style="color: var(--mute)">交互动作（按钮）</td>
+          <td>每种工具单独写</td>
+          <td style="color: var(--err)">只有链接，无 CTA</td>
+          <td style="color: var(--ok)">proposal block 通用</td>
+        </tr>
+        <tr>
+          <td style="color: var(--mute)">视觉丰富度</td>
+          <td>最丰富</td>
+          <td>最简朴（仅 markdown）</td>
+          <td>markdown + 5-6 个 block，够用</td>
+        </tr>
+        <tr>
+          <td style="color: var(--mute)">维护成本</td>
+          <td style="color: var(--err)">每个 MCP 工具一个渲染器</td>
+          <td style="color: var(--ok)">最低</td>
+          <td style="color: var(--ok)">低（6 个固定 block）</td>
+        </tr>
+        <tr>
+          <td style="color: var(--mute)">LLM 提示要求</td>
+          <td>无需 LLM 配合</td>
+          <td>低</td>
+          <td>中（需要 system prompt 告诉 LLM block 用法）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 18px">
+  <b>核心机制</b>：扩展 Talor 已有的 block 系统 —— 把
+  <code
+    style="
+      background: #f4f4f5;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+    "
+    >draft_detected</code
+  >
+  改成通用
+  <code
+    style="
+      background: #f4f4f5;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+    "
+    >proposal</code
+  >（任意 tool + args + label），LLM 自主选择。UI 渲染 6 个 block +
+  markdown，完全不认识业务概念。<br /><br />
+  这个方向对吗？OK 的话我改 spec：
+  <br />· §10 删掉所有"邮件 / 日历 / 网搜"专门渲染器 <br />· §11 加 proposal block 替代
+  draft_detected <br />· §15 把 draft email / email list / web search results
+  等组件从"新增组件"清单删除
+</p>

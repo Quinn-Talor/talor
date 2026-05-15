@@ -1,0 +1,631 @@
+<h2>MCP 工具渲染 · 注册表 vs LLM 当渲染器</h2>
+<p class="subtitle">用同一个 tool 调用（gmail.search → 3 紧急邮件），两种渲染策略的对比。</p>
+
+<style>
+  .x {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --info: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .case {
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .case-head {
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .case-head .lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .case-head .lbl.a {
+    color: var(--err);
+  }
+  .case-head .lbl.b {
+    color: var(--ok);
+  }
+  .case-head .name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .case-body {
+    background: var(--surface);
+    padding: 16px;
+  }
+  .case-meta {
+    padding: 10px 16px;
+    font-size: 11.5px;
+    color: var(--mute);
+    line-height: 1.55;
+    background: var(--canvas);
+    border-top: 1px solid var(--line-2);
+  }
+  .case-meta b {
+    color: var(--body);
+  }
+
+  /* Turn */
+  .turn {
+    position: relative;
+    padding-left: 32px;
+  }
+  .av {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  .pr {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .pr p {
+    margin: 0 0 6px;
+  }
+  .pr strong {
+    font-weight: 600;
+  }
+  .pr code.inl {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+  }
+  .pr table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 12.5px;
+    width: 100%;
+  }
+  .pr th {
+    text-align: left;
+    padding: 5px 12px 5px 0;
+    font-weight: 600;
+    color: var(--mute);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--line);
+  }
+  .pr td {
+    padding: 5px 12px 5px 0;
+    border-bottom: 1px solid var(--line-2);
+    color: var(--text);
+  }
+  .pr tr:last-child td {
+    border-bottom: none;
+  }
+  .pr td.r {
+    text-align: right;
+  }
+  .pr ul {
+    margin: 6px 0;
+    padding-left: 18px;
+    list-style: none;
+  }
+  .pr ul li {
+    margin: 2px 0;
+    position: relative;
+  }
+  .pr ul li::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 9px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--mute);
+  }
+
+  /* Tool row */
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+    padding: 0 6px;
+    margin: 4px 0;
+    border-radius: 5px;
+    font-family: 'SF Mono', monospace;
+    font-size: 11.5px;
+    color: var(--body);
+  }
+  .tool .stat {
+    width: 11px;
+    height: 11px;
+    color: var(--ok);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tool .stat svg {
+    width: 11px;
+    height: 11px;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    fill: none;
+  }
+  .tool .tname {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .tool .targ {
+    color: var(--mute);
+    flex: 1;
+  }
+  .tool .dur {
+    color: var(--subtle);
+    font-size: 10.5px;
+  }
+
+  /* A: specialized email card */
+  .email-card {
+    margin: 6px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--canvas);
+    font-size: 12px;
+  }
+  .email-card + .email-card {
+    margin-top: 3px;
+  }
+  .email-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .email-from {
+    font-weight: 500;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .email-time {
+    color: var(--subtle);
+    font-size: 10.5px;
+    margin-left: auto;
+  }
+  .email-subject {
+    color: var(--body);
+    margin-top: 2px;
+    font-size: 12px;
+  }
+  .email-tag {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    font-weight: 600;
+  }
+  .email-tag.urgent {
+    background: #fef2f2;
+    color: var(--err);
+  }
+
+  /* B: generic tool row + JSON expandable */
+  .json-out {
+    margin: 4px 0 6px;
+    padding: 8px 10px;
+    border-left: 2px solid var(--line);
+    font-family: 'SF Mono', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--body);
+    white-space: pre-wrap;
+    max-height: 140px;
+    overflow-y: auto;
+    background: var(--canvas);
+    border-radius: 0 4px 4px 0;
+  }
+  .json-out .k {
+    color: #7c3aed;
+  }
+  .json-out .s {
+    color: #16a34a;
+  }
+  .json-out .n {
+    color: #ea580c;
+  }
+  .json-summary {
+    font-size: 11.5px;
+    color: var(--mute);
+    font-family: -apple-system, sans-serif;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .json-summary:hover {
+    color: var(--text);
+  }
+  .json-summary .chev {
+    color: var(--subtle);
+    margin-left: auto;
+  }
+</style>
+
+<div class="x">
+  <!-- ============ COMPARISON ============ -->
+  <div class="row">
+    <!-- A: REGISTRY -->
+    <div class="case">
+      <div class="case-head">
+        <div class="lbl a">A · 注册表 + 专门渲染器</div>
+        <div class="name">UI 给 gmail.search 渲染 email card</div>
+      </div>
+      <div class="case-body">
+        <div class="turn">
+          <div class="av">秘</div>
+          <div class="pr"><p>看一下本周重点客户邮件。</p></div>
+
+          <div class="tool">
+            <div class="stat">
+              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <span class="tname">gmail.search</span>
+            <span class="targ">label:重点客户 this_week</span>
+            <span class="dur">340ms</span>
+          </div>
+
+          <div class="email-card">
+            <div class="email-row">
+              <span class="email-from">王总（Acme）</span><span class="email-tag urgent">紧急</span
+              ><span class="email-time">周一 10:24</span>
+            </div>
+            <div class="email-subject">关于 Q4 续约方案的两个问题</div>
+          </div>
+          <div class="email-card">
+            <div class="email-row">
+              <span class="email-from">陈经理（Beta）</span
+              ><span class="email-tag urgent">紧急</span><span class="email-time">周二 16:08</span>
+            </div>
+            <div class="email-subject">下周访谈调期</div>
+          </div>
+          <div class="email-card">
+            <div class="email-row">
+              <span class="email-from">林女士（Gamma）</span
+              ><span class="email-tag urgent">紧急</span><span class="email-time">周三 09:42</span>
+            </div>
+            <div class="email-subject">11 月账单</div>
+          </div>
+
+          <div class="pr" style="margin-top: 8px">
+            <p>3 封紧急邮件，建议先回 Acme（关系 Q4 KPI）。</p>
+          </div>
+        </div>
+      </div>
+      <div class="case-meta">
+        <b style="color: var(--err)">问题</b>：<br />
+        · Talor 源码硬编码"gmail.search"知识，每新增 MCP server 要改 UI 代码<br />
+        · 工具名不标准（gmail.search / mail.list / outlook.search 都可能存在）<br />
+        · Talor UI 不该认识"email"这种业务概念<br />
+        · 给特定 MCP 工具写专门渲染器 = 隐式偏袒
+      </div>
+    </div>
+
+    <!-- B: LLM RENDERS -->
+    <div class="case">
+      <div class="case-head">
+        <div class="lbl b">B · LLM 当渲染器（推荐）</div>
+        <div class="name">UI 只渲染 markdown，LLM 把 tool JSON 翻成 markdown</div>
+      </div>
+      <div class="case-body">
+        <div class="turn">
+          <div class="av">秘</div>
+          <div class="pr"><p>看一下本周重点客户邮件。</p></div>
+
+          <div class="tool">
+            <div class="stat">
+              <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+            </div>
+            <span class="tname">gmail.search</span>
+            <span class="targ">label:重点客户 this_week · 3 results</span>
+            <span class="dur">340ms</span>
+          </div>
+          <div class="json-summary">
+            <span style="color: var(--mute)">展开 JSON 输出</span>
+            <span class="chev">▸</span>
+          </div>
+
+          <div class="pr" style="margin-top: 6px">
+            <p>本周重点客户标签下 3 封紧急邮件：</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>发件人</th>
+                  <th>主题</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>王总（Acme）</td>
+                  <td>Q4 续约方案二问</td>
+                  <td>周一 10:24</td>
+                </tr>
+                <tr>
+                  <td>陈经理（Beta）</td>
+                  <td>下周访谈调期</td>
+                  <td>周二 16:08</td>
+                </tr>
+                <tr>
+                  <td>林女士（Gamma）</td>
+                  <td>11 月账单</td>
+                  <td>周三 09:42</td>
+                </tr>
+              </tbody>
+            </table>
+            <p>建议先回 <strong>Acme</strong>（关系 Q4 KPI）。</p>
+          </div>
+        </div>
+      </div>
+      <div class="case-meta">
+        <b style="color: var(--ok)">优势</b>：<br />
+        · Talor 不知道 email 概念 — 完全 MCP-agnostic<br />
+        · 任何 MCP 工具开箱即用，无须改 UI 代码<br />
+        · LLM 决定哪些字段相关 / 怎么呈现 — 比写死 schema 更聪明<br />
+        · UI 只维护一套 markdown 渲染器 — 维护成本最低
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ARCH ============ -->
+  <div
+    style="
+      margin-top: 24px;
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 14px;
+      "
+    >
+      什么 UI 该 Talor 自己写、什么交给 LLM
+    </div>
+    <table style="border-collapse: collapse; font-size: 13px; width: 100%">
+      <thead>
+        <tr>
+          <th
+            style="
+              text-align: left;
+              padding: 6px 14px 6px 0;
+              font-weight: 600;
+              color: var(--mute);
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            类别
+          </th>
+          <th
+            style="
+              text-align: left;
+              padding: 6px 14px 6px 0;
+              font-weight: 600;
+              color: var(--mute);
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            谁负责渲染
+          </th>
+          <th
+            style="
+              text-align: left;
+              padding: 6px 0;
+              font-weight: 600;
+              color: var(--mute);
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            原因
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding: 7px 14px 7px 0; vertical-align: top">
+            内置 7 个工具<br /><span
+              style="color: var(--mute); font-size: 11px; font-family: 'SF Mono', monospace"
+              >bash / edit / read / grep / write / glob / ls</span
+            >
+          </td>
+          <td style="padding: 7px 14px 7px 0; color: var(--text); font-weight: 500">
+            Talor 写专门渲染器
+          </td>
+          <td style="padding: 7px 0; color: var(--body)">
+            输出结构固定（diff / 命中行 / terminal output），渲染语义有产品差异化价值
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 7px 14px 7px 0; vertical-align: top">Tool row（任何工具）</td>
+          <td style="padding: 7px 14px 7px 0; color: var(--text); font-weight: 500">Talor</td>
+          <td style="padding: 7px 0; color: var(--body)">
+            spinner / check / error / 工具名 / 摘要 / 耗时 —
+            这是<b>工具调用本身</b>的元数据，跟工具语义无关
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 7px 14px 7px 0; vertical-align: top">
+            MCP 工具的内容输出<br /><span
+              style="color: var(--mute); font-size: 11px; font-family: 'SF Mono', monospace"
+              >gmail / calendar / web_search / ...</span
+            >
+          </td>
+          <td style="padding: 7px 14px 7px 0; color: var(--text); font-weight: 500">
+            LLM 通过 markdown
+          </td>
+          <td style="padding: 7px 0; color: var(--body)">
+            LLM 看 JSON → 决定哪些字段相关 → 输出 markdown 表/列表/段落。UI 只渲染 markdown
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 7px 14px 7px 0; vertical-align: top">
+            展开看原始 JSON<br /><span style="color: var(--mute); font-size: 11px">debug 用</span>
+          </td>
+          <td style="padding: 7px 14px 7px 0; color: var(--text); font-weight: 500">
+            Talor（折叠）
+          </td>
+          <td style="padding: 7px 0; color: var(--body)">
+            tool row 可点开看完整 raw output，方便调试
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 7px 14px 7px 0; vertical-align: top; border-bottom: none">
+            交互动作<br /><span style="color: var(--mute); font-size: 11px"
+              >"发送" / "保存" / "选项"</span
+            >
+          </td>
+          <td
+            style="
+              padding: 7px 14px 7px 0;
+              color: var(--text);
+              font-weight: 500;
+              border-bottom: none;
+            "
+          >
+            need_input / draft_detected block
+          </td>
+          <td style="padding: 7px 0; color: var(--body); border-bottom: none">
+            这两个是 Talor 已有的结构化 block — LLM 想给用户提供按钮就发
+            need_input；想让用户保存某个对象就发 draft_detected。<b>不需要新机制</b>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- PRINCIPLES -->
+  <div
+    style="
+      margin-top: 14px;
+      padding: 16px 18px;
+      background: var(--canvas);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 10px;
+      "
+    >
+      最终设计原则
+    </div>
+    <ul
+      style="margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--body)"
+    >
+      <li>UI 的"业务知识"<b>仅限于内置 7 个工具</b>。其他全 MCP-agnostic。</li>
+      <li>
+        每个 MCP tool 在 UI 里就是：<code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >✓ tool_name · 摘要 · 耗时 [▸ JSON]</code
+        >
+      </li>
+      <li>
+        "摘要"由 MCP server 在 tool result 里提供（如 "3 results"），或 LLM 在 input 时设置
+        hint。无的话退化为"output size 字符数"。
+      </li>
+      <li>
+        LLM 看完 JSON，prose 里用 <b>markdown table / list / blockquote</b> 把关键信息说出来。
+      </li>
+      <li>
+        交互按钮统一走现有的
+        <code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >need_input</code
+        >
+        /
+        <code
+          style="
+            background: var(--line-2);
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-family: 'SF Mono', monospace;
+            font-size: 12px;
+          "
+          >draft_detected</code
+        >
+        block — 不新增按钮机制。
+      </li>
+    </ul>
+    <div style="margin-top: 10px; font-size: 12.5px; color: var(--mute); line-height: 1.55">
+      <b>代价</b>：方案 A 里的 email card / calendar event card / draft email card 这些专属 UI
+      不存在了，全部退化为 markdown 表格 + 链接。视觉丰富度下降，但换来 MCP 生态的完全开放。
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 18px">
+  这个判断对吗？<br />
+  · 选 B：Talor 只认识自己的 7 个工具，其他全靠 LLM + markdown — 我会改 spec 的 §10<br />
+  · 还是你想保留某些"专门 UI"（比如 draft email card 这种带 CTA 的强动作场景，确实markdown
+  表达不够直接）？
+</p>

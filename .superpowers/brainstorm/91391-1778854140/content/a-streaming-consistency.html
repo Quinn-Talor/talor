@@ -1,0 +1,807 @@
+<h2>A · 流式 / 完成 一致性</h2>
+<p class="subtitle">
+  每种 block 在 LLM 输出过程中 和 输出完成后 视觉完全一致 —
+  只有光标和内容填充程度变化，<b>不允许容器/标签/颜色发生跳变</b>。
+</p>
+
+<style>
+  .c {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --info: #2563eb;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .c .row {
+    display: grid;
+    grid-template-columns: 1fr 18px 1fr;
+    gap: 14px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px dashed var(--line);
+  }
+  .c .row:last-child {
+    border-bottom: none;
+  }
+  .c .col {
+    padding-left: 14px;
+    border-left: 2px solid var(--line-2);
+    min-height: 50px;
+  }
+  .c .arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--subtle);
+    font-family: 'SF Mono', monospace;
+  }
+  .c .lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .c .lbl.s {
+    color: var(--info);
+  }
+  .c .lbl.d {
+    color: var(--ok);
+  }
+  .c .name {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+  .c .desc {
+    font-size: 11.5px;
+    color: var(--mute);
+    margin-top: 6px;
+    font-style: italic;
+  }
+
+  /* ============ SHARED STYLES ============ */
+  .prose {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+    margin: 0;
+  }
+  .prose code.inl {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .cursor {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    background: var(--body);
+    vertical-align: text-bottom;
+    margin-left: 1px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  /* Tool row */
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 8px;
+    margin: 4px -8px;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+    color: var(--body);
+  }
+  .tool .stat {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tool .stat svg {
+    width: 12px;
+    height: 12px;
+  }
+  .tool .tname {
+    color: var(--text);
+    font-weight: 500;
+    min-width: 38px;
+  }
+  .tool .targ {
+    color: var(--mute);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool .dur {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+  .stat.ok {
+    color: var(--ok);
+  }
+  .stat.run {
+    color: var(--info);
+  }
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--line);
+    border-top-color: var(--info);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .check-svg {
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+
+  /* Code block — identical container during stream + done */
+  .code {
+    margin: 8px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fcfcfc;
+    overflow: hidden;
+  }
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line-2);
+    font-size: 11px;
+    color: var(--mute);
+    font-family: 'SF Mono', monospace;
+  }
+  .code pre {
+    margin: 0;
+    padding: 12px 14px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+    white-space: pre;
+    overflow-x: auto;
+    min-height: 1.6em;
+  }
+  .kw {
+    color: #7c3aed;
+  }
+  .fn {
+    color: #2563eb;
+  }
+  .str {
+    color: #16a34a;
+  }
+  .var {
+    color: #db2777;
+  }
+  .ty {
+    color: #0891b2;
+  }
+
+  /* done pill */
+  .new-done {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--mute);
+  }
+  .new-done .dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+  .new-done b {
+    font-weight: 500;
+    color: var(--body);
+  }
+  .new-done.streaming {
+    opacity: 0.6;
+  }
+
+  /* warning inline */
+  .new-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--body);
+    padding: 2px 0;
+  }
+  .new-warn .marker {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 7px;
+    background: var(--err);
+  }
+  .new-warn .label {
+    color: var(--mute);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .new-warn .body {
+    flex: 1;
+    color: var(--text);
+  }
+  .new-warn.high .body {
+    color: var(--err);
+    font-weight: 500;
+  }
+
+  /* blocked */
+  .new-blocked {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    padding: 2px 0;
+  }
+  .new-blocked .marker {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .new-blocked .label {
+    color: var(--mute);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .new-blocked .body {
+    flex: 1;
+    color: var(--text);
+  }
+  .new-blocked .body .hint {
+    color: var(--mute);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  .new-blocked .body .retry {
+    color: var(--info);
+    cursor: pointer;
+    border-bottom: 1px solid rgba(37, 99, 235, 0.3);
+    font-size: 12px;
+  }
+
+  /* need_input */
+  .new-input {
+    padding: 4px 0 4px 14px;
+    border-left: 2px solid var(--info);
+    margin: 6px 0;
+  }
+  .new-input .label {
+    font-size: 11.5px;
+    color: var(--info);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .new-input .q {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .new-input .opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .new-input .opt {
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    background: var(--canvas);
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .new-input .reason {
+    font-size: 12px;
+    color: var(--mute);
+    margin-top: 8px;
+  }
+  /* Streaming opts shown grayed if not yet parsed */
+  .new-input .opt.pending {
+    opacity: 0.35;
+    border-style: dashed;
+    color: var(--mute);
+    cursor: default;
+  }
+
+  /* draft */
+  .new-draft {
+    padding: 4px 0 4px 14px;
+    border-left: 2px solid var(--indigo);
+    margin: 6px 0;
+  }
+  .new-draft .label {
+    font-size: 11.5px;
+    color: var(--indigo);
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .new-draft .q {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .new-draft .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: var(--text);
+    color: white;
+    font-size: 12.5px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .new-draft .cta.pending {
+    background: var(--line);
+    color: var(--mute);
+    cursor: default;
+  }
+
+  /* inferred / invalid */
+  .new-invalid {
+    font-size: 12px;
+    color: var(--subtle);
+    font-style: italic;
+    padding: 2px 0;
+  }
+  .new-invalid::before {
+    content: '⊘ ';
+    font-style: normal;
+  }
+
+  .principle {
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-top: 20px;
+  }
+  .principle h4 {
+    font-size: 13px;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+  .principle ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    color: var(--body);
+  }
+  .principle li {
+    margin: 4px 0;
+    line-height: 1.55;
+  }
+  .principle code {
+    background: var(--line-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+
+  .anti {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-top: 14px;
+    font-size: 12.5px;
+    color: #7f1d1d;
+  }
+  .anti b {
+    color: var(--err);
+  }
+  .anti code {
+    background: rgba(255, 255, 255, 0.6);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+  }
+</style>
+
+<div class="c">
+  <!-- ROW HEAD -->
+  <div class="row" style="border: none; padding: 0; margin-bottom: 8px">
+    <div><div class="lbl s">流式中（输出未完）</div></div>
+    <div></div>
+    <div><div class="lbl d">完成态</div></div>
+  </div>
+
+  <!-- PROSE -->
+  <div class="row">
+    <div class="col">
+      <div class="name">Prose 段落</div>
+      <div class="prose">
+        主循环用 <code class="inl">while (iter &lt; maxIter)</code> 限制最大迭代次数。step_id
+        漂移<span class="cursor"></span>
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">Prose 段落</div>
+      <div class="prose">
+        主循环用 <code class="inl">while (iter &lt; maxIter)</code> 限制最大迭代次数。step_id
+        漂移会触发 halt。
+      </div>
+    </div>
+  </div>
+
+  <!-- TOOL CALL -->
+  <div class="row">
+    <div class="col">
+      <div class="name">Tool call</div>
+      <div class="tool">
+        <div class="stat run"><div class="spinner"></div></div>
+        <span class="tname">read</span>
+        <span class="targ">src/main/loop/react-loop.ts</span>
+      </div>
+      <div class="desc">spinner 跟 check icon 同尺寸同位置，无 reflow。</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">Tool call</div>
+      <div class="tool">
+        <div class="stat ok">
+          <svg viewBox="0 0 24 24" class="check-svg"><polyline points="20 6 9 17 4 12" /></svg>
+        </div>
+        <span class="tname">read</span>
+        <span class="targ">src/main/loop/react-loop.ts</span>
+        <span class="dur">8ms</span>
+      </div>
+      <div class="desc">完成时仅 icon 替换为 ✓，末尾追加 dur。</div>
+    </div>
+  </div>
+
+  <!-- CODE BLOCK -->
+  <div class="row">
+    <div class="col">
+      <div class="name">Code block</div>
+      <div class="code">
+        <div class="code-head"><span>typescript</span><span>react-loop.ts:142</span></div>
+        <pre><span class="kw">if</span> (<span class="var">seenIds</span>.<span class="fn">has</span>(stepId)) {
+  <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="cursor"></span></pre>
+      </div>
+      <div class="desc">
+        容器、border、head 全部跟完成态一致。语法高亮按 token 增量上色，已亮的字符不会回滚重绘。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">Code block</div>
+      <div class="code">
+        <div class="code-head">
+          <span>typescript</span><span>react-loop.ts:142</span
+          ><span style="font-size: 10px; cursor: pointer">copy</span>
+        </div>
+        <pre><span class="kw">if</span> (<span class="var">seenIds</span>.<span class="fn">has</span>(stepId)) {
+  <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="str">'context halt'</span>)
+}</pre>
+      </div>
+      <div class="desc">完成时仅在 code-head 加 copy 按钮。</div>
+    </div>
+  </div>
+
+  <!-- DONE -->
+  <div class="row">
+    <div class="col">
+      <div class="name">done</div>
+      <div class="prose">分析完毕<span class="cursor"></span></div>
+      <div class="desc">
+        流式中 done 还没出现 — 这是正常的（block 是 LLM 末尾才输出）。不要预先放一个空的 done 占位。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">done</div>
+      <div class="prose" style="margin-bottom: 6px">分析完毕。</div>
+      <span class="new-done"><span class="dot"></span><b>Done</b> · 12ms · 1 file modified</span>
+      <div class="desc">完成时追加一个行内 done 戳；无跳变 — 它本来就不存在。</div>
+    </div>
+  </div>
+
+  <!-- NEED_INPUT — block 自己流式 -->
+  <div class="row">
+    <div class="col">
+      <div class="name">need_input · block 自身流式中</div>
+      <div class="new-input">
+        <div class="label">need input</div>
+        <div class="q">
+          是要把 <code class="inl">agentPrompt</code> 改成自由 markdown，还是<span
+            class="cursor"
+          ></span>
+        </div>
+        <div class="opts">
+          <button class="opt pending">选项加载中</button>
+          <button class="opt pending">选项加载中</button>
+        </div>
+      </div>
+      <div class="desc">
+        block 类型一旦解析出（<code
+          style="
+            background: var(--line-2);
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 11px;
+          "
+          >{"type":"need_input"...</code
+        >
+        前 20 字符就能确定），<b>立刻渲染最终容器</b> — 2px 左竖线 + lowercase
+        标签。问题文本流式填入；options 在 JSON 解析出之前用 dashed pending
+        占位（同样位置、同样大小，不 reflow）。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">need_input · 完成</div>
+      <div class="new-input">
+        <div class="label">need input</div>
+        <div class="q">
+          是要把 <code class="inl">agentPrompt</code> 改成自由 markdown，还是保留 yaml？
+        </div>
+        <div class="opts">
+          <button class="opt">改成 markdown</button>
+          <button class="opt">保留 yaml</button>
+          <button class="opt">两个都做</button>
+        </div>
+        <div class="reason">影响 Schema 2.0 字段语义。validator 需要重写。</div>
+      </div>
+      <div class="desc">完成时 pending 选项替换为可点 button（同位置同尺寸），reason 行追加。</div>
+    </div>
+  </div>
+
+  <!-- WARNING -->
+  <div class="row">
+    <div class="col">
+      <div class="name">warning · block 流式中</div>
+      <div class="new-warn high">
+        <span class="marker"></span>
+        <span class="label">warning</span>
+        <span class="body"
+          >检测到 <code class="inl">rm -rf</code> 命令，已<span class="cursor"></span
+        ></span>
+      </div>
+      <div class="desc">
+        marker 圆点颜色随 severity 立刻定档（前几 byte JSON 就能确定）。后续仅 body 文字流入。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">warning · 完成</div>
+      <div class="new-warn high">
+        <span class="marker"></span>
+        <span class="label">warning</span>
+        <span class="body">检测到 <code class="inl">rm -rf</code> 命令，已拦截。</span>
+      </div>
+      <div class="desc">完全一致 — 仅光标消失 + 末尾"拦截。"补全。</div>
+    </div>
+  </div>
+
+  <!-- BLOCKED -->
+  <div class="row">
+    <div class="col">
+      <div class="name">blocked · block 流式中</div>
+      <div class="new-blocked">
+        <span class="marker"></span>
+        <span class="label">blocked</span>
+        <div class="body">
+          需要 <code class="inl">~/.ssh/</code> 的读权限才能<span class="cursor"></span>
+        </div>
+      </div>
+      <div class="desc">retry 链接只在 retry_hint 字段完整解出来后出现（不预占位）。</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">blocked · 完成</div>
+      <div class="new-blocked">
+        <span class="marker"></span>
+        <span class="label">blocked</span>
+        <div class="body">
+          需要 <code class="inl">~/.ssh/</code> 的读权限才能继续。
+          <div class="hint">
+            添加 <code class="inl">~/.ssh/config</code> 白名单后 <span class="retry">重试 ↻</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRAFT — post-hoc, must be additive -->
+  <div class="row">
+    <div class="col">
+      <div class="name">draft_detected · 流式中</div>
+      <div class="prose">
+        最终的 agent profile 如下，name 是"数据周报员工"，model 用 opus-4-7<span
+          class="cursor"
+        ></span>
+      </div>
+      <div class="desc">
+        <b>关键</b>：draft 是 post-hoc
+        扫描结果。流式中<b>不预渲染</b>占位卡（否则用户看到一张空卡会困惑）。流完后 detect 命中再
+        append。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">draft_detected · 完成</div>
+      <div class="prose" style="margin-bottom: 8px">
+        最终的 agent profile 如下，name 是"数据周报员工"，model 用 opus-4-7。
+      </div>
+      <div class="new-draft">
+        <div class="label">draft detected</div>
+        <div class="q">
+          从对话中提取到完整 agent profile · <code class="inl">数据周报员工</code> / opus-4-7。
+        </div>
+        <button class="cta">审阅并保存 →</button>
+      </div>
+      <div class="desc">
+        附加在 prose 末尾，不替换/包裹原内容 — 用户视觉感受是"消息底部新增一行可点动作"。
+      </div>
+    </div>
+  </div>
+
+  <!-- INVALID -->
+  <div class="row">
+    <div class="col">
+      <div class="name">invalid · 流式中（未闭合 fence）</div>
+      <div class="prose">这是 LLM 的输出文本<span class="cursor"></span></div>
+      <div class="desc">
+        流式中 fence 未闭合不能下结论 — 当前 invalid 渲染（"⊘
+        malformed..."）<b>不出现</b>。否则会"先报错再消失"。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">invalid · 完成后判定真损坏</div>
+      <div class="prose" style="margin-bottom: 4px">这是 LLM 的输出文本</div>
+      <div class="new-invalid">malformed talor block · 已按 markdown 渲染原文</div>
+      <div class="desc">完成后 parser 确认 unclosed → 才出现 lint hint。</div>
+    </div>
+  </div>
+
+  <!-- INFERRED -->
+  <div class="row">
+    <div class="col">
+      <div class="name">inferred_intent · 流式中</div>
+      <div class="prose">所以你看你想要 markdown 还是<span class="cursor"></span></div>
+      <div class="desc">
+        推断是 post-hoc 启发式，<b>流式中不出现</b>。否则 LLM 还在写、系统已经下"这是问句"的判断 —
+        容易冒犯也容易抢戏。
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col">
+      <div class="name">inferred_intent · 完成后命中</div>
+      <div class="prose" style="margin-bottom: 4px">所以你看你想要 markdown 还是 yaml？</div>
+      <div
+        style="
+          font-size: 12px;
+          color: var(--mute);
+          padding: 2px 0;
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+        "
+      >
+        <span style="color: var(--subtle); font-family: 'SF Mono', monospace; font-size: 11px"
+          >↳</span
+        >
+        <span style="color: var(--subtle); font-size: 11px">inferred · clarification</span>
+        <span
+          style="
+            color: var(--info);
+            cursor: pointer;
+            border-bottom: 1px solid rgba(37, 99, 235, 0.3);
+            margin-left: auto;
+          "
+          >转为可点选项 →</span
+        >
+      </div>
+    </div>
+  </div>
+
+  <!-- PRINCIPLES -->
+  <div class="principle">
+    <h4>一致性原则（写代码时遵守）</h4>
+    <ul>
+      <li>
+        <b>容器先定，内容后填</b> — block 一被 parser 识别出类型，立刻渲染最终容器（左竖线 / 圆点 /
+        pill 形态全到位），随后只追加文本和按钮。
+      </li>
+      <li><b>icon 同尺寸同位置</b> — spinner 12×12 → check 12×12，绝对不允许 reflow。</li>
+      <li>
+        <b>选项 pending 态用 dashed</b> — option 按钮的 JSON 还没解出来时，用同尺寸 dashed
+        灰色占位（不是骨架条不是 shimmer）。
+      </li>
+      <li>
+        <b>code-head 始终在</b> — fence 一开 lang 标签就出现，copy 按钮在完成后追加（位置预留好）。
+      </li>
+      <li>
+        <b>post-hoc 渲染不预占</b> — draft / inferred / invalid
+        是事后扫描，流式中绝不出现占位；流完一次性 append 在 prose 末尾（不替换/包裹原内容）。
+      </li>
+    </ul>
+  </div>
+
+  <div class="anti">
+    <b>现实现里要砍掉的反模式</b>：
+    <br />
+    · <code>StreamingTalorSkeleton</code>（animate-pulse + 灰条）→ 改为最终容器 + dashed pending
+    option
+    <br />
+    · <code>if (!isStreaming) renderInferredIntent</code> →
+    流式中本来就不渲染，逻辑保留但视觉无跳变（因为之前也没东西）
+    <br />
+    · <code>StreamingTalorSkeleton</code> 切换到 <code>TalorBlockCard</code> 的"换皮" →
+    改为同一组件，仅 <code>data-streaming</code> 属性不同
+    <br />
+    · 流式中 <code>prose-pre</code> 边框/底色跟完成态不一致 → 容器从第一行 fence 就保持终态
+    <br />
+    · "已复制 2s 后变回 复制" 这类 transient 状态：保持 button 尺寸不变，仅文字替换。
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 24px">
+  这套一致性规则把所有反例（skeleton → card 跳变、post-hoc 卡突然出现、icon
+  reflow）都堵上了。要不要把全部 4 份 spec（场景全集 + markdown + block 弱化 +
+  流式一致性）合并成一份 design doc，下一步走 writing-plans？
+</p>

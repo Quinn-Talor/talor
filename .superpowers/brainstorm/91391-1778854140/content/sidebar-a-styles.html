@@ -1,0 +1,685 @@
+<h2>A 布局 · 4 种样式细化</h2>
+<p class="subtitle">
+  同样的 "search + 小加号" 布局，4 种视觉处理。点选你喜欢的，或告诉我细节再调。
+</p>
+
+<style>
+  .sx {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .card {
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .card:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  }
+  .head {
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .head .name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 2px;
+  }
+  .head .desc {
+    font-size: 11.5px;
+    color: var(--mute);
+    line-height: 1.4;
+  }
+  .demo {
+    background: var(--surface);
+    display: flex;
+    justify-content: center;
+    padding: 0;
+  }
+  .meta {
+    padding: 10px 16px;
+    font-size: 11.5px;
+    color: var(--mute);
+    line-height: 1.55;
+    background: var(--canvas);
+    border-top: 1px solid var(--line-2);
+  }
+  .meta b {
+    color: var(--body);
+  }
+
+  .sb {
+    width: 240px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+  }
+  .sb-drag {
+    height: 30px;
+    flex-shrink: 0;
+  }
+  .sess {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    margin: 0 8px;
+    border-radius: 6px;
+  }
+  .sess.active {
+    background: var(--canvas);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .av {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 700;
+    color: white;
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+  }
+  .av.g {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  .tt {
+    flex: 1;
+    min-width: 0;
+  }
+  .title {
+    font-size: 12.5px;
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+  }
+  .submeta {
+    font-size: 10.5px;
+    color: var(--subtle);
+    line-height: 1.3;
+  }
+  .group-lbl {
+    padding: 10px 16px 4px;
+    font-size: 10px;
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+
+  /* shared icons */
+  .ic-search svg {
+    width: 13px;
+    height: 13px;
+    stroke: var(--mute);
+    stroke-width: 1.8;
+    fill: none;
+  }
+  .ic-plus svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+  }
+  .kbd-mini {
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    color: var(--subtle);
+    background: var(--canvas);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    line-height: 1;
+  }
+
+  /* ========= A1 · 单 box 合并 ========= */
+  .a1-bar {
+    margin: 0 14px 4px;
+    height: 32px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: flex;
+    align-items: stretch;
+    overflow: hidden;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .a1-bar:hover {
+    border-color: var(--subtle);
+  }
+  .a1-bar:focus-within {
+    border-color: var(--text);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+  }
+  .a1-search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 10px;
+    cursor: text;
+  }
+  .a1-search span {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--subtle);
+  }
+  .a1-divider {
+    width: 1px;
+    background: var(--line-2);
+    margin: 6px 0;
+    flex-shrink: 0;
+  }
+  .a1-plus {
+    width: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+    cursor: pointer;
+  }
+  .a1-plus:hover {
+    color: var(--text);
+    background: var(--line-2);
+  }
+
+  /* ========= A2 · search 透明 + plus 加重 ========= */
+  .a2-bar {
+    margin: 0 14px 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .a2-search {
+    flex: 1;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--line-2);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: text;
+    transition: background 0.15s;
+  }
+  .a2-search:hover {
+    background: var(--line);
+  }
+  .a2-search span {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--mute);
+  }
+  .a2-plus {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--text);
+    color: var(--canvas);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.15s;
+  }
+  .a2-plus:hover {
+    background: #000;
+  }
+  .a2-plus svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+
+  /* ========= A3 · pill search + ghost plus ========= */
+  .a3-bar {
+    margin: 0 14px 4px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .a3-search {
+    flex: 1;
+    height: 30px;
+    padding: 0 12px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: text;
+    transition: all 0.15s;
+  }
+  .a3-search:hover {
+    border-color: var(--subtle);
+  }
+  .a3-search:focus-within {
+    border-color: var(--text);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
+  }
+  .a3-search span {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--subtle);
+  }
+  .a3-plus {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+    cursor: pointer;
+  }
+  .a3-plus:hover {
+    background: var(--line-2);
+    color: var(--text);
+  }
+
+  /* ========= A4 · 微优化（保留方形几何，仅打磨细节） ========= */
+  .a4-bar {
+    margin: 0 14px 4px;
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+  .a4-search {
+    flex: 1;
+    min-height: 32px;
+    padding: 0 10px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: text;
+    transition: all 0.15s;
+  }
+  .a4-search:hover {
+    border-color: var(--subtle);
+  }
+  .a4-search:focus-within {
+    border-color: var(--text);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+  }
+  .a4-search span {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--subtle);
+  }
+  .a4-plus {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+    cursor: pointer;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .a4-plus:hover {
+    border-color: var(--text);
+    color: var(--text);
+  }
+  .a4-plus::after {
+    content: '⌘N';
+    position: absolute;
+    bottom: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'SF Mono', monospace;
+    font-size: 9.5px;
+    color: var(--subtle);
+    background: var(--canvas);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    line-height: 1.2;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .a4-plus:hover::after {
+    opacity: 1;
+  }
+
+  /* before reference */
+  .before {
+    background: var(--surface);
+    padding: 20px 0;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    width: 240px;
+    margin: 0 auto 20px;
+    opacity: 0.85;
+  }
+  .before .lbl {
+    padding: 0 16px 8px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--mute);
+    font-weight: 600;
+  }
+  .before-bar {
+    margin: 0 14px 4px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .before-search {
+    flex: 1;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .before-search span {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--subtle);
+  }
+  .before-plus {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+    font-size: 16px;
+    line-height: 1;
+  }
+</style>
+
+<div class="sx">
+  <!-- BEFORE reference -->
+  <div class="before">
+    <div class="lbl" style="padding-top: 0">现状 A · 参照</div>
+    <div class="before-bar">
+      <div class="before-search">
+        <span style="display: inline-flex"
+          ><svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            stroke="#71717a"
+            stroke-width="1.8"
+            fill="none"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+        ></span>
+        <span>搜索会话…</span>
+        <span style="font-family: 'SF Mono', monospace; font-size: 10px; color: #a1a1aa">⌘K</span>
+      </div>
+      <div class="before-plus">+</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- A1 -->
+    <div class="card option" data-choice="a1" onclick="toggleSelect(this)">
+      <div class="head">
+        <div class="name">A1 · 合体单 bar</div>
+        <div class="desc">
+          单个 32×full pill，内部 1px hairline 分隔搜索区和新建图标。视觉上是一件控件。
+        </div>
+      </div>
+      <div class="demo">
+        <div class="sb">
+          <div class="sb-drag"></div>
+          <div class="a1-bar">
+            <div class="a1-search">
+              <span class="ic-search"
+                ><svg viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+              ></span>
+              <span>搜索会话…</span>
+              <span class="kbd-mini">⌘K</span>
+            </div>
+            <div class="a1-divider"></div>
+            <div class="a1-plus ic-plus" title="新建会话 ⌘N">
+              <svg viewBox="0 0 24 24">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </div>
+          </div>
+          <div class="group-lbl">今天</div>
+          <div class="sess active">
+            <div class="av">T</div>
+            <div class="tt">
+              <div class="title">ReactLoop 死循环排查</div>
+              <div class="submeta">Talor · 1 小时前</div>
+            </div>
+          </div>
+          <div class="sess">
+            <div class="av g">报</div>
+            <div class="tt">
+              <div class="title">数据周报 12 月第 2 周</div>
+              <div class="submeta">数据周报员工 · 2h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <b>修复点</b>：单容器解决"两个控件硬贴"；stroke icon 替换文字 +；kbd 用真实 chip 样式；focus
+        时整 bar 升级。<br />
+        <b>新建主操作</b>：浅，跟搜索同视觉权重。
+      </div>
+    </div>
+
+    <!-- A2 -->
+    <div class="card option" data-choice="a2" onclick="toggleSelect(this)">
+      <div class="head">
+        <div class="name">A2 · search 静音 / + 突出（推荐）</div>
+        <div class="desc">
+          搜索是 filled chip（zinc-100 底，无边），新建是 black solid square —
+          主操作明确，搜索作为辅助。
+        </div>
+      </div>
+      <div class="demo">
+        <div class="sb">
+          <div class="sb-drag"></div>
+          <div class="a2-bar">
+            <div class="a2-search">
+              <span class="ic-search"
+                ><svg viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+              ></span>
+              <span>搜索</span>
+            </div>
+            <div class="a2-plus" title="新建会话 ⌘N">
+              <svg viewBox="0 0 24 24">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </div>
+          </div>
+          <div class="group-lbl">今天</div>
+          <div class="sess active">
+            <div class="av">T</div>
+            <div class="tt">
+              <div class="title">ReactLoop 死循环排查</div>
+              <div class="submeta">Talor · 1 小时前</div>
+            </div>
+          </div>
+          <div class="sess">
+            <div class="av g">报</div>
+            <div class="tt">
+              <div class="title">数据周报 12 月第 2 周</div>
+              <div class="submeta">数据周报员工 · 2h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <b>修复点</b>：black + 给"新建"绝对主操作地位；搜索退化为低 chrome filled chip 不抢戏；hover
+        时 search 加深 zinc-200。<br />
+        <b>权衡</b>：黑色块在浅色侧栏里是个比较 strong 的视觉锚。
+      </div>
+    </div>
+
+    <!-- A3 -->
+    <div class="card option" data-choice="a3" onclick="toggleSelect(this)">
+      <div class="head">
+        <div class="name">A3 · pill search + ghost +</div>
+        <div class="desc">
+          搜索做成 999px 全圆角 pill（Vercel/Linear 风），+ 是 ghost icon button（无边、hover 时
+          bg）。整体更现代但更轻。
+        </div>
+      </div>
+      <div class="demo">
+        <div class="sb">
+          <div class="sb-drag"></div>
+          <div class="a3-bar">
+            <div class="a3-search">
+              <span class="ic-search"
+                ><svg viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+              ></span>
+              <span>搜索会话…</span>
+              <span class="kbd-mini">⌘K</span>
+            </div>
+            <div class="a3-plus ic-plus" title="新建会话 ⌘N">
+              <svg viewBox="0 0 24 24">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </div>
+          </div>
+          <div class="group-lbl">今天</div>
+          <div class="sess active">
+            <div class="av">T</div>
+            <div class="tt">
+              <div class="title">ReactLoop 死循环排查</div>
+              <div class="submeta">Talor · 1 小时前</div>
+            </div>
+          </div>
+          <div class="sess">
+            <div class="av g">报</div>
+            <div class="tt">
+              <div class="title">数据周报 12 月第 2 周</div>
+              <div class="submeta">数据周报员工 · 2h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <b>修复点</b>：pill 搜索 + ghost + 形成明确的"输入控件 + 动作图标"对比；ghost button
+        在静态时不抢视觉。<br />
+        <b>权衡</b>：pill 跟 session 卡片的方形圆角语言不太统一。
+      </div>
+    </div>
+
+    <!-- A4 -->
+    <div class="card option" data-choice="a4" onclick="toggleSelect(this)">
+      <div class="head">
+        <div class="name">A4 · 保留几何，仅打磨细节</div>
+        <div class="desc">
+          仍是 32×32 + 矩形 search，仅修复几个具体瑕疵：stroke icon、kbd chip、hover 上的 ⌘N
+          tooltip、focus 高亮。最小改动量。
+        </div>
+      </div>
+      <div class="demo">
+        <div class="sb">
+          <div class="sb-drag"></div>
+          <div class="a4-bar">
+            <div class="a4-search">
+              <span class="ic-search"
+                ><svg viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="7" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+              ></span>
+              <span>搜索会话…</span>
+              <span class="kbd-mini">⌘K</span>
+            </div>
+            <div class="a4-plus ic-plus" title="新建会话 ⌘N">
+              <svg viewBox="0 0 24 24">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+            </div>
+          </div>
+          <div class="group-lbl" style="margin-top: 6px">今天</div>
+          <div class="sess active">
+            <div class="av">T</div>
+            <div class="tt">
+              <div class="title">ReactLoop 死循环排查</div>
+              <div class="submeta">Talor · 1 小时前</div>
+            </div>
+          </div>
+          <div class="sess">
+            <div class="av g">报</div>
+            <div class="tt">
+              <div class="title">数据周报 12 月第 2 周</div>
+              <div class="submeta">数据周报员工 · 2h</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="meta">
+        <b>修复点</b>：stroke icon 替换文字 +；kbd chip 化；hover 时 + 显示 ⌘N 浮标；focus 时 search
+        升级到 text-color border。<br />
+        <b>哲学</b>：不动结构、只打磨细节 — 最容易落地。
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 20px">
+  <b>个人推荐 A2</b>：黑色 "+" 给主操作明确权重，搜索退到低 chrome，权重对比清晰。<br />
+  也可以选 A1（合体 bar，最少 visual elements），或告诉我"A2 的 + 颜色换成 accent
+  blue"这种细节调整。
+</p>

@@ -1,0 +1,1110 @@
+<h2>Talor 工作区 · 终版完整设计</h2>
+<p class="subtitle">
+  整合：A 方向（chromeless flow）· A2 sidebar（search 静音 + black solid +）· 底部去 footer 横线 ·
+  隐藏 block label · 流式一致性 · 通用 agent 场景（不是编码）。
+</p>
+
+<style>
+  .app {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --accent: #3b82f6;
+    --indigo: #6366f1;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+    --info: #2563eb;
+    display: flex;
+    height: 840px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+    background: var(--canvas);
+    color: var(--text);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  /* ============ SIDEBAR (A2) ============ */
+  .sb {
+    width: 240px;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sb-drag {
+    height: 30px;
+    flex-shrink: 0;
+  }
+
+  .sb-bar {
+    margin: 0 14px 6px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .sb-search {
+    flex: 1;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--line-2);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    cursor: text;
+    transition: background 0.15s;
+  }
+  .sb-search:hover {
+    background: var(--line);
+  }
+  .sb-search svg {
+    width: 13px;
+    height: 13px;
+    stroke: var(--mute);
+    stroke-width: 1.8;
+    fill: none;
+  }
+  .sb-search span {
+    flex: 1;
+    font-size: 12.5px;
+    color: var(--mute);
+  }
+  .sb-plus {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--text);
+    color: var(--canvas);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .sb-plus:hover {
+    background: #000;
+  }
+  .sb-plus svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    stroke-width: 2;
+    fill: none;
+  }
+
+  .sb-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0 8px;
+  }
+  .sb-group {
+    padding: 10px 16px 4px;
+    font-size: 10px;
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .sb-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    margin: 0 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .sb-item:hover {
+    background: var(--line-2);
+  }
+  .sb-item.active {
+    background: var(--canvas);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .sb-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+  }
+  .sb-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .sb-title {
+    font-size: 12.5px;
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.3;
+  }
+  .sb-meta {
+    font-size: 10.5px;
+    color: var(--subtle);
+    line-height: 1.3;
+  }
+
+  /* 设置 — 跟会话项同语言（无 border-top） */
+  .sb-settings {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    margin: 4px 8px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--mute);
+    font-size: 12.5px;
+  }
+  .sb-settings:hover {
+    background: var(--line-2);
+    color: var(--text);
+  }
+  .sb-settings svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .sb-settings .kbd {
+    margin-left: auto;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    color: var(--subtle);
+  }
+
+  /* ============ MAIN ============ */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--canvas);
+  }
+
+  .topbar {
+    height: 44px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 18px;
+    flex-shrink: 0;
+  }
+  .pick {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--body);
+  }
+  .pick:hover {
+    background: var(--surface);
+  }
+  .pick .pa {
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  .pick.model .pa {
+    background: #e0e7ff;
+    color: var(--indigo);
+  }
+  .pick .pn {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .pick .pm {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+  .pick .ch {
+    color: var(--subtle);
+    font-size: 9px;
+  }
+  .topbar .export {
+    margin-left: auto;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--canvas);
+    color: var(--body);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .topbar .export:hover {
+    border-color: var(--subtle);
+  }
+  .topbar .export svg {
+    width: 11px;
+    height: 11px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+  }
+
+  .msgs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 22px 32px 8px;
+  }
+  .turn {
+    position: relative;
+    padding-left: 32px;
+    padding-bottom: 6px;
+  }
+  .turn + .turn {
+    margin-top: 20px;
+  }
+  .turn::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 22px;
+    bottom: 0;
+    width: 1px;
+    background: var(--line);
+  }
+  .turn:last-child::before {
+    display: none;
+  }
+  .av {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+  }
+  .av.user {
+    background: var(--text);
+  }
+  .av.bot {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+
+  .pr {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  .pr p {
+    margin: 0 0 8px;
+  }
+  .pr p:last-child {
+    margin-bottom: 0;
+  }
+  .pr h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 14px 0 4px;
+  }
+  .pr ul {
+    margin: 6px 0;
+    padding-left: 20px;
+    list-style: none;
+  }
+  .pr ul li {
+    margin: 3px 0;
+    position: relative;
+  }
+  .pr ul li::before {
+    content: '';
+    position: absolute;
+    left: -14px;
+    top: 11px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--mute);
+  }
+  .pr strong {
+    font-weight: 600;
+  }
+  .pr code.inl {
+    background: var(--line-2);
+    padding: 1.5px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .pr a {
+    color: var(--info);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(37, 99, 235, 0.3);
+  }
+  .pr sup {
+    font-size: 10px;
+    color: var(--info);
+    font-weight: 600;
+    cursor: pointer;
+    margin: 0 1px;
+  }
+
+  .tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 8px;
+    margin: 4px -8px;
+    border-radius: 6px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 12px;
+    color: var(--body);
+    cursor: pointer;
+  }
+  .tool:hover {
+    background: var(--surface);
+  }
+  .tool .stat {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tool .stat svg {
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+  .tool .tname {
+    color: var(--text);
+    font-weight: 500;
+    min-width: 90px;
+  }
+  .tool .targ {
+    color: var(--mute);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tool .dur {
+    color: var(--subtle);
+    font-size: 11px;
+  }
+  .stat.ok {
+    color: var(--ok);
+  }
+  .stat.run {
+    color: var(--info);
+  }
+  .spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid var(--line);
+    border-top-color: var(--info);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .pr table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 13px;
+    width: 100%;
+  }
+  .pr th {
+    text-align: left;
+    padding: 6px 14px 6px 0;
+    font-weight: 600;
+    color: var(--mute);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--line);
+  }
+  .pr td {
+    padding: 6px 14px 6px 0;
+    border-bottom: 1px solid var(--line-2);
+    color: var(--text);
+    vertical-align: top;
+  }
+  .pr tr:last-child td {
+    border-bottom: none;
+  }
+  .pr td.r {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    padding-right: 24px;
+  }
+
+  /* proposal block — 通用容器，不分业务 */
+  .prop {
+    padding: 6px 0 6px 14px;
+    border-left: 2px solid var(--indigo);
+    margin: 8px 0;
+  }
+  .prop-summary {
+    font-size: 13.5px;
+    color: var(--text);
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+  .prop-preview {
+    margin: 6px 0;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--body);
+    max-height: 140px;
+    overflow: hidden;
+    position: relative;
+  }
+  .prop-preview::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 26px;
+    background: linear-gradient(transparent, var(--surface));
+  }
+  .prop-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .prop-cta {
+    background: var(--text);
+    color: white;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .prop-cta:hover {
+    background: #18181b;
+  }
+  .prop-secondary {
+    background: var(--canvas);
+    color: var(--body);
+    padding: 4px 12px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .prop-secondary:hover {
+    background: var(--surface);
+    border-color: var(--subtle);
+  }
+
+  .done {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--mute);
+    margin-top: 8px;
+  }
+  .done .dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+
+  .ni {
+    padding: 4px 0 4px 14px;
+    border-left: 2px solid var(--info);
+    margin: 8px 0;
+  }
+  .ni .q {
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 8px;
+    line-height: 1.5;
+  }
+  .ni .opts {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .ni .opt {
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    background: var(--canvas);
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .ni .opt:hover {
+    background: var(--surface);
+    border-color: var(--subtle);
+  }
+
+  .warn-inline {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13px;
+    padding: 2px 0;
+    margin: 6px 0;
+  }
+  .warn-inline .m {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .warn-inline .b {
+    flex: 1;
+    color: var(--body);
+  }
+
+  .cursor {
+    display: inline-block;
+    width: 2px;
+    height: 14px;
+    background: var(--body);
+    vertical-align: text-bottom;
+    margin-left: 2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  .input-wrap {
+    padding: 14px 32px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+    background: var(--canvas);
+  }
+  .input-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--canvas);
+  }
+  .input-card:focus-within {
+    border-color: var(--subtle);
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
+  }
+  .input-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px 4px;
+    font-size: 11.5px;
+    color: var(--mute);
+    font-family: 'SF Mono', monospace;
+  }
+  .input-meta .ws {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+  .input-meta svg {
+    width: 11px;
+    height: 11px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+  }
+  .input-meta .perm {
+    margin-left: auto;
+    cursor: pointer;
+    font-family: -apple-system, sans-serif;
+  }
+  .input-text {
+    padding: 6px 14px;
+    font-size: 14px;
+    color: var(--text);
+    min-height: 48px;
+    line-height: 1.55;
+  }
+  .input-text.ph {
+    color: var(--subtle);
+  }
+  .input-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px 8px;
+  }
+  .input-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--mute);
+  }
+  .input-btn:hover {
+    background: var(--surface);
+    color: var(--text);
+  }
+  .input-btn svg {
+    width: 15px;
+    height: 15px;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    fill: none;
+  }
+  .input-send {
+    margin-left: auto;
+    background: var(--text);
+    color: white;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .date-div {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0 10px;
+  }
+  .date-div::before,
+  .date-div::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+  .date-div span {
+    font-size: 10.5px;
+    color: var(--subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+</style>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sb">
+    <div class="sb-drag"></div>
+
+    <div class="sb-bar">
+      <div class="sb-search">
+        <svg viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="7" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <span>搜索</span>
+      </div>
+      <div class="sb-plus" title="新建会话 ⌘N">
+        <svg viewBox="0 0 24 24">
+          <line x1="12" y1="5" x2="12" y2="19" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+        </svg>
+      </div>
+    </div>
+
+    <div class="sb-list">
+      <div class="sb-group">今天</div>
+      <div class="sb-item active">
+        <div class="sb-avatar" style="background: linear-gradient(135deg, #10b981, #059669)">
+          秘
+        </div>
+        <div class="sb-text">
+          <div class="sb-title">本周客户回款 + 周报</div>
+          <div class="sb-meta">秘书 · 刚刚</div>
+        </div>
+      </div>
+      <div class="sb-item">
+        <div class="sb-avatar" style="background: linear-gradient(135deg, #3b82f6, #6366f1)">
+          研
+        </div>
+        <div class="sb-text">
+          <div class="sb-title">AI agent 行业竞品调研</div>
+          <div class="sb-meta">研究助理 · 2 小时前</div>
+        </div>
+      </div>
+      <div class="sb-item">
+        <div class="sb-avatar" style="background: linear-gradient(135deg, #f59e0b, #d97706)">
+          写
+        </div>
+        <div class="sb-text">
+          <div class="sb-title">12 月品牌推文初稿</div>
+          <div class="sb-meta">文案 · 4 小时前</div>
+        </div>
+      </div>
+
+      <div class="sb-group">昨天</div>
+      <div class="sb-item">
+        <div class="sb-avatar" style="background: linear-gradient(135deg, #8b5cf6, #a855f7)">
+          日
+        </div>
+        <div class="sb-text">
+          <div class="sb-title">下周 OKR 评审会议安排</div>
+          <div class="sb-meta">日程助理 · 昨天</div>
+        </div>
+      </div>
+      <div class="sb-item">
+        <div class="sb-avatar" style="background: linear-gradient(135deg, #ec4899, #db2777)">
+          析
+        </div>
+        <div class="sb-text">
+          <div class="sb-title">11 月销售数据透视</div>
+          <div class="sb-meta">数据分析 · 昨天</div>
+        </div>
+      </div>
+
+      <div class="sb-group">更早</div>
+      <div class="sb-item">
+        <div class="sb-avatar" style="background: linear-gradient(135deg, #10b981, #059669)">
+          秘
+        </div>
+        <div class="sb-text">
+          <div class="sb-title">11 月报销整理</div>
+          <div class="sb-meta">秘书 · 3 天前</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置：跟 sb-list 同级（sidebar flex column 子元素），靠 flex:1 撑开把它推到底；仍无 border-top -->
+    <div class="sb-settings">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+        />
+      </svg>
+      <span>设置</span>
+      <span class="kbd">⌘,</span>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="topbar">
+      <div class="pick">
+        <div class="pa">秘</div>
+        <span class="pn">秘书</span>
+        <span class="pm">默认</span>
+        <span class="ch">▾</span>
+      </div>
+      <div class="pick model">
+        <div class="pa">C</div>
+        <span class="pn">Claude Opus 4.7</span>
+        <span class="ch">▾</span>
+      </div>
+      <button class="export">
+        <svg viewBox="0 0 24 24">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+        <span>导出 agent</span>
+      </button>
+    </div>
+
+    <div class="msgs">
+      <div class="date-div"><span>今天 · 14:32</span></div>
+
+      <div class="turn">
+        <div class="av user">Q</div>
+        <div>看看本周哪些重点客户还没回，整理一下，给周老板准备份周报。</div>
+      </div>
+
+      <div class="turn">
+        <div class="av bot">秘</div>
+        <div class="pr"><p>先看一下重点客户标签下的本周邮件。</p></div>
+
+        <div class="tool">
+          <div class="stat ok">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+          </div>
+          <span class="tname">search_email</span>
+          <span class="targ">label:重点客户 · this_week · 12 封</span>
+          <span class="dur">340ms</span>
+        </div>
+
+        <div class="pr" style="margin-top: 6px">
+          <p>12 封里 <strong>3 封紧急、4 封待回、5 封已处理</strong>。整理一下：</p>
+          <table>
+            <thead>
+              <tr>
+                <th>客户</th>
+                <th>事项</th>
+                <th>状态</th>
+                <th class="r">优先级</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>华东 Acme（王总）</td>
+                <td>Q4 续约方案二问</td>
+                <td>待回</td>
+                <td class="r">P0</td>
+              </tr>
+              <tr>
+                <td>深圳 Beta（陈经理）</td>
+                <td>访谈时间调整</td>
+                <td>待回</td>
+                <td class="r">P1</td>
+              </tr>
+              <tr>
+                <td>北京 Gamma（林女士）</td>
+                <td>11 月账单</td>
+                <td>已回 · 走签批</td>
+                <td class="r">—</td>
+              </tr>
+              <tr>
+                <td>上海 Delta</td>
+                <td>试用账号扩容</td>
+                <td>已发送方案</td>
+                <td class="r">P2</td>
+              </tr>
+            </tbody>
+          </table>
+          <p>本周建议先处理 Acme — 关系 Q4 KPI。要我起份回复草稿吗？</p>
+        </div>
+        <div class="done"><span class="dot"></span>1 tool · 340ms · 12 emails</div>
+      </div>
+
+      <div class="turn">
+        <div class="av user">Q</div>
+        <div>好，先回 Acme 那封。语气专业但不要太正式。</div>
+      </div>
+
+      <div class="turn">
+        <div class="av bot">秘</div>
+        <div class="pr"><p>先查一下我们 Pro 等级的 SLA 细则，确保数字准确。</p></div>
+
+        <div class="tool">
+          <div class="stat ok">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+          </div>
+          <span class="tname">read_doc</span>
+          <span class="targ">服务等级说明 v2.3 · 内部 wiki</span>
+          <span class="dur">12ms</span>
+        </div>
+
+        <div class="tool">
+          <div class="stat ok">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+          </div>
+          <span class="tname">web_search</span>
+          <span class="targ">"Acme 集团 2024 业务报告"</span>
+          <span class="dur">1.2s</span>
+        </div>
+
+        <div class="tool">
+          <div class="stat ok">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+          </div>
+          <span class="tname">gmail.create_draft</span>
+          <span class="targ">to: wang@acme.com · subject: Re: Q4 续约</span>
+          <span class="dur">280ms</span>
+        </div>
+
+        <div class="pr" style="margin-top: 6px">
+          <p>
+            结合 SLA 文档（<a href="#">v2.3</a>）和 Acme 2024 业务情况（<a href="#"
+              >acme.com/annual-report</a
+            >
+            提到 Q4 数字化预算上调 30%），按"专业但不过分"的语气起好了草稿：
+          </p>
+        </div>
+
+        <!-- proposal block — 通用容器，不是 email card -->
+        <div class="prop">
+          <div class="prop-summary">📮 邮件草稿 · 王总（Acme） · Re: Q4 续约方案</div>
+          <div class="prop-preview">
+            王总你好，<br /><br />
+            收到你的来信，关于 Pro 等级的两个问题，整理如下：<br /><br />
+            <strong>1. 7×24 客服</strong> — Pro 级默认包含 7×24 在线客服，承诺 4
+            小时内首次响应。同时配备专属客户成功经理一名。<br /><br />
+            <strong>2. 升级流程</strong> — 续约时直接选 Pro，原 Standard
+            余下时长按比例折算并入新合同。
+          </div>
+          <div class="prop-actions">
+            <button class="prop-cta">发送</button>
+            <button class="prop-secondary">编辑</button>
+            <button class="prop-secondary">重写</button>
+          </div>
+        </div>
+
+        <div class="done"><span class="dot"></span>3 tools · 1.49s</div>
+      </div>
+
+      <div class="turn">
+        <div class="av user">Q</div>
+        <div>顺便看下下周一到三我有没有空，约个 30 分钟。</div>
+      </div>
+
+      <div class="turn">
+        <div class="av bot">秘</div>
+        <div class="pr"><p>看一下日历。</p></div>
+
+        <div class="tool">
+          <div class="stat ok">
+            <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" /></svg>
+          </div>
+          <span class="tname">calendar.list</span>
+          <span class="targ">2026-05-18 ~ 2026-05-20</span>
+          <span class="dur">230ms</span>
+        </div>
+
+        <div class="pr" style="margin-top: 4px">
+          <p>下周一到三的空闲时段（避开你的午休）：</p>
+          <ul>
+            <li>
+              <code class="inl">周一 10:30</code> · 空闲 90 分钟 · <em>前后无紧贴会议，最佳时段</em>
+            </li>
+            <li><code class="inl">周二 15:00</code> · 空闲 60 分钟 · 16:00 有团队周会</li>
+            <li><code class="inl">周三 14:00</code> · 空闲 45 分钟 · 14:45 有产品评审</li>
+          </ul>
+        </div>
+
+        <div class="ni">
+          <div class="q">约哪个时段？</div>
+          <div class="opts">
+            <button class="opt">周一 10:30</button>
+            <button class="opt">周二 15:00</button>
+            <button class="opt">让我看其他</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="turn">
+        <div class="av user">Q</div>
+        <div>周一 10:30 吧。</div>
+      </div>
+
+      <div class="turn">
+        <div class="av bot">秘</div>
+        <div class="pr"><p>好。在发邀请前提醒下 —</p></div>
+
+        <div class="warn-inline">
+          <span class="m"></span>
+          <span class="b"
+            >Acme 的会议室政策需要主持人 ≥ P5 才能直发邀请。你现在是 P4，系统会要求
+            review。要继续吗？</span
+          >
+        </div>
+
+        <div class="tool">
+          <div class="stat run"><div class="spinner"></div></div>
+          <span class="tname">calendar.draft</span>
+          <span class="targ">2026-05-18 10:30 ~ 11:00<span class="cursor"></span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-wrap">
+      <div class="input-card">
+        <div class="input-meta">
+          <span class="ws">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"
+              />
+            </svg>
+            <span>~/Documents/Talor</span>
+          </span>
+          <span class="perm">权限：邮件 · 日历 · 文档</span>
+        </div>
+        <div class="input-text ph">给 秘书 发消息…</div>
+        <div class="input-bar">
+          <button class="input-btn" title="附件">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+              />
+            </svg>
+          </button>
+          <button class="input-btn" title="斜杠命令">
+            <svg viewBox="0 0 24 24"><line x1="19" y1="5" x2="5" y2="19" /></svg>
+          </button>
+          <button class="input-send">
+            发送 <span style="font-size: 10px; opacity: 0.6">↵</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<p class="subtitle" style="margin-top: 18px">
+  全部规则整合完毕。所有规范已经写到
+  <code
+    style="
+      background: #f4f4f5;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family:
+        SF Mono,
+        monospace;
+      font-size: 12.5px;
+    "
+    >docs/superpowers/specs/2026-05-15-workspace-ui-redesign.md</code
+  >
+  — 下一步走 writing-plans 出实施计划。
+</p>

@@ -1,0 +1,444 @@
+<h2>设置固定底部 · 结构修复</h2>
+<p class="subtitle">
+  设置从 session list 内部挪到 list 外面作为 sidebar 独立子元素。仍然<b>无 border-top</b>，但靠 flex
+  布局自然贴底。
+</p>
+
+<style>
+  .x {
+    --text: #09090b;
+    --body: #27272a;
+    --mute: #71717a;
+    --subtle: #a1a1aa;
+    --line: #e4e4e7;
+    --line-2: #f4f4f5;
+    --surface: #fafafa;
+    --canvas: #fff;
+    --ok: #16a34a;
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', sans-serif;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .case {
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .case-head {
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .case-head .lbl {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .case-head .lbl.b {
+    color: #dc2626;
+  }
+  .case-head .lbl.a {
+    color: var(--ok);
+  }
+  .case-head .name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .case-body {
+    background: var(--surface);
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+  }
+  .case-meta {
+    padding: 10px 16px;
+    font-size: 11.5px;
+    color: var(--mute);
+    line-height: 1.55;
+    background: var(--canvas);
+    border-top: 1px solid var(--line-2);
+  }
+
+  .sb {
+    width: 240px;
+    height: 420px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sb-drag {
+    height: 30px;
+    flex-shrink: 0;
+  }
+  .sb-bar {
+    margin: 0 14px 6px;
+    display: flex;
+    gap: 8px;
+  }
+  .sb-search {
+    flex: 1;
+    height: 30px;
+    padding: 0 10px;
+    background: var(--line-2);
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    color: var(--mute);
+  }
+  .sb-search svg {
+    width: 13px;
+    height: 13px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    fill: none;
+  }
+  .sb-plus {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--text);
+    color: var(--canvas);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .sb-group {
+    padding: 10px 16px 4px;
+    font-size: 10px;
+    color: var(--mute);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+  .sess {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    margin: 0 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .sess.active {
+    background: var(--canvas);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .av {
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    color: white;
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+  .av.b {
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+  }
+  .av.o {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+  }
+  .av.p {
+    background: linear-gradient(135deg, #8b5cf6, #a855f7);
+  }
+  .tt {
+    flex: 1;
+    min-width: 0;
+  }
+  .title {
+    font-size: 12.5px;
+    color: var(--text);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .submeta {
+    font-size: 10.5px;
+    color: var(--subtle);
+  }
+
+  .settings-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    margin: 0 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--mute);
+    font-size: 12.5px;
+  }
+  .settings-item:hover {
+    background: var(--line-2);
+    color: var(--text);
+  }
+  .settings-item svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .settings-item .kbd {
+    margin-left: auto;
+    font-family: 'SF Mono', monospace;
+    font-size: 10px;
+    color: var(--subtle);
+  }
+
+  /* BEFORE: settings inside scrollable list */
+  .b-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0 8px;
+  }
+  .b-empty {
+    color: #dc2626;
+    font-size: 10.5px;
+    text-align: center;
+    padding: 30px 0;
+    opacity: 0.7;
+  }
+
+  /* AFTER: settings outside list */
+  .a-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0 8px;
+  }
+  .a-settings-pin {
+    padding-bottom: 8px;
+  }
+
+  .arrow-l {
+    display: inline-block;
+    color: #dc2626;
+    font-weight: 700;
+  }
+  .annot {
+    position: absolute;
+  }
+</style>
+
+<div class="x">
+  <div class="row">
+    <!-- BEFORE -->
+    <div class="case">
+      <div class="case-head">
+        <div class="lbl b">BEFORE</div>
+        <div class="name">设置塞在 list 内部 → 短列表时悬浮在中间</div>
+      </div>
+      <div class="case-body">
+        <div class="sb">
+          <div class="sb-drag"></div>
+          <div class="sb-bar">
+            <div class="sb-search">
+              <svg viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+              ><span>搜索</span>
+            </div>
+            <div class="sb-plus">+</div>
+          </div>
+
+          <!-- 整个 list 含 settings 在内 -->
+          <div class="b-list">
+            <div class="sb-group">今天</div>
+            <div class="sess active">
+              <div class="av">秘</div>
+              <div class="tt">
+                <div class="title">本周客户回款</div>
+                <div class="submeta">秘书 · 刚刚</div>
+              </div>
+            </div>
+            <div class="sess">
+              <div class="av b">研</div>
+              <div class="tt">
+                <div class="title">竞品调研</div>
+                <div class="submeta">研究 · 2h</div>
+              </div>
+            </div>
+
+            <!-- 设置在 list 内 -->
+            <div class="settings-item" style="margin-top: 4px">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /></svg>
+              <span>设置</span>
+              <span class="kbd">⌘,</span>
+            </div>
+
+            <div class="b-empty">↓ 设置后面这一大片是空 list 区 ↓</div>
+          </div>
+        </div>
+      </div>
+      <div class="case-meta">
+        <b style="color: #dc2626">问题</b>：settings 是 list
+        子元素，会话少时它就跟着列表顶端一起停在中间，下方一大片空白。
+      </div>
+    </div>
+
+    <!-- AFTER -->
+    <div class="case">
+      <div class="case-head">
+        <div class="lbl a">AFTER</div>
+        <div class="name">设置作为 sidebar 子元素 → 永远贴底</div>
+      </div>
+      <div class="case-body">
+        <div class="sb">
+          <div class="sb-drag"></div>
+          <div class="sb-bar">
+            <div class="sb-search">
+              <svg viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" /></svg
+              ><span>搜索</span>
+            </div>
+            <div class="sb-plus">+</div>
+          </div>
+
+          <!-- list 只含 sessions，flex:1 撑满中间空间 -->
+          <div class="a-list">
+            <div class="sb-group">今天</div>
+            <div class="sess active">
+              <div class="av">秘</div>
+              <div class="tt">
+                <div class="title">本周客户回款</div>
+                <div class="submeta">秘书 · 刚刚</div>
+              </div>
+            </div>
+            <div class="sess">
+              <div class="av b">研</div>
+              <div class="tt">
+                <div class="title">竞品调研</div>
+                <div class="submeta">研究 · 2h</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- settings 是 sidebar 直接子元素，flex 布局推到底部 -->
+          <div class="a-settings-pin">
+            <div class="settings-item">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+                />
+              </svg>
+              <span>设置</span>
+              <span class="kbd">⌘,</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="case-meta">
+        <b style="color: var(--ok)">结构修复</b>：sb-list 用 flex:1 撑满，settings 作为 sidebar flex
+        column 的下一个子元素，自然贴底。仍然无 border-top — 视觉上"列表最后一项"。
+      </div>
+    </div>
+  </div>
+
+  <div
+    style="
+      margin-top: 24px;
+      padding: 18px 20px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    "
+  >
+    <div
+      style="
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--mute);
+        font-weight: 600;
+        margin-bottom: 10px;
+      "
+    >
+      结构对比
+    </div>
+    <div
+      style="
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        font-family: 'SF Mono', monospace;
+        font-size: 12px;
+        line-height: 1.7;
+        color: var(--body);
+      "
+    >
+      <div>
+        <div
+          style="
+            font-family: -apple-system, sans-serif;
+            font-size: 10.5px;
+            color: #dc2626;
+            font-weight: 600;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+          "
+        >
+          BEFORE — 嵌套错
+        </div>
+        &lt;sidebar&gt;<br />
+        &nbsp;&nbsp;&lt;drag /&gt;<br />
+        &nbsp;&nbsp;&lt;bar /&gt;<br />
+        &nbsp;&nbsp;&lt;list flex:1&gt;<br />
+        &nbsp;&nbsp;&nbsp;&nbsp;&lt;sessions /&gt;<br />
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #dc2626">&lt;settings /&gt;</span><br />
+        &nbsp;&nbsp;&lt;/list&gt;<br />
+        &lt;/sidebar&gt;
+      </div>
+      <div>
+        <div
+          style="
+            font-family: -apple-system, sans-serif;
+            font-size: 10.5px;
+            color: var(--ok);
+            font-weight: 600;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+          "
+        >
+          AFTER — 同级
+        </div>
+        &lt;sidebar flex column&gt;<br />
+        &nbsp;&nbsp;&lt;drag /&gt;<br />
+        &nbsp;&nbsp;&lt;bar /&gt;<br />
+        &nbsp;&nbsp;&lt;list flex:1&gt;<br />
+        &nbsp;&nbsp;&nbsp;&nbsp;&lt;sessions /&gt;<br />
+        &nbsp;&nbsp;&lt;/list&gt;<br />
+        &nbsp;&nbsp;<span style="color: var(--ok)">&lt;settings /&gt;</span>
+        <span style="color: var(--mute); font-family: -apple-system, sans-serif"
+          >← 跟 list 同级，被 flex 推到底</span
+        ><br />
+        &lt;/sidebar&gt;
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top: 18px">
+  这次对了。我会把这个结构修复同步到 final-v2 完整设计图 + spec 文档。
+</p>
