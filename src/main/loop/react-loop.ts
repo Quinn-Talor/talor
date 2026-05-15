@@ -176,7 +176,10 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   // L2 LLM reflector (按 ReflectAgent 模式实现, 独立 system prompt + Zod schema)。
   // requiresLLM=true 的 reflector 在 reflectModel=undefined 时被 runReflectorChain 跳过。
   const reflectModel = resolveReflectModel(opts.agent, opts.provider)
-  const lastL1Hinted = false
+  // mutable closure 跨 step 跟踪上步是否有 L1 reflector 输出 hint。
+  // EscalationReflector 用此判定 L1 hint 连续 N 步未生效 → 升级 LLM reflect。
+
+  let lastL1Hinted = false
   const reflectors: Reflector[] = [
     // pre-step
     new ContextBudgetReflector(),
@@ -284,6 +287,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       { ...commonReflectFields, phase: 'post-step', facts, outcome, raw: rawCtx },
       perTurnCounters,
     )
+
+    // 跟踪 L1 hint 注入: EscalationReflector 据此决定何时升级 LLM reflect。
+    lastL1Hinted =
+      midOut.kind === 'hint' &&
+      (midOut.from === 'failure-streak' || midOut.from === 'tool-only-loop')
 
     // 决策优先级: wrapUp > detectorBreak > directOutput(end) > policy > directOutput(continue) > hint
     if (midOut.wrapUp) {
