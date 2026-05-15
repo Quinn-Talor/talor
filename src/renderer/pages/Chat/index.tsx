@@ -659,19 +659,14 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         onOpenSettings={onOpenSettings}
       />
 
-      {/* ═══════════════════════════════════════════
-          CHAT AREA
-      ═══════════════════════════════════════════ */}
-      <div
-        className="flex-1 flex flex-col min-w-0"
-        style={{ background: 'linear-gradient(to bottom, #f8fafc, #f1f5f9)' }}
-      >
+      {/* Chat area — main panel (canvas bg, no gradient) */}
+      <div className="flex-1 flex flex-col min-w-0 bg-canvas">
         {currentSessionId ? (
           <>
-            {/* Top bar (52px, white) */}
+            {/* Top bar (44px, canvas + 1px line bottom — spec §7) */}
             <div
-              className="flex items-center gap-3 px-6 shrink-0"
-              style={{ height: 52, background: '#ffffff', borderBottom: '0.5px solid #e2e8f0' }}
+              className="flex items-center gap-2 px-[18px] shrink-0 bg-canvas border-b border-line"
+              style={{ height: 44 }}
             >
               {/* Agent selector */}
               <div className="relative" ref={agentPickerRef}>
@@ -1160,14 +1155,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               )}
             </div>
 
-            {/* Input area */}
-            <div
-              className="shrink-0 px-6 pb-4 pt-3"
-              style={{
-                background: 'linear-gradient(to bottom, #ffffff, #f8fafc)',
-                borderTop: '0.5px solid #e2e8f0',
-              }}
-            >
+            {/* Input area — symmetric padding, neutral bg, 1px line top (spec §13) */}
+            <div className="shrink-0 px-8 py-[14px] bg-canvas border-t border-line">
               {/* Attachment previews */}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
