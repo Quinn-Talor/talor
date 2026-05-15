@@ -146,15 +146,26 @@ export class JudgeCompletionReflector implements Reflector {
     log.warn(
       `[Reflect/judge-completion] complete=false (推翻 final), pending=${result.pendingItems.length}`,
     )
+    // chain 注入的本次触发计数 (1-based) + capabilities.maxPerTurn 上限
+    const idx = ctx.perTurnIndex ?? 1
+    const max = ctx.perTurnLimit ?? this.capabilities.maxPerTurn ?? 2
+    const counterTag = `${idx}/${max}`
+    const lastChanceNote =
+      idx >= max
+        ? `\n\nNOTE: This is supervision check ${counterTag} — the final allowed. ` +
+          `If you re-declare completion after this, it will pass through regardless.`
+        : ''
+
     return {
       internalNudge: {
         text:
-          `[Supervision check — automated quality review, not user input]\n` +
+          `[Supervision check ${counterTag} — automated quality review, not user input]\n` +
           `Your previous turn declared completion, but supervision detected the following items remain pending:\n` +
           result.pendingItems.map((p) => '- ' + p).join('\n') +
           `\n\nReason: ${result.reason}\n\n` +
           `MANDATORY: Address these pending items in your next response. ` +
-          `If a tool call is needed, issue it now. Do NOT re-declare completion until all items are resolved.`,
+          `If a tool call is needed, issue it now. Do NOT re-declare completion until all items are resolved.` +
+          lastChanceNote,
         label: '[reflection-judge]',
         reason: result.reason,
         // role=system: 主 LLM 视为系统级监督指令, 续做权威性 > 模拟用户/连续 assistant

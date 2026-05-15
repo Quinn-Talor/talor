@@ -97,15 +97,35 @@ describe('JudgeCompletionReflector', () => {
       }),
     })
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
-    const out = await r.reflect(turnEndCtx())
+    // chain 通常会注入 perTurnIndex; 这里手动塞模拟首次触发
+    const ctx = { ...turnEndCtx(), perTurnIndex: 1, perTurnLimit: 2 } as ReflectContext
+    const out = await r.reflect(ctx)
     expect(out?.internalNudge).toBeDefined()
     // 'system' 而非 'user' — reflect 是系统级监督, 不是用户输入
     // 不冒充用户避免 history 污染 + prompt injection 攻击面
     expect(out!.internalNudge!.role).toBe('system')
     expect(out!.internalNudge!.label).toBe('[reflection-judge]')
     expect(out!.internalNudge!.text).toContain('Y not done')
+    // counter 标记本次是 1/2
+    expect(out!.internalNudge!.text).toContain('Supervision check 1/2')
     // 关键: 不能是 userOutput, 否则会被 UI 渲染
     expect(out!.userOutput).toBeUndefined()
+  })
+
+  it('perTurnIndex 达 maxPerTurn → text 含 "last allowed" 提示', async () => {
+    mockGenerateText.mockResolvedValueOnce({
+      text: JSON.stringify({
+        complete: false,
+        pendingItems: ['x'],
+        reason: 'r',
+        confidence: 0.8,
+      }),
+    })
+    const r = new JudgeCompletionReflector({ sessionId: 's1' })
+    const ctx = { ...turnEndCtx(), perTurnIndex: 2, perTurnLimit: 2 } as ReflectContext
+    const out = await r.reflect(ctx)
+    expect(out!.internalNudge!.text).toContain('Supervision check 2/2')
+    expect(out!.internalNudge!.text).toContain('final allowed')
   })
 
   it('confidence < 0.5 → 丢弃 (放行 final)', async () => {

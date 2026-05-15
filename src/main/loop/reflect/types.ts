@@ -32,6 +32,10 @@ interface CommonFields {
   recentHistory: readonly StepOutcome[]
   /** 反思用 model (沿用主对话 model)。L1 / 不需要 LLM 的 reflector 忽略。 */
   reflectModel: LanguageModel
+  /** 本 reflector 在当前 turn 的触发次数 (1-based, 含本次). chain 注入. */
+  perTurnIndex?: number
+  /** 本 reflector capabilities.maxPerTurn (若声明). chain 注入. */
+  perTurnLimit?: number
 }
 
 export type ReflectContext =

@@ -295,36 +295,30 @@ export async function runForcedSummary(
 
 // ─── 三类 OPTS 工厂 ─────────────────────────────────────────────────────
 
+// 这三个 guardrail 假设 Principles 1-15 已在 prompt 链上游 (SystemPlugin).
+// 只声明本场景特有的额外约束 (禁工具 / 强制出文本 / 应援的具体话术).
+// 通用规则 (no fabrication / report verbatim) 不再重复, 减少 token + 防止漂移。
+
 const FALLBACK_GUARDRAIL: ModelMessage = {
   role: 'system',
   content:
-    '[Fallback summary mode — SILENCE IS NOT ALLOWED]\n' +
-    'You just made tool calls but produced no text output. The user is waiting and sees nothing. ' +
-    'You MUST output text in this turn. Empty response is forbidden. ' +
-    'Report to the user what you did and what was observed, ' +
-    '**using only the content inside the <tool_output> tags above**. Strict rules:\n' +
-    '1. Do not call any tools.\n' +
-    '2. Do not invent facts, paths, file names, or numbers that did not appear in tool_output.\n' +
-    '3. If any tool returned an error (File not found / [exit: non-zero] / ERROR / missing_scope / etc.), ' +
-    'state the failure verbatim AND quote the exact error message. Do not pretend it succeeded.\n' +
-    '4. If the tool results are insufficient for a meaningful answer, say explicitly: "Task not completed because ...".\n' +
-    '5. If you genuinely have nothing to say, you MUST still output the single sentence: ' +
-    '"I have no useful output to provide here. The last tool result was: <one-line summary>. Please advise." ' +
-    'Silence is a bug. Always speak.',
+    '[Fallback summary mode — tools disabled, silence forbidden]\n' +
+    'This turn ended without producing any text for the user. You must now output ' +
+    'a brief summary based solely on the <tool_output> blocks already in context.\n' +
+    'If tool outputs are insufficient, write exactly: ' +
+    '"I have no useful output to provide here. The last tool result was: <one-line summary>. Please advise."',
 }
 
 const FAILURE_STREAK_GUARDRAIL: ModelMessage = {
   role: 'system',
   content:
-    '[Tool failure recovery mode]\n' +
-    'You just had 3 consecutive tool calls that all failed. To prevent further wasted attempts, ' +
-    'tools are now disabled for this final response. You MUST output text explaining to the user:\n' +
-    '1. What you were trying to accomplish.\n' +
-    '2. Each tool call you made and the verbatim error it returned.\n' +
-    '3. Why you believe it kept failing (e.g., file does not exist, missing permission, wrong path).\n' +
-    '4. What the user can do next (provide more info / different approach / accept partial result).\n' +
-    'Quote error text exactly as it appeared in <tool_output>. Do not invent facts. Do not pretend ' +
-    'anything succeeded. If you genuinely have nothing useful to say, output the single sentence: ' +
+    '[Tool failure recovery mode — tools disabled]\n' +
+    'Three consecutive tool calls failed. Tools are now disabled. Output text covering:\n' +
+    '  1. The goal you were trying to accomplish.\n' +
+    '  2. Each tool error verbatim (quoted from <tool_output>).\n' +
+    '  3. Likely root cause (wrong path / missing permission / bad arg / wrong tool).\n' +
+    '  4. What the user can do next.\n' +
+    'If nothing useful to say, write exactly: ' +
     '"I was unable to complete the task because <verbatim summary of last tool error>. Please advise."',
 }
 
@@ -370,25 +364,17 @@ export function signatureDeadLoopSummaryOpts(
   const SIGNATURE_DEAD_LOOP_GUARDRAIL: ModelMessage = {
     role: 'system',
     content:
-      `[Signature dead-loop recovery mode]\n` +
-      `You called the SAME tool with the SAME inputs and got the SAME ` +
-      `${isError ? 'error' : 'result'} ${repeatCount + 1} times in a row. ` +
-      `Continuing would waste resources. Tools are now DISABLED for this final ` +
-      `response. You MUST output text explaining to the user:\n` +
-      `1. The exact tool + input you kept repeating (signature: ${signature}).\n` +
-      `2. The verbatim ${isError ? 'error' : 'output'} from the most recent tool result.\n` +
-      `3. Why you believe the tool kept ${isError ? 'rejecting' : 'returning the same answer'} ` +
-      `(e.g., wrong syntax/dialect, missing permission, malformed argument, ` +
-      `or task is genuinely impossible with this tool).\n` +
-      `4. What the user can do next (different approach, manual workaround, ask for help).\n` +
-      `Quote the error/output text exactly. Do not invent facts. Do not pretend it worked. ` +
-      `End your reply with a talor block (preferred):\n` +
+      `[Signature dead-loop recovery mode — tools disabled]\n` +
+      `Same tool + same input + same ${isError ? 'error' : 'result'} ${repeatCount + 1} times in a row. Output text covering:\n` +
+      `  1. The repeated signature: ${signature}.\n` +
+      `  2. The verbatim ${isError ? 'error' : 'output'} from the most recent <tool_output>.\n` +
+      `  3. Likely cause (wrong syntax/dialect, permission, argument shape, impossible task).\n` +
+      `  4. Concrete next step the user can take.\n` +
+      `End your reply with a talor block:\n` +
       '  ```talor\n' +
-      '  {"type":"need_input","question":"<what info / decision you need from user>"}\n' +
+      '  {"type":"need_input","question":"<what you need from user>"}\n' +
       '  ```\n' +
-      '  or {"type":"blocked","reason":"<the blocker>","can_retry":false}\n\n' +
-      `Legacy text marker (fallback, weaker models): last line "❓ Need input — <...>" ` +
-      `or "⏸ Blocked — <...>".`,
+      '  or {"type":"blocked","reason":"<the blocker>","can_retry":false}',
   }
 
   return {

@@ -43,7 +43,14 @@ export async function runReflectorChain(
       continue
     }
 
-    const out = await r.reflect(ctx).catch((err) => {
+    // 注入 perTurnIndex/perTurnLimit 让 reflector 可以在 user-facing text 中
+    // 标注 "Supervision check N/M" 之类的 counter, 让主 LLM 知道边界。
+    const ctxWithCounter = {
+      ...ctx,
+      perTurnIndex: used + 1,
+      perTurnLimit: r.capabilities.maxPerTurn,
+    } as ReflectContext
+    const out = await r.reflect(ctxWithCounter).catch((err) => {
       log.warn(`[Reflect/${r.name}] threw:`, err)
       return null
     })

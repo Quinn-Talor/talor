@@ -434,9 +434,6 @@ describe('runForcedSummary', () => {
       expect(guardrail).toMatch(/```talor/)
       expect(guardrail).toContain('"type":"need_input"')
       expect(guardrail).toContain('"type":"blocked"')
-      // legacy fallback 保留
-      expect(guardrail).toContain('❓ Need input')
-      expect(guardrail).toContain('⏸ Blocked')
       // signature 仍透传给模型 (重要诊断信息)
       expect(guardrail).toContain('tool#a:b')
     })
