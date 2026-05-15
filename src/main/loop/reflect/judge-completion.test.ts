@@ -125,7 +125,7 @@ describe('JudgeCompletionReflector', () => {
     const ctx = { ...turnEndCtx(), perTurnIndex: 2, perTurnLimit: 2 } as ReflectContext
     const out = await r.reflect(ctx)
     expect(out!.internalNudge!.text).toContain('Supervision check 2/2')
-    expect(out!.internalNudge!.text).toContain('final allowed')
+    expect(out!.internalNudge!.text).toContain('Last allowed supervision')
   })
 
   it('confidence < 0.5 → 丢弃 (放行 final)', async () => {
@@ -308,6 +308,92 @@ describe('JudgeCompletionReflector', () => {
         recentHistory: makeHistory([['mysql_query']]),
         outcome: {
           stepText: '查询返回 5 行: alice (admin), bob (user), ...',
+          toolNames: [],
+        } as never,
+      })
+      expect(await r.reflect(ctx)).toBeNull()
+      expect(mockGenerateText).not.toHaveBeenCalled()
+    })
+
+    // ── 信号 E: 完整性 claim — 抓开放探索 final 主观判定 "完整" ──
+    it('信号 E: 完整性 claim ("齐全了") + 长 trajectory (>=5 步) → 调 LLM', async () => {
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
+      })
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      // 截图场景: 开放探索 + 大量工作 + 主观完整宣告
+      const ctx = turnEndCtx({
+        userIntent: '看看 game 数据库',
+        recentHistory: makeHistory([
+          ['mysql_query'],
+          ['mysql_query', 'mysql_query'],
+          ['mysql_query'],
+          ['mysql_query', 'mysql_query', 'mysql_query'],
+          ['mysql_query'],
+        ]), // 5 步 + 多工具
+        outcome: { stepText: '数据齐全了！all tables covered。', toolNames: [] } as never,
+      })
+      await r.reflect(ctx)
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
+
+    it('信号 E 各完整性词都命中: 齐全 / 完整 / 完毕 / 所有 / 全部 / 整理好 / 都查 / covered all / fully', async () => {
+      const claims = [
+        '数据齐全了',
+        '完整地探索完毕',
+        '所有表都查到了',
+        '全部字段都列出来了',
+        '已整理好',
+        '都查完了',
+        'covered all tables',
+        'fully explored the schema',
+      ]
+      for (const final of claims) {
+        mockGenerateText.mockReset()
+        mockGenerateText.mockResolvedValueOnce({
+          text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
+        })
+        const r = new JudgeCompletionReflector({ sessionId: 's1' })
+        const ctx = turnEndCtx({
+          userIntent: '看看数据库',
+          recentHistory: makeHistory([
+            ['mysql_query'],
+            ['mysql_query'],
+            ['mysql_query'],
+            ['mysql_query'],
+            ['mysql_query'],
+          ]),
+          outcome: { stepText: final, toolNames: [] } as never,
+        })
+        await r.reflect(ctx)
+        expect(mockGenerateText, `claim "${final}" should trigger judge`).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    it('信号 E: 短 trajectory (<5 步) 即使含完整性 claim → 不触发 (短任务豁免)', async () => {
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      const ctx = turnEndCtx({
+        userIntent: '查这张表',
+        recentHistory: makeHistory([['mysql_query']]), // 仅 1 步
+        outcome: { stepText: '查询完毕, 所有数据都拿到了。', toolNames: [] } as never,
+      })
+      expect(await r.reflect(ctx)).toBeNull()
+      expect(mockGenerateText).not.toHaveBeenCalled()
+    })
+
+    it('信号 E: 长 trajectory 但 final 不含完整性 claim → 不触发 (健康路径)', async () => {
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      const ctx = turnEndCtx({
+        userIntent: '看看数据库',
+        recentHistory: makeHistory([
+          ['mysql_query'],
+          ['mysql_query'],
+          ['mysql_query'],
+          ['mysql_query'],
+          ['mysql_query'],
+        ]),
+        outcome: {
+          stepText: '已查询 15 张表 schema, 未深入索引详情, 要继续吗?',
           toolNames: [],
         } as never,
       })

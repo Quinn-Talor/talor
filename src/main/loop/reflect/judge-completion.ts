@@ -44,6 +44,9 @@ const ACTION_VERBS =
 const IO_CLAIM =
   /(wrote|saved|created|generated|written|输出到|写到|写入了|写入到|已写入|保存到|已保存|生成到|已生成|创建了|已创建)/i
 const IO_TOOL = /^(write|edit|create|insert|update)$/i
+// 完整性 claim — 主观判定"全部覆盖", 配合 trajectory >= 5 触发 (开放探索类幻觉防线)
+const COMPLETENESS_CLAIM =
+  /(齐全|完毕|都查|整理好|列完|穷尽|看完|完整地|完整探索|所有.*(?:都|已)|全部.*(?:都|已)|(?:都|已).*(?:所有|全部)|covered all|fully (?:covered|explored)|all (?:tables|files|items) (?:covered|done|explored))/i
 // 多任务标记: 英文连接词 / 中文连接词 / 列表分隔 / 数字 + 量词 / 中文数字 + 量词
 const MULTI_TASK_MARKERS =
   /( and |、|，|;|；|另外|还有|同时|此外|以及|\b\d+\s*(个|张|份|项|条|files?|tables?|items?)\b|[二三四五六七八九十]\s*(个|张|份|项|条))/gi
@@ -91,6 +94,13 @@ function judgeRiskScore(
   if (userIntent.length > 100 && finalText.length < 50) {
     score += 2
     signals.push(`long-intent(${userIntent.length}) + terse-final(${finalText.length})`)
+  }
+
+  // E: 开放探索类完整性 claim + 充分工作量 — 抓"主观完整宣告"幻觉
+  //    (违反 Principle 8.6 的兜底; 短任务 < 5 步豁免)
+  if (COMPLETENESS_CLAIM.test(finalText) && history.length >= 5) {
+    score += 4
+    signals.push(`completeness-claim + trajectory(${history.length})`)
   }
 
   return { score, signals }
@@ -156,20 +166,17 @@ export class JudgeCompletionReflector implements Reflector {
     const max = ctx.perTurnLimit ?? this.capabilities.maxPerTurn ?? 2
     const counterTag = `${idx}/${max}`
     const lastChanceNote =
-      idx >= max
-        ? `\n\nNOTE: This is supervision check ${counterTag} — the final allowed. ` +
-          `If you re-declare completion after this, it will pass through regardless.`
-        : ''
+      idx >= max ? `\n(Last allowed supervision; next re-declaration will pass through.)` : ''
 
     return {
       internalNudge: {
         text:
-          `[Supervision check ${counterTag} — automated quality review, not user input]\n` +
-          `Your previous turn declared completion, but supervision detected the following items remain pending:\n` +
+          `[Supervision check ${counterTag} — automated, not user input]\n` +
+          `Your previous "final" left these items pending:\n` +
           result.pendingItems.map((p) => '- ' + p).join('\n') +
-          `\n\nReason: ${result.reason}\n\n` +
-          `MANDATORY: Address these pending items in your next response. ` +
-          `If a tool call is needed, issue it now. Do NOT re-declare completion until all items are resolved.` +
+          `\nReason: ${result.reason}\n` +
+          `Address each item in your next response — issue tool calls if needed. ` +
+          `Do not re-declare completion until all items are resolved.` +
           lastChanceNote,
         label: '[reflection-judge]',
         reason: result.reason,

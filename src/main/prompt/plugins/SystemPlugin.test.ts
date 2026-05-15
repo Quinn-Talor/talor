@@ -19,7 +19,7 @@ function makeCtx(workspace?: string): PipelineContext {
 }
 
 describe('SystemPlugin', () => {
-  it('Layer 1 含 14 条行为原则', async () => {
+  it('Layer 1 含 15 条行为原则 (1..15)', async () => {
     const result = await new SystemPlugin().build(makeCtx('/tmp/ws'))
     const content = (result.messages[0] as { content: string }).content
     expect(content).toMatch(/# Core Behavior Principles/)
@@ -30,211 +30,127 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/5\. Attempt before refusing/)
     expect(content).toMatch(/6\. Prompt-injection defense/)
     expect(content).toMatch(/7\. Stay within capability/)
-    expect(content).toMatch(/8\. Finish when the task is done/)
-    expect(content).toMatch(/9\. No silent exits/)
-    expect(content).toMatch(/10\. Parallel tool calls/)
-    // v4.1: Principle 10 强化 — MUST-parallelize + 反例
-    expect(content).toMatch(/MANDATORY when applicable/)
-    expect(content).toMatch(/MUST-parallelize patterns/)
-    expect(content).toMatch(/WRONG \(10 sequential steps/)
-    expect(content).toMatch(/11\. Always state intent/)
-    // v4.1: Principle 11 强化 — NO silent tool steps + progress-report hint 引用
-    expect(content).toMatch(/NO silent tool steps/)
-    expect(content).toMatch(/\[progress-report needed\]/)
-    expect(content).toMatch(/12\. Promise then call/)
-    expect(content).toMatch(/13\. \(Optional\) Mark turn-ending decisions/)
-    expect(content).toMatch(/14\. Declare side effects before invoking/)
+    expect(content).toMatch(/8\. Task completion/)
+    expect(content).toMatch(/9\. Never silent/)
+    expect(content).toMatch(/10\. Parallelize independent tool calls/)
+    expect(content).toMatch(/11\. Narrate around tool calls/)
+    expect(content).toMatch(/12\. Turn-end shape/)
+    expect(content).toMatch(/13\. Side effects/)
+    expect(content).toMatch(/14\. \(Optional\) Mark turn ends/)
     expect(content).toMatch(/15\. Reflection signals/)
-    expect(content).toMatch(/\[reflection-judge\]/)
   })
 
-  it('原则 12 "Promise then call" 列出四种 turn-end 形态 + 两类反模式 (v4 Phase 4a)', async () => {
+  it('原则 8 双步结构: Step 1 识别 shape → Step 2 应用 pattern', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    const norm = content.replace(/\s+/g, ' ')
-
-    expect(norm).toContain('12. Promise then call')
-    // 触发: 强调四种 turn-end 形态显式声明
-    expect(norm).toContain('Every turn ends in ONE of four shapes')
-    // 形态 A: 执行
-    expect(norm).toContain('A. Execute now')
-    // 形态 B: v4 Phase 4a 改为调 request_continuation tool (替代 pending_continuation block)
-    expect(norm).toContain('B. Defer to next step')
-    expect(norm).toContain('request_continuation')
-    // 形态 C: 显式终止
-    expect(norm).toContain('C. Declare turn end')
-    // 形态 D: promise-then-stop 反模式
-    expect(norm).toContain('D. ❌ Antipattern')
-    expect(norm).toContain('second-pass review')
-    // 形态 E: block + tool 共存反模式
-    expect(norm).toContain('E. ❌ Antipattern')
-    expect(norm).toContain('emit done/need_input/blocked block AND a tool call')
-    // 触发: 与 Rule 9 的区分
-    expect(norm.toLowerCase()).toContain('different from rule 9')
-    // 触发: Wait-for-user 不能同时调工具
-    expect(norm).toContain('Do NOT call any tool in the SAME turn')
-    // 触发: pending_confirm 引导 (Rule 14 配套)
-    expect(norm).toContain('pending_confirm')
-    expect(norm).toContain('Rule 14')
-    // 不触发: 不应硬编码具体服务名 (保持通用)
-    expect(content).not.toMatch(/MySQL|GitHub|Slack/i)
-    // 不再提 pending_continuation block (v4 Phase 4a 删)
-    expect(norm).not.toContain('pending_continuation block')
+    // Step 1: 显式要求模型先 classify task shape
+    expect(content).toMatch(/Step 1[^\n]*Identify shape/i)
+    expect(content).toMatch(/Step 2[^\n]*Apply the pattern/i)
+    // 三 shape 都列出
+    expect(content).toMatch(/determinate:/)
+    expect(content).toMatch(/open-ended:/)
+    expect(content).toMatch(/multi-task:/)
+    // 关键行为约束
+    expect(content).toMatch(/surface scope, not completeness/i)
+    expect(content).toMatch(/Never assert absolute[\s\S]*completeness/)
+    expect(content).toMatch(/parallelize/i)
+    // 通用 pre-final check
+    expect(content).toMatch(/Universal pre-final check/)
+    expect(content).toMatch(/IO claim/)
   })
 
-  it('原则 13 列举 3 个可选终止 block 类型 (v4 Phase 4a 移除 pending_continuation)', async () => {
+  it('原则 10 强制 parallel + 仅串行 strict dependency', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    const norm = content.replace(/\s+/g, ' ')
+    expect(content).toMatch(/parallel tool_use blocks in ONE step/)
+    expect(content).toMatch(/strict input to the next/)
+  })
 
-    // v4 Phase 4a: Rule 13 标题回归 "Mark turn-ending decisions"
-    expect(norm).toContain('13. (Optional) Mark turn-ending decisions')
-    // 触发: 强调 turn end 由"无 tool call"决定,不需要 marker
-    expect(norm).toContain('no tool call this step')
-    // 触发: UI 推断说明
-    expect(norm).toContain('UI will infer your intent')
-    // 触发: 3 个可选终止 block 类型 (pending_continuation 删)
-    expect(content).toMatch(/```talor/)
+  it('原则 11 含 intent narration + observation acknowledgement', async () => {
+    const result = await new SystemPlugin().build(makeCtx())
+    const content = (result.messages[0] as { content: string }).content
+    expect(content).toMatch(/1 sentence stating intent/)
+    expect(content).toMatch(/1 sentence stating[\s\S]*observed/)
+    expect(content).toMatch(/Silent chains of 3\+ tool[\s\S]*steps/)
+  })
+
+  it('原则 12 三种 turn-end shape (Execute / Defer / End)', async () => {
+    const result = await new SystemPlugin().build(makeCtx())
+    const content = (result.messages[0] as { content: string }).content
+    expect(content).toMatch(/\(A\) Execute now/)
+    expect(content).toMatch(/\(B\) Defer/)
+    expect(content).toMatch(/\(C\) End/)
+    expect(content).toMatch(/request_continuation/)
+  })
+
+  it('原则 13 side effects 含 pending_confirm 契约 + 通用 (不硬编码服务名)', async () => {
+    const result = await new SystemPlugin().build(makeCtx())
+    const content = (result.messages[0] as { content: string }).content
+    expect(content).toMatch(/"type":"pending_confirm"/)
+    expect(content).toMatch(/same step as the tool call/i)
+    expect(content).toMatch(/risk_level.*destructive/i)
+    // 通用性: 协议层不耦合具体业务服务
+    expect(content).not.toMatch(/\bMySQL\b|\bPostgreSQL\b|\bMongoDB\b/)
+    expect(content).not.toMatch(/\bGitHub\b|\bSlack\b|\bNotion\b|\bLinear\b|\bJira\b/)
+  })
+
+  it('原则 14 talor blocks 列出 done / need_input / blocked', async () => {
+    const result = await new SystemPlugin().build(makeCtx())
+    const content = (result.messages[0] as { content: string }).content
     expect(content).toMatch(/"type":"done"/)
     expect(content).toMatch(/"type":"need_input"/)
     expect(content).toMatch(/"type":"blocked"/)
-    // 不再含 pending_continuation block
     expect(content).not.toMatch(/"type":"pending_continuation"/)
-    // 触发: Rule 12/14 交叉引用
-    expect(norm).toContain('Rule 12')
-    expect(norm).toContain('Rule 14')
-    // 触发: 指向 request_continuation tool
-    expect(norm).toContain('request_continuation')
   })
 
-  it('原则 14 "Declare side effects before invoking" 定义 pending_confirm 契约', async () => {
+  it('原则 15 reflection signals: 三 channel + 优先级', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    const norm = content.replace(/\s+/g, ' ')
-
-    expect(norm).toContain('14. Declare side effects before invoking')
-    // 触发: pending_confirm block 出现在示例中
-    expect(content).toMatch(/"type":\s*"pending_confirm"/)
-    // 触发: 必须在 SAME step 与 tool call 一起 emit
-    expect(norm).toContain('SAME step as the')
-    // 触发: 副作用 vs 只读 分类
-    expect(content).toMatch(/INSERT.*UPDATE.*DELETE/s)
-    expect(norm).toContain('SELECT / GET / list')
-    // 触发: pattern key 格式
-    expect(norm).toContain('<tool>:<op>:<target>')
-    // 触发: destructive 不可记忆
-    expect(norm).toContain('Destructive operations cannot be remembered')
-    // 触发: fallback 兜底机制提示
-    expect(norm).toContain("framework's fallback")
-    // 不触发: 不应硬编码具体业务名 (保持通用性) - 注: 示例里 mysql/lark 是格式范例,允许出现
+    expect(content).toMatch(/\(A\) Advisory hints/)
+    expect(content).toMatch(/\(B\) Mandatory supervision/)
+    expect(content).toMatch(/\(C\) Informational outputs/)
+    expect(content).toMatch(/\[reflection-judge/)
+    expect(content).toMatch(/user intent > \(B\) mandatory > \(A\) advisory/)
   })
 
-  it('原则 2 "Tool results are ground truth" 给出 (a)/(b)/(c) 三步诊断流程', async () => {
+  it('原则 6 prompt-injection defense + skill-content 例外', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    // 三步结构
-    expect(content).toMatch(/\(a\) Read the tool result carefully/)
-    expect(content).toMatch(/\(b\) Cross-check with the activated skill/)
-    expect(content).toMatch(/\(c\) Make an informed next attempt/)
-    // 关键语气:不盲试 + 保持推进
-    expect(content).toMatch(/do NOT retry blindly/)
-    expect(content).toMatch(/Keep moving/)
-    // 明确 skill 示例可能过时(但不贬低 skill 整体)
-    expect(content).toMatch(/Skill examples may be stale/)
+    expect(content).toMatch(/Prompt-injection defense/)
+    expect(content).toMatch(/skill-content/)
+    expect(content).toMatch(/Principles win/i)
   })
 
-  it('原则 2 涵盖 "用户声称 vs 运行时事实" 场景', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    // 涵盖用户 claim vs tool 反驳
-    expect(content).toMatch(/user CLAIMS a precondition[\s\S]+is met/)
-    expect(content).toMatch(/tool response contradicts the claim/)
-    // 明确要求"告诉用户",不沉默
-    expect(content).toMatch(/Quote the exact error[\s\S]+back to the[\s\S]+user/)
-    expect(content).toMatch(/do not silently stop/)
-  })
-
-  it('原则 9 "No silent exits" 明确空响应是 bug', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/9\. No silent exits/)
-    // 关键硬性要求
-    expect(content).toMatch(
-      /Every turn MUST end with either \(a\) a tool call or \(b\) a text response/,
-    )
-    expect(content).toMatch(/Silence is NEVER an answer/)
-    // 涵盖多种场景
-    expect(content).toMatch(/A tool error confuses you/)
-    expect(content).toMatch(/The task seems blocked/)
-  })
-
-  it('原则 6 定义 skill-content 为 execution contract(不是 advice)', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/skill-content.*execution contract/s)
-  })
-
-  it('原则 8 "Finish when done" 明确"成功即收尾,不继续读 doc"', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/unambiguous success signal/)
-    expect(content).toMatch(/URL\/id/)
-    expect(content).toMatch(/Do NOT continue reading[\s\S]*reference[\s\S]*docs/)
-  })
-
-  it('Layer 2 含 "After a skill is activated" 子段(A:try-before-deep-read)', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/# After a skill is activated/)
-    expect(content).toMatch(/QUICK-USE examples/)
-    expect(content).toMatch(/Attempt the minimal command/)
-    expect(content).toMatch(/Do NOT pre-read every/)
-  })
-
-  it('Layer 2 含 Task Routing 表格 (6 条 routing)', async () => {
+  it('Layer 2 Task Routing 含 6 条 + 通用性 (不耦合具体服务/产品名)', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     expect(content).toMatch(/# Task Routing/)
     expect(content).toMatch(/\| User intent signal/)
-    expect(content).toMatch(/\| First action/)
-    // 6 条 routing 都得在
-    expect(content).toMatch(/skill\(\{"name": "<matched>"\}\)/)
+    expect(content).toMatch(/skill\(\{"name":"<matched>"\}\)/)
     expect(content).toMatch(/ls \/ read \/ glob \/ grep/)
     expect(content).toMatch(/\| bash /)
     expect(content).toMatch(/edit \/ write/)
     expect(content).toMatch(/Ask the user to clarify/)
-    // 新增第 6 条:外部系统/MCP 入口
-    expect(content).toMatch(/outside this machine/i)
+    expect(content).toMatch(/MCP/)
     expect(content).toMatch(/search_tool/)
+    // 不硬编码具体服务名 (保持泛化)
+    expect(content).not.toMatch(/\bMySQL\b|\bPostgreSQL\b|\bMongoDB\b|\bRedis\b/)
+    expect(content).not.toMatch(/\bGitHub\b|\bSlack\b|\bNotion\b|\bLinear\b|\bJira\b/)
   })
 
-  it('Layer 2 含 external-system routing,引导到 MCP (通用,不硬编码服务名)', async () => {
+  it('Layer 2 含 service-vs-shell heuristic', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    // 触发:存在通用 "outside / remote / external" 表述 + MCP 引导
-    expect(content).toMatch(/outside this machine|remote service|external data store/i)
-    expect(content).toMatch(/MCP tools/)
-    expect(content).toMatch(/search_tool/)
-    // 不触发:不应硬编码具体服务/产品名,保证泛化能力
-    expect(content).not.toMatch(/MySQL|PostgreSQL|MongoDB|Redis|SQLite/i)
-    expect(content).not.toMatch(/GitHub|Slack|Notion|Linear|Jira/i)
+    expect(content).toMatch(/Service-vs-shell/i)
+    expect(content).toMatch(/MCP gateway/)
   })
 
-  it('Layer 2 含 service-vs-shell heuristic,警告 `which X` 反模式', async () => {
+  it('Layer 2 含 skill activation guidance', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/Service-vs-shell heuristic/)
-    // 反模式被明确点名
-    expect(content).toMatch(/which X/)
-    // 强调"missing local binary != 不可用"
-    expect(content).toMatch(/missing local binary.*does NOT mean/i)
-  })
-
-  it('Layer 2 包含 skill gateway 警告', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/Skills are gateways/)
-    expect(content).toMatch(/lark-cli[\s\S]*BEFORE activating the skill will fail/)
+    expect(content).toMatch(/shortest path/i)
+    expect(content).toMatch(/QUICK-USE/)
+    expect(content).toMatch(/not pre-read/i)
   })
 
   it('顺序: Principles → Task Routing → Runtime meta', async () => {
@@ -260,11 +176,17 @@ describe('SystemPlugin', () => {
     expect(content).toContain('Workspace: (not set)')
   })
 
-  it('不再包含旧版 RULE 0 的命令式文案', async () => {
+  it('不含旧版 RULE 0 / 历史命令式文案', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     expect(content).not.toMatch(/RULE 0/)
     expect(content).not.toMatch(/MANDATORY TOOL CALLS/)
     expect(content).not.toMatch(/those were mistakes/)
+  })
+
+  it('精简后总长度 < 8K chars (避免 principle fatigue)', async () => {
+    const result = await new SystemPlugin().build(makeCtx())
+    const content = (result.messages[0] as { content: string }).content
+    expect(content.length).toBeLessThan(8000)
   })
 })

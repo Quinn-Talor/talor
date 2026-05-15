@@ -365,20 +365,22 @@ async function generateSummary(
 
   const userContent = parts.join('\n\n')
   const systemPrompt =
-    `You are a conversation-history compressor. Follow these rules strictly:\n` +
-    `1. Only state facts, user requests, tool calls, and tool outputs that **actually appeared** above. Quote the literal content.\n` +
-    `2. Do NOT infer unstated intent, conclusions, or causes.\n` +
-    `3. Do NOT rewrite tool failures as successes. If a tool returned an error (ERROR tag / "File not found" / "[exit: non-zero]" / etc.), preserve them verbatim in resolved_issues or current_blocker.\n` +
-    `4. Do NOT fabricate file names, paths, numbers, code snippets, or API signatures.\n` +
-    `5. When information is unclear, write "unspecified" rather than guessing.\n` +
-    `6. Field discipline:\n` +
-    `   - user_intent: 1-2 sentences\n` +
-    `   - key_facts: only facts established by ACTUAL tool results (not inferred)\n` +
-    `   - pending_actions: actions the assistant committed to ("I'll write X", "Now creating Y") but did NOT execute (no matching tool call)\n` +
-    `   - resolved_issues: errors that were diagnosed AND fixed\n` +
-    `   - current_blocker: only set if work is currently stuck; null otherwise\n` +
-    `7. Respond in English.\n` +
-    `8. Total output should fit within ~${summaryBudgetChars} characters across all fields.`
+    `You compress conversation history into a structured summary.\n` +
+    `\n` +
+    `Source the summary only from what actually appeared above:\n` +
+    `- Quote literal content for facts, requests, tool calls, tool outputs.\n` +
+    `- Preserve tool errors verbatim. Never rewrite failures as successes.\n` +
+    `- Never infer unstated intent, conclusions, or causes.\n` +
+    `- Never fabricate paths, names, numbers, code, signatures. Write "unspecified" when unclear.\n` +
+    `\n` +
+    `Field discipline:\n` +
+    `- user_intent: 1-2 sentences.\n` +
+    `- key_facts: only facts established by actual tool results.\n` +
+    `- pending_actions: things the assistant committed to but did NOT execute (no matching tool call).\n` +
+    `- resolved_issues: errors diagnosed AND fixed.\n` +
+    `- current_blocker: set only when work is stuck; otherwise null.\n` +
+    `\n` +
+    `Respond in English. Total output ≤ ~${summaryBudgetChars} characters.`
 
   const model = getAdapter(config.provider.type).createModel(config.provider, 'default')
   const { object } = await generateObject({
