@@ -22,8 +22,13 @@
     "typecheck:preload": "tsc --noEmit -p tsconfig.preload.json",
     "typecheck:renderer": "tsc --noEmit -p tsconfig.json",
     "typecheck": "npm run typecheck:main && npm run typecheck:preload && npm run typecheck:renderer",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "rebuild:electron": "electron-builder install-app-deps",
+    "rebuild:node": "npm rebuild better-sqlite3 --build-from-source",
+    "postinstall": "npm run rebuild:electron",
+    "predev": "npm run rebuild:electron",
+    "prebuild": "npm run rebuild:electron",
+    "test": "npm run rebuild:node && (vitest run; rc=$?; npm run rebuild:electron; exit $rc)",
+    "test:watch": "npm run rebuild:node && vitest",
     "prepare": "husky"
   },
   "dependencies": {
