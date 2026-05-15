@@ -59,25 +59,17 @@ describe('ContextBudgetReflector', () => {
     expect(out!.hint!).toMatch(/^\[CONTEXT NEARLY FULL\]/)
   })
 
-  it('ratio >= 1.0 → 调 FriendlyHaltAgent + directOutput end', async () => {
-    mockGenerateText.mockResolvedValueOnce({
-      text: JSON.stringify({ friendlyMessage: 'Sorry, ran out of context. Try smaller task.' }),
-    })
+  it('ratio >= 1.0 → directOutput end, 硬编码文案 (零 LLM 调用)', async () => {
     const r = new ContextBudgetReflector()
     const out = await r.reflect(preCtx({ estimatedTokens: 200, contextLimit: 100 }))
     expect(out?.directOutput).toBeDefined()
     expect(out!.directOutput!.endTurn).toBe(true)
     expect(out!.directOutput!.label).toBe('[auto-halt]')
-    expect(out!.directOutput!.text).toContain('Sorry, ran out of context')
+    expect(out!.directOutput!.text).toMatch(/Context window exceeded/)
+    expect(out!.directOutput!.text).toContain('200/100')
     expect(out!.directOutput!.exitReason).toBe('context_overflow')
-    expect(mockGenerateText).toHaveBeenCalledTimes(1)
-  })
-
-  it('FriendlyHalt LLM 调用失败 → fallback 硬编码', async () => {
-    mockGenerateText.mockRejectedValueOnce(new Error('LLM down'))
-    const r = new ContextBudgetReflector()
-    const out = await r.reflect(preCtx({ estimatedTokens: 200, contextLimit: 100 }))
-    expect(out?.directOutput!.text).toMatch(/Context window exceeded/)
+    // 关键: 降级后绝不调 LLM
+    expect(mockGenerateText).not.toHaveBeenCalled()
   })
 
   it('warnRatio 自定义阈值', async () => {

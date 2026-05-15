@@ -24,14 +24,87 @@ vi.mock('../../repos/reflection-ledger', () => ({
 import { PeriodicReflector } from './periodic'
 import type { ReflectContext } from './types'
 
-function postCtx(stepIndex: number): ReflectContext {
+// healthy trajectory: 全部成功 + 文本充足 + 工具多样性 — code-filter 视为无需 LLM
+function healthyHistory(n: number): import('../types').StepOutcome[] {
+  return Array.from({ length: n }, (_, i) => ({
+    stepText: 'looked at table ' + i + ' and confirmed columns match expected schema',
+    wroteAssistantFinal: false,
+    shouldContinue: true,
+    durationMs: 100,
+    toolNames: [['read', 'glob', 'grep', 'bash'][i % 4]],
+    signature: 'sig-' + i,
+    allToolsFailed: false,
+    containsSubagentFailure: false,
+  })) as import('../types').StepOutcome[]
+}
+
+// 异常 trajectory: 失败率 > 30%, code-filter 命中 → 触发 LLM
+function unhealthyHistory(): import('../types').StepOutcome[] {
+  return [
+    {
+      stepText: '',
+      toolNames: ['bash'],
+      signature: 'a',
+      allToolsFailed: true,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs: 100,
+      containsSubagentFailure: false,
+    },
+    {
+      stepText: '',
+      toolNames: ['bash'],
+      signature: 'b',
+      allToolsFailed: true,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs: 100,
+      containsSubagentFailure: false,
+    },
+    {
+      stepText: 'ok',
+      toolNames: ['read'],
+      signature: 'c',
+      allToolsFailed: false,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs: 100,
+      containsSubagentFailure: false,
+    },
+    {
+      stepText: 'ok',
+      toolNames: ['read'],
+      signature: 'd',
+      allToolsFailed: false,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs: 100,
+      containsSubagentFailure: false,
+    },
+    {
+      stepText: 'ok',
+      toolNames: ['read'],
+      signature: 'e',
+      allToolsFailed: false,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs: 100,
+      containsSubagentFailure: false,
+    },
+  ] as import('../types').StepOutcome[]
+}
+
+function postCtx(
+  stepIndex: number,
+  history: import('../types').StepOutcome[] = unhealthyHistory(),
+): ReflectContext {
   return {
     phase: 'post-step',
     stepIndex,
     userIntent: 'task',
     sessionId: 's1',
     abortSignal: new AbortController().signal,
-    recentHistory: [],
+    recentHistory: history,
     reflectModel: {} as never,
     facts: {} as never,
     outcome: { stepText: 'x', toolNames: [] } as never,
@@ -114,5 +187,79 @@ describe('PeriodicReflector', () => {
     const r = new PeriodicReflector({ every: 0 })
     expect(await r.reflect(postCtx(4))).toBeNull()
     expect(await r.reflect(postCtx(9))).toBeNull()
+  })
+
+  describe('code-filter (健康轨迹不调 LLM)', () => {
+    it('healthy trajectory (零失败 + 文本充足 + 工具多样) → 直接 null, 零 LLM', async () => {
+      const r = new PeriodicReflector({ every: 5 })
+      const ctx = postCtx(4, healthyHistory(5))
+      expect(await r.reflect(ctx)).toBeNull()
+      expect(mockGenerateText).not.toHaveBeenCalled()
+    })
+
+    it('失败率 > 30% → 触发 LLM', async () => {
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({
+          progressSoFar: 'p',
+          blockerIdentified: 'blk',
+          strategyShift: 'switch_tool',
+          nextStepGuidance: 'g',
+          confidence: 0.7,
+        }),
+      })
+      const r = new PeriodicReflector({ every: 5 })
+      await r.reflect(postCtx(4, unhealthyHistory()))
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
+
+    it('平均文本长度 < 50 字符 → 触发 LLM (tool-only 倾向)', async () => {
+      const silentHistory = Array.from({ length: 5 }, (_, i) => ({
+        stepText: '', // 全无文本
+        toolNames: ['read'],
+        signature: 'sig-' + i,
+        allToolsFailed: false,
+        wroteAssistantFinal: false,
+        shouldContinue: true,
+        durationMs: 100,
+        containsSubagentFailure: false,
+      })) as import('../types').StepOutcome[]
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({
+          progressSoFar: 'p',
+          blockerIdentified: null,
+          strategyShift: 'continue',
+          nextStepGuidance: 'g',
+          confidence: 0.7,
+        }),
+      })
+      const r = new PeriodicReflector({ every: 5 })
+      await r.reflect(postCtx(4, silentHistory))
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
+
+    it('同一工具名连续 ≥ 3 次 → 触发 LLM (低效循环嫌疑)', async () => {
+      const repeatHistory = Array.from({ length: 5 }, (_, i) => ({
+        stepText: 'querying table ' + i + ' to map foreign keys carefully',
+        toolNames: ['mysql_query', 'mysql_query'], // 同步骤连用同一工具
+        signature: 'sig-' + i,
+        allToolsFailed: false,
+        wroteAssistantFinal: false,
+        shouldContinue: true,
+        durationMs: 100,
+        containsSubagentFailure: false,
+      })) as import('../types').StepOutcome[]
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({
+          progressSoFar: 'p',
+          blockerIdentified: null,
+          strategyShift: 'continue',
+          nextStepGuidance: 'g',
+          confidence: 0.7,
+        }),
+      })
+      const r = new PeriodicReflector({ every: 5 })
+      await r.reflect(postCtx(4, repeatHistory))
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
   })
 })

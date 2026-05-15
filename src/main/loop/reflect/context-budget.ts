@@ -2,21 +2,18 @@
 //
 // Pre-step reflector: 在 streamText 之前检查 prompt token 预算。
 //
-// 三档:
+// 三档 (纯代码判定, 零 LLM 调用):
 //   ratio >= 1.0:     directOutput(endTurn=true) [auto-halt] 落库 + break。
-//                     若 reflectModel 配置, 调 FriendlyHaltAgent 产出友好文案;
-//                     否则硬编码兜底 message。
-//   ratio > warnRatio: hint [CONTEXT NEARLY FULL] 注入本步 messages (PreReflector
-//                     的 hint 由主循环 push 到 messages 末尾)。
+//                     硬编码 message — context overflow 是 fast-fail 场景,
+//                     LLM 友好措辞带来的边际价值不抵 +1 次 LLM 调用 + 延迟。
+//   ratio > warnRatio: hint [CONTEXT NEARLY FULL] 注入本步 messages。
 //   else:             null (放行)。
 //
-// 允许依赖: ./types, ./agents/*, electron-log
+// 允许依赖: ./types, electron-log
 // 禁止依赖: ipc/*
 
 import log from 'electron-log'
 import type { Reflector, ReflectorCapabilities, ReflectorOutcome, ReflectContext } from './types'
-import { runReflectAgent } from './agents/types'
-import { FriendlyHaltAgent } from './agents/friendly-halt-agent'
 
 export interface ContextBudgetReflectorOpts {
   /** ratio 触发软告警阈值, 默认 0.98 */
@@ -48,20 +45,9 @@ export class ContextBudgetReflector implements Reflector {
       log.error(
         `[Reflect/context-budget] overflow ${ctx.estimatedTokens}/${ctx.contextLimit} (${pct}%)`,
       )
-      const r = await runReflectAgent(
-        FriendlyHaltAgent,
-        {
-          userIntent: ctx.userIntent,
-          estimatedTokens: ctx.estimatedTokens,
-          contextLimit: ctx.contextLimit,
-        },
-        ctx.reflectModel,
-        ctx.abortSignal,
-      )
       const text =
-        r?.friendlyMessage ??
         `Context window exceeded (${ctx.estimatedTokens}/${ctx.contextLimit} tokens, ${pct}%). ` +
-          `Task stopped to avoid silent provider truncation. Please start a new session or trim history.`
+        `Task stopped to avoid silent provider truncation. Please start a new session or trim history.`
       return {
         directOutput: {
           text,
