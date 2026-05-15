@@ -115,7 +115,32 @@ Severity is one of \`low\` / \`medium\` / \`high\` (default \`medium\`).
 - **Code blocks**: use fenced \`\`\`lang for syntax highlighting. Inline \`code\` is single
   backticks.
 - **Line breaks**: single newlines render as soft breaks (GitHub / ChatGPT semantics).
-  For paragraph breaks use a blank line.`
+  For paragraph breaks use a blank line.
+- **DO NOT compose ASCII / Box-drawing flow charts inline**. Characters like
+  \`│ ▼ → ┌ └ ├ ─\` strung together with \`|\` separators on one line render as
+  unreadable line-wrapped soup. If you want to show a sequence/flow, choose ONE:
+    1. **Numbered list** — one step per line:
+       \`\`\`
+       1. User triggers event
+       2. user_campaign_event written
+       3. event_type matched
+       \`\`\`
+    2. **Fenced code block with newlines preserved**:
+       \`\`\`text
+       user 触发事件
+         ↓
+       user_campaign_event 写入
+         ↓
+       user_campaign 创建
+       \`\`\`
+    3. **Mermaid block** (the UI renders it as an SVG diagram):
+       \`\`\`mermaid
+       flowchart TD
+         A[User triggers event] --> B[user_campaign_event written]
+         B --> C[user_campaign created]
+       \`\`\`
+  Never put more than ~3 \`│\` / \`|\` chars on a single line outside an actual
+  GFM table. Long inline sequences ALWAYS wrap into illegible paragraph soup.`
 
 export class UiBlockPlugin implements PromptPlugin {
   name = 'UiBlockPlugin'
