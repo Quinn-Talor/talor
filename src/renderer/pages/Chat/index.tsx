@@ -193,6 +193,27 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     return () => clearTimeout(t)
   }, [loadSessions, loadModelOptions, loadAgents, loadAgentTools])
 
+  // Block CTA handlers — captured via ref so renderedMessages useMemo stays stable
+  // (changing handler identity would invalidate the memo on every input keystroke).
+  const blockHandlersRef = useRef<{
+    onPickChoice: (text: string) => void
+    onConfirmProposal: (tool: string, args: Record<string, unknown>) => void
+    onEmit: (text: string) => void
+  }>({
+    onPickChoice: () => {},
+    onConfirmProposal: () => {},
+    onEmit: () => {},
+  })
+  const blockOnPickChoice = useCallback((text: string) => {
+    blockHandlersRef.current.onPickChoice(text)
+  }, [])
+  const blockOnConfirmProposal = useCallback((tool: string, args: Record<string, unknown>) => {
+    blockHandlersRef.current.onConfirmProposal(tool, args)
+  }, [])
+  const blockOnEmit = useCallback((text: string) => {
+    blockHandlersRef.current.onEmit(text)
+  }, [])
+
   // 性能关键: 消息列表渲染缓存 — 仅在 messages 变化时重算
   // 之前每次输入(setInput)都会让父组件重渲染,触发这段含 40+ JSON.parse 的 reduce,
   // 导致输入卡顿。useMemo 后输入完全不影响这段计算。
@@ -268,10 +289,18 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           /* render normal */
         }
       }
-      acc.push(<MessageBubble key={msg.id} message={msg} />)
+      acc.push(
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onPickChoice={blockOnPickChoice}
+          onConfirmProposal={blockOnConfirmProposal}
+          onEmit={blockOnEmit}
+        />,
+      )
       return acc
     }, [] as React.ReactNode[])
-  }, [messages])
+  }, [messages, blockOnPickChoice, blockOnConfirmProposal, blockOnEmit])
 
   // Auto-select most recent session
   useEffect(() => {
@@ -494,6 +523,45 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }
 
+  // Send arbitrary text as a user message — shared by handleSend and block CTAs
+  // (need_input choice, proposal emit / CTA). Skips empty content + streaming guard.
+  const sendAsUser = useCallback(
+    async (content: string, opts?: { attach?: Attachment[] }) => {
+      if (!content.trim() || !currentSessionId || streamState === 'streaming') return
+      clearStreaming()
+
+      const targetSessionId = ws.workbenchSessionId ?? currentSessionId
+      const routedToWorkbench = targetSessionId !== currentSessionId
+
+      if (!routedToWorkbench) {
+        addMessage({
+          id: `temp-${Date.now()}`,
+          session_id: currentSessionId,
+          role: 'user',
+          content,
+          created_at: new Date().toISOString(),
+        })
+      }
+      try {
+        await talorAPI.chat.send({
+          session_id: targetSessionId,
+          content,
+          attachments: opts?.attach && opts.attach.length > 0 ? opts.attach : undefined,
+        })
+        if (routedToWorkbench) await ws.refresh()
+        else await loadMessages(currentSessionId)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes('FILE_TOO_LARGE')) alert('文件大小超过限制（最大 50MB）')
+        else if (msg.includes('UNSUPPORTED_FILE_TYPE')) alert('不支持的文件类型')
+        else if (msg.includes('FILE_NOT_FOUND')) alert('文件不存在或无法访问')
+        else if (msg.includes('PROVIDER_NO_VISION')) alert('当前模型不支持图片识别')
+        else alert(`发送失败: ${msg}`)
+      }
+    },
+    [currentSessionId, streamState, clearStreaming, ws, addMessage, loadMessages],
+  )
+
   const handleSend = async () => {
     if (
       (!input.trim() && attachments.length === 0) ||
@@ -503,45 +571,39 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       return
     const content = input.trim()
     setInput('')
-    clearStreaming()
-    clearStreaming()
-
-    // 沉淀模式下输入路由到 workbench session（spec §B.9.4 F2）。
-    // 注意：addMessage 用 currentSessionId 时会污染 chat store 显示；
-    // 走 workbench 时不 addMessage，依赖 ws.refresh() 在 send 完成后拉到。
-    const targetSessionId = ws.workbenchSessionId ?? currentSessionId
-    const routedToWorkbench = targetSessionId !== currentSessionId
-
-    if (!routedToWorkbench) {
-      addMessage({
-        id: `temp-${Date.now()}`,
-        session_id: currentSessionId,
-        role: 'user',
-        content,
-        created_at: new Date().toISOString(),
-      })
-    }
-    try {
-      await talorAPI.chat.send({
-        session_id: targetSessionId,
-        content,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      })
-      setAttachments([])
-      if (routedToWorkbench) {
-        await ws.refresh()
-      } else {
-        await loadMessages(currentSessionId)
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg.includes('FILE_TOO_LARGE')) alert('文件大小超过限制（最大 50MB）')
-      else if (msg.includes('UNSUPPORTED_FILE_TYPE')) alert('不支持的文件类型')
-      else if (msg.includes('FILE_NOT_FOUND')) alert('文件不存在或无法访问')
-      else if (msg.includes('PROVIDER_NO_VISION')) alert('当前模型不支持图片识别')
-      else alert(`发送失败: ${msg}`)
-    }
+    await sendAsUser(content, { attach: attachments })
+    setAttachments([])
   }
+
+  // Block CTAs all route through sendAsUser. Phase 8.3: proposal CTA constructs
+  // a "please invoke X with args" message — LLM owns tool invocation, so all
+  // existing permission/validation paths apply. No new IPC.
+  const onPickChoice = useCallback(
+    (text: string) => {
+      void sendAsUser(text)
+    },
+    [sendAsUser],
+  )
+  const onEmit = useCallback(
+    (text: string) => {
+      void sendAsUser(text)
+    },
+    [sendAsUser],
+  )
+  const onConfirmProposal = useCallback(
+    (tool: string, args: Record<string, unknown>) => {
+      void sendAsUser(`确认 — 请调用 ${tool}，参数: ${JSON.stringify(args)}`)
+    },
+    [sendAsUser],
+  )
+
+  // Sync the stable ref to current handler identities so blockOn* indirection
+  // always reaches the latest sendAsUser closure (whose deps may change).
+  useEffect(() => {
+    blockHandlersRef.current.onPickChoice = onPickChoice
+    blockHandlersRef.current.onConfirmProposal = onConfirmProposal
+    blockHandlersRef.current.onEmit = onEmit
+  }, [onPickChoice, onConfirmProposal, onEmit])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
