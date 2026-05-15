@@ -102,7 +102,7 @@ describe('QuoteCorrectionReflector', () => {
     expect(mockGenerateText).not.toHaveBeenCalled()
   })
 
-  it('mask >= 阈值 + confidence >= 0.5 → directOutput end', async () => {
+  it('mask >= 阈值 + confidence >= 0.5 → userOutput (替换 final + UI 渲染)', async () => {
     mockVerifyQuoted.mockReturnValue({ cleaned: 'x', unverifiedCount: 2 })
     mockVerifyEntity.mockReturnValue({ cleaned: 'x', ungroundedCount: 1 })
     mockGenerateText.mockResolvedValueOnce({
@@ -110,10 +110,9 @@ describe('QuoteCorrectionReflector', () => {
     })
     const r = new QuoteCorrectionReflector({ maskThreshold: 2 })
     const out = await r.reflect(turnEndCtx())
-    expect(out?.directOutput).toBeDefined()
-    expect(out!.directOutput!.endTurn).toBe(true)
-    expect(out!.directOutput!.label).toMatch(/^\[reflect-correction • 3 masked\]/)
-    expect(out!.directOutput!.text).toBe('corrected version')
+    expect(out?.userOutput).toBeDefined()
+    expect(out!.userOutput!.label).toMatch(/^\[reflect-correction • 3 masked\]/)
+    expect(out!.userOutput!.text).toBe('corrected version')
   })
 
   it('confidence < 0.5 → null (放行原文)', async () => {

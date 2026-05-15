@@ -1,8 +1,9 @@
 // src/main/loop/reflect/judge-completion.ts
 //
 // Turn-end 二审 Reflector — main LLM 决 final 时, 调便宜 model 判 "真完成?"。
-// complete=false + confidence≥0.5 → directOutput(endTurn=false), 落库 [reflection-judge],
-// main LLM 下步通过 history 看到 pending items, 自然续做。
+// complete=false + confidence≥0.5 → internalNudge(role=user), 落库为 user 消息但
+// UI 不渲染. main LLM 下步通过 history 把这条 user 消息当 "外部审查反馈" 续做,
+// 用户不会看到 AI "自己拆穿自己" 的混乱体验。
 //
 // 降级: code-filter 用多信号风险打分代替单一关键词检测. JudgeCompletion 的原始作用是
 // 抓 "幻觉完成" (committed-to-but-no-tool-call), 信号设计围绕 intent ↔ trajectory 不匹配:
@@ -141,14 +142,14 @@ export class JudgeCompletionReflector implements Reflector {
       `[Reflect/judge-completion] complete=false (推翻 final), pending=${result.pendingItems.length}`,
     )
     return {
-      directOutput: {
+      internalNudge: {
         text:
           `You declared completion, but the following items are pending:\n` +
           result.pendingItems.map((p) => '- ' + p).join('\n') +
           `\nReason: ${result.reason}\nPlease continue addressing them.`,
         label: '[reflection-judge]',
-        endTurn: false,
         reason: result.reason,
+        role: 'user', // 主 LLM 视角下视为 "外部审查反馈", 续做行为可预测
       },
     }
   }

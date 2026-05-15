@@ -3,10 +3,10 @@
 // Pre-step reflector: 在 streamText 之前检查 prompt token 预算。
 //
 // 三档 (纯代码判定, 零 LLM 调用):
-//   ratio >= 1.0:     directOutput(endTurn=true) [auto-halt] 落库 + break。
+//   ratio >= 1.0:     userOutput [auto-halt] 落库 + UI 渲染 + break (用户必看)。
 //                     硬编码 message — context overflow 是 fast-fail 场景,
 //                     LLM 友好措辞带来的边际价值不抵 +1 次 LLM 调用 + 延迟。
-//   ratio > warnRatio: hint [CONTEXT NEARLY FULL] 注入本步 messages。
+//   ratio > warnRatio: hint [CONTEXT NEARLY FULL] 注入本步 messages (主 LLM 看)。
 //   else:             null (放行)。
 //
 // 允许依赖: ./types, electron-log
@@ -49,10 +49,9 @@ export class ContextBudgetReflector implements Reflector {
         `Context window exceeded (${ctx.estimatedTokens}/${ctx.contextLimit} tokens, ${pct}%). ` +
         `Task stopped to avoid silent provider truncation. Please start a new session or trim history.`
       return {
-        directOutput: {
+        userOutput: {
           text,
           label: '[auto-halt]',
-          endTurn: true,
           exitReason: 'context_overflow',
           reason: `context overflow ${pct}%`,
         },

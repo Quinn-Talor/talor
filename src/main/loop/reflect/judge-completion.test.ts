@@ -87,7 +87,7 @@ describe('JudgeCompletionReflector', () => {
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })
 
-  it('complete=false, confidence>=0.5 → directOutput(endTurn=false)', async () => {
+  it('complete=false, confidence>=0.5 → internalNudge (role=user, UI 不渲染)', async () => {
     mockGenerateText.mockResolvedValueOnce({
       text: JSON.stringify({
         complete: false,
@@ -98,10 +98,12 @@ describe('JudgeCompletionReflector', () => {
     })
     const r = new JudgeCompletionReflector({ sessionId: 's1' })
     const out = await r.reflect(turnEndCtx())
-    expect(out?.directOutput).toBeDefined()
-    expect(out!.directOutput!.endTurn).toBe(false)
-    expect(out!.directOutput!.label).toBe('[reflection-judge]')
-    expect(out!.directOutput!.text).toContain('Y not done')
+    expect(out?.internalNudge).toBeDefined()
+    expect(out!.internalNudge!.role).toBe('user')
+    expect(out!.internalNudge!.label).toBe('[reflection-judge]')
+    expect(out!.internalNudge!.text).toContain('Y not done')
+    // 关键: 不能是 userOutput, 否则会被 UI 渲染
+    expect(out!.userOutput).toBeUndefined()
   })
 
   it('confidence < 0.5 → 丢弃 (放行 final)', async () => {

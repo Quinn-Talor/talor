@@ -59,12 +59,12 @@ describe('reflectionLedger.record', () => {
     expect(row.confidence).toBe(0.7)
   })
 
-  it('judge directOutput continue 写入 含 pending items', () => {
+  it('judge internalNudge 写入 含 pending items', () => {
     reflectionLedger.record({
       sessionId: 's1',
       stepIndex: 3,
       reflector: 'judge-completion',
-      outputKind: 'direct_output_continue',
+      outputKind: 'internal_nudge',
       confidence: 0.85,
       judge: {
         complete: false,
@@ -73,21 +73,23 @@ describe('reflectionLedger.record', () => {
       reason: 'not done',
     })
     const row = db.prepare('SELECT * FROM reflection_ledger').get() as Record<string, unknown>
+    expect(row.output_kind).toBe('internal_nudge')
     expect(row.judge_complete).toBe(0)
     expect(JSON.parse(row.judge_pending_items as string)).toEqual(['write README', 'commit'])
   })
 
-  it('correction directOutput end 写入 mask count', () => {
+  it('correction userOutput 写入 mask count', () => {
     reflectionLedger.record({
       sessionId: 's1',
       stepIndex: 7,
       reflector: 'quote-correction',
-      outputKind: 'direct_output_end',
+      outputKind: 'user_output',
       confidence: 0.9,
       correction: { totalMask: 3 },
       direct: { text: 'rewritten', label: '[reflect-correction]' },
     })
     const row = db.prepare('SELECT * FROM reflection_ledger').get() as Record<string, unknown>
+    expect(row.output_kind).toBe('user_output')
     expect(row.correction_mask_count).toBe(3)
     expect(row.direct_output_text).toBe('rewritten')
     expect(row.direct_output_label).toBe('[reflect-correction]')

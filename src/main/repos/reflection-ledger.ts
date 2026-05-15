@@ -12,11 +12,7 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { getDb } from '../db'
 
-export type ReflectionOutputKind =
-  | 'hint'
-  | 'wrap_up'
-  | 'direct_output_end'
-  | 'direct_output_continue'
+export type ReflectionOutputKind = 'hint' | 'wrap_up' | 'internal_nudge' | 'user_output'
 
 export interface ReflectionEntry {
   id: string
@@ -29,7 +25,7 @@ export interface ReflectionEntry {
   judge_pending_items: string | null
   /** correction mask 计数 (quote-correction reflector 才填) */
   correction_mask_count: number | null
-  /** directOutput 落库的文本 (directOutput* output kind 才填) */
+  /** 用户输出 / 内部纠正的文本 (user_output / internal_nudge 才填) */
   direct_output_text: string | null
   direct_output_label: string | null
   confidence: number

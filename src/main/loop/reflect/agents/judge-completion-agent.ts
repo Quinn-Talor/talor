@@ -2,8 +2,8 @@
 //
 // 场景: main LLM 即将 final 时, 用便宜 model 判定"真的完成了用户请求吗?"。
 //   complete=true → 放行 final
-//   complete=false → 列出 pendingItems, 通过 directOutput(endTurn=false) 注入 history,
-//                    main LLM 下步看到自然续做
+//   complete=false → 列出 pendingItems, 通过 internalNudge(role=user) 注入 history,
+//                    main LLM 下步看到自然续做; UI 不渲染本条 (内部纠正)
 //
 // 参考 ShortTermMemory 压缩 agent 模式: 独立 system prompt + Zod schema + generateObject。
 //

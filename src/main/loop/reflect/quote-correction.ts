@@ -2,7 +2,7 @@
 //
 // Turn-end 引用纠错: main LLM 即将 final 时, 对 final 文本跑 quote-verifier。
 // 总 mask 数 ≥ 阈值 (默认 2) → 调便宜 model 基于真实 tool result 重写。
-// 重写 confidence ≥ 0.5 → directOutput(endTurn=true) 替换原 final + break。
+// 重写 confidence ≥ 0.5 → userOutput 替换原 final + UI 渲染 + break。
 // 否则 → null (放行原 final, 不重写)。
 
 import log from 'electron-log'
@@ -67,7 +67,7 @@ export class QuoteCorrectionReflector implements Reflector {
       sessionId: ctx.sessionId,
       stepIndex: ctx.stepIndex,
       reflector: this.name,
-      outputKind: 'direct_output_end',
+      outputKind: 'user_output',
       confidence: result.confidence,
       correction: { totalMask },
       reason: `rewrite due to ${v1.unverifiedCount} unverified + ${v2.ungroundedCount} ungrounded`,
@@ -79,10 +79,9 @@ export class QuoteCorrectionReflector implements Reflector {
     }
 
     return {
-      directOutput: {
+      userOutput: {
         text: result.rewritten,
         label: `[reflect-correction • ${totalMask} masked]`,
-        endTurn: true,
         exitReason: 'no_tool_calls',
         reason: `rewrote ${totalMask} unverified items`,
       },

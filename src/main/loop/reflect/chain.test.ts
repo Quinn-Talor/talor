@@ -149,17 +149,40 @@ describe('runReflectorChain — 输出形态', () => {
     expect(res.wrapUp).toBeDefined()
   })
 
-  it('directOutput 输出', async () => {
+  it('userOutput 输出 → kind=user_output', async () => {
     const r = mockReflector('d', ['post-step'], {
-      directOutput: {
+      userOutput: {
         text: 'x',
         label: '[d]',
-        endTurn: true,
         reason: 'r',
       },
     })
     const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
-    expect(res.kind).toBe('direct_output')
-    expect(res.directOutput?.text).toBe('x')
+    expect(res.kind).toBe('user_output')
+    expect(res.userOutput?.text).toBe('x')
+  })
+
+  it('internalNudge 输出 → kind=internal_nudge', async () => {
+    const r = mockReflector('n', ['post-step'], {
+      internalNudge: {
+        text: 'nudge text',
+        label: '[reflection-judge]',
+        reason: 'r',
+        role: 'user',
+      },
+    })
+    const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
+    expect(res.kind).toBe('internal_nudge')
+    expect(res.internalNudge?.text).toBe('nudge text')
+    expect(res.internalNudge?.role).toBe('user')
+  })
+
+  it('两种 output 同时存在: userOutput 优先 (用户回复 > 内部纠正)', async () => {
+    const r = mockReflector('both', ['post-step'], {
+      userOutput: { text: 'user', label: '[u]', reason: 'r' },
+      internalNudge: { text: 'nudge', label: '[n]', reason: 'r', role: 'user' },
+    })
+    const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
+    expect(res.kind).toBe('user_output')
   })
 })

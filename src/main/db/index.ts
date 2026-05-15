@@ -125,7 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_side_effect_parent ON side_effect_log(parent_sess
 
 /**
  * reflection_ledger — Reflector 决策审计。
- * Reflector 每次产出 hint / wrapUp / directOutput 时落一行, 供 UI debug
+ * Reflector 每次产出 hint / wrapUp / internalNudge / userOutput 时落一行, 供 UI debug
  * "系统如何引导 LLM" 与 reflect 数据驱动调优。
  */
 const CREATE_REFLECTION_LEDGER = `
@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS reflection_ledger (
   session_id               TEXT NOT NULL,
   step_index               INTEGER NOT NULL,
   reflector                TEXT NOT NULL,
-  output_kind              TEXT NOT NULL CHECK(output_kind IN ('hint','wrap_up','direct_output_end','direct_output_continue')),
+  output_kind              TEXT NOT NULL CHECK(output_kind IN ('hint','wrap_up','internal_nudge','user_output')),
   judge_complete           INTEGER,
   judge_pending_items      TEXT,
   correction_mask_count    INTEGER,
@@ -188,6 +188,7 @@ export function initChatDb(): Database.Database {
   // v3.7.2: CHECK 约束 schema 变化时直接 DROP + 重建。
   // SQLite 不支持 ALTER TABLE 改 CHECK,只能 drop;按项目策略 (不保留历史数据)。
   recreateSideEffectLogIfOutdated(db)
+  recreateReflectionLedgerIfOutdated(db)
 
   db.exec(CREATE_SIDE_EFFECT_LOG)
   db.exec(CREATE_SIDE_EFFECT_INDEXES)
@@ -286,6 +287,31 @@ function recreateSideEffectLogIfOutdated(db: Database.Database): void {
       'Dropping and recreating (old ledger entries discarded).',
   )
   db.exec('DROP TABLE IF EXISTS side_effect_log;')
+}
+
+/**
+ * reflection_ledger CHECK 约束 schema-drift 检测 + DROP 重建。
+ *
+ * v5 canonical 枚举: hint / wrap_up / internal_nudge / user_output
+ * (替换旧 direct_output_end / direct_output_continue, 反映 reflect outcome
+ * 接口的"内部引导 vs 用户回复"语义分离)。
+ *
+ * 启动时若表定义仍含旧 direct_output_* 枚举 → DROP 重建 (ledger 历史可丢)。
+ */
+function recreateReflectionLedgerIfOutdated(db: Database.Database): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reflection_ledger'")
+    .get() as { sql?: string } | undefined
+  if (!row || !row.sql) return // 全新 DB
+  const hasOldKinds =
+    row.sql.includes("'direct_output_end'") || row.sql.includes("'direct_output_continue'")
+  const hasNewKinds = row.sql.includes("'internal_nudge'") && row.sql.includes("'user_output'")
+  if (!hasOldKinds && hasNewKinds) return // 已 v5 canonical
+  log.info(
+    '[ChatDB] reflection_ledger CHECK constraint outdated (v5 schema migration). ' +
+      'Dropping and recreating (old reflect entries discarded).',
+  )
+  db.exec('DROP TABLE IF EXISTS reflection_ledger;')
 }
 
 /** 返回缺失列名数组；表不存在返 null（区分"表不存在"vs"表存在但缺列"）。 */

@@ -19,11 +19,12 @@ import log from 'electron-log'
 import type { Reflector, ReflectContext, ReflectorOutcome, ReflectPhase } from './types'
 
 export interface ReflectorChainResult {
-  kind: 'none' | 'hint' | 'wrap_up' | 'direct_output'
+  kind: 'none' | 'hint' | 'wrap_up' | 'internal_nudge' | 'user_output'
   from?: string
   hint?: string
   wrapUp?: ReflectorOutcome['wrapUp']
-  directOutput?: ReflectorOutcome['directOutput']
+  internalNudge?: ReflectorOutcome['internalNudge']
+  userOutput?: ReflectorOutcome['userOutput']
 }
 
 export async function runReflectorChain(
@@ -50,8 +51,11 @@ export async function runReflectorChain(
 
     perTurnCounters.set(r.name, used + 1)
     if (out.wrapUp) return { kind: 'wrap_up', from: r.name, wrapUp: out.wrapUp }
-    if (out.directOutput) {
-      return { kind: 'direct_output', from: r.name, directOutput: out.directOutput }
+    if (out.userOutput) {
+      return { kind: 'user_output', from: r.name, userOutput: out.userOutput }
+    }
+    if (out.internalNudge) {
+      return { kind: 'internal_nudge', from: r.name, internalNudge: out.internalNudge }
     }
     if (out.hint) return { kind: 'hint', from: r.name, hint: out.hint }
   }

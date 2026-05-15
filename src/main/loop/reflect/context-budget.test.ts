@@ -59,15 +59,14 @@ describe('ContextBudgetReflector', () => {
     expect(out!.hint!).toMatch(/^\[CONTEXT NEARLY FULL\]/)
   })
 
-  it('ratio >= 1.0 → directOutput end, 硬编码文案 (零 LLM 调用)', async () => {
+  it('ratio >= 1.0 → userOutput, 硬编码文案 (零 LLM 调用)', async () => {
     const r = new ContextBudgetReflector()
     const out = await r.reflect(preCtx({ estimatedTokens: 200, contextLimit: 100 }))
-    expect(out?.directOutput).toBeDefined()
-    expect(out!.directOutput!.endTurn).toBe(true)
-    expect(out!.directOutput!.label).toBe('[auto-halt]')
-    expect(out!.directOutput!.text).toMatch(/Context window exceeded/)
-    expect(out!.directOutput!.text).toContain('200/100')
-    expect(out!.directOutput!.exitReason).toBe('context_overflow')
+    expect(out?.userOutput).toBeDefined()
+    expect(out!.userOutput!.label).toBe('[auto-halt]')
+    expect(out!.userOutput!.text).toMatch(/Context window exceeded/)
+    expect(out!.userOutput!.text).toContain('200/100')
+    expect(out!.userOutput!.exitReason).toBe('context_overflow')
     // 关键: 降级后绝不调 LLM
     expect(mockGenerateText).not.toHaveBeenCalled()
   })

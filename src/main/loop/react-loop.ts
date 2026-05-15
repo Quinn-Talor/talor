@@ -223,14 +223,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
     let stepResult: StepRunResult
     try {
-      stepResult = await runReactStep(
-        ctx,
-        runtime,
-        step,
-        maxSteps,
-        { hint, mcpExpand, mcpUsed, lastInputTokens },
-        (sIdx, from, d) => persistReflectorDirectOutput(opts, sIdx, from, d),
-      )
+      stepResult = await runReactStep(ctx, runtime, step, maxSteps, {
+        hint,
+        mcpExpand,
+        mcpUsed,
+        lastInputTokens,
+        persistUserOutput: (sIdx, from, u) => persistUserOutput(opts, sIdx, from, u),
+        persistInternalNudge: (sIdx, from, n) => persistInternalNudge(opts, sIdx, from, n),
+      })
     } catch (err) {
       log.error(`[ReactLoop] step ${step} threw:`, err)
       exitReason = opts.abortSignal.aborted ? 'abort' : 'fallback_summary'
@@ -292,7 +292,10 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       midOut.kind === 'hint' &&
       (midOut.from === 'failure-streak' || midOut.from === 'tool-only-loop')
 
-    // 决策优先级: wrapUp > detectorBreak > directOutput(end) > policy > directOutput(continue) > hint
+    // 决策优先级: wrapUp > detectorBreak > userOutput > policy > internalNudge > hint
+    //   wrapUp / userOutput  → 用户回复, break turn
+    //   internalNudge        → 内部纠正, 持久化为非 assistant 消息, continue loop
+    //   hint                 → 临时引导, 注入下一步 system message
     if (midOut.wrapUp) {
       try {
         await midOut.wrapUp.runSummary()
@@ -307,13 +310,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       exitReason = detectorBreak.exitReason
       break
     }
-    if (midOut.directOutput) {
-      await persistReflectorDirectOutput(opts, step, midOut.from ?? 'unknown', midOut.directOutput)
-      if (midOut.directOutput.endTurn) {
-        exitReason = midOut.directOutput.exitReason ?? 'no_tool_calls'
-        break
-      }
-      // endTurn=false: 已落库, 下次 pipeline.build 读到, 继续 loop
+    if (midOut.userOutput) {
+      await persistUserOutput(opts, step, midOut.from ?? 'unknown', midOut.userOutput)
+      exitReason = midOut.userOutput.exitReason ?? 'no_tool_calls'
+      break
+    }
+    if (midOut.internalNudge) {
+      await persistInternalNudge(opts, step, midOut.from ?? 'unknown', midOut.internalNudge)
+      // 已落库为非 assistant 消息, 下次 pipeline.build 读到, 主 LLM 续做
       continue
     }
 
@@ -359,19 +363,16 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
         },
         perTurnCounters,
       )
-      if (endOut.directOutput) {
-        await persistReflectorDirectOutput(
-          opts,
-          step,
-          endOut.from ?? 'unknown',
-          endOut.directOutput,
-        )
-        if (endOut.directOutput.endTurn) {
-          exitReason = endOut.directOutput.exitReason ?? 'no_tool_calls'
-          break
-        }
-        // judge 推翻 final: 强制下一步 expand MCP 全集 (上一步为 final 纯文本,
-        // mcpState.update 会把 expandNext 设为 false, 必须重置避免 mcp 工具丢失)
+      if (endOut.userOutput) {
+        await persistUserOutput(opts, step, endOut.from ?? 'unknown', endOut.userOutput)
+        exitReason = endOut.userOutput.exitReason ?? 'no_tool_calls'
+        break
+      }
+      if (endOut.internalNudge) {
+        // judge 推翻 final: 落库内部纠正 + 强制下一步 expand MCP 全集
+        // (上一步为 final 纯文本, mcpState.update 会把 expandNext 设为 false,
+        // 必须重置避免 mcp 工具丢失)
+        await persistInternalNudge(opts, step, endOut.from ?? 'unknown', endOut.internalNudge)
         mcpState.forceExpandNext()
         continue
       }
@@ -401,15 +402,20 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
 }
 
-// ── persistReflectorDirectOutput — 落库 reflect directOutput ─────────────
+// ── 持久化 reflect outcome ────────────────────────────────────────────────
+//
+// 两种用途, 两个函数, 严格分离:
+//   persistUserOutput     — 用户回复, role='assistant', 触发 UI 流式渲染
+//   persistInternalNudge  — 内部纠正, role=u.role (通常 'user'), 不触发 UI 流式
+//                           主 LLM 下步读 history 把它当 "外部审查反馈" 续做
 
-async function persistReflectorDirectOutput(
+async function persistUserOutput(
   opts: ReactLoopOptions,
   stepIndex: number,
   reflectorName: string,
-  d: import('./reflect/types').ReflectorDirectOutput,
+  u: import('./reflect/types').UserOutput,
 ): Promise<void> {
-  const text = `${d.label} ${d.text}`
+  const text = `${u.label} ${u.text}`
   messageRepo.create({
     id: uuidv4(),
     session_id: opts.sessionId,
@@ -424,9 +430,38 @@ async function persistReflectorDirectOutput(
     sessionId: opts.sessionId,
     stepIndex,
     reflector: reflectorName,
-    outputKind: d.endTurn ? 'direct_output_end' : 'direct_output_continue',
-    direct: { text: d.text, label: d.label },
-    reason: d.reason,
+    outputKind: 'user_output',
+    direct: { text: u.text, label: u.label },
+    reason: u.reason,
+  })
+}
+
+async function persistInternalNudge(
+  opts: ReactLoopOptions,
+  stepIndex: number,
+  reflectorName: string,
+  n: import('./reflect/types').InternalNudge,
+): Promise<void> {
+  const text = `${n.label} ${n.text}`
+  messageRepo.create({
+    id: uuidv4(),
+    session_id: opts.sessionId,
+    role: n.role,
+    content: [{ type: 'text', text }],
+    agent_id: opts.agent.id,
+  })
+  sessionRepo.touch(opts.sessionId)
+  // 关键: 不调 onTextDelta. UI 不渲染本条 — internalNudge 是给主 LLM 看的内部纠正,
+  // 用户应该看到的是主 LLM 续做后的下一条 assistant 消息, 而非这条 user/system 形态
+  // 的审查指令。renderer 端按 role 过滤或按 label 折叠都行。
+  opts.callbacks.onMessagePersisted?.(opts.sessionId, stepIndex)
+  reflectionLedger.record({
+    sessionId: opts.sessionId,
+    stepIndex,
+    reflector: reflectorName,
+    outputKind: 'internal_nudge',
+    direct: { text: n.text, label: n.label },
+    reason: n.reason,
   })
 }
 
@@ -442,12 +477,17 @@ async function runReactStep(
     mcpExpand: boolean
     mcpUsed: string[]
     lastInputTokens?: number
+    persistUserOutput: (
+      stepIdx: number,
+      from: string,
+      u: import('./reflect/types').UserOutput,
+    ) => Promise<void>
+    persistInternalNudge: (
+      stepIdx: number,
+      from: string,
+      n: import('./reflect/types').InternalNudge,
+    ) => Promise<void>
   },
-  persistDirect: (
-    stepIdx: number,
-    from: string,
-    d: import('./reflect/types').ReflectorDirectOutput,
-  ) => Promise<void>,
 ): Promise<StepRunResult> {
   const stepStart = Date.now()
 
@@ -496,16 +536,18 @@ async function runReactStep(
     },
     runtime.perTurnCounters,
   )
-  if (preOut.directOutput) {
-    await persistDirect(stepIndex, preOut.from ?? 'unknown', preOut.directOutput)
-    if (preOut.directOutput.endTurn) {
-      // pre-step 触发 endTurn 仅 context_overflow 一种场景, 收窄类型
-      return {
-        step: null,
-        durationMs: Date.now() - stepStart,
-        exitReason: 'context_overflow',
-      }
+  if (preOut.userOutput) {
+    // pre-step 输出 userOutput 仅 context_overflow 一种场景 (auto-halt)
+    await state.persistUserOutput(stepIndex, preOut.from ?? 'unknown', preOut.userOutput)
+    return {
+      step: null,
+      durationMs: Date.now() - stepStart,
+      exitReason: 'context_overflow',
     }
+  }
+  if (preOut.internalNudge) {
+    // pre-step internalNudge 不预期 (当前无 reflector 在 pre-step 输出 nudge), 防御性兼容
+    await state.persistInternalNudge(stepIndex, preOut.from ?? 'unknown', preOut.internalNudge)
   }
   if (preOut.hint) {
     messages.push({ role: 'system', content: preOut.hint })

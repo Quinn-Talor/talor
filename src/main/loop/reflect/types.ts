@@ -4,12 +4,14 @@
 // 三个 phase: pre-step / post-step / turn-end, 用 discriminated union 类型守卫保证字段安全。
 // Capabilities 元数据驱动主循环调度 (phases 过滤 / maxPerTurn 上限 / priority 排序)。
 //
-// 三态输出:
-//   hint:          pre-step 注入本步 messages; post-step 注入下步 nextPolicyHint
-//   wrapUp:        LLM forced-summary 当下产出 + break turn
-//   directOutput:  reflect LLM 当下产出 user-facing 内容
-//                    endTurn=true  → 落库 + break
-//                    endTurn=false → 落库 + 下步通过 history 让 main LLM 看到
+// 四态输出 (按 "谁来看 + 是否结束 turn" 区分):
+//   hint:          内部引导 (临时) — 注入下一步 messages, 不落库, UI 不渲染
+//   internalNudge: 内部引导 (持久化) — 落库为 user role, UI 不渲染, 主 LLM 续做
+//   userOutput:    用户回复 — 落库为 assistant role + 触发 UI 流式渲染, 必定结束 turn
+//   wrapUp:        用户回复 (forced-summary) — 第三方 LLM 产出 + break turn
+//
+// 设计原则: reflect 的"用途"决定持久化方式和 UI 行为, 不能混同一个 directOutput 字段。
+// JudgeCompletion 这种"主 LLM 内部纠正"不应该作为 user-facing 消息展示。
 //
 // 允许依赖: ../outcome-facts, ../types, ../detectors/types, ai (类型)
 // 禁止依赖: ipc/*
@@ -59,23 +61,41 @@ export interface ReflectorWrapUp {
   markFinal?: boolean
 }
 
-export interface ReflectorDirectOutput {
-  /** reflect LLM 产出的 user-facing 文本 */
+/**
+ * 内部引导 (持久化) — 给主 LLM 在下一步读 history 看到, UI 不渲染。
+ *
+ * 用途: 系统对主 LLM 的内部纠正 (e.g. JudgeCompletion 推翻 final),
+ * 不希望以"AI 自己拆穿自己"的形态呈现给用户。
+ *
+ * - role: 主 LLM 读 history 时的视角. 'user' 最符合 instruct-following 训练分布,
+ *   主 LLM 把它当作"外部审查反馈"自然续做; 'system' 适合规则性提示。
+ * - 必定 continue loop (不能 endTurn), 否则用户会看不到任何回复。
+ */
+export interface InternalNudge {
   text: string
-  /** 落库 label 前缀 (e.g. '[reflection-judge]' / '[reflect-correction]') */
   label: string
-  /** 落库后是否结束 turn */
-  endTurn: boolean
-  /** endTurn=true 时携带 */
+  reason: string
+  role: 'user' | 'system'
+}
+
+/**
+ * 用户回复 — 落库为 assistant 消息 + 触发 UI 流式渲染, 必定结束 turn。
+ *
+ * 用途: reflect 决定替换 / 终结主 LLM 的本 turn 输出, 直接展示给用户
+ * (e.g. context-overflow 友好 halt, quote-correction 重写后的 final)。
+ */
+export interface UserOutput {
+  text: string
+  label: string
   exitReason?: LoopExitReason
-  /** 触发原因, 落 ledger + 日志 */
   reason: string
 }
 
 export interface ReflectorOutcome {
   hint?: string
+  internalNudge?: InternalNudge
+  userOutput?: UserOutput
   wrapUp?: ReflectorWrapUp
-  directOutput?: ReflectorDirectOutput
 }
 
 export interface ReflectorCapabilities {
