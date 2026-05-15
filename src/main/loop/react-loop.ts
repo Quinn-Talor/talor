@@ -36,6 +36,10 @@ import type { Detector } from './detectors/types'
 import { FailureStreakReflector } from './reflect/failure-streak'
 import { ToolOnlyLoopReflector } from './reflect/tool-only-loop'
 import { JudgeCompletionReflector } from './reflect/judge-completion'
+import { ContextBudgetReflector } from './reflect/context-budget'
+import { PeriodicReflector } from './reflect/periodic'
+import { EscalationReflector } from './reflect/escalation'
+import { QuoteCorrectionReflector } from './reflect/quote-correction'
 import { runReflectorChain } from './reflect/chain'
 import { resolveReflectModel } from './reflect/resolve-model'
 import type { Reflector } from './reflect/types'
@@ -49,8 +53,6 @@ import {
 import { factsFromStep, outcomeFromStep, extractTextFromStep } from './step-adapter'
 import { persistStepFromResult, persistAbortedStep } from './persist-step'
 
-/** 单步 prompt 估算到达该比例时,提醒模型收敛。 */
-const CONTEXT_USAGE_WARNING_RATIO = 0.98
 const DEFAULT_MAX_STEPS = 1000
 
 /**
@@ -87,6 +89,14 @@ interface LoopCtx {
   streamOptions?: Record<string, unknown>
   turnStartTime: string
   turnEndPolicies: readonly TurnEndPolicy[]
+}
+
+/** 跨 step 共享的运行时状态 (reflector + perTurnCounters + recentHistory + reflectModel)。 */
+interface ReflectRuntime {
+  reflectors: readonly Reflector[]
+  perTurnCounters: Map<string, number>
+  recentHistory: import('./types').StepOutcome[]
+  reflectModel: import('ai').LanguageModel | null
 }
 
 /** runReactStep 返回的单步结果 (供主循环消费)。 */
@@ -162,18 +172,37 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   const sharedLengthTruncation = new LengthTruncationStreak()
   const detectors: Detector[] = [sharedSignatureDeadLoop, sharedLengthTruncation]
 
-  // Reflector chain — 混合体 (Detector + Reflector 双接口) + 纯 Reflector。
+  // Reflector chain — 混合体 (Detector + Reflector 双接口) + 纯 Reflector +
+  // L2 LLM reflector (按 ReflectAgent 模式实现, 独立 system prompt + Zod schema)。
   // requiresLLM=true 的 reflector 在 reflectModel=undefined 时被 runReflectorChain 跳过。
   const reflectModel = resolveReflectModel(opts.agent, opts.provider)
+  const lastL1Hinted = false
   const reflectors: Reflector[] = [
+    // pre-step
+    new ContextBudgetReflector(),
+    // post-step (混合体先跑, 复用 detector state)
     sharedSignatureDeadLoop,
     sharedLengthTruncation,
     new FailureStreakReflector(ctx),
     new ToolOnlyLoopReflector(),
+    new PeriodicReflector({
+      every: opts.agent?.profile?.preferences?.reflectEveryN ?? 5,
+    }),
+    new EscalationReflector({
+      wasPreviousStepL1Hinted: () => lastL1Hinted,
+    }),
+    // turn-end
     new JudgeCompletionReflector({ sessionId: opts.sessionId }),
+    new QuoteCorrectionReflector(),
   ]
   const perTurnCounters = new Map<string, number>()
   const recentHistory: import('./types').StepOutcome[] = []
+  const runtime: ReflectRuntime = {
+    reflectors,
+    perTurnCounters,
+    recentHistory,
+    reflectModel,
+  }
 
   let exitReason: LoopExitReason = 'no_tool_calls'
   let nextPolicyHint: string | null = null
@@ -192,12 +221,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
 
     let stepResult: StepRunResult
     try {
-      stepResult = await runReactStep(ctx, step, maxSteps, {
-        hint,
-        mcpExpand,
-        mcpUsed,
-        lastInputTokens,
-      })
+      stepResult = await runReactStep(
+        ctx,
+        runtime,
+        step,
+        maxSteps,
+        { hint, mcpExpand, mcpUsed, lastInputTokens },
+        (sIdx, from, d) => persistReflectorDirectOutput(opts, sIdx, from, d),
+      )
     } catch (err) {
       log.error(`[ReactLoop] step ${step} threw:`, err)
       exitReason = opts.abortSignal.aborted ? 'abort' : 'fallback_summary'
@@ -394,6 +425,7 @@ async function persistReflectorDirectOutput(
 
 async function runReactStep(
   ctx: LoopCtx,
+  runtime: ReflectRuntime,
   stepIndex: number,
   maxSteps: number,
   state: {
@@ -402,6 +434,11 @@ async function runReactStep(
     mcpUsed: string[]
     lastInputTokens?: number
   },
+  persistDirect: (
+    stepIdx: number,
+    from: string,
+    d: import('./reflect/types').ReflectorDirectOutput,
+  ) => Promise<void>,
 ): Promise<StepRunResult> {
   const stepStart = Date.now()
 
@@ -420,57 +457,54 @@ async function runReactStep(
   }
   const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
 
-  // 2. Context budget guard (>= 100% halt; > 98% inject [CONTEXT NEARLY FULL])
+  // 2. Pre-step Reflector chain (context-budget + 未来 pre-step reflectors)
   const limit = ctx.providerConfig.context_limit
+  let estimatedTokens = 0
   if (limit > 0) {
-    let estimatedTokens = 0
-    let usingPreciseUsage = false
     if (state.lastInputTokens && state.lastInputTokens > 0) {
       estimatedTokens = state.lastInputTokens
-      usingPreciseUsage = true
     } else {
       for (const m of messages) {
         const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
         estimatedTokens += estimate(text)
       }
     }
-    const usageRatio = estimatedTokens / limit
-
-    if (usageRatio >= 1.0) {
-      log.error(
-        `[ReactLoop]   context overflow: ${estimatedTokens}/${limit} ` +
-          `(${(usageRatio * 100).toFixed(1)}%, source=${usingPreciseUsage ? 'SDK' : 'estimate'}). Halting.`,
-      )
-      const haltText =
-        `[auto-halt] Context window exceeded (${estimatedTokens}/${limit} tokens, ${(usageRatio * 100).toFixed(0)}%). ` +
-        `Task stopped to avoid silent provider-side truncation. Please start a new session or trim the conversation history.`
-      messageRepo.create({
-        id: uuidv4(),
-        session_id: ctx.sessionId,
-        role: 'assistant',
-        content: [{ type: 'text', text: haltText }],
-        agent_id: ctx.agentId,
-      })
-      sessionRepo.touch(ctx.sessionId)
-      ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
-      ctx.callbacks.onTextDelta(haltText, stepIndex)
-      return { step: null, durationMs: Date.now() - stepStart, exitReason: 'context_overflow' }
-    }
-
-    if (usageRatio > CONTEXT_USAGE_WARNING_RATIO) {
-      log.warn(
-        `[ReactLoop]   context near overflow: ${estimatedTokens}/${limit} (${(usageRatio * 100).toFixed(1)}%)`,
-      )
-      messages.push({
-        role: 'system',
-        content:
-          `[CONTEXT NEARLY FULL] Prompt is using ~${(usageRatio * 100).toFixed(0)}% of the available window. ` +
-          `Prefer concise responses and avoid large tool outputs. Finish any in-progress task first, then summarize.`,
-      })
+  }
+  const preOut = await runReflectorChain(
+    'pre-step',
+    runtime.reflectors,
+    {
+      phase: 'pre-step',
+      stepIndex,
+      userIntent: ctx.userContent,
+      sessionId: ctx.sessionId,
+      abortSignal: ctx.abortSignal,
+      recentHistory: runtime.recentHistory.slice(),
+      reflectModel: runtime.reflectModel ?? undefined,
+      estimatedTokens,
+      contextLimit: limit,
+      messages,
+    },
+    runtime.perTurnCounters,
+  )
+  if (preOut.directOutput) {
+    await persistDirect(stepIndex, preOut.from ?? 'unknown', preOut.directOutput)
+    if (preOut.directOutput.endTurn) {
+      // pre-step 触发 endTurn 仅 context_overflow 一种场景, 收窄类型
+      return {
+        step: null,
+        durationMs: Date.now() - stepStart,
+        exitReason: 'context_overflow',
+      }
     }
   }
+  if (preOut.hint) {
+    messages.push({ role: 'system', content: preOut.hint })
+    log.info(`[ReactLoop]   pre-step hint injected (${preOut.hint.length} chars)`)
+  }
+  // wrapUp from pre-step 不预期; 若发生, runReflectorChain 会返回但主循环不处理 wrapUp (pre-step 不该有)
 
-  // 3. Hint 注入 (detector hint 或 turn-end policy hint)
+  // 3. Hint 注入 (上一步留下的 nextPolicyHint / mid-reflector advisor)
   if (state.hint) {
     messages.push({ role: 'system', content: state.hint })
     log.info(`[ReactLoop]   injected hint (${state.hint.length} chars)`)
