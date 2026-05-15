@@ -4,9 +4,15 @@
 // complete=false + confidence≥0.5 → directOutput(endTurn=false), 落库 [reflection-judge],
 // main LLM 下步通过 history 看到 pending items, 自然续做。
 //
-// 降级: code-filter 先过滤. 只有 final 文本含 "未来时承诺词" (I'll / Let me / 接下来 /
-// 我会 / 还需要 ...) 时才调 LLM judge。监控显示 80%+ healthy final 是 complete=true 白调,
-// hallucinated completion 通常伴随承诺词, 用关键词过滤可去掉 70%+ LLM 调用。
+// 降级: code-filter 用多信号风险打分代替单一关键词检测. JudgeCompletion 的原始作用是
+// 抓 "幻觉完成" (committed-to-but-no-tool-call), 信号设计围绕 intent ↔ trajectory 不匹配:
+//
+//   信号 A (+5): action verb intent + 0 工作量 (执行类请求但根本没动工具)
+//   信号 B (+4): final 声称 IO (写入/保存/创建) 但 trajectory 无 write/edit
+//   信号 C (+3): 多任务 intent (and / 、 / N 个 / 数字+量词) + tool calls 远少于任务数
+//   信号 D (+2): 长复杂 intent (> 100 字) + 极短 final (< 50 字)
+//
+// 阈值 score >= 3 才调 LLM. healthy final (询问类 / 已工作的 final) 直接放行。
 //
 // maxPerTurn=2 上限: 同 turn 最多推翻 final 2 次, 第 3 次强制放行 (主循环 perTurnCounters)。
 //
@@ -15,38 +21,71 @@
 
 import log from 'electron-log'
 import type { Reflector, ReflectorCapabilities, ReflectorOutcome, ReflectContext } from './types'
+import type { StepOutcome } from '../types'
 import { summarizeTrajectory } from './trajectory'
 import { runReflectAgent } from './agents/types'
 import { JudgeCompletionAgent } from './agents/judge-completion-agent'
 
+// 完整动词 + imperative 单字 (如 "查 users", "读 file.ts"; 用空格做边界,
+// 避免误抓 "查看 / 检查 / 查询" 等已含的多字词)
+const ACTION_VERBS =
+  /(查询|创建|写入|修改|删除|运行|执行|生成|编辑|搜索|查找|分析|审查|检查|读取|build|create|write|modify|delete|run|exec|edit|search|find|grep|review|analyze|inspect|fetch|fix|implement|refactor|(?:^|\s|[,，;；:：])(?:查|读|写|改|删|建|跑|找)\s)/i
+const IO_CLAIM =
+  /(wrote|saved|created|generated|written|输出到|写到|写入了|写入到|已写入|保存到|已保存|生成到|已生成|创建了|已创建)/i
+const IO_TOOL = /^(write|edit|create|insert|update)$/i
+// 多任务标记: 英文连接词 / 中文连接词 / 列表分隔 / 数字 + 量词 / 中文数字 + 量词
+const MULTI_TASK_MARKERS =
+  /( and |、|，|;|；|另外|还有|同时|此外|以及|\b\d+\s*(个|张|份|项|条|files?|tables?|items?)\b|[二三四五六七八九十]\s*(个|张|份|项|条))/gi
+
 /**
- * 检测 final 文本是否含未来时承诺词. 命中表示 main LLM 说"完成"但同时承诺还要做事 —
- * 高概率是 hallucinated completion / 半成品 final, 值得调 LLM judge。
+ * 风险打分 — 信号叠加. score >= 3 触发 LLM judge.
  *
- * 否则视为干净 final (例如 "查询返回 3 行: ..."), 直接放行, 节省 LLM 调用。
+ * 设计原则: 信号必须对应"承诺-行动不匹配" / "intent-工作量不匹配" 的语义现象,
+ * 不是表面关键词。每个信号独立成立, 多信号叠加增加置信度。
  */
-function hasFutureCommitmentMarkers(text: string): boolean {
-  const lower = text.toLowerCase()
-  // 英文承诺词
-  const en = [
-    /\bi['']ll\b/, // I'll
-    /\bi will\b/,
-    /\blet me\b/,
-    /\blet's\b/,
-    /\bgoing to\b/,
-    /\bgonna\b/,
-    /\bwill (now |then |continue|proceed|next|also)/,
-    /\babout to\b/,
-    /\bnext step\b/,
-    /\bneed to\b/,
-    /\bstill need/,
-    /\bwill be\b/,
-  ]
-  if (en.some((re) => re.test(lower))) return true
-  // 中文承诺词 (大小写不敏感不适用, 用原文)
-  const zh = ['接下来', '我会', '还需要', '即将', '准备', '下一步', '稍后', '然后我', '还要']
-  return zh.some((kw) => text.includes(kw))
+function judgeRiskScore(
+  userIntent: string,
+  finalText: string,
+  history: readonly StepOutcome[],
+): { score: number; signals: string[] } {
+  const signals: string[] = []
+  let score = 0
+
+  const totalTools = history.reduce((sum, o) => sum + o.toolNames.length, 0)
+  const hasActionIntent = ACTION_VERBS.test(userIntent)
+
+  // A: 执行类 intent + 零工作量 — 最强幻觉信号
+  if (hasActionIntent && totalTools === 0) {
+    score += 5
+    signals.push(`action-intent + 0-tools`)
+  }
+
+  // B: final 声称 IO 操作但 trajectory 无对应 write/edit
+  if (IO_CLAIM.test(finalText)) {
+    const hasIOTool = history.some((o) => o.toolNames.some((t) => IO_TOOL.test(t)))
+    if (!hasIOTool) {
+      score += 4
+      signals.push(`final-claims-IO + no-write-tool`)
+    }
+  }
+
+  // C: 多任务 intent + 工作量不匹配
+  const markerCount = (userIntent.match(MULTI_TASK_MARKERS) || []).length
+  if (markerCount >= 1 && hasActionIntent && totalTools < markerCount + 1) {
+    score += 3
+    signals.push(`multi-task(${markerCount}) + tools(${totalTools})`)
+  }
+
+  // D: 长复杂 intent + 极短 final
+  if (userIntent.length > 100 && finalText.length < 50) {
+    score += 2
+    signals.push(`long-intent(${userIntent.length}) + terse-final(${finalText.length})`)
+  }
+
+  return { score, signals }
 }
+
+const RISK_THRESHOLD = 3
 
 export interface JudgeCompletionReflectorOpts {
   sessionId: string
@@ -68,11 +107,15 @@ export class JudgeCompletionReflector implements Reflector {
     if (ctx.phase !== 'turn-end') return null
     if (ctx.outcome.toolNames.length > 0 || !ctx.outcome.stepText) return null
 
-    // code-filter: final 不含未来时承诺词 → 视为 clean final, 跳过 LLM judge
-    if (!hasFutureCommitmentMarkers(ctx.outcome.stepText)) {
-      log.info(`[Reflect/judge-completion] clean final (no commitment markers), 跳过 LLM`)
+    // code-filter: 多信号风险打分 — 低风险 final 直接放行
+    const risk = judgeRiskScore(ctx.userIntent, ctx.outcome.stepText, ctx.recentHistory)
+    if (risk.score < RISK_THRESHOLD) {
+      log.info(`[Reflect/judge-completion] low risk score=${risk.score}, 跳过 LLM`)
       return null
     }
+    log.info(
+      `[Reflect/judge-completion] risk score=${risk.score} signals=[${risk.signals.join(', ')}], 调 LLM`,
+    )
 
     const result = await runReflectAgent(
       JudgeCompletionAgent,

@@ -19,21 +19,37 @@ vi.mock('ai', async () => {
 import { JudgeCompletionReflector } from './judge-completion'
 import type { ReflectContext } from './types'
 
-// 默认 stepText 含未来时承诺词 — code-filter 命中, 进入 LLM judge 路径
-const RISKY_FINAL = "Done with part 1. I'll continue with part 2 next."
+// 默认 ctx 必须触发 score >= 3 让现有"决策路径"测试能进入 LLM judge:
+//   - userIntent 含 action verb + 多任务标记
+//   - recentHistory 工作量低
+//   - 这些信号叠加足以越过阈值
+const ACTION_INTENT = '查询 users 表和 orders 表的 schema, 然后写入 result.md'
+
+function makeHistory(toolCalls: string[][]): import('../types').StepOutcome[] {
+  return toolCalls.map((names, i) => ({
+    stepText: 'step ' + i,
+    toolNames: names,
+    signature: 'sig-' + i,
+    allToolsFailed: false,
+    wroteAssistantFinal: false,
+    shouldContinue: true,
+    durationMs: 100,
+    containsSubagentFailure: false,
+  })) as import('../types').StepOutcome[]
+}
 
 function turnEndCtx(overrides: Partial<ReflectContext> = {}): ReflectContext {
   const base = {
     phase: 'turn-end' as const,
     stepIndex: 0,
-    userIntent: 'do X then Y',
+    userIntent: ACTION_INTENT,
     sessionId: 's1',
     abortSignal: new AbortController().signal,
-    recentHistory: [],
+    recentHistory: makeHistory([]), // 零 tool, 触发 action+0-tool 信号 (+5)
     reflectModel: {} as never,
     facts: {} as never,
-    outcome: { stepText: RISKY_FINAL, toolNames: [] } as never,
-    raw: { stepText: RISKY_FINAL },
+    outcome: { stepText: 'done', toolNames: [] } as never,
+    raw: { stepText: 'done' },
     policyDecision: 'final' as const,
   }
   return { ...base, ...overrides } as ReflectContext
@@ -102,13 +118,16 @@ describe('JudgeCompletionReflector', () => {
     expect(await r.reflect(turnEndCtx())).toBeNull()
   })
 
-  // ── code-filter: 没有未来时承诺词 → 跳过 LLM 调用 ──
-  describe('code-filter (避免对 healthy final 白调 LLM)', () => {
-    it('final 不含承诺词 → 直接 null, 零 LLM 调用', async () => {
+  // ── code-filter: 多信号风险打分 (回归 JudgeCompletion 抓 "幻觉完成" 的原始作用) ──
+  describe('code-filter — 风险打分驱动', () => {
+    it('询问类 intent + 有工作量 + 具体 final → 低风险, 不调 LLM', async () => {
       const r = new JudgeCompletionReflector({ sessionId: 's1' })
       const ctx = turnEndCtx({
+        userIntent: 'python 中 dict 怎么用?',
+        recentHistory: makeHistory([]),
         outcome: {
-          stepText: 'The query returned 3 rows: alice, bob, charlie.',
+          stepText:
+            'Python dict is a hash map. Example: d = {"key": "value"}. Access via d["key"].',
           toolNames: [],
         } as never,
       })
@@ -116,48 +135,88 @@ describe('JudgeCompletionReflector', () => {
       expect(mockGenerateText).not.toHaveBeenCalled()
     })
 
-    it("final 含 'I will' → 触发 LLM judge", async () => {
-      mockGenerateText.mockResolvedValueOnce({
-        text: JSON.stringify({
-          complete: false,
-          pendingItems: ['p'],
-          reason: 'r',
-          confidence: 0.7,
-        }),
-      })
-      const r = new JudgeCompletionReflector({ sessionId: 's1' })
-      const ctx = turnEndCtx({
-        outcome: { stepText: 'I will continue with the next step.', toolNames: [] } as never,
-      })
-      await r.reflect(ctx)
-      expect(mockGenerateText).toHaveBeenCalledTimes(1)
-    })
-
-    it('final 含中文承诺词 "接下来" → 触发 LLM judge', async () => {
+    it('信号 A: action intent (查询/创建/写入) + 零 tool 工作量 → 强幻觉, 调 LLM', async () => {
       mockGenerateText.mockResolvedValueOnce({
         text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
       })
       const r = new JudgeCompletionReflector({ sessionId: 's1' })
       const ctx = turnEndCtx({
-        outcome: { stepText: '已查询完毕, 接下来我会整理数据。', toolNames: [] } as never,
+        userIntent: '查询所有用户',
+        recentHistory: makeHistory([]),
+        outcome: { stepText: '已经查完了。', toolNames: [] } as never,
       })
       await r.reflect(ctx)
       expect(mockGenerateText).toHaveBeenCalledTimes(1)
     })
 
-    it("final 含 'Let me' → 触发 LLM judge", async () => {
+    it('信号 B: final 声称写入但 trajectory 无 write/edit → 调 LLM', async () => {
       mockGenerateText.mockResolvedValueOnce({
         text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
       })
       const r = new JudgeCompletionReflector({ sessionId: 's1' })
       const ctx = turnEndCtx({
+        userIntent: '帮我整理文档',
+        recentHistory: makeHistory([['read'], ['read']]), // 只读, 没写
+        outcome: { stepText: '已写入到 result.md, 内容包含...', toolNames: [] } as never,
+      })
+      await r.reflect(ctx)
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
+
+    it('信号 B: final 含 "wrote" 但有 write tool → 信号不触发', async () => {
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      const ctx = turnEndCtx({
+        userIntent: '简单任务',
+        recentHistory: makeHistory([['write']]), // 确实写了
+        outcome: { stepText: 'wrote the result to output.txt.', toolNames: [] } as never,
+      })
+      expect(await r.reflect(ctx)).toBeNull()
+      expect(mockGenerateText).not.toHaveBeenCalled()
+    })
+
+    it('信号 C: 多任务 intent (3 张表) + 工作量不足 → 调 LLM', async () => {
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
+      })
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      const ctx = turnEndCtx({
+        userIntent: '查 users、orders、products 三张表的 schema',
+        recentHistory: makeHistory([['mysql_query']]), // 只查 1 次
+        outcome: { stepText: '查询完毕。', toolNames: [] } as never,
+      })
+      await r.reflect(ctx)
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
+
+    it('信号 D: 长复杂 intent + 极短 final → 搪塞嫌疑, 调 LLM', async () => {
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({ complete: true, pendingItems: [], reason: 'ok', confidence: 0.9 }),
+      })
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      const longIntent =
+        '帮我审查这个项目的代码质量，检查所有 src/main/loop 下的文件是否符合最佳实践，' +
+        '识别潜在 bug，并给出具体改进建议。重点关注错误处理、类型安全、和测试覆盖率。'
+      const ctx = turnEndCtx({
+        userIntent: longIntent,
+        recentHistory: makeHistory([['read'], ['read']]),
+        outcome: { stepText: '已审查完毕，没问题。', toolNames: [] } as never,
+      })
+      await r.reflect(ctx)
+      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+    })
+
+    it('healthy: 简单 action intent + 充分工作量 + 实质 final → 低风险, 不调 LLM', async () => {
+      const r = new JudgeCompletionReflector({ sessionId: 's1' })
+      const ctx = turnEndCtx({
+        userIntent: '查询 users 表',
+        recentHistory: makeHistory([['mysql_query']]),
         outcome: {
-          stepText: 'Let me check the database schema for you.',
+          stepText: '查询返回 5 行: alice (admin), bob (user), ...',
           toolNames: [],
         } as never,
       })
-      await r.reflect(ctx)
-      expect(mockGenerateText).toHaveBeenCalledTimes(1)
+      expect(await r.reflect(ctx)).toBeNull()
+      expect(mockGenerateText).not.toHaveBeenCalled()
     })
   })
 })
