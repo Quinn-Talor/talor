@@ -175,6 +175,8 @@ function buildAgentMcpRegistry(mcpServers: McpServerDependency[]): McpRegistry |
       type: transport.type === 'stdio' ? 'stdio' : 'http',
       command: transport.type === 'stdio' ? transport.command : undefined,
       args: transport.type === 'stdio' ? transport.args : undefined,
+      env: transport.type === 'stdio' ? transport.env : undefined,
+      envFromAccount: transport.type === 'stdio' ? transport.envFromAccount : undefined,
       url: transport.type === 'http' ? transport.url : undefined,
       enabled: true,
     }

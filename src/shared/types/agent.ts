@@ -79,15 +79,18 @@ export interface SkillItem {
   purpose?: string
 }
 
-export interface McpServerPackage {
-  type: 'npm' | 'pip'
-  package: string
-}
 export interface McpTransportStdio {
   type: 'stdio'
   command: string
   args?: string[]
+  /** 字面配置变量,非凭据。例: { LOG_LEVEL: 'debug', NODE_ENV: 'production' } */
   env?: Record<string, string>
+  /**
+   * 凭据引用。key=子进程的环境变量名,value=Account store 里的 envVar 名。
+   * 主进程在启动 stdio 子进程前用 resolveAccountVars 注入,
+   * LLM / 渲染端永远拿不到真值。
+   */
+  envFromAccount?: Record<string, string>
 }
 export interface McpTransportHttp {
   type: 'http'
@@ -99,7 +102,6 @@ export type McpTransportConfig = McpTransportStdio | McpTransportHttp
 export interface McpServerDependency {
   name: string
   description?: string
-  serverPackage?: McpServerPackage
   transport: McpTransportConfig
   tools: string[]
   required: boolean

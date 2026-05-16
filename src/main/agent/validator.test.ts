@@ -180,4 +180,154 @@ describe('validateProfile (v2.0)', () => {
     expect(r.valid).toBe(true)
     expect(r.warnings.some((w) => w.rule === 9)).toBe(true) // W1 → numbered 9
   })
+
+  // RULE 10: envFromAccount 格式
+  describe('RULE 10 (envFromAccount format)', () => {
+    it('accepts valid envFromAccount', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'github',
+              required: true,
+              tools: ['create_issue'],
+              transport: {
+                type: 'stdio',
+                command: 'npx',
+                envFromAccount: { GITHUB_TOKEN: 'GITHUB_PAT' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(true)
+    })
+
+    it('rejects lowercase subprocess var key', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'github',
+              required: true,
+              tools: [],
+              transport: {
+                type: 'stdio',
+                command: 'npx',
+                envFromAccount: { github_token: 'GITHUB_PAT' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(false)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 10)).toBe(true)
+    })
+
+    it('rejects lowercase Account envVar reference', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'github',
+              required: true,
+              tools: [],
+              transport: {
+                type: 'stdio',
+                command: 'npx',
+                envFromAccount: { GITHUB_TOKEN: 'github_pat' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(false)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 10)).toBe(true)
+    })
+  })
+
+  // RULE 11: env 凭据嫌疑扫描
+  describe('RULE 11 (env credential scan)', () => {
+    it('rejects ghp_ prefixed credential in env', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'github',
+              required: true,
+              tools: [],
+              transport: {
+                type: 'stdio',
+                command: 'npx',
+                env: { GITHUB_TOKEN: 'ghp_abcdef1234567890' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(false)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 11)).toBe(true)
+    })
+
+    it('rejects sk- prefixed credential', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'openai',
+              required: true,
+              tools: [],
+              transport: {
+                type: 'stdio',
+                command: 'npx',
+                env: { OPENAI_KEY: 'sk-abcdefghijklmnop' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(false)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 11)).toBe(true)
+    })
+
+    it('accepts harmless config values (LOG_LEVEL=debug)', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'service',
+              required: true,
+              tools: [],
+              transport: {
+                type: 'stdio',
+                command: 'npx',
+                env: { LOG_LEVEL: 'debug', NODE_ENV: 'production' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(true)
+    })
+
+    it('does not trigger on http transport (rule 11 is stdio-only)', () => {
+      const r = validateProfile(
+        minimal({
+          mcpServers: [
+            {
+              name: 'http-svc',
+              required: true,
+              tools: [],
+              transport: {
+                type: 'http',
+                url: 'https://example.com/mcp',
+                auth: { type: 'bearer', envVar: 'API_TOKEN' },
+              },
+            },
+          ],
+        }),
+      )
+      expect(r.valid).toBe(true)
+    })
+  })
 })

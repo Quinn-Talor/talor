@@ -12,7 +12,13 @@ export interface MCPServerConfig {
   type: MCPServerType
   command?: string
   args?: string[]
+  /** 字面环境变量(非凭据)。例: { LOG_LEVEL: 'debug' } */
   env?: Record<string, string>
+  /**
+   * 凭据引用。key=子进程的环境变量名,value=Account store 里的 envVar 名。
+   * stdio transport 在 spawn 子进程前调用 AccountStore.resolveAccountVars 注入。
+   */
+  envFromAccount?: Record<string, string>
   url?: string
   auth?: MCPAuthConfig
   enabled: boolean
@@ -57,7 +63,7 @@ export interface MCPError {
 export class MCPError extends Error {
   constructor(
     message: string,
-    public code: number = -32603
+    public code: number = -32603,
   ) {
     super(message)
     this.name = 'MCPError'

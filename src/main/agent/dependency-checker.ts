@@ -150,6 +150,13 @@ export function checkDependencies(
         mcpIssues.push(`${mcp.name}: 需要配置 ${envVar} → 前往账户管理`)
       }
     }
+    if (mcp.transport.type === 'stdio' && mcp.transport.envFromAccount) {
+      for (const accountVar of Object.values(mcp.transport.envFromAccount)) {
+        if (!accountValues.has(accountVar)) {
+          mcpIssues.push(`${mcp.name}: 需要配置 ${accountVar} → 前往账户管理`)
+        }
+      }
+    }
   }
 
   if (mcpIssues.length > 0) {
@@ -222,6 +229,13 @@ export function checkDependencies(
         !missingVars.includes(mcp.transport.auth.envVar)
       ) {
         missingVars.push(mcp.transport.auth.envVar)
+      }
+    }
+    if (mcp.transport.type === 'stdio' && mcp.transport.envFromAccount) {
+      for (const accountVar of Object.values(mcp.transport.envFromAccount)) {
+        if (!accountValues.has(accountVar) && !missingVars.includes(accountVar)) {
+          missingVars.push(accountVar)
+        }
       }
     }
   }

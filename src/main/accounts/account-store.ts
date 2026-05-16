@@ -21,7 +21,19 @@ export interface SafeStorageProvider {
 }
 
 export class AccountStore {
-  constructor(private readonly safeStorage?: SafeStorageProvider) {}
+  private static instance: AccountStore | null = null
+
+  constructor(private readonly safeStorage?: SafeStorageProvider) {
+    AccountStore.instance = this
+  }
+
+  /**
+   * 主进程其它模块(如 MCP stdio transport)按需取实例。
+   * 必须在 main 启动时 new AccountStore(...) 之后才返回非空。
+   */
+  static getInstance(): AccountStore | null {
+    return AccountStore.instance
+  }
 
   /** 按 service 聚合展示列表。secret 字段以 SECRET_MASK 替代,永不返回明文。 */
   list(): Account[] {
@@ -92,6 +104,32 @@ export class AccountStore {
       }
     }
     return rec.value
+  }
+
+  /**
+   * 把 envFromAccount 引用解析为可注入子进程的 env Map。
+   *
+   * @param refs key = 子进程环境变量名;value = Account 中的 envVar 名
+   * @returns resolved: 成功解析的子进程变量;missing: Account 里找不到值的 envVar 名集合
+   *
+   * 仅在主进程调用;真值绝不通过 IPC 返回到渲染端或 LLM。
+   */
+  resolveAccountVars(refs: Record<string, string> | undefined): {
+    resolved: Record<string, string>
+    missing: string[]
+  } {
+    if (!refs) return { resolved: {}, missing: [] }
+    const resolved: Record<string, string> = {}
+    const missing: string[] = []
+    for (const [subprocVar, accountVar] of Object.entries(refs)) {
+      const value = this.getValue(accountVar)
+      if (value === undefined) {
+        missing.push(accountVar)
+      } else {
+        resolved[subprocVar] = value
+      }
+    }
+    return { resolved, missing }
   }
 
   /** 把所有 keys 铺平成 name→value Map,供工具注入(secret 自动解密)。 */

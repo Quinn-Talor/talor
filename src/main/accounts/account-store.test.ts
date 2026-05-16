@@ -182,4 +182,48 @@ describe('AccountStore', () => {
 
     expect(fallbackStore.getValue('key1')).toBe('plain_value')
   })
+
+  describe('resolveAccountVars', () => {
+    beforeEach(() => {
+      store.save({
+        service: 'GitHub',
+        keys: [
+          { name: 'GITHUB_PAT', value: 'ghp_xxx', secret: false },
+          { name: 'GITHUB_USER', value: 'octocat', secret: false },
+        ],
+      })
+    })
+
+    it('resolves all refs when all envVars present', () => {
+      const result = store.resolveAccountVars({
+        GITHUB_TOKEN: 'GITHUB_PAT',
+        GH_USER: 'GITHUB_USER',
+      })
+      expect(result.resolved).toEqual({ GITHUB_TOKEN: 'ghp_xxx', GH_USER: 'octocat' })
+      expect(result.missing).toEqual([])
+    })
+
+    it('returns missing list when envVar not in account store', () => {
+      const result = store.resolveAccountVars({
+        GITHUB_TOKEN: 'GITHUB_PAT',
+        LINEAR_KEY: 'LINEAR_PAT',
+      })
+      expect(result.resolved).toEqual({ GITHUB_TOKEN: 'ghp_xxx' })
+      expect(result.missing).toEqual(['LINEAR_PAT'])
+    })
+
+    it('handles undefined refs gracefully', () => {
+      const result = store.resolveAccountVars(undefined)
+      expect(result).toEqual({ resolved: {}, missing: [] })
+    })
+
+    it('handles empty refs object', () => {
+      const result = store.resolveAccountVars({})
+      expect(result).toEqual({ resolved: {}, missing: [] })
+    })
+
+    it('getInstance returns the most recently constructed store', () => {
+      expect(AccountStore.getInstance()).toBe(store)
+    })
+  })
 })

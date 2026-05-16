@@ -47,8 +47,16 @@ export class AgentLoader {
       try {
         const raw = readFileSync(jsonPath, 'utf-8')
         const json = JSON.parse(raw)
-        // Schema 2.0: 不做向后兼容,1.0 格式 profile 直接 reject
-        const result = validateProfile(json, { agentRoot: dirPath })
+
+        // 运行时清洗存量数据 — 不写回磁盘(避免数据丢失),仅清理内存中的 profile
+        const sanitized = sanitizeOnLoad(json, name)
+
+        // lenientCredentialScan: rule 11 降为 warning,确保存量 agent 即使有可疑值也能加载,
+        // 让用户在 AgentEditPage 自行迁移到 envFromAccount。write 路径仍是严格 error。
+        const result = validateProfile(sanitized, {
+          agentRoot: dirPath,
+          lenientCredentialScan: true,
+        })
 
         if (!result.valid) {
           const summary = result.errors
@@ -62,6 +70,12 @@ export class AgentLoader {
             summary,
           )
           continue
+        }
+
+        if (result.warnings.length > 0) {
+          for (const w of result.warnings) {
+            log.warn(`[AgentLoader] ${name} [rule ${w.rule}] ${w.path}: ${w.message}`)
+          }
         }
 
         this.entries.set(result.profile.id, {
@@ -107,4 +121,40 @@ export class AgentLoader {
   get size(): number {
     return this.entries.size
   }
+}
+
+/**
+ * 运行时清洗存量 agent.json 数据(仅内存,不写回磁盘)。
+ *
+ * 当前清洗项:
+ *   - 删除 `mcpServers[].serverPackage` 死字段(schema 已无此字段,留着会污染下游)
+ *
+ * 凭据嫌疑值(`mcpServers[].transport.stdio.env[k]`)**不删** —
+ * 删除会让 MCP server 起不来,损失更大;由 validator lenientCredentialScan 降级为
+ * warning + log,引导用户迁到 envFromAccount。
+ */
+function sanitizeOnLoad(raw: unknown, agentDirName: string): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
+  const cloned = JSON.parse(JSON.stringify(raw)) as Record<string, unknown>
+
+  const mcpServers = cloned.mcpServers
+  if (!Array.isArray(mcpServers)) return cloned
+
+  let removedServerPackage = 0
+  for (const m of mcpServers) {
+    if (!m || typeof m !== 'object') continue
+    const mcp = m as Record<string, unknown>
+    if ('serverPackage' in mcp) {
+      delete mcp.serverPackage
+      removedServerPackage++
+    }
+  }
+
+  if (removedServerPackage > 0) {
+    log.info(
+      `[AgentLoader] ${agentDirName}: sanitized ${removedServerPackage} dead serverPackage field(s) at load`,
+    )
+  }
+
+  return cloned
 }

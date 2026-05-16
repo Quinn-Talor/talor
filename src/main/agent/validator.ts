@@ -26,6 +26,12 @@ export interface ValidatorContext {
   knownAgentIds?: Set<string>
   /** agent 根目录,用于 references[].path 存在性检查 */
   agentRoot?: string
+  /**
+   * 宽松模式 — 把 rule 11(env 凭据嫌疑)从 error 降为 warning。
+   * 仅用于 AgentLoader 加载存量 agent,避免误伤已存在的凭据写法导致 agent 加载失败;
+   * write 路径(agents:update / agents:create-from-draft)不应传此标志。
+   */
+  lenientCredentialScan?: boolean
 }
 
 const ID_RE = /^[a-z0-9_-]+$/
@@ -256,6 +262,68 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
     }
   }
 
+  // RULE 10 + 11: MCP stdio 凭据机制
+  if (Array.isArray(o.mcpServers)) {
+    o.mcpServers.forEach((m, i) => {
+      if (!m || typeof m !== 'object') return
+      const mcp = m as Record<string, unknown>
+      const transport = mcp.transport as Record<string, unknown> | undefined
+      if (!transport || transport.type !== 'stdio') return
+
+      // RULE 10: envFromAccount key/value 格式
+      const efa = transport.envFromAccount as Record<string, unknown> | undefined
+      if (efa !== undefined) {
+        if (typeof efa !== 'object' || Array.isArray(efa) || efa === null) {
+          errors.push({
+            severity: 'error',
+            rule: 10,
+            path: `mcpServers[${i}].transport.envFromAccount`,
+            message: 'must be object mapping subprocess var name → Account envVar name',
+          })
+        } else {
+          for (const [subprocVar, accountVar] of Object.entries(efa)) {
+            if (!ENV_VAR_NAME_RE.test(subprocVar)) {
+              errors.push({
+                severity: 'error',
+                rule: 10,
+                path: `mcpServers[${i}].transport.envFromAccount`,
+                message: `key "${subprocVar}" must match ${ENV_VAR_NAME_RE} (uppercase env var)`,
+              })
+            }
+            if (typeof accountVar !== 'string' || !ENV_VAR_NAME_RE.test(accountVar)) {
+              errors.push({
+                severity: 'error',
+                rule: 10,
+                path: `mcpServers[${i}].transport.envFromAccount.${subprocVar}`,
+                message: `Account envVar reference must match ${ENV_VAR_NAME_RE}`,
+              })
+            }
+          }
+        }
+      }
+
+      // RULE 11: env 凭据嫌疑扫描(防止字面凭据被打包/泄露)
+      // lenientCredentialScan 模式下降为 warning,避免误伤存量 agent 加载
+      const env = transport.env as Record<string, unknown> | undefined
+      if (env && typeof env === 'object') {
+        for (const [key, value] of Object.entries(env)) {
+          if (typeof value !== 'string') continue
+          if (looksLikeCredential(value)) {
+            const issue: ValidatorIssue = {
+              severity: ctx.lenientCredentialScan ? 'warn' : 'error',
+              rule: 11,
+              path: `mcpServers[${i}].transport.env.${key}`,
+              message:
+                'value looks like a credential — use transport.envFromAccount to reference an Account envVar instead',
+            }
+            if (ctx.lenientCredentialScan) warnings.push(issue)
+            else errors.push(issue)
+          }
+        }
+      }
+    })
+  }
+
   if (errors.length > 0) return { valid: false, errors, warnings }
 
   const profile = o as unknown as AgentProfile
@@ -264,6 +332,17 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
   validateNoSpecificEntities(profile, warnings)
 
   return { valid: true, profile, warnings }
+}
+
+const ENV_VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/
+const CREDENTIAL_VALUE_PREFIX_RE = /^(sk-|ghp_|gho_|ghs_|ghr_|pk_|api_|token_|Bearer\s|Basic\s)/i
+const NON_CREDENTIAL_LITERAL_RE =
+  /^(true|false|debug|info|warn|error|production|development|test|0|1)$/i
+
+function looksLikeCredential(value: string): boolean {
+  if (value.length < 8) return false
+  if (NON_CREDENTIAL_LITERAL_RE.test(value)) return false
+  return CREDENTIAL_VALUE_PREFIX_RE.test(value)
 }
 
 // ─── W1 (rule 9): description / agentPrompt / references.description 不含具体实体 ──
