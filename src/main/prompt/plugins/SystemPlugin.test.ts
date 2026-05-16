@@ -83,24 +83,30 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/request_continuation/)
   })
 
-  it('原则 13 side effects 含 pending_confirm 契约 + 通用 (不硬编码服务名)', async () => {
+  it('原则 13 side effects 引用 SDK needsApproval，不再用已弃用的 pending_confirm', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
-    expect(content).toMatch(/"type":"pending_confirm"/)
-    expect(content).toMatch(/same step as the tool call/i)
-    expect(content).toMatch(/risk_level.*destructive/i)
+    // 新方案: SDK 拦截，LLM 不 emit fenced block
+    expect(content).toMatch(/needsApproval/)
+    expect(content).toMatch(/runtime/i)
+    // 旧 pending_confirm 已 stale (parser 已删除该 type),不应出现在 prompt 里
+    expect(content).not.toMatch(/"type":"pending_confirm"/)
     // 通用性: 协议层不耦合具体业务服务
     expect(content).not.toMatch(/\bMySQL\b|\bPostgreSQL\b|\bMongoDB\b/)
     expect(content).not.toMatch(/\bGitHub\b|\bSlack\b|\bNotion\b|\bLinear\b|\bJira\b/)
   })
 
-  it('原则 14 talor blocks 列出 done / need_input / blocked', async () => {
+  it('原则 14 talor blocks 列出全部 5 个 v1 类型 (含 proposal)', async () => {
     const result = await new SystemPlugin().build(makeCtx())
     const content = (result.messages[0] as { content: string }).content
     expect(content).toMatch(/"type":"done"/)
     expect(content).toMatch(/"type":"need_input"/)
     expect(content).toMatch(/"type":"blocked"/)
+    expect(content).toMatch(/"type":"warning"/)
+    expect(content).toMatch(/"type":"proposal"/)
+    // pending_confirm 和 pending_continuation 都已删除
     expect(content).not.toMatch(/"type":"pending_continuation"/)
+    expect(content).not.toMatch(/"type":"pending_confirm"/)
   })
 
   it('原则 15 reflection signals: 三 channel + 优先级', async () => {

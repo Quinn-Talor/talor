@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useChatStore, type ToolCallEntry, type StreamItem } from '../store/chatStore'
+import { Prose } from './markdown/Prose'
 
 function useElapsedTimer(startedAt: number, active: boolean): string {
   const [elapsed, setElapsed] = useState(() => (Date.now() - startedAt) / 1000)
@@ -224,8 +225,10 @@ function StepGroup({ items, isLast }: { items: StreamItem[]; isLast: boolean }) 
     <div>
       {hasText &&
         (hasTools ? (
+          // Streaming intermediate text + tool calls: truncate preview only.
+          // ReactMarkdown on partial unstable text causes flicker; render plain.
           <button
-            className="text-zinc-500 dark:text-zinc-400 text-[12px] leading-relaxed mb-0.5 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer text-left truncate max-w-full block"
+            className="text-mute text-[12px] leading-relaxed mb-0.5 hover:text-body cursor-pointer text-left truncate max-w-full block"
             onClick={() => setExpanded((prev) => !prev)}
           >
             {showTextExpanded
@@ -233,8 +236,12 @@ function StepGroup({ items, isLast }: { items: StreamItem[]; isLast: boolean }) 
               : `${textContent.trim().slice(0, 60)}${textContent.trim().length > 60 ? '…' : ''}`}
           </button>
         ) : (
-          <div className="text-zinc-700 dark:text-zinc-300 text-[13px] leading-relaxed mb-1 whitespace-pre-wrap">
-            {textContent}
+          // Final-text-only step (no tools): render markdown so user sees the
+          // same formatted output during streaming as after persistence.
+          // react-markdown handles partial syntax (e.g. unfinished **bold) by
+          // rendering as literal text — no flicker.
+          <div className="mb-1">
+            <Prose source={textContent} />
           </div>
         ))}
       {hasTools && (

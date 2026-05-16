@@ -21,7 +21,12 @@ import log from 'electron-log'
  * MessagePlugin 属于关键插件:Memory 已 pop 掉末尾那条,若 MessagePlugin 失败
  * 则 prompt 末尾缺少"当前要推进的那条消息",模型无所依据。
  */
-const CRITICAL_PLUGIN_NAMES = new Set(['SystemPlugin', 'AgentPromptPlugin', 'MemoryPlugin', 'MessagePlugin'])
+const CRITICAL_PLUGIN_NAMES = new Set([
+  'SystemPlugin',
+  'AgentPromptPlugin',
+  'MemoryPlugin',
+  'MessagePlugin',
+])
 
 /** Merges provider-level overrides with global defaults from ConfigStore. */
 export function resolveProviderConfig(provider: Provider): ProviderContextConfig {
@@ -32,33 +37,43 @@ export function resolveProviderConfig(provider: Provider): ProviderContextConfig
   return {
     provider,
     context_limit: provider.context_limit ?? defaultLimit ?? 1_000_000,
-    recent_ratio:  provider.recent_ratio  ?? defaultRecent ?? 0.05,
+    recent_ratio: provider.recent_ratio ?? defaultRecent ?? 0.05,
     summary_ratio: provider.summary_ratio ?? defaultSummary ?? 0.05,
   }
 }
 
 export class PromptPipeline {
   private memoryManager: MemoryManager
-  private plugins: Array<{ name: string; build(ctx: PipelineContext): Promise<PluginResult> }> | null = null
+  private plugins: Array<{
+    name: string
+    build(ctx: PipelineContext): Promise<PluginResult>
+  }> | null = null
 
   constructor(memoryManager: MemoryManager) {
     this.memoryManager = memoryManager
   }
 
-  private async getPlugins(): Promise<Array<{ name: string; build(ctx: PipelineContext): Promise<PluginResult> }>> {
+  private async getPlugins(): Promise<
+    Array<{ name: string; build(ctx: PipelineContext): Promise<PluginResult> }>
+  > {
     if (this.plugins !== null) return this.plugins
     const { SystemPlugin } = await import('./plugins/SystemPlugin')
     const { AgentPromptPlugin } = await import('./plugins/AgentPromptPlugin')
+    const { UiBlockPlugin } = await import('./plugins/UiBlockPlugin')
     const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
     const { MessagePlugin } = await import('./plugins/MessagePlugin')
     const { ToolSelectionPlugin } = await import('./plugins/ToolSelectionPlugin')
     // 顺序映射到最终 prompt 结构:
-    //   System (Layer 1+2) → Agent (Layer 3+4) → Memory (Layer 6)
-    //   → Message (Layer 7,当前 turn) → ToolSelection (仅 ≥50 工具时的 notice)
+    //   System (Layer 1+2) → Agent (Layer 3+4) → UiBlock (Layer 5, block 协议)
+    //   → Memory (Layer 6) → Message (Layer 7,当前 turn)
+    //   → ToolSelection (仅 ≥50 工具时的 notice)
     // MessagePlugin 必须紧跟 MemoryPlugin:Memory pop 了末尾,Message 把它放回来。
+    // UiBlockPlugin 在 AgentPromptPlugin 后:agent 自定义 prompt 之后再给通用 UI
+    // 块协议,避免被 agent prompt 的"严格 JSON only"等强势规则覆盖。
     this.plugins = [
       new SystemPlugin(),
       new AgentPromptPlugin(),
+      new UiBlockPlugin(),
       new MemoryPlugin(this.memoryManager),
       new MessagePlugin(),
       new ToolSelectionPlugin(),
@@ -94,7 +109,10 @@ export class PromptPipeline {
             `Critical prompt plugin "${plugin.name}" failed: ${err instanceof Error ? err.message : String(err)}`,
           )
         }
-        log.warn(`[PromptPipeline] Non-critical plugin ${plugin.name} failed, marking as degraded:`, err)
+        log.warn(
+          `[PromptPipeline] Non-critical plugin ${plugin.name} failed, marking as degraded:`,
+          err,
+        )
         degraded.push(plugin.name)
       }
     }

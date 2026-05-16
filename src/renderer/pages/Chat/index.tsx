@@ -3,13 +3,14 @@ import { useChatStore } from '../../store/chatStore'
 import { useStreamingMessage } from '../../hooks/useStreamingMessage'
 import { talorAPI } from '../../api/talorAPI'
 import { MessageBubble } from '../../components/MessageBubble'
-import { SessionItem, getDateGroup, agentColor } from '../../components/SessionItem'
+import { agentColor } from '../../components/SessionItem'
+import { Sidebar } from './Sidebar'
 import { useUIStore } from '../../store/uiStore'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
-import { ToolCallMessage } from '../../components/ToolCallMessage'
+import { ToolDispatch } from '../../components/tool-calls/ToolDispatch'
 // ToolConfirmDialog 和 PermissionDialog 已下线到 PermissionsPopover 内嵌渲染,
 // UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
 // 但 Chat 页面不再消费它们。
@@ -192,6 +193,27 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     return () => clearTimeout(t)
   }, [loadSessions, loadModelOptions, loadAgents, loadAgentTools])
 
+  // Block CTA handlers — captured via ref so renderedMessages useMemo stays stable
+  // (changing handler identity would invalidate the memo on every input keystroke).
+  const blockHandlersRef = useRef<{
+    onPickChoice: (text: string) => void
+    onConfirmProposal: (tool: string, args: Record<string, unknown>) => void
+    onEmit: (text: string) => void
+  }>({
+    onPickChoice: () => {},
+    onConfirmProposal: () => {},
+    onEmit: () => {},
+  })
+  const blockOnPickChoice = useCallback((text: string) => {
+    blockHandlersRef.current.onPickChoice(text)
+  }, [])
+  const blockOnConfirmProposal = useCallback((tool: string, args: Record<string, unknown>) => {
+    blockHandlersRef.current.onConfirmProposal(tool, args)
+  }, [])
+  const blockOnEmit = useCallback((text: string) => {
+    blockHandlersRef.current.onEmit(text)
+  }, [])
+
   // 性能关键: 消息列表渲染缓存 — 仅在 messages 变化时重算
   // 之前每次输入(setInput)都会让父组件重渲染,触发这段含 40+ JSON.parse 的 reduce,
   // 导致输入卡顿。useMemo 后输入完全不影响这段计算。
@@ -250,15 +272,22 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               .map((b) => (b as { text?: string }).text ?? '')
               .join('')
               .trim()
+            const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r]))
             acc.push(
-              <div key={msg.id} className="mb-0.5">
+              <div key={msg.id} className="pl-[32px] mb-1">
                 {textContent && (
-                  <div className="px-2 text-[12px] text-zinc-500 dark:text-zinc-400 mb-0.5 truncate">
+                  <div className="text-[12px] text-mute mb-1 truncate">
                     {textContent.slice(0, 80)}
                     {textContent.length > 80 ? '…' : ''}
                   </div>
                 )}
-                <ToolCallMessage toolUses={toolUses} toolResults={toolResults} />
+                {toolUses.map((tu) => (
+                  <ToolDispatch
+                    key={tu.toolCallId}
+                    use={tu}
+                    result={resultMap.get(tu.toolCallId)}
+                  />
+                ))}
               </div>,
             )
             return acc
@@ -267,10 +296,18 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           /* render normal */
         }
       }
-      acc.push(<MessageBubble key={msg.id} message={msg} />)
+      acc.push(
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onPickChoice={blockOnPickChoice}
+          onConfirmProposal={blockOnConfirmProposal}
+          onEmit={blockOnEmit}
+        />,
+      )
       return acc
     }, [] as React.ReactNode[])
-  }, [messages])
+  }, [messages, blockOnPickChoice, blockOnConfirmProposal, blockOnEmit])
 
   // Auto-select most recent session
   useEffect(() => {
@@ -493,6 +530,45 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }
 
+  // Send arbitrary text as a user message — shared by handleSend and block CTAs
+  // (need_input choice, proposal emit / CTA). Skips empty content + streaming guard.
+  const sendAsUser = useCallback(
+    async (content: string, opts?: { attach?: Attachment[] }) => {
+      if (!content.trim() || !currentSessionId || streamState === 'streaming') return
+      clearStreaming()
+
+      const targetSessionId = ws.workbenchSessionId ?? currentSessionId
+      const routedToWorkbench = targetSessionId !== currentSessionId
+
+      if (!routedToWorkbench) {
+        addMessage({
+          id: `temp-${Date.now()}`,
+          session_id: currentSessionId,
+          role: 'user',
+          content,
+          created_at: new Date().toISOString(),
+        })
+      }
+      try {
+        await talorAPI.chat.send({
+          session_id: targetSessionId,
+          content,
+          attachments: opts?.attach && opts.attach.length > 0 ? opts.attach : undefined,
+        })
+        if (routedToWorkbench) await ws.refresh()
+        else await loadMessages(currentSessionId)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        if (msg.includes('FILE_TOO_LARGE')) alert('文件大小超过限制（最大 50MB）')
+        else if (msg.includes('UNSUPPORTED_FILE_TYPE')) alert('不支持的文件类型')
+        else if (msg.includes('FILE_NOT_FOUND')) alert('文件不存在或无法访问')
+        else if (msg.includes('PROVIDER_NO_VISION')) alert('当前模型不支持图片识别')
+        else alert(`发送失败: ${msg}`)
+      }
+    },
+    [currentSessionId, streamState, clearStreaming, ws, addMessage, loadMessages],
+  )
+
   const handleSend = async () => {
     if (
       (!input.trim() && attachments.length === 0) ||
@@ -502,45 +578,58 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       return
     const content = input.trim()
     setInput('')
-    clearStreaming()
-    clearStreaming()
-
-    // 沉淀模式下输入路由到 workbench session（spec §B.9.4 F2）。
-    // 注意：addMessage 用 currentSessionId 时会污染 chat store 显示；
-    // 走 workbench 时不 addMessage，依赖 ws.refresh() 在 send 完成后拉到。
-    const targetSessionId = ws.workbenchSessionId ?? currentSessionId
-    const routedToWorkbench = targetSessionId !== currentSessionId
-
-    if (!routedToWorkbench) {
-      addMessage({
-        id: `temp-${Date.now()}`,
-        session_id: currentSessionId,
-        role: 'user',
-        content,
-        created_at: new Date().toISOString(),
-      })
-    }
-    try {
-      await talorAPI.chat.send({
-        session_id: targetSessionId,
-        content,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      })
-      setAttachments([])
-      if (routedToWorkbench) {
-        await ws.refresh()
-      } else {
-        await loadMessages(currentSessionId)
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg.includes('FILE_TOO_LARGE')) alert('文件大小超过限制（最大 50MB）')
-      else if (msg.includes('UNSUPPORTED_FILE_TYPE')) alert('不支持的文件类型')
-      else if (msg.includes('FILE_NOT_FOUND')) alert('文件不存在或无法访问')
-      else if (msg.includes('PROVIDER_NO_VISION')) alert('当前模型不支持图片识别')
-      else alert(`发送失败: ${msg}`)
-    }
+    await sendAsUser(content, { attach: attachments })
+    setAttachments([])
   }
+
+  // Block CTAs all route through sendAsUser. Phase 8.3: proposal CTA constructs
+  // a "please invoke X with args" message — LLM owns tool invocation, so all
+  // existing permission/validation paths apply. No new IPC.
+  const onPickChoice = useCallback(
+    (text: string) => {
+      void sendAsUser(text)
+    },
+    [sendAsUser],
+  )
+  const onEmit = useCallback(
+    (text: string) => {
+      void sendAsUser(text)
+    },
+    [sendAsUser],
+  )
+  const onConfirmProposal = useCallback(
+    (tool: string, args: Record<string, unknown>) => {
+      // P1 safety gate (client-side): tool must be in the current agent's
+      // registered tool set. If the LLM hallucinated a tool name in
+      // proposal.action.tool, fail loudly here instead of round-tripping
+      // through the LLM (which would just get TOOL_NOT_FOUND back from the
+      // registry and confuse the user with two error messages).
+      const knownTools = new Set(agentTools.map((t) => t.name))
+      if (!knownTools.has(tool)) {
+        alert(
+          `工具 "${tool}" 不在当前 agent 的可用列表里。\n\n` +
+            `LLM 在 proposal 里写的工具名可能是幻觉。可用工具: ` +
+            (agentTools.length === 0
+              ? '(空)'
+              : agentTools
+                  .slice(0, 8)
+                  .map((t) => t.name)
+                  .join(', ') + (agentTools.length > 8 ? ' …' : '')),
+        )
+        return
+      }
+      void sendAsUser(`确认 — 请调用 ${tool}，参数: ${JSON.stringify(args)}`)
+    },
+    [sendAsUser, agentTools],
+  )
+
+  // Sync the stable ref to current handler identities so blockOn* indirection
+  // always reaches the latest sendAsUser closure (whose deps may change).
+  useEffect(() => {
+    blockHandlersRef.current.onPickChoice = onPickChoice
+    blockHandlersRef.current.onConfirmProposal = onConfirmProposal
+    blockHandlersRef.current.onEmit = onEmit
+  }, [onPickChoice, onConfirmProposal, onEmit])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -636,15 +725,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     (s) => s.agent_id !== '__crystallizer__' && (showSubSessions || s.parent_session_id == null),
   )
 
-  // Group sessions by date
-  const todaySessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'today')
-  const yesterdaySessions = visibleSessions.filter(
-    (s) => getDateGroup(s.updated_at) === 'yesterday',
-  )
-  const earlierSessions = visibleSessions.filter((s) => getDateGroup(s.updated_at) === 'earlier')
-
-  const agentMap = new Map(agents.map((a) => [a.id, a]))
-
   return (
     <div
       className="flex h-full w-full overflow-hidden relative"
@@ -652,188 +732,29 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* ═══════════════════════════════════════════
-          DARK SIDEBAR  (260px)
-      ═══════════════════════════════════════════ */}
-      <div
-        className="flex flex-col shrink-0 select-none"
-        style={{ width: 260, background: 'linear-gradient(to bottom, #111827, #0f172a)' }}
-      >
-        {/* Drag region for native traffic lights (macOS) */}
-        <div
-          style={{ height: 36, WebkitAppRegion: 'drag', flexShrink: 0 } as React.CSSProperties}
-        />
+      {/* Sidebar — A2 (spec §6): light surface + search chip + black solid + */}
+      <Sidebar
+        sessions={visibleSessions}
+        agents={agents}
+        currentSessionId={currentSessionId}
+        renamingSessionId={renamingSessionId}
+        onSelectSession={setCurrentSession}
+        onCreateSession={handleCreateSession}
+        onDeleteSession={(id) => setSessionToDelete(id)}
+        onStartRename={(id) => setRenamingSessionId(id)}
+        onCommitRename={handleRenameSession}
+        onCancelRename={() => setRenamingSessionId(null)}
+        onOpenSettings={onOpenSettings}
+      />
 
-        {/* New session button */}
-        <div
-          className="px-[16px] pt-0 pb-0"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          <button
-            onClick={handleCreateSession}
-            className="w-full flex items-center justify-center text-[13px] font-semibold rounded-[10px] transition-colors hover:opacity-90"
-            style={{
-              height: 40,
-              background: 'rgba(59,130,246,0.12)',
-              border: '0.5px solid rgba(59,130,246,0.25)',
-              color: '#60a5fa',
-            }}
-          >
-            + 新建会话
-          </button>
-        </div>
-
-        {/* Session list */}
-        <div
-          className="flex-1 overflow-y-auto pt-[10px]"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          {sessions.length === 0 ? (
-            <div
-              className="text-center text-[12px] mt-8"
-              style={{ color: 'rgba(255,255,255,0.15)' }}
-            >
-              暂无会话
-            </div>
-          ) : (
-            <>
-              {todaySessions.length > 0 && (
-                <>
-                  <div
-                    className="px-[20px] py-[6px] text-[10px] font-semibold tracking-[0.05em]"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    今天
-                  </div>
-                  {todaySessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      isActive={s.id === currentSessionId}
-                      agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
-                      agentColor={agentColor(s.agent_id)}
-                      isRenaming={s.id === renamingSessionId}
-                      onStartRename={() => setRenamingSessionId(s.id)}
-                      onCommitRename={(t) => handleRenameSession(s.id, t)}
-                      onCancelRename={() => setRenamingSessionId(null)}
-                      onClick={() => setCurrentSession(s.id)}
-                      onDelete={() => setSessionToDelete(s.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {yesterdaySessions.length > 0 && (
-                <>
-                  <div
-                    className="px-[20px] py-[6px] text-[10px] font-semibold tracking-[0.05em]"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    昨天
-                  </div>
-                  {yesterdaySessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      isActive={s.id === currentSessionId}
-                      agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
-                      agentColor={agentColor(s.agent_id)}
-                      isRenaming={s.id === renamingSessionId}
-                      onStartRename={() => setRenamingSessionId(s.id)}
-                      onCommitRename={(t) => handleRenameSession(s.id, t)}
-                      onCancelRename={() => setRenamingSessionId(null)}
-                      onClick={() => setCurrentSession(s.id)}
-                      onDelete={() => setSessionToDelete(s.id)}
-                    />
-                  ))}
-                </>
-              )}
-              {earlierSessions.length > 0 && (
-                <>
-                  <div
-                    className="px-[20px] py-[6px] text-[10px] font-semibold tracking-[0.05em]"
-                    style={{ color: 'rgba(255,255,255,0.3)' }}
-                  >
-                    更早
-                  </div>
-                  {earlierSessions.map((s) => (
-                    <SessionItem
-                      key={s.id}
-                      session={s}
-                      isActive={s.id === currentSessionId}
-                      agentName={s.agent_id ? agentMap.get(s.agent_id)?.name : undefined}
-                      agentColor={agentColor(s.agent_id)}
-                      isRenaming={s.id === renamingSessionId}
-                      onStartRename={() => setRenamingSessionId(s.id)}
-                      onCommitRename={(t) => handleRenameSession(s.id, t)}
-                      onCancelRename={() => setRenamingSessionId(null)}
-                      onClick={() => setCurrentSession(s.id)}
-                      onDelete={() => setSessionToDelete(s.id)}
-                    />
-                  ))}
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Bottom: settings */}
-        <div
-          style={
-            {
-              WebkitAppRegion: 'no-drag',
-              background: 'rgba(0,0,0,0.2)',
-              borderTop: '0.5px solid rgba(255,255,255,0.06)',
-              height: 70,
-              flexShrink: 0,
-            } as React.CSSProperties
-          }
-        >
-          <button
-            onClick={onOpenSettings}
-            className="w-full h-full flex items-center gap-[10px] px-[16px] transition-colors hover:opacity-90"
-          >
-            <div
-              className="flex items-center justify-center rounded-[10px]"
-              style={{ width: 40, height: 40, background: 'rgba(255,255,255,0.06)', flexShrink: 0 }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                style={{ color: 'rgba(255,255,255,0.5)' }}
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </div>
-            <div className="text-left">
-              <div className="text-[12px] font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>
-                设置
-              </div>
-              <div className="text-[10px]" style={{ color: 'rgba(255,255,255,0.25)' }}>
-                快捷键 ⌘,
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* ═══════════════════════════════════════════
-          CHAT AREA
-      ═══════════════════════════════════════════ */}
-      <div
-        className="flex-1 flex flex-col min-w-0"
-        style={{ background: 'linear-gradient(to bottom, #f8fafc, #f1f5f9)' }}
-      >
+      {/* Chat area — main panel (canvas bg, no gradient) */}
+      <div className="flex-1 flex flex-col min-w-0 bg-canvas">
         {currentSessionId ? (
           <>
-            {/* Top bar (52px, white) */}
+            {/* Top bar (44px, canvas + 1px line bottom — spec §7) */}
             <div
-              className="flex items-center gap-3 px-6 shrink-0"
-              style={{ height: 52, background: '#ffffff', borderBottom: '0.5px solid #e2e8f0' }}
+              className="flex items-center gap-2 px-[18px] shrink-0 bg-canvas border-b border-line"
+              style={{ height: 44 }}
             >
               {/* Agent selector */}
               <div className="relative" ref={agentPickerRef}>
@@ -1197,24 +1118,17 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 <div className="h-full flex items-center justify-center">
                   <div className="text-center">
                     <div
-                      className="flex items-center justify-center mx-auto mb-3 rounded-[16px]"
+                      className="font-bold text-3xl mb-2"
                       style={{
-                        width: 48,
-                        height: 48,
-                        background: 'rgba(59,130,246,0.08)',
-                        border: '1px solid rgba(59,130,246,0.15)',
+                        background: 'linear-gradient(135deg, var(--accent), var(--indigo))',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
                       }}
                     >
-                      <span className="font-bold text-xl" style={{ color: '#3b82f6' }}>
-                        T
-                      </span>
+                      T
                     </div>
-                    <p className="text-[14px] font-semibold mb-1" style={{ color: '#334155' }}>
-                      开始对话
-                    </p>
-                    <p className="text-[13px]" style={{ color: '#94a3b8' }}>
-                      在下方输入消息开始对话
-                    </p>
+                    <p className="text-[15px] font-semibold mb-1 text-text">开始对话</p>
+                    <p className="text-[13px] text-mute">下方输入消息，或拖入文件 / 图片</p>
                   </div>
                 </div>
               ) : (
@@ -1222,44 +1136,30 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   {renderedMessages}
                   {streamState === 'streaming' && <ToolCallLog />}
                   {streamState === 'error' && error && (
-                    <div
-                      className="flex items-start gap-2 p-3 rounded-xl text-[13px]"
-                      style={{
-                        background: '#fef2f2',
-                        border: '1px solid #fee2e2',
-                        color: '#dc2626',
-                      }}
-                    >
+                    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg text-[13px] bg-[#fef2f2] border border-[#fecaca] text-err">
                       <svg
-                        width="15"
-                        height="15"
+                        width="14"
+                        height="14"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2"
-                        style={{ flexShrink: 0, marginTop: 1 }}
+                        className="shrink-0 mt-0.5"
                       >
                         <circle cx="12" cy="12" r="10" />
                         <line x1="12" y1="8" x2="12" y2="12" />
                         <line x1="12" y1="16" x2="12.01" y2="16" />
                       </svg>
                       <div>
-                        <span className="font-semibold block">{error.code}</span>
-                        <span>{error.message}</span>
+                        <div className="font-mono text-[11px] text-[#991b1b]">{error.code}</div>
+                        <div>{error.message}</div>
                       </div>
                     </div>
                   )}
 
-                  {/* Crystallize workbench panel — spec §B.9.2 */}
+                  {/* Crystallize workbench — spec §11.5: dashed separator instead of purple box */}
                   {ws.isOpen && (
-                    <div
-                      className="rounded-lg overflow-hidden"
-                      style={{
-                        border: '1px solid #c084fc',
-                        background: '#faf5ff',
-                      }}
-                      data-testid="crystallize-workbench"
-                    >
+                    <div className="my-4" data-testid="crystallize-workbench">
                       <CrystallizeSeparator
                         collapsed={separatorCollapsed}
                         basedOnMessageCount={messages.length}
@@ -1267,12 +1167,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                       />
                       {!separatorCollapsed && (
                         <>
-                          <div className="px-3 py-3 space-y-2">
+                          {/* 内容区: 2px indigo 左竖线 + 内嵌 message 列表 */}
+                          <div className="pl-2 border-l-2 border-[#e0e7ff] py-2 space-y-2">
                             {ws.workbenchMessages.length === 0 ? (
-                              <div
-                                className="text-[12px] text-center py-4"
-                                style={{ color: '#94a3b8' }}
-                              >
+                              <div className="text-[12px] text-center py-4 text-subtle">
                                 工作台已就绪。在下方输入"开始"或"请基于这段对话提议 agent"，让
                                 Crystallizer 提议草稿。
                               </div>
@@ -1322,14 +1220,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               )}
             </div>
 
-            {/* Input area */}
-            <div
-              className="shrink-0 px-6 pb-4 pt-3"
-              style={{
-                background: 'linear-gradient(to bottom, #ffffff, #f8fafc)',
-                borderTop: '0.5px solid #e2e8f0',
-              }}
-            >
+            {/* Input area — symmetric padding, neutral bg, 1px line top (spec §13) */}
+            <div className="shrink-0 px-8 py-[14px] bg-canvas border-t border-line">
               {/* Attachment previews */}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">

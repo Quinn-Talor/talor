@@ -18,7 +18,8 @@ interface SessionItemProps {
   session: ChatSession
   isActive: boolean
   agentName?: string
-  agentColor?: string
+  /** Gradient pair for the agent avatar — derived from agentGradient() */
+  agentGradient?: { from: string; to: string }
   isRenaming?: boolean
   onStartRename?: () => void
   onCommitRename?: (title: string) => void
@@ -27,7 +28,20 @@ interface SessionItemProps {
   onDelete: () => void
 }
 
-export function SessionItem({ session, isActive, agentName, agentColor = '#60a5fa', isRenaming = false, onStartRename, onCommitRename, onCancelRename, onClick, onDelete }: SessionItemProps) {
+const DEFAULT_GRADIENT = { from: '#3b82f6', to: '#6366f1' }
+
+export function SessionItem({
+  session,
+  isActive,
+  agentName,
+  agentGradient = DEFAULT_GRADIENT,
+  isRenaming = false,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onClick,
+  onDelete,
+}: SessionItemProps) {
   const title = session.title || '新会话'
   const initial = title.charAt(0)
   const [draft, setDraft] = useState(title)
@@ -42,101 +56,92 @@ export function SessionItem({ session, isActive, agentName, agentColor = '#60a5f
     }
   }, [isRenaming, title])
 
-  const avatarBg = isActive
-    ? `rgba(${hexToRgb(agentColor)},0.30)`
-    : `rgba(${hexToRgb(agentColor)},0.15)`
-
   return (
     <div
-      className={`group relative flex items-center gap-0 px-[10px] py-0 cursor-pointer`}
+      className={`group flex items-center gap-2 px-2 py-1.5 mx-2 rounded-md cursor-pointer transition-colors ${
+        isActive ? 'bg-canvas shadow-[0_0_0_1px_var(--line)]' : 'hover:bg-line-2'
+      }`}
       onClick={onClick}
-      style={{ height: 56 }}
     >
+      {/* Avatar — 20×20 gradient by agent */}
       <div
-        className="absolute inset-x-[4px] inset-y-[2px] rounded-[10px] transition-colors"
-        style={{ background: isActive ? 'rgba(59,130,246,0.12)' : 'transparent' }}
-      />
-      <div className="relative flex items-center w-full gap-0" style={{ paddingLeft: 4, paddingRight: 4 }}>
-        {/* Avatar */}
-        <div
-          className="shrink-0 flex items-center justify-center text-[11px] font-bold rounded-[7px]"
-          style={{ width: 28, height: 28, background: avatarBg, color: agentColor }}
-        >
-          {initial}
-        </div>
+        className="shrink-0 flex items-center justify-center text-[10px] font-bold rounded-[5px] text-white"
+        style={{
+          width: 20,
+          height: 20,
+          background: `linear-gradient(135deg, ${agentGradient.from}, ${agentGradient.to})`,
+        }}
+      >
+        {initial}
+      </div>
 
-        {/* Text */}
-        <div className="flex-1 min-w-0 ml-[8px]">
-          {isRenaming ? (
-            <input
-              ref={inputRef}
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onClick={e => e.stopPropagation()}
-              onMouseDown={e => e.stopPropagation()}
-              onDoubleClick={e => e.stopPropagation()}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  committedRef.current = true
-                  onCommitRename?.(draft)
-                } else if (e.key === 'Escape') {
-                  e.preventDefault()
-                  committedRef.current = true
-                  onCancelRename?.()
-                }
-              }}
-              onBlur={() => {
-                if (committedRef.current) return
+      {/* Text */}
+      <div className="flex-1 min-w-0">
+        {isRenaming ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
                 committedRef.current = true
                 onCommitRename?.(draft)
-              }}
-              className="w-full text-[12px] font-medium leading-tight outline-none rounded-[4px] px-1 -mx-1"
-              style={{
-                color: '#ffffff',
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(96,165,250,0.4)',
-              }}
-            />
-          ) : (
-            <div
-              className="text-[12px] font-medium truncate leading-tight"
-              style={{ color: isActive ? '#ffffff' : 'rgba(255,255,255,0.7)' }}
-              onDoubleClick={e => { e.stopPropagation(); onStartRename?.() }}
-            >
-              {title}
-            </div>
-          )}
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                committedRef.current = true
+                onCancelRename?.()
+              }
+            }}
+            onBlur={() => {
+              if (committedRef.current) return
+              committedRef.current = true
+              onCommitRename?.(draft)
+            }}
+            className="w-full text-[12.5px] font-medium leading-tight outline-none rounded px-1 -mx-1 bg-canvas text-text border border-line"
+          />
+        ) : (
           <div
-            className="text-[10px] truncate mt-0.5"
-            style={{ color: isActive ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.25)' }}
+            className="text-[12.5px] font-medium truncate leading-tight text-text"
+            onDoubleClick={(e) => {
+              e.stopPropagation()
+              onStartRename?.()
+            }}
           >
-            {agentName ?? 'Talor'} · {relativeTime(session.updated_at)}
+            {title}
           </div>
-        </div>
-
-        {/* Delete button */}
-        {!isRenaming && (
-          <button
-            className="relative opacity-0 group-hover:opacity-100 p-1 rounded text-white/25 hover:text-red-400 transition-all shrink-0"
-            onClick={e => { e.stopPropagation(); onDelete() }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-            </svg>
-          </button>
         )}
+        <div className="text-[10.5px] truncate mt-0.5 text-subtle">
+          {agentName ?? 'Talor'} · {relativeTime(session.updated_at)}
+        </div>
       </div>
+
+      {/* Delete button — hover-only */}
+      {!isRenaming && (
+        <button
+          className="opacity-0 group-hover:opacity-100 p-1 rounded text-subtle hover:text-err transition-all shrink-0"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete()
+          }}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          </svg>
+        </button>
+      )}
     </div>
   )
-}
-
-function hexToRgb(hex: string): string {
-  const clean = hex.replace('#', '')
-  const r = parseInt(clean.slice(0, 2), 16)
-  const g = parseInt(clean.slice(2, 4), 16)
-  const b = parseInt(clean.slice(4, 6), 16)
-  return `${r},${g},${b}`
 }
 
 export function getDateGroup(dateStr: string): 'today' | 'yesterday' | 'earlier' {
@@ -149,10 +154,27 @@ export function getDateGroup(dateStr: string): 'today' | 'yesterday' | 'earlier'
   return 'earlier'
 }
 
-const AGENT_COLORS = ['#8b5cf6', '#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#ec4899']
-export function agentColor(agentId: string | undefined): string {
-  if (!agentId) return '#60a5fa'
+/** 5 deterministic gradient pairs for agent avatars.
+ *  Spec §6.2 — agents map to gradients by hash, not random per session. */
+const AGENT_GRADIENTS: Array<{ from: string; to: string }> = [
+  { from: '#10b981', to: '#059669' }, // emerald — secretary / customer
+  { from: '#3b82f6', to: '#6366f1' }, // blue→indigo — research / analysis
+  { from: '#f59e0b', to: '#d97706' }, // amber→orange — writing
+  { from: '#8b5cf6', to: '#a855f7' }, // purple — scheduling
+  { from: '#ec4899', to: '#db2777' }, // pink — data
+]
+
+export function agentGradient(agentId: string | undefined): { from: string; to: string } {
+  if (!agentId) return DEFAULT_GRADIENT
   let hash = 0
   for (let i = 0; i < agentId.length; i++) hash = (hash * 31 + agentId.charCodeAt(i)) >>> 0
-  return AGENT_COLORS[hash % AGENT_COLORS.length]
+  return AGENT_GRADIENTS[hash % AGENT_GRADIENTS.length]
+}
+
+/**
+ * @deprecated Use `agentGradient` for new code. This single-hex helper is kept for
+ * legacy callers (TopBar, draft modals). Phase 12 will purge remaining usages.
+ */
+export function agentColor(agentId: string | undefined): string {
+  return agentGradient(agentId).from
 }

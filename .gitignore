@@ -54,3 +54,4 @@ snapshot.yml
 
 # Claude Code / superpowers
 .claude/
+.superpowers/

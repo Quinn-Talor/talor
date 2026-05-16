@@ -262,4 +262,59 @@ describe('PeriodicReflector', () => {
       expect(mockGenerateText).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('防御性 schema (LLM 返回无效值 → catch fallback, 不浪费 LLM 调用)', () => {
+    // 异常 trajectory 让 reflector 走到 LLM 调用阶段
+    const abnormalHistory = Array.from({ length: 5 }, () => ({
+      stepText: '',
+      toolNames: ['x'],
+      signature: 's',
+      allToolsFailed: true,
+      wroteAssistantFinal: false,
+      shouldContinue: true,
+      durationMs: 100,
+      containsSubagentFailure: false,
+    })) as import('../types').StepOutcome[]
+
+    it('strategyShift 返回非法 enum 值 ("retry"/"stop") → catch 为 "continue"', async () => {
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({
+          progressSoFar: 'p',
+          blockerIdentified: 'b',
+          strategyShift: 'retry', // 非法! enum 仅 continue/switch_tool/parallelize/ask_user/wrap_up
+          nextStepGuidance: 'g',
+          confidence: 0.7,
+        }),
+      })
+      const r = new PeriodicReflector({ every: 5 })
+      const out = await r.reflect(postCtx(4, abnormalHistory))
+      // 不再 schema fail; 返回 hint (因为 confidence 0.7 >= 0.5)
+      expect(out?.hint).toBeDefined()
+    })
+
+    it('confidence 越界 (1.5 / -0.1 / "0.8") → catch 为 0.5', async () => {
+      mockGenerateText.mockResolvedValueOnce({
+        text: JSON.stringify({
+          progressSoFar: 'p',
+          blockerIdentified: null,
+          strategyShift: 'continue',
+          nextStepGuidance: 'g',
+          confidence: 1.5, // 越界
+        }),
+      })
+      const r = new PeriodicReflector({ every: 5 })
+      // 不 schema fail; confidence fallback 0.5 → reflector 自决 (>= 0.5 注入)
+      const out = await r.reflect(postCtx(4, abnormalHistory))
+      expect(out?.hint).toBeDefined()
+    })
+
+    it('完全无效 JSON (空对象) → 全字段 fallback, 走 confidence 0.5 路径', async () => {
+      mockGenerateText.mockResolvedValueOnce({ text: '{}' })
+      const r = new PeriodicReflector({ every: 5 })
+      // 不再 throw / fail; schema 通过, fallback values
+      const out = await r.reflect(postCtx(4, abnormalHistory))
+      // confidence fallback 0.5 >= 0.5 阈值, 注入空 hint (无 progress / blocker / guidance)
+      expect(out?.hint).toBeDefined()
+    })
+  })
 })

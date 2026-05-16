@@ -10,35 +10,18 @@
 import { z } from 'zod'
 import type { ReflectAgent } from './types'
 
-// 防御性 schema: 所有字段提供默认值. DeepSeek 等 provider 在长 system prompt
-// 下倾向漏字段输出, 用 .nullish().transform() 兜底为 default 而不是 schema 失败,
-// 避免 ~1k tokens 调用打水漂. 字段语义由 reflector 消费层进一步兜底。
-const optionalString = (d = '') =>
-  z
-    .string()
-    .nullish()
-    .transform((v) => v ?? d)
-
+// 防御性 schema: .default(d) 兜底"字段缺失" + .catch(d) 兜底"字段类型错/
+// 越界/enum 外值". 双保险确保 LLM 任何无效输出都不让整次 LLM 调用打水漂。
+// fallback 业务语义: "保守不行动" (continue / 不报 blocker / 0.5 临界 confidence)。
 export const PeriodicReflectionSchema = z.object({
-  progressSoFar: optionalString().describe('1-2 sentences on what has been accomplished so far'),
-  blockerIdentified: z
-    .string()
-    .nullish()
-    .transform((v) => v ?? null)
-    .describe('Current blocker, or null if progress is healthy'),
+  progressSoFar: z.string().default('').catch(''),
+  blockerIdentified: z.string().nullable().default(null).catch(null),
   strategyShift: z
     .enum(['continue', 'switch_tool', 'parallelize', 'ask_user', 'wrap_up'])
-    .nullish()
-    .transform((v) => v ?? 'continue'),
-  nextStepGuidance: optionalString().describe(
-    'Concrete guidance for the main LLM next step, terse',
-  ),
-  confidence: z
-    .number()
-    .min(0)
-    .max(1)
-    .nullish()
-    .transform((v) => v ?? 0.5),
+    .default('continue')
+    .catch('continue'),
+  nextStepGuidance: z.string().default('').catch(''),
+  confidence: z.number().min(0).max(1).default(0.5).catch(0.5),
 })
 
 export type PeriodicReflection = z.infer<typeof PeriodicReflectionSchema>
