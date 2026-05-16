@@ -28,11 +28,10 @@ describe('UiBlockPlugin', () => {
     const plugin = new UiBlockPlugin()
     const result = await plugin.build(makeCtx())
     const content = result.messages[0].content as string
-    expect(content).toContain('"type": "need_input"')
-    expect(content).toContain('"type": "proposal"')
-    expect(content).toContain('"type": "done"')
-    expect(content).toContain('"type": "blocked"')
-    expect(content).toContain('"type": "warning"')
+    // Accept either compact (no space) or canonical (with space) JSON formatting.
+    for (const type of ['need_input', 'proposal', 'done', 'blocked', 'warning']) {
+      expect(content).toMatch(new RegExp(`"type":\\s*"${type}"`))
+    }
   })
 
   it('includes the fenced talor language tag', async () => {

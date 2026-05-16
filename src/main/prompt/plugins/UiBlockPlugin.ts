@@ -15,132 +15,65 @@
 import type { PromptPlugin, PipelineContext, PluginResult } from '../types'
 import { estimate } from '../../memory/types'
 
-const BLOCK_PROTOCOL = `# UI blocks — emit when interaction or terminal state is needed
+const BLOCK_PROTOCOL = `# UI blocks (talor protocol)
 
-You can emit structured UI blocks alongside your prose. **Markdown is the default**;
-use blocks sparingly, only when one of the cases below applies. Each block is a
-fenced code block with language \`talor\`:
-
-\`\`\`talor
-{"type": "<block-type>", ...}
-\`\`\`
-
-## need_input — ask the user to pick from 2-5 discrete options
-
-Use when you need a clear choice (not open-ended). Don't use for confirming an action
-you've already prepared — that's \`proposal\`.
+Default to markdown prose. To emit a structured block, place ONE at turn end
+(no tool call this turn) as the LAST element, fenced with language \`talor\`:
 
 \`\`\`talor
-{
-  "type": "need_input",
-  "question": "Which time slot works?",
-  "choices": ["Mon 10:30", "Tue 15:00", "Let me check others"],
-  "reason": "Each slot has different conflicts."
-}
+{"type":"<type>", ...}
 \`\`\`
 
-## proposal — propose a one-click action the user confirms
+## 5 block types
 
-Use when you've prepared something the user should review and execute with one click
-(send email, save config, create event, ...). The \`action.tool\` MUST be a real tool
-name available to you in this turn; \`action.args\` MUST satisfy that tool's schema.
-The system validates tool name + args + permission before invoking — if any check
-fails you'll be told and can revise.
+| type | when | shape |
+|---|---|---|
+| done | task complete, no follow-up | \`{summary, result?}\` |
+| need_input | need user to PICK from 2-5 discrete options | \`{question, choices, reason?}\` |
+| blocked | cannot continue without external change | \`{reason, can_retry?, retry_hint?}\` |
+| warning | mid-flow alert, non-blocking | \`{message, severity: low\\|medium\\|high}\` |
+| proposal | user-confirmable composite action | \`{summary, preview?, action:{label,tool,args}, secondary_actions?}\` |
+
+## Examples (one-liners)
 
 \`\`\`talor
-{
-  "type": "proposal",
-  "summary": "Email draft to wang@acme.com — Re: Q4 renewal",
-  "preview": "Hi Wang,\\n\\nRe: your two questions...",
-  "action": {
-    "label": "Send",
-    "tool": "gmail.send_draft",
-    "args": {"draft_id": "abc-123"}
-  },
-  "secondary_actions": [
-    { "label": "Edit", "emit": "I want to revise it" },
-    { "label": "Rewrite", "emit": "Use a different tone" }
-  ]
-}
+{"type":"done","summary":"Verified 24/24 tests pass."}
 \`\`\`
-
-\`secondary_actions[].emit\` strings are sent back as the user's next message — use
-them to offer "rewrite this differently" type follow-ups without forcing the user
-to type.
-
-## done — terminal block at end of turn (no tool call)
 
 \`\`\`talor
-{"type": "done", "summary": "Verified all 24 tests pass."}
+{"type":"need_input","question":"Which slot?","choices":["Mon 10:30","Tue 15:00"],"reason":"Each has different conflicts."}
 \`\`\`
-
-## blocked — task cannot continue without external change
 
 \`\`\`talor
-{
-  "type": "blocked",
-  "reason": "Need read permission on ~/.ssh/config.",
-  "can_retry": true,
-  "retry_hint": "Add ~/.ssh/config to allowlist in Settings → Permissions, then say 'retry'."
-}
+{"type":"blocked","reason":"Need read permission on ~/.ssh/config.","can_retry":true,"retry_hint":"Add to Settings → Permissions, then say 'retry'."}
 \`\`\`
-
-## warning — alert user mid-flow, non-blocking
 
 \`\`\`talor
-{"type": "warning", "message": "Detected rm -rf, intercepted.", "severity": "high"}
+{"type":"warning","message":"Detected rm -rf, intercepted.","severity":"high"}
 \`\`\`
 
-Severity is one of \`low\` / \`medium\` / \`high\` (default \`medium\`).
+\`\`\`talor
+{"type":"proposal","summary":"Send email to wang@acme.com","preview":"Hi Wang,\\n\\nRe: your two questions...","action":{"label":"Send","tool":"gmail.send_draft","args":{"draft_id":"abc"}},"secondary_actions":[{"label":"Edit","emit":"revise the tone"}]}
+\`\`\`
 
-## When NOT to use blocks
+\`action.tool\` MUST be a tool registered for this turn (no hallucinations — UI
+rejects unknown tool names before reaching the LLM). \`secondary_actions[i].emit\`
+becomes the user's next message; use for "rewrite/change tone" follow-ups.
 
-- Don't wrap normal prose in a block. If you're just answering, prose is correct.
-- Don't \`done\` a turn that has tool calls — \`done\` is for end-of-turn after all
-  tool work has finished.
-- Don't fabricate tool names in \`proposal.action.tool\`. If you don't have the tool,
-  ask the user in prose instead.
+## Rules
 
-## Markdown formatting reminders
+- ONE block per turn, at end, no tool call this turn.
+- Never wrap normal prose in a block. Markdown is the default.
+- Never fabricate tool names in \`proposal.action.tool\`. If you lack the tool, ask in prose.
 
-- **Tables** must include the header separator row, e.g.:
-  \`\`\`
-  | Header 1 | Header 2 |
-  |----------|----------|
-  | cell     | cell     |
-  \`\`\`
-  Without the \`|----|----|\` row it renders as plain pipe-separated text, not a table.
-- **Lists**: use \`-\` for bullets (one per line) or \`1.\` for ordered. Don't use
-  pipe-separated single-line "tables" as a substitute for lists.
-- **Code blocks**: use fenced \`\`\`lang for syntax highlighting. Inline \`code\` is single
-  backticks.
-- **Line breaks**: single newlines render as soft breaks (GitHub / ChatGPT semantics).
-  For paragraph breaks use a blank line.
-- **DO NOT compose ASCII / Box-drawing flow charts inline**. Characters like
-  \`│ ▼ → ┌ └ ├ ─\` strung together with \`|\` separators on one line render as
-  unreadable line-wrapped soup. If you want to show a sequence/flow, choose ONE:
-    1. **Numbered list** — one step per line:
-       \`\`\`
-       1. User triggers event
-       2. user_campaign_event written
-       3. event_type matched
-       \`\`\`
-    2. **Fenced code block with newlines preserved**:
-       \`\`\`text
-       user 触发事件
-         ↓
-       user_campaign_event 写入
-         ↓
-       user_campaign 创建
-       \`\`\`
-    3. **Mermaid block** (the UI renders it as an SVG diagram):
-       \`\`\`mermaid
-       flowchart TD
-         A[User triggers event] --> B[user_campaign_event written]
-         B --> C[user_campaign created]
-       \`\`\`
-  Never put more than ~3 \`│\` / \`|\` chars on a single line outside an actual
-  GFM table. Long inline sequences ALWAYS wrap into illegible paragraph soup.`
+## Markdown formatting
+
+- Tables MUST include the \`|---|---|\` separator row; missing it = pipe-text soup.
+- Lists: \`- item\` or \`1. item\`, one per line. Never fake tables with single-line pipes.
+- Flow / sequence diagrams: use numbered list, fenced \`\`\`text block, OR \`\`\`mermaid block.
+  Never inline \`│ ▼ → ┌ └ ├ ─\` with \`|\` separators — always wraps into illegible
+  paragraph soup. >3 pipe chars on one line outside a GFM table = bug.
+- Soft break = single newline. Paragraph = blank line.`
 
 export class UiBlockPlugin implements PromptPlugin {
   name = 'UiBlockPlugin'
