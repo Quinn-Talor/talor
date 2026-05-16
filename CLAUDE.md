@@ -7,7 +7,7 @@
 
 ## 1. 项目一句话
 
-Talor 是 **Electron + TypeScript 桌面 AI Agent 应用**（v0.1.0，Apache 2.0 + Commons Clause）。
+Talor 是 **专业 Agent 平台** — Electron + TypeScript 桌面应用（v0.1.0，Apache 2.0 + Commons Clause）。用户在本地从对话历史沉淀 agent → 编辑 → 运行。**不做 agent 跨机迁移**(无 import/export/pack 能力)。
 
 - 前端：React 19 + Tailwind + Zustand
 - 模型层：Vercel AI SDK（Anthropic / OpenAI / Google / Ollama）
@@ -24,9 +24,10 @@ src/
 ├── main/                   Electron 主进程(Node 环境)
 │   ├── ipc/               入口层:IPC handlers(不得被业务层依赖)
 │   ├── chat/              业务层:chat:send 用例编排、事件总线
-│   ├── agent/             业务层:Agent 运行时 / Profile 加载(Schema 2.0) / 打包分发 / Crystallizer
+│   ├── agent/             业务层:Agent 运行时 / Profile 加载(Schema 2.0) / Crystallizer
 │   │   └── (含 agent-toolset.ts:Agent 视角的工具集组合,区别于 tools/registry.ts)
 │   │   └── (contract-guard.ts + naturalize.ts 已在 Schema 2.0 迁移中删除)
+│   │   └── (importer/exporter + agent-pack/ 已删除 — 平台定位不做迁移)
 │   ├── accounts/          业务层:第三方账户凭据(account-store)
 │   ├── tools/             业务层:内置工具仓库(registry) + path-guard
 │   │   └── builtin/      bash / read / write / edit / glob / grep / ls
@@ -179,6 +180,8 @@ npm run build         # electron-vite build + electron-builder 打包
 
 **最近重要变更**（详见 `git log`）：
 
+- `refactor(agent)`: **定位调整为专业平台** — 移除全部 agent 迁移能力(`agent-pack/` / `importer.ts` / `exporter.ts` / IPC `agents:export*` `agents:import*` / preload import/export 暴露面)；扩展名 `.agent.zip` / `.talor-pack` 不再支持
+- `fix(mcp)`: stdio transport 凭据机制 — 加 `envFromAccount` 引用,字面 `env` 不再当凭据；删 `serverPackage` 死字段；validator rule 10/11 防止凭据写进 agent.json；loader lenient 模式兼容存量
 - `feat(agent)`: **Schema 2.0** — 扁平 15 字段 profile；`agentPrompt` 自由 markdown 承载全部 LLM 行为定义；deliverables / acceptance / workflow DAG 全部移除
 - `feat(tools,loop)`: 结构化错误信封、Zod 工具校验、fallback 引用校验
 - `refactor(prompt,tools)`: 分层 prompt 架构 + 鲁棒性升级

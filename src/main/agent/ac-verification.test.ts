@@ -5,7 +5,7 @@
  * 只覆盖单元/集成层面可验证的 AC（不含 UI 和 LLM 实际调用）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import Database from 'better-sqlite3'
@@ -26,8 +26,6 @@ import { BuiltinToolRegistry } from './builtin-registry'
 import { AccountStore } from '../accounts/account-store'
 import { resolveVariables } from './variable-resolver'
 import { checkDependencies } from './dependency-checker'
-import { exportAgent } from './exporter'
-import { importAgent } from './importer'
 import { parseSlashInvoke } from './slash-invoke-parser'
 import { extractDependenciesFromMessages } from './crystallizer'
 import { extractSkillCliBins } from '../skills/metadata-extractor'
@@ -217,57 +215,10 @@ describe('Block A: Agent 基础框架', () => {
 })
 
 // ══════════════════════════════════════════════════════
-// Block B：Agent 存储与导入导出
+// Block B：Agent 存储与依赖检查
 // ══════════════════════════════════════════════════════
 
-describe('Block B: Agent 存储与导入导出', () => {
-  describe('AC-B1-01: 导出 zip 包含完整目录', () => {
-    it('export → import → 文件完整', () => {
-      const dir = writeAgentDir('sales', VALID_PROFILE)
-      mkdirSync(join(dir, 'knowledge'), { recursive: true })
-      writeFileSync(join(dir, 'knowledge', 'manual.md'), '# Manual')
-      mkdirSync(join(dir, 'skills', 'lark-sheets'), { recursive: true })
-      writeFileSync(
-        join(dir, 'skills', 'lark-sheets', 'SKILL.md'),
-        '---\nname: lark-sheets\n---\n# content',
-      )
-
-      const zip = exportAgent(dir)
-      expect(zip).toBeInstanceOf(Buffer)
-      expect(zip.length).toBeGreaterThan(0)
-
-      const importDir = mkdtempSync(join(tmpdir(), 'ac-import-'))
-      try {
-        const result = importAgent(zip, importDir)
-        expect(result.profile.id).toBe('sales-analyst-001')
-        expect(existsSync(join(result.dirPath, 'agent.json'))).toBe(true)
-        expect(existsSync(join(result.dirPath, 'knowledge', 'manual.md'))).toBe(true)
-        expect(existsSync(join(result.dirPath, 'skills', 'lark-sheets', 'SKILL.md'))).toBe(true)
-      } finally {
-        rmSync(importDir, { recursive: true, force: true })
-      }
-    })
-  })
-
-  describe('AC-B1-02: 导入解压到正确位置', () => {
-    it('合法 zip → 目录存在，profile 校验通过', () => {
-      const dir = writeAgentDir('test-agent', VALID_PROFILE)
-      const zip = exportAgent(dir)
-
-      const importDir = mkdtempSync(join(tmpdir(), 'ac-import-'))
-      try {
-        const result = importAgent(zip, importDir)
-        expect(existsSync(result.dirPath)).toBe(true)
-        const reValidate = validateProfile(
-          JSON.parse(require('fs').readFileSync(join(result.dirPath, 'agent.json'), 'utf-8')),
-        )
-        expect(reValidate.valid).toBe(true)
-      } finally {
-        rmSync(importDir, { recursive: true, force: true })
-      }
-    })
-  })
-
+describe('Block B: Agent 存储与依赖检查', () => {
   describe('AC-B2-01: minAppVersion 不满足时报错', () => {
     it('需要 99.0.0，当前 0.2.0 → fail', () => {
       const profile = { ...VALID_PROFILE, minAppVersion: '99.0.0' }

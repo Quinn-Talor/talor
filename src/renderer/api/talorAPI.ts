@@ -161,8 +161,6 @@ declare global {
         delete: (id: string) => Promise<void>
         reload: () => Promise<unknown[]>
         checkDeps: (id: string) => Promise<unknown>
-        export: (id: string) => Promise<unknown>
-        import: () => Promise<unknown>
         installDeps: (id: string) => Promise<unknown>
         update: (id: string, profile: unknown) => Promise<void>
         startCrystallize: (sessionId: string) => Promise<{
@@ -345,8 +343,6 @@ const stubAgents = {
   delete: () => Promise.resolve(),
   reload: () => Promise.resolve([]),
   checkDeps: () => Promise.resolve(null),
-  export: () => Promise.resolve(null),
-  import: () => Promise.resolve(null),
   installDeps: () => Promise.resolve(null),
   update: () => Promise.resolve(),
   startCrystallize: () => Promise.resolve({ success: false, error: 'no preload' }),

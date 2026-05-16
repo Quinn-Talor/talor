@@ -5,28 +5,19 @@
 // 允许依赖：agent/*、repos/*、chat/stream-registry
 // 禁止依赖：业务决策
 
-import { ipcMain, dialog } from 'electron'
+import { ipcMain } from 'electron'
 import { join, sep as pathSep, resolve as pathResolve } from 'path'
 import { rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import log from 'electron-log'
 import { AgentManager } from '../agent/agent-manager'
 import { SkillRegistry } from '../skills/registry'
 import { checkDependencies } from '../agent/dependency-checker'
-import { exportAgent } from '../agent/exporter'
-import { importAgent } from '../agent/importer'
 import { validateProfile } from '../agent/validator'
 import { previewAgent } from '../agent/preview'
 import { getRegisteredModelSet } from '../providers/registry'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { streamRegistry } from '../chat/stream-registry'
 import { getDefaultProvider } from '../chat/provider-selector'
-import { getMainWindow } from './window'
-import { exportAgentPack } from '../agent-pack/exporter'
-import {
-  previewPack as previewAgentPack,
-  commitPack as commitAgentPack,
-} from '../agent-pack/importer'
-import type { ImportConflict } from '../agent-pack/manifest'
 import type { AgentProfile } from '@shared/types/agent'
 import { serializeS1History } from '../agent/draft-extractor'
 import { recommendMode } from '../agent/crystallizer-heuristics'
@@ -240,53 +231,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const entry = loader.getById(id)
     if (!entry) throw new Error(`Agent not found: ${id}`)
     return checkDependencies(entry.profile, entry.dirPath)
-  })
-
-  ipcMain.handle('agents:export', async (_event, id: string) => {
-    const loader = agentManager.getLoader()
-    if (!loader) throw new Error('AgentLoader not initialized')
-    const entry = loader.getById(id)
-    if (!entry) throw new Error(`Agent not found: ${id}`)
-
-    const win = getMainWindow()
-    if (!win) throw new Error('No main window')
-
-    const zipBuffer = exportAgent(entry.dirPath)
-    const fileName = `${entry.profile.name}-${entry.profile.version}.agent.zip`
-    const result = await dialog.showSaveDialog(win, {
-      defaultPath: fileName,
-      filters: [{ name: 'Agent Package', extensions: ['zip'] }],
-    })
-    if (result.canceled || !result.filePath) return { canceled: true }
-    writeFileSync(result.filePath, zipBuffer)
-    log.info('[agents:export] Exported to:', result.filePath)
-    return { filePath: result.filePath }
-  })
-
-  ipcMain.handle('agents:import', async () => {
-    const loader = agentManager.getLoader()
-    if (!loader) throw new Error('AgentLoader not initialized')
-
-    const win = getMainWindow()
-    if (!win) throw new Error('No main window')
-
-    const result = await dialog.showOpenDialog(win, {
-      title: '导入 Agent',
-      filters: [{ name: 'Agent Package', extensions: ['zip'] }],
-      properties: ['openFile'],
-    })
-    if (result.canceled || result.filePaths.length === 0) return { canceled: true }
-
-    const zipBuffer = readFileSync(result.filePaths[0])
-    const importResult = importAgent(zipBuffer, loader.agentsDir)
-    loader.loadAll()
-    log.info(
-      '[agents:import] Imported:',
-      importResult.profile.id,
-      'overwritten:',
-      importResult.overwritten,
-    )
-    return { agentId: importResult.profile.id, overwritten: importResult.overwritten }
   })
 
   ipcMain.handle('agents:install-deps', async (_event, id: string) => {
@@ -778,79 +722,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       return { success: true }
     },
   )
-
-  // ─── Agent Pack：导出 / 导入（TASK-5）───────────────────────────────────
-
-  ipcMain.handle(
-    'agents:export-pack',
-    async (_event, raw: { agent_id: string; output_path?: string }) => {
-      const outputDir = raw.output_path ?? (await pickPackOutputDir())
-      if (!outputDir) return { cancelled: true }
-      try {
-        const result = await exportAgentPack(raw.agent_id, agentManager, outputDir)
-        return { success: true, pack_path: result.pack_path }
-      } catch (err) {
-        log.error('[agents:export-pack] failed:', err)
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        }
-      }
-    },
-  )
-
-  ipcMain.handle('agents:import-pack:preview', async (_event, raw: { pack_path: string }) => {
-    const loader = agentManager.getLoader()
-    if (!loader) throw new Error('AgentLoader not initialized')
-    try {
-      const preview = await previewAgentPack(raw.pack_path, loader)
-      return {
-        success: true,
-        agents: preview.agents,
-        conflicts: preview.conflicts,
-        external_dependencies: preview.external_dependencies,
-        staging_dir: preview.staging_dir,
-      }
-    } catch (err) {
-      log.error('[agents:import-pack:preview] failed:', err)
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      }
-    }
-  })
-
-  ipcMain.handle(
-    'agents:import-pack:commit',
-    async (
-      _event,
-      raw: { staging_dir: string; resolutions: ImportConflict[]; agents_dir: string },
-    ) => {
-      const loader = agentManager.getLoader()
-      if (!loader) throw new Error('AgentLoader not initialized')
-      try {
-        const result = await commitAgentPack(
-          raw.staging_dir,
-          raw.resolutions,
-          raw.agents_dir,
-          loader,
-        )
-        // 清理 staging（commit 完成后不再需要）
-        try {
-          rmSync(raw.staging_dir, { recursive: true, force: true })
-        } catch (cleanupErr) {
-          log.warn('[agents:import-pack:commit] cleanup staging failed:', cleanupErr)
-        }
-        return { success: true, ...result }
-      } catch (err) {
-        log.error('[agents:import-pack:commit] failed:', err)
-        return {
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        }
-      }
-    },
-  )
 }
 
 /**
@@ -955,14 +826,4 @@ function buildReadmeContent(profile: AgentProfile): string {
   lines.push('')
   lines.push('_Generated by Talor Crystallizer._')
   return lines.join('\n')
-}
-
-async function pickPackOutputDir(): Promise<string | null> {
-  const win = getMainWindow()
-  const result = await dialog.showOpenDialog(win!, {
-    title: 'Choose pack output directory',
-    properties: ['openDirectory', 'createDirectory'],
-  })
-  if (result.canceled || result.filePaths.length === 0) return null
-  return result.filePaths[0]
 }
