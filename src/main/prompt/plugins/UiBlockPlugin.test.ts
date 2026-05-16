@@ -57,4 +57,28 @@ describe('UiBlockPlugin', () => {
   it('name is "UiBlockPlugin"', () => {
     expect(new UiBlockPlugin().name).toBe('UiBlockPlugin')
   })
+
+  it('opts out when agent.profile.preferences.disableUiBlocks=true', async () => {
+    const plugin = new UiBlockPlugin()
+    const ctx = makeCtx()
+
+    ;(ctx as any).agent = {
+      profile: { preferences: { disableUiBlocks: true } },
+    }
+    const result = await plugin.build(ctx)
+    expect(result.messages).toEqual([])
+    expect(result.tools).toEqual([])
+    expect(result.tokenEstimate).toBe(0)
+  })
+
+  it('injects normally when disableUiBlocks is false or unset', async () => {
+    const plugin = new UiBlockPlugin()
+    const ctx = makeCtx()
+
+    ;(ctx as any).agent = {
+      profile: { preferences: { disableUiBlocks: false } },
+    }
+    const result = await plugin.build(ctx)
+    expect(result.messages).toHaveLength(1)
+  })
 })

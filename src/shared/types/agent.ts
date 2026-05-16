@@ -165,6 +165,23 @@ export interface AgentPreferences {
 
   /** PeriodicReflector 触发间隔, 默认 5。0 = 关闭周期 reflect。 */
   reflectEveryN?: number
+
+  /**
+   * 关闭 UI block 协议注入。
+   *
+   * 默认 false: UiBlockPlugin 会向 system prompt 末尾注入 5-block 词典
+   * (done / need_input / blocked / warning / proposal) 鼓励 LLM 用结构化
+   * block。这是通用 agent 的合理默认。
+   *
+   * 设为 true 适用于:
+   *   - 严格 JSON-only 输出的 API 代理
+   *   - 输出会喂给下游 parser 不需要 talor block
+   *   - agent prompt 已经定义了自己的输出协议,不想被通用协议覆盖
+   *
+   * 仅影响 prompt 注入。Renderer 端的 block 渲染逻辑不变 — 即便 LLM
+   * 自己 emit block,parser 仍正常解析、UI 仍正常显示。
+   */
+  disableUiBlocks?: boolean
 }
 
 // ═══ 运行时辅助类型 (基本沿用) ════════════════════════════════

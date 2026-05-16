@@ -145,7 +145,15 @@ Severity is one of \`low\` / \`medium\` / \`high\` (default \`medium\`).
 export class UiBlockPlugin implements PromptPlugin {
   name = 'UiBlockPlugin'
 
-  async build(_ctx: PipelineContext): Promise<PluginResult> {
+  async build(ctx: PipelineContext): Promise<PluginResult> {
+    // Opt-out: agents with disableUiBlocks=true (e.g. JSON-API agents with their
+    // own output protocol) skip the block vocabulary injection. The renderer
+    // still parses+displays any block the agent does emit — this only controls
+    // whether we encourage block usage via the system prompt.
+    if (ctx.agent?.profile?.preferences?.disableUiBlocks) {
+      return { messages: [], tools: [], tokenEstimate: 0 }
+    }
+
     return {
       messages: [{ role: 'system', content: BLOCK_PROTOCOL }],
       tools: [],

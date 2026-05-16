@@ -599,9 +599,28 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   )
   const onConfirmProposal = useCallback(
     (tool: string, args: Record<string, unknown>) => {
+      // P1 safety gate (client-side): tool must be in the current agent's
+      // registered tool set. If the LLM hallucinated a tool name in
+      // proposal.action.tool, fail loudly here instead of round-tripping
+      // through the LLM (which would just get TOOL_NOT_FOUND back from the
+      // registry and confuse the user with two error messages).
+      const knownTools = new Set(agentTools.map((t) => t.name))
+      if (!knownTools.has(tool)) {
+        alert(
+          `工具 "${tool}" 不在当前 agent 的可用列表里。\n\n` +
+            `LLM 在 proposal 里写的工具名可能是幻觉。可用工具: ` +
+            (agentTools.length === 0
+              ? '(空)'
+              : agentTools
+                  .slice(0, 8)
+                  .map((t) => t.name)
+                  .join(', ') + (agentTools.length > 8 ? ' …' : '')),
+        )
+        return
+      }
       void sendAsUser(`确认 — 请调用 ${tool}，参数: ${JSON.stringify(args)}`)
     },
-    [sendAsUser],
+    [sendAsUser, agentTools],
   )
 
   // Sync the stable ref to current handler identities so blockOn* indirection
