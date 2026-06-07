@@ -1,6 +1,6 @@
 // src/main/skills/registry.ts — 业务层：Skill 注册中心
 //
-// 平台 SkillRegistry: 从 ~/.claude/skills/ 一次性加载所有 skill。
+// 平台 SkillRegistry: 从 ~/.talor/skills/ 一次性加载所有 skill。
 // 业务 Agent 通过 filterByNames(allowedNames) 拿到受限视图。
 // 激活状态由外部 per-session 管理(ADR-5 线程安全)。
 
@@ -12,7 +12,7 @@ export class SkillRegistry {
 
   /**
    * 从指定目录加载 skill 索引。
-   * 平台启动时调用一次,以 ~/.claude/skills/ 作为单一真相;business agent 不再有
+   * 平台启动时调用一次,以 ~/.talor/skills/ 作为单一真相;business agent 不再有
    * 私有 skill 目录,通过 filterByNames 拿受限视图。
    */
   static fromPlatformDir(platformSkillsDir: string | null): SkillRegistry {

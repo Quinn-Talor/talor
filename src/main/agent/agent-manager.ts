@@ -80,7 +80,7 @@ Talor Agent 极简 schema — 8 字段:
 
 能力(全 optional,全 string[]/name 引用平台资源):
   tools:        BuiltinToolName[] — 内置工具白名单 (read/write/edit/bash/glob/grep/ls)
-  skills:       string[]          — ~/.claude/skills/<name>/SKILL.md 的 name
+  skills:       string[]          — ~/.talor/skills/<name>/SKILL.md 的 name
   mcpServers:   string[]          — Settings → MCP Servers 中配的 name
   subagents:    { ids?, allowAny? } — delegate_agent 工具的 scope 配置
 `.trim()
@@ -109,7 +109,7 @@ Typically triggered by: "把刚才的过程做成 agent" / "crystallize this" / 
 2. Filter chat history: backward-trace from the user-accepted outcome to extract the signal path. Drop noise (failed calls, abandoned approaches, exploratory probes, off-topic asides).
 3. Map signal-path steps to:
    - tools[]:      builtin names (read/write/edit/bash/glob/grep/ls)
-   - skills[]:     name of skill at ~/.claude/skills/<name>/SKILL.md
+   - skills[]:     name of skill at ~/.talor/skills/<name>/SKILL.md
    - mcpServers[]: name of MCP server pre-configured in Settings → MCP Servers
                    若对话用到的 MCP 未在 Settings 配过 → 在 summary 末尾加 TODO:
                    "⚠️ TODO: 请先在 Settings → MCP Servers 配置 <name>,Talor 才能连接"
@@ -194,7 +194,7 @@ export class AgentManager {
         // v2.0 引用化: 业务 agent 从平台 mcpRegistry 按 name 过滤,不再自带 transport 定义
         const agentMcpRegistry = buildAgentMcpToolSource(deps.mcpRegistry, profile.mcpServers ?? [])
 
-        // skills 从平台 ~/.claude/skills 按 name 过滤(SkillRegistry.fromPlatformDir 由 deps 提供)
+        // skills 从平台 ~/.talor/skills 按 name 过滤(SkillRegistry.fromPlatformDir 由 deps 提供)
         const agentSkillRegistry = deps.skillRegistry.filterByNames(profile.skills ?? [])
 
         this.registerBusinessAgent(profile.id, {

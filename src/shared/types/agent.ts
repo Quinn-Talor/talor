@@ -30,7 +30,7 @@ export interface AgentProfile {
   // ── 能力:tools(内置) + mcpServers + skills + subagents ──
   /** 内置工具白名单 */
   tools?: BuiltinToolName[]
-  /** 平台 ~/.claude/skills/ 下的 skill name 引用 */
+  /** 平台 ~/.talor/skills/ 下的 skill name 引用 */
   skills?: string[]
   /** mcp_servers DB 表中的 server name 引用(用户在 Settings 配置) */
   mcpServers?: string[]

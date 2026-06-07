@@ -22,7 +22,7 @@ export interface ValidatorContext {
   knownToolNames?: Set<string>
   /** 已注册 agent id 集合,不传时跳过 rule 7 */
   knownAgentIds?: Set<string>
-  /** 已配置的平台 skill 名集合(~/.claude/skills),不传时跳过 rule 12 */
+  /** 已配置的平台 skill 名集合(~/.talor/skills),不传时跳过 rule 12 */
   knownSkillNames?: Set<string>
   /** 已配置的平台 MCP server name 集合(mcp_servers DB),不传时跳过 rule 13 */
   knownMcpServerNames?: Set<string>
@@ -176,7 +176,7 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
             severity: 'error',
             rule: 12,
             path: `skills[${i}]`,
-            message: `skill "${s}" not found in platform ~/.claude/skills/`,
+            message: `skill "${s}" not found in platform ~/.talor/skills/`,
           })
         }
       })

@@ -1,14 +1,15 @@
 // src/main/agent/skill-installer.ts — 业务层:Skill 平台位置 onboarding
 //
-// 引用化架构:profile.skills 是 string[] 引用 ~/.claude/skills/<name>/SKILL.md。
+// 引用化架构:profile.skills 是 string[] 引用 ~/.talor/skills/<name>/SKILL.md。
 // agent 不再有私有 skill 副本。
 //
-// 安装流程:遍历 profile.skills,若平台目录 ~/.claude/skills/<name>/SKILL.md
-// 已存在 → 跳过;否则从备用全局位置 cpSync 到平台目录。
+// 安装流程:遍历 profile.skills,若 Talor 平台目录 ~/.talor/skills/<name>/SKILL.md
+// 已存在 → 跳过;否则从备用位置 cpSync 到平台目录(含 Claude Code skill 库共享)。
 //
-//   1. ~/.claude/skills/<name>/SKILL.md  (平台单一真相, 优先)
-//   2. ~/.skills/<name>/SKILL.md          (备用源)
-//   3. ~/.agents/skills/<name>/SKILL.md   (备用源)
+//   1. ~/.talor/skills/<name>/SKILL.md   (Talor 平台真相, 优先)
+//   2. ~/.claude/skills/<name>/SKILL.md  (Claude Code 共享,兼容既有库)
+//   3. ~/.skills/<name>/SKILL.md         (备用源)
+//   4. ~/.agents/skills/<name>/SKILL.md  (备用源)
 //
 // 允许依赖:agent/*、shared/*、Node std
 // 禁止依赖:ipc/*
@@ -25,12 +26,16 @@ export interface InstallResult {
   failed: Array<{ name: string; error: string }>
 }
 
-const PLATFORM_SKILLS_DIR = join(homedir(), '.claude', 'skills')
-const FALLBACK_SKILL_ROOTS = [join(homedir(), '.skills'), join(homedir(), '.agents', 'skills')]
+const PLATFORM_SKILLS_DIR = join(homedir(), '.talor', 'skills')
+const FALLBACK_SKILL_ROOTS = [
+  join(homedir(), '.claude', 'skills'),
+  join(homedir(), '.skills'),
+  join(homedir(), '.agents', 'skills'),
+]
 
 /**
- * 确保 profile.skills 中每个 skill 在平台目录 ~/.claude/skills/ 已 onboard。
- * 若已在平台 → 跳过;否则从 fallback 源(~/.skills、~/.agents/skills)cpSync 过去。
+ * 确保 profile.skills 中每个 skill 在平台目录 ~/.talor/skills/ 已 onboard。
+ * 若已在平台 → 跳过;否则从 fallback 源(~/.claude/skills、~/.skills、~/.agents/skills)cpSync 过去。
  * 失败仅 log warn,不抛(让 IPC 完成保存),dep-checker 后续会标 missing。
  *
  * @param profile - agent profile (consumes profile.skills: string[])

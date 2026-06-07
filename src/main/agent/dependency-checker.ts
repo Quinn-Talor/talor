@@ -1,6 +1,6 @@
 // src/main/agent/dependency-checker.ts — 业务层:Agent 依赖检查(极简 3 步)
 //
-// step skill:    检查平台 ~/.claude/skills/<name>/SKILL.md 存在
+// step skill:    检查平台 ~/.talor/skills/<name>/SKILL.md 存在
 // step mcpServer: mcp_servers DB lookup + envVar 配置(若有)
 // step subagent: profile.subagents.ids 中 required 的 agent 已注册
 // step complete: 汇总
@@ -21,7 +21,7 @@ import { homedir } from 'os'
 import type { AgentProfile, DependencyCheckResult, DependencyStepResult } from '@shared/types/agent'
 import { mcpServerRepo } from '../repos/mcp-server-repo'
 
-const PLATFORM_SKILLS_DIR = join(homedir(), '.claude', 'skills')
+const PLATFORM_SKILLS_DIR = join(homedir(), '.talor', 'skills')
 
 export function checkDependencies(
   profile: AgentProfile,
@@ -53,7 +53,7 @@ export function checkDependencies(
     steps.push({
       step: 'skill',
       status: 'missing',
-      message: `缺少 Skill: ${missingSkills.join(', ')}(在 ~/.claude/skills/ 下未找到)`,
+      message: `缺少 Skill: ${missingSkills.join(', ')}(在 ~/.talor/skills/ 下未找到)`,
       details: missingSkills,
     })
   } else {

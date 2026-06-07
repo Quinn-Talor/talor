@@ -61,7 +61,7 @@ describe('checkDependencies (schema 2.0 引用化)', () => {
 
   // references step 已删(字段从 schema 移除)
   it('missing skill in platform → missing status', () => {
-    // 不创建 ~/.claude/skills/missing-skill/ 让它必然 missing
+    // 不创建 ~/.talor/skills/missing-skill/ 让它必然 missing
     const profile: AgentProfile = {
       ...BASE_PROFILE,
       skills: ['missing-skill-that-does-not-exist-in-platform'],

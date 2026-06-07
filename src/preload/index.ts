@@ -242,7 +242,7 @@ const talorAPI = {
   },
 
   skills: {
-    /** 列出 ~/.claude/skills/ 下所有平台 skill,供 AgentEditPage 下拉选用。 */
+    /** 列出 ~/.talor/skills/ 下所有平台 skill,供 AgentEditPage 下拉选用。 */
     listPlatform: (): Promise<Array<{ name: string; description: string }>> =>
       ipcRenderer.invoke('skills:list-platform'),
   },

@@ -16,7 +16,7 @@ export interface PlatformSkillInfo {
 
 export function registerSkillHandlers(agentManager: AgentManager): void {
   /**
-   * 列出平台 ~/.claude/skills/ 下所有已装 skill,供 AgentEditPage 多选下拉用。
+   * 列出平台 ~/.talor/skills/ 下所有已装 skill,供 AgentEditPage 多选下拉用。
    * 返回 name + description (来自 SKILL.md frontmatter)。
    */
   ipcMain.handle('skills:list-platform', (): PlatformSkillInfo[] => {

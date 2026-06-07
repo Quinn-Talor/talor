@@ -176,9 +176,10 @@ app.whenReady().then(() => {
   const builtinToolDefs = toolRegistry.listAll()
   const builtinRegistry = new BuiltinToolRegistry(builtinToolDefs)
   const agentsDir = join(app.getPath('home'), '.talor', 'agents')
-  // Skills 统一存平台目录 ~/.claude/skills/(与 Claude Code skills 共用约定);
-  // business agent 不再持有私有 skill 副本,仅按 name 引用平台 registry。
-  const skillsDir = join(app.getPath('home'), '.claude', 'skills')
+  // Skills 统一存 Talor 平台目录 ~/.talor/skills/;business agent 仅按 name 引用,
+  // 不再持有私有副本。skill-installer 在缺失时会从 ~/.claude/skills 等位置兜底 cp 过来,
+  // 跟 Claude Code 共享 skill 库的用户无需重复下载。
+  const skillsDir = join(app.getPath('home'), '.talor', 'skills')
   const platformSkillRegistry = SkillRegistry.fromPlatformDir(skillsDir)
   const safeStorageInstance = SafeStorageService.getInstance()
   // Account 凭据已迁至 DB(account_keys 表),不再需要 filePath 参数。

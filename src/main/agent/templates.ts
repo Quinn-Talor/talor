@@ -52,7 +52,7 @@ Produce a JSON document:
 ## Output style
 Concise, evidence-based. English. JSON only — no prose wrapper.
 
-> Tip: 把你团队的 standards 文档放到 \`~/.claude/skills/<your-standards>/SKILL.md\` 让 agent 通过 skills 引用。`.trim(),
+> Tip: 把你团队的 standards 文档放到 \`~/.talor/skills/<your-standards>/SKILL.md\` 让 agent 通过 skills 引用。`.trim(),
   tools: ['read', 'grep', 'glob', 'bash'],
 }
 

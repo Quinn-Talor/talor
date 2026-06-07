@@ -1,4 +1,4 @@
-// src/main/agent/skill-installer.test.ts — 引用化:skill onboard 到平台 ~/.claude/skills/
+// src/main/agent/skill-installer.test.ts — 引用化:skill onboard 到平台 ~/.talor/skills/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -26,7 +26,7 @@ afterEach(() => {
   rmSync(tempAgentDir, { recursive: true, force: true })
 })
 
-describe('installAgentSkills (引用化:onboard 到平台 ~/.claude/skills/)', () => {
+describe('installAgentSkills (引用化:onboard 到平台 ~/.talor/skills/)', () => {
   it('returns empty result when skills is empty / undefined', async () => {
     const r = await installAgentSkills(MINIMAL_PROFILE, tempAgentDir)
     expect(r.installed).toEqual([])
@@ -35,9 +35,9 @@ describe('installAgentSkills (引用化:onboard 到平台 ~/.claude/skills/)', (
   })
 
   it('skips skill already in platform', async () => {
-    const platformLarkDoc = join(homedir(), '.claude', 'skills', 'lark-doc', 'SKILL.md')
+    const platformLarkDoc = join(homedir(), '.talor', 'skills', 'lark-doc', 'SKILL.md')
     if (!existsSync(platformLarkDoc)) {
-      console.warn('Skipping: ~/.claude/skills/lark-doc/SKILL.md not on this machine')
+      console.warn('Skipping: ~/.talor/skills/lark-doc/SKILL.md not on this machine')
       return
     }
     const profile: AgentProfile = {
