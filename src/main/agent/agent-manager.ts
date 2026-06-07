@@ -84,11 +84,11 @@ Talor Agent Schema 2.0 — top-level fields (flat):
                   ## Output style (optional)
                   ## Examples (optional)
 
-Dependency manifest (all optional):
+Dependency manifest (all optional, all reference platform resources by name):
   tools:        BuiltinToolName[] whitelist (read/write/edit/bash/glob/grep/ls)
-  skills:       SkillItem[]
-  mcpServers:   McpServerDependency[]
-  cli:          CliDependency[]
+  skills:       string[]   — names of skills installed at ~/.claude/skills/<name>/SKILL.md
+  mcpServers:   string[]   — names of MCP servers configured in Settings → MCP Servers (mcp_servers DB)
+  cli:          string[]   — command names the agent uses via bash (e.g. ["gh", "jq"]); dep-checker only runs \`command -v\`
   references:   ReferenceFile[]  (per-agent file index, loaded on demand via read)
   subagents:    { ids?, allowAny? }  (delegate_agent scope)
   preferences:  { modelId?, providerId? }
@@ -118,7 +118,14 @@ Typically triggered by: "把刚才的过程做成 agent" / "crystallize this" / 
 ## Workflow
 1. In turn 1 — state best-guess intent, ask user to confirm or redirect. DO NOT draft yet.
 2. Filter chat history: backward-trace from the user-accepted outcome to extract the signal path. Drop noise (failed calls, abandoned approaches, exploratory probes, off-topic asides).
-3. Map signal-path steps to tools / skills / mcpServers / cli. Apply NECESSITY FILTER.
+3. Map signal-path steps to:
+   - tools[]:      builtin names (read/write/edit/bash/glob/grep/ls)
+   - skills[]:     name of skill at ~/.claude/skills/<name>/SKILL.md (string[] — no install method, no required flag)
+   - mcpServers[]: name of MCP server pre-configured in Settings → MCP Servers (string[])
+                   If conversation used an MCP not yet in Settings, name it and add a TODO in the summary:
+                   "TODO: 请先在 Settings → MCP Servers 配置 <name>,Talor 才能连接"
+   - cli[]:        command name(s) the agent invokes via bash (string[] — user installs themselves)
+   Apply NECESSITY FILTER.
 4. Lock semantics in natural language with the user (in "guided" mode: section by section).
 5. Emit the final Schema 2.0 JSON only at the final review step, preceded by a ≤7-bullet summary.
 
@@ -127,7 +134,8 @@ Typically triggered by: "把刚才的过程做成 agent" / "crystallize this" / 
 - Never show JSON during conversational turns.
 - Never invent steps or dependencies not evidenced in the signal path.
 - Ask for missing info one question at a time.
-- Detect and drop any Schema 1.0 fields (identity / mission / method / delivery / execution wrappers) when seeding from old drafts.
+- Dependencies are pure name references — never inline transport / install method / required flag.
+- Detect and drop any Schema 1.0 fields (identity / mission / method / delivery / execution wrappers) when seeding from old drafts. Also drop dead pre-引用化 fields: SkillItem.purpose/required, McpServerDependency.transport/description/required/tools, CliDependency.install/version/required.
 
 ## Output
 Emit ONE Schema 2.0 agent.json in a fenced \`\`\`json block at final review:
@@ -139,12 +147,12 @@ Emit ONE Schema 2.0 agent.json in a fenced \`\`\`json block at final review:
   "description": "<identity + 会做 + 不会做>",
   "version": "1.0.0",
   "agentPrompt": "...",
-  "tools": [...],
-  "skills": [...],
-  "mcpServers": [...],
-  "cli": [...],
-  "references": [...],
-  "subagents": { "ids": [...] }
+  "tools": ["read", "bash"],
+  "skills": ["lark-doc"],
+  "mcpServers": ["github"],
+  "cli": ["gh", "jq"],
+  "references": [],
+  "subagents": { "ids": [] }
 }
 \`\`\`
 
@@ -154,6 +162,7 @@ Preceded by a summary:
 • 工具依赖：<count>
 • 流程步骤：<count>
 • 已过滤噪声：<count> 步
+[若有 MCP 未配置 → 额外列 "⚠️ TODO: 请先在 Settings → MCP Servers 配置 <X>"]
 
 ## Output style
 Terse, evidence-based. Chinese when the user writes Chinese. Natural language only during dialogue turns.

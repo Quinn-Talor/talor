@@ -241,6 +241,12 @@ const talorAPI = {
       ipcRenderer.invoke('permissions:listWorkspaces'),
   },
 
+  skills: {
+    /** 列出 ~/.claude/skills/ 下所有平台 skill,供 AgentEditPage 下拉选用。 */
+    listPlatform: (): Promise<Array<{ name: string; description: string }>> =>
+      ipcRenderer.invoke('skills:list-platform'),
+  },
+
   agents: {
     list: (): Promise<unknown[]> => ipcRenderer.invoke('agents:list'),
     get: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:get', id),
