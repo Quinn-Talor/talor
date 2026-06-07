@@ -5,10 +5,11 @@
 // 允许依赖：agent/*、shared/*
 // 禁止依赖：ipc/*
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log'
 import { validateProfile } from './validator'
+import { loadAgentBundle } from './profile-fs'
 import type { AgentEntry, AgentStatus } from '@shared/types/agent'
 
 export class AgentLoader {
@@ -45,10 +46,11 @@ export class AgentLoader {
       if (!existsSync(jsonPath)) continue
 
       try {
-        const raw = readFileSync(jsonPath, 'utf-8')
-        const json = JSON.parse(raw)
-        // Schema 2.0: 不做向后兼容,1.0 格式 profile 直接 reject
-        const result = validateProfile(json, { agentRoot: dirPath })
+        const { raw, agentPrompt } = loadAgentBundle(dirPath)
+        const result = validateProfile(raw, {
+          agentRoot: dirPath,
+          injectedAgentPrompt: agentPrompt,
+        })
 
         if (!result.valid) {
           const summary = result.errors
@@ -71,7 +73,7 @@ export class AgentLoader {
         })
         log.info('[AgentLoader] Loaded agent:', result.profile.id, result.profile.name)
       } catch (err) {
-        log.warn('[AgentLoader] Failed to parse agent.json in', name, ':', err)
+        log.warn('[AgentLoader] Failed to load agent at', name, ':', err)
       }
     }
 

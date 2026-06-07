@@ -9,11 +9,9 @@ import { parseSlashInvoke } from './slash-invoke-parser'
 import { AgentLoader } from './loader'
 
 const VALID_AGENT = {
-  schemaVersion: '2.0',
   id: 'sales-001',
   name: '销售分析师',
   description: '自动分析销售数据',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. 分析销售数据。',
 }
 
@@ -24,7 +22,10 @@ beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'slash-'))
   const dir = join(tempDir, 'sales')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'agent.json'), JSON.stringify(VALID_AGENT))
+  // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
+  const { agentPrompt, ...rest } = VALID_AGENT
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify(rest))
+  writeFileSync(join(dir, 'prompt.md'), agentPrompt)
   loader = new AgentLoader(tempDir)
   loader.loadAll()
 })

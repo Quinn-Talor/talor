@@ -95,7 +95,7 @@ export function DraftReviewModal({
         const proceed = window.confirm(
           `Agent 已保存,但有 ${failed.length} 个 skill 未自动安装:\n${lines}\n\n` +
             `这些 skill 在运行时会缺失,LLM 调用 skill 工具时会报错。\n` +
-            `修复方式: 把 SKILL.md 放到 ~/.claude/skills/<name>/, 然后到 agent 详情页点"安装依赖"。\n\n` +
+            `修复方式: 把 SKILL.md 放到 ~/.talor/skills/<name>/, 然后到 agent 详情页点"安装依赖"。\n\n` +
             `点确定关闭审阅;取消保留对话框便于复制错误。`,
         )
         if (!proceed) {

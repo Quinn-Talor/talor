@@ -188,9 +188,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
     sharedLengthTruncation,
     new FailureStreakReflector(ctx),
     new ToolOnlyLoopReflector(),
-    new PeriodicReflector({
-      every: opts.agent?.profile?.preferences?.reflectEveryN ?? 5,
-    }),
+    new PeriodicReflector({ every: 5 }),
     new EscalationReflector({
       wasPreviousStepL1Hinted: () => lastL1Hinted,
     }),
@@ -581,19 +579,13 @@ async function runReactStep(
     parentSessionIdForLedger: null,
   })
 
-  // 5. streamText 参数 — 优先级: agent prefs > provider config > 默认值
+  // 5. streamText 参数 — 极简:不再读 agent preferences,仅用 provider config + 默认
   const provider = ctx.provider
-  const agentPrefs = ctx.agent?.profile?.preferences ?? undefined
   const streamParams: Record<string, unknown> = {
-    maxOutputTokens:
-      agentPrefs?.maxOutputTokens ?? provider.max_output_tokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: provider.max_output_tokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     maxRetries: provider.max_retries,
     headers: provider.headers,
   }
-  if (agentPrefs?.temperature !== undefined) streamParams.temperature = agentPrefs.temperature
-  if (agentPrefs?.topP !== undefined) streamParams.topP = agentPrefs.topP
-  if (agentPrefs?.seed !== undefined) streamParams.seed = agentPrefs.seed
-  if (agentPrefs?.toolChoice !== undefined) streamParams.toolChoice = agentPrefs.toolChoice
   if (provider.request_timeout_ms !== undefined) streamParams.timeout = provider.request_timeout_ms
   const adapterProviderOpts =
     (ctx.streamOptions as { providerOptions?: Record<string, unknown> } | undefined)

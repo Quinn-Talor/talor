@@ -241,6 +241,12 @@ const talorAPI = {
       ipcRenderer.invoke('permissions:listWorkspaces'),
   },
 
+  skills: {
+    /** 列出 ~/.talor/skills/ 下所有平台 skill,供 AgentEditPage 下拉选用。 */
+    listPlatform: (): Promise<Array<{ name: string; description: string }>> =>
+      ipcRenderer.invoke('skills:list-platform'),
+  },
+
   agents: {
     list: (): Promise<unknown[]> => ipcRenderer.invoke('agents:list'),
     get: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:get', id),
@@ -250,8 +256,6 @@ const talorAPI = {
     delete: (id: string): Promise<void> => ipcRenderer.invoke('agents:delete', id),
     reload: (): Promise<unknown[]> => ipcRenderer.invoke('agents:reload'),
     checkDeps: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:check-deps', id),
-    export: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:export', id),
-    import: (): Promise<unknown> => ipcRenderer.invoke('agents:import'),
     installDeps: (id: string): Promise<unknown> => ipcRenderer.invoke('agents:install-deps', id),
     update: (id: string, profile: unknown): Promise<void> =>
       ipcRenderer.invoke('agents:update', { id, profile }),

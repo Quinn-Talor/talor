@@ -608,11 +608,9 @@ describe('delegate_agent (TASK-3)', () => {
     tools?: string[]
   }): Agent {
     const profile = {
-      schemaVersion: '2.0',
       id: opts.id,
       name: opts.name,
       description: opts.description ?? '',
-      version: '1.0.0',
       agentPrompt: opts.agentPrompt ?? '',
       tools: opts.tools ?? [],
     } as unknown as Agent['profile']

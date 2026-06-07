@@ -5,7 +5,7 @@
  * 只覆盖单元/集成层面可验证的 AC（不含 UI 和 LLM 实际调用）。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import Database from 'better-sqlite3'
@@ -24,10 +24,6 @@ import { Agent } from './agent'
 import { AgentManager } from './agent-manager'
 import { BuiltinToolRegistry } from './builtin-registry'
 import { AccountStore } from '../accounts/account-store'
-import { resolveVariables } from './variable-resolver'
-import { checkDependencies } from './dependency-checker'
-import { exportAgent } from './exporter'
-import { importAgent } from './importer'
 import { parseSlashInvoke } from './slash-invoke-parser'
 import { extractDependenciesFromMessages } from './crystallizer'
 import { extractSkillCliBins } from '../skills/metadata-extractor'
@@ -61,11 +57,9 @@ const BUILTIN_TOOLS = [
 const builtinRegistry = new BuiltinToolRegistry(BUILTIN_TOOLS)
 
 const VALID_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'sales-analyst-001',
   name: '销售分析师',
   description: '自动汇总周度销售数据并生成趋势分析报告',
-  version: '1.0.0',
   agentPrompt:
     '## Workflow\n1. 从飞书表格获取销售数据。\n2. 生成趋势分析图表。\n\n## Principles\n- 只处理销售相关数据。\n- 输出 Markdown 格式的分析报告。',
   tools: ['bash'],
@@ -92,10 +86,13 @@ afterEach(() => {
   accountsTestDb.close()
 })
 
+// Bundle splitter for tests (writes agent.json without agentPrompt + sibling prompt.md)
 function writeAgentDir(name: string, profile: AgentProfile): string {
   const dir = join(tempDir, name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'agent.json'), JSON.stringify(profile, null, 2))
+  const { agentPrompt, ...rest } = profile
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify(rest, null, 2))
+  writeFileSync(join(dir, 'prompt.md'), agentPrompt)
   return dir
 }
 
@@ -126,17 +123,7 @@ describe('Block A: Agent 基础框架', () => {
     })
   })
 
-  describe('AC-A1-03: 非法 version 拒绝', () => {
-    it('version="abc" → errors 含 semver 文案', () => {
-      const result = validateProfile({ ...VALID_PROFILE, version: 'abc' })
-      expect(result.valid).toBe(false)
-      if (!result.valid) {
-        expect(
-          result.errors.some((e) => e.path === 'version' && e.message.includes('semver')),
-        ).toBe(true)
-      }
-    })
-  })
+  // AC-A1-03 已删 — version 字段从 schema 移除
 
   describe('AC-A2-01: 启动加载合法 agent', () => {
     it('合法 agent.json → getById 返回 AgentEntry, status=disabled', () => {
@@ -155,6 +142,7 @@ describe('Block A: Agent 基础框架', () => {
       const dir = join(tempDir, 'broken')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'agent.json'), JSON.stringify({ id: 'broken', version: '1.0.0' }))
+      writeFileSync(join(dir, 'prompt.md'), 'placeholder')
 
       writeAgentDir('good', VALID_PROFILE)
 
@@ -217,96 +205,10 @@ describe('Block A: Agent 基础框架', () => {
 })
 
 // ══════════════════════════════════════════════════════
-// Block B：Agent 存储与导入导出
+// Block B：Agent 存储与依赖检查
 // ══════════════════════════════════════════════════════
 
-describe('Block B: Agent 存储与导入导出', () => {
-  describe('AC-B1-01: 导出 zip 包含完整目录', () => {
-    it('export → import → 文件完整', () => {
-      const dir = writeAgentDir('sales', VALID_PROFILE)
-      mkdirSync(join(dir, 'knowledge'), { recursive: true })
-      writeFileSync(join(dir, 'knowledge', 'manual.md'), '# Manual')
-      mkdirSync(join(dir, 'skills', 'lark-sheets'), { recursive: true })
-      writeFileSync(
-        join(dir, 'skills', 'lark-sheets', 'SKILL.md'),
-        '---\nname: lark-sheets\n---\n# content',
-      )
-
-      const zip = exportAgent(dir)
-      expect(zip).toBeInstanceOf(Buffer)
-      expect(zip.length).toBeGreaterThan(0)
-
-      const importDir = mkdtempSync(join(tmpdir(), 'ac-import-'))
-      try {
-        const result = importAgent(zip, importDir)
-        expect(result.profile.id).toBe('sales-analyst-001')
-        expect(existsSync(join(result.dirPath, 'agent.json'))).toBe(true)
-        expect(existsSync(join(result.dirPath, 'knowledge', 'manual.md'))).toBe(true)
-        expect(existsSync(join(result.dirPath, 'skills', 'lark-sheets', 'SKILL.md'))).toBe(true)
-      } finally {
-        rmSync(importDir, { recursive: true, force: true })
-      }
-    })
-  })
-
-  describe('AC-B1-02: 导入解压到正确位置', () => {
-    it('合法 zip → 目录存在，profile 校验通过', () => {
-      const dir = writeAgentDir('test-agent', VALID_PROFILE)
-      const zip = exportAgent(dir)
-
-      const importDir = mkdtempSync(join(tmpdir(), 'ac-import-'))
-      try {
-        const result = importAgent(zip, importDir)
-        expect(existsSync(result.dirPath)).toBe(true)
-        const reValidate = validateProfile(
-          JSON.parse(require('fs').readFileSync(join(result.dirPath, 'agent.json'), 'utf-8')),
-        )
-        expect(reValidate.valid).toBe(true)
-      } finally {
-        rmSync(importDir, { recursive: true, force: true })
-      }
-    })
-  })
-
-  describe('AC-B2-01: minAppVersion 不满足时报错', () => {
-    it('需要 99.0.0，当前 0.2.0 → fail', () => {
-      const profile = { ...VALID_PROFILE, minAppVersion: '99.0.0' }
-      const result = checkDependencies(profile, tempDir, { appVersion: '0.2.0' })
-      expect(result.passed).toBe(false)
-      const step = result.steps.find((s) => s.step === 'minAppVersion')!
-      expect(step.status).toBe('fail')
-      expect(step.message).toContain('99.0.0')
-      expect(step.message).toContain('0.2.0')
-    })
-  })
-
-  describe('AC-B2-02: MCP Server auth 缺失提示', () => {
-    it('缺少 COMPANY_API_TOKEN → missing + 含 envVar 名', () => {
-      const profile: AgentProfile = {
-        ...VALID_PROFILE,
-        mcpServers: [
-          {
-            name: 'company-api',
-            transport: {
-              type: 'http',
-              url: 'https://mcp.company.com',
-              auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
-            },
-            tools: ['search_orders'],
-            required: true,
-          },
-        ],
-      }
-      const result = checkDependencies(profile, tempDir, {
-        appVersion: '1.0.0',
-        accountValues: new Map(),
-      })
-      const step = result.steps.find((s) => s.step === 'mcpServer')!
-      expect(step.status).toBe('missing')
-      expect(step.message).toContain('COMPANY_API_TOKEN')
-    })
-  })
-
+describe('Block B: Agent 存储与依赖检查', () => {
   describe('AC-B3-01: 删除 agent 后 session 仍可查询', () => {
     it('AgentLoader.remove 后 session 数据不受影响（模拟）', () => {
       writeAgentDir('sales', VALID_PROFILE)
@@ -355,23 +257,7 @@ describe('Block C: 依赖管理与账户管理', () => {
     })
   })
 
-  describe('AC-C3-01: 变量替换成功', () => {
-    it('{{feishu_appid}} → cli_xxx', () => {
-      const result = resolveVariables(
-        { APP_ID: '{{feishu_appid}}' },
-        new Map([['feishu_appid', 'cli_xxx']]),
-      )
-      expect(result.resolved).toEqual({ APP_ID: 'cli_xxx' })
-      expect(result.missing).toEqual([])
-    })
-  })
-
-  describe('AC-C3-02: 变量缺失报错', () => {
-    it('{{feishu_appid}} 未配置 → missing', () => {
-      const result = resolveVariables({ APP_ID: '{{feishu_appid}}' }, new Map())
-      expect(result.missing).toContain('feishu_appid')
-    })
-  })
+  // AC-C3-01/02 已删:variable-resolver 模块整删,极简 schema 不再支持 {{var}} 模板
 })
 
 // ══════════════════════════════════════════════════════
@@ -445,7 +331,6 @@ describe('Block E: 沉淀流程', () => {
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
       // v2.0: crystallizer agentPrompt contains the schema instructions
-      expect(cryst!.profile.schemaVersion).toBe('2.0')
       expect(cryst!.profile.agentPrompt).toBeTruthy()
       expect(cryst!.profile.agentPrompt!.toLowerCase()).toMatch(/analyz|依赖|workflow/)
     })

@@ -16,10 +16,13 @@ export class StdioTransport {
   private initialized = false
   private requestId = 0
   private buffer = ''
-  private pendingRequests = new Map<string, {
-    resolve: (value: unknown) => void
-    reject: (reason: unknown) => void
-  }>()
+  private pendingRequests = new Map<
+    string,
+    {
+      resolve: (value: unknown) => void
+      reject: (reason: unknown) => void
+    }
+  >()
 
   constructor(serverConfig: MCPServerConfig) {
     this.serverConfig = serverConfig
@@ -31,7 +34,13 @@ export class StdioTransport {
     }
 
     const args = this.serverConfig.args || []
-    const env = { ...process.env, ...this.serverConfig.env }
+    const accountEnv = await this.resolveAccountEnv()
+    // envFromAccount 优先级最高,覆盖 process.env 与字面 env(防止字面值意外暴露)
+    const env = {
+      ...process.env,
+      ...this.serverConfig.env,
+      ...accountEnv,
+    }
 
     log.info('[StdioTransport] Starting process:', this.serverConfig.command, args)
 
@@ -77,6 +86,35 @@ export class StdioTransport {
     this.initialized = true
   }
 
+  /**
+   * 把 envFromAccount 引用解析为可注入子进程的实际 env Map。
+   * 用 dynamic import 避免在 mcp 层硬依赖 accounts 层。
+   * 缺值仅 log warn,不阻断启动 — server 自行决定缺值是否致命。
+   */
+  private async resolveAccountEnv(): Promise<Record<string, string>> {
+    if (!this.serverConfig.envFromAccount) return {}
+    const { AccountStore } = await import('../../accounts/account-store')
+    const store = AccountStore.getInstance()
+    if (!store) {
+      log.warn(
+        '[StdioTransport]',
+        this.serverConfig.name,
+        'envFromAccount declared but AccountStore not initialized',
+      )
+      return {}
+    }
+    const { resolved, missing } = store.resolveAccountVars(this.serverConfig.envFromAccount)
+    if (missing.length > 0) {
+      log.warn(
+        '[StdioTransport]',
+        this.serverConfig.name,
+        'missing Account envVars:',
+        missing.join(', '),
+      )
+    }
+    return resolved
+  }
+
   async listTools(): Promise<MCPTool[]> {
     log.info('[StdioTransport] listTools called, sending tools/list request')
     const result = await this.sendRequest<{ tools: MCPTool[] }>('tools/list')
@@ -96,7 +134,7 @@ export class StdioTransport {
     return new Promise((resolve, reject) => {
       const id = String(++this.requestId)
       const request = { jsonrpc: '2.0', id, method, params }
-      
+
       log.info('[StdioTransport] sendRequest sending, id:', id, 'method:', method)
 
       this.pendingRequests.set(id, {
@@ -118,7 +156,7 @@ export class StdioTransport {
   private handleMessage(data: string): void {
     // Accumulate data until we have a complete JSON message
     this.buffer += data
-    
+
     // Try to parse complete JSON messages (handle multi-line JSON from string values)
     while (this.buffer.length > 0) {
       // Try to find a complete JSON object
@@ -128,17 +166,22 @@ export class StdioTransport {
         this.buffer = ''
         break
       }
-      
+
       // Try to parse from the first '{'
       const tryParse = this.buffer.substring(firstBrace)
       try {
         const message = JSON.parse(tryParse)
         // Got a complete message, remove it from buffer
         this.buffer = this.buffer.substring(firstBrace + tryParse.length).trimStart()
-        
+
         // Now handle the message
-        log.info('[StdioTransport] Parsed complete message, has id:', !!message.id, 'keys:', Object.keys(message))
-        
+        log.info(
+          '[StdioTransport] Parsed complete message, has id:',
+          !!message.id,
+          'keys:',
+          Object.keys(message),
+        )
+
         if (message.id && this.pendingRequests.has(message.id)) {
           const pending = this.pendingRequests.get(message.id)!
           this.pendingRequests.delete(message.id)
@@ -147,7 +190,12 @@ export class StdioTransport {
             log.error('[StdioTransport] Error response:', message.error)
             pending.reject(new MCPError(message.error.message, message.error.code))
           } else {
-            log.info('[StdioTransport] Resolving request:', message.id, 'with result keys:', Object.keys(message.result || {}))
+            log.info(
+              '[StdioTransport] Resolving request:',
+              message.id,
+              'with result keys:',
+              Object.keys(message.result || {}),
+            )
             pending.resolve(message.result)
           }
         }

@@ -30,11 +30,9 @@ const builtinRegistry = new BuiltinToolRegistry([
 ])
 
 const BUSINESS_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'sales_001',
   name: '销售分析师',
   description: '汇总销售数据并生成报告。',
-  version: '1.0.0',
   agentPrompt: `## Workflow
 1. Read sales data files.
 2. Generate summary report.
@@ -69,7 +67,6 @@ describe('AgentManager (schema 2.0)', () => {
     const chat = manager.getChatAgent()
     expect(chat.id).toBe('__chat__')
     expect(chat.name).toBe('Talor')
-    expect(chat.profile.schemaVersion).toBe('2.0')
   })
 
   it('AC-022: __chat__.agentPrompt 区分 local-builtin 与 external-MCP 两类工具家族', () => {
@@ -103,11 +100,9 @@ describe('AgentManager (schema 2.0)', () => {
     expect(tools).not.toContain('write')
   })
 
-  it('Crystallizer profile has v2.0 flat fields and agentPrompt with SCHEMA_DESCRIPTION', () => {
+  it('Crystallizer profile has 极简 schema fields and agentPrompt with workflow', () => {
     const cryst = manager.getAgent('__crystallizer__')!
-    expect(cryst.profile.schemaVersion).toBe('2.0')
     expect(cryst.profile.id).toBe('__crystallizer__')
-    expect(cryst.profile.agentPrompt).toContain('Schema 2.0')
     expect(cryst.profile.agentPrompt).toContain('## Workflow')
   })
 

@@ -73,25 +73,18 @@ function createContext(agent?: Agent): PipelineContext {
 }
 
 const PLATFORM_CHAT: AgentProfile = {
-  schemaVersion: '2.0',
   id: '__chat__',
   name: 'Talor',
   description: 'Default AI assistant.',
-  version: '2.0.0',
   agentPrompt: 'Help the user with any task.',
 }
 
 const REVIEWER: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'reviewer',
   name: 'Code Reviewer',
   description: 'Reviews PRs and produces structured reports.',
-  version: '1.0.0',
   agentPrompt:
     '## Required Inputs\n- pr_url (REQUIRED): GitHub PR URL\n\n## Workflow\n1. Read rules\n2. Analyze diff\n\n## Output\nReturn a JSON review report.',
-  references: [
-    { id: 'eng_rules', path: 'references/rules.md', description: 'Engineering standards' },
-  ],
 }
 
 const plugin = new AgentPromptPlugin()
@@ -126,22 +119,7 @@ describe('AgentPromptPlugin (schema 2.0 template-driven)', () => {
     expect(c).toContain('Return a JSON review report.')
   })
 
-  it('references render as # Reference Index section when present', async () => {
-    const agent = makeAgentStub(REVIEWER)
-    const r = await plugin.build(createContext(agent))
-    const c = (r.messages[0] as { role: string; content: string }).content
-    expect(c).toContain('# Reference Index')
-    expect(c).toContain('@eng_rules')
-    expect(c).toContain('references/rules.md')
-    expect(c).toContain('Engineering standards')
-  })
-
-  it('# Reference Index absent when no references', async () => {
-    const agent = makeAgentStub(PLATFORM_CHAT)
-    const r = await plugin.build(createContext(agent))
-    const c = (r.messages[0] as { role: string; content: string }).content
-    expect(c).not.toContain('# Reference Index')
-  })
+  // References section 已删 — schema 不再有 references 字段
 
   it('criticalRoleConstraints appear after Identity for __chat__', async () => {
     const agent = makeAgentStub(PLATFORM_CHAT)
@@ -174,11 +152,9 @@ describe('AgentPromptPlugin (schema 2.0 template-driven)', () => {
     templateLoaderState.forceEmpty = true
     try {
       const agent = makeAgentStub({
-        schemaVersion: '2.0',
         id: 'fallback-test',
         name: 'FallbackAgent',
         description: 'For testing fallback.',
-        version: '1.0.0',
         agentPrompt: '',
       })
       const r = await plugin.build(createContext(agent))

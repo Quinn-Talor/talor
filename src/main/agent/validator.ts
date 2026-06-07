@@ -1,31 +1,43 @@
-// src/main/agent/validator.ts — 业务层: AgentProfile Schema 2.0 校验
+// src/main/agent/validator.ts — 业务层: AgentProfile 极简 schema 校验
 //
-// 9 条规则: 8 hard + 1 warn。详见 docs/superpowers/plans/2026-05-11-agent-schema-2-0.md §III.
+// 6 条规则(从 14 → 6):
+//   rule 2:  必填字段(id/name/description/agentPrompt)非空
+//   rule 3:  id 格式(snake_case 或平台 __X__)
+//   rule 5:  tools 是 BuiltinToolName[]
+//   rule 7:  subagents.ids 合法 + 已注册
+//   rule 12: skills 是 string[]
+//   rule 13: mcpServers 是 string[]
+//
+// 已删: rule 1 (schemaVersion) / rule 4 (semver version) / rule 6 (references) /
+//       rule 8 (preferences.modelId) / rule 9 (entity pollution) / rule 14 (cli)
 //
 // 允许依赖: shared/*
 // 禁止依赖: ipc/*、repos/*
 
-import { existsSync } from 'node:fs'
-import { isAbsolute, normalize, resolve } from 'node:path'
-import { valid as semverValid } from 'semver'
-import type {
-  AgentProfile,
-  ValidateProfileResult,
-  ValidatorIssue,
-  ReferenceFile,
-} from '@shared/types/agent'
+import type { AgentProfile, ValidateProfileResult, ValidatorIssue } from '@shared/types/agent'
 import { BUILTIN_TOOL_NAMES } from '@shared/types/agent'
-import { extractEntities } from './entity-extractor'
 
 export interface ValidatorContext {
   /** 已注册工具名集合,不传时跳过 rule 5 严格匹配 */
   knownToolNames?: Set<string>
-  /** 已注册模型 id 集合,不传时跳过 rule 8 */
-  knownModelIds?: Set<string>
   /** 已注册 agent id 集合,不传时跳过 rule 7 */
   knownAgentIds?: Set<string>
-  /** agent 根目录,用于 references[].path 存在性检查 */
+  /** 已配置的平台 skill 名集合(~/.talor/skills),不传时跳过 rule 12 */
+  knownSkillNames?: Set<string>
+  /** 已配置的平台 MCP server name 集合(mcp_servers DB),不传时跳过 rule 13 */
+  knownMcpServerNames?: Set<string>
+  /**
+   * agent 根目录(directory 模式下用于 loadAgentBundle)。
+   * 仅 ValidatorContext 类型记录,实际 prompt 由 injectedAgentPrompt 传入。
+   */
   agentRoot?: string
+  /**
+   * 已注入的 agentPrompt 文本。dual-mode 支持:
+   *   - inline 模式: raw 对象自带 agentPrompt 字段(编辑实时校验场景)
+   *   - directory 模式: loader 从 prompt.md 读完后传 injectedAgentPrompt(磁盘加载场景)
+   * 两种模式至少要有一种提供 agentPrompt,否则 rule 2 失败。
+   */
+  injectedAgentPrompt?: string
 }
 
 const ID_RE = /^[a-z0-9_-]+$/
@@ -46,19 +58,14 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
   }
   const o = json as Record<string, unknown>
 
-  // RULE 1: schemaVersion
-  if (o.schemaVersion !== '2.0') {
-    errors.push({
-      severity: 'error',
-      rule: 1,
-      path: 'schemaVersion',
-      message: `must be "2.0", got ${JSON.stringify(o.schemaVersion)}`,
-    })
-    return { valid: false, errors, warnings }
+  // dual-mode: 若调用方传入 injectedAgentPrompt (loader 从 prompt.md 读出后),
+  // 把它合并进 raw 让后续规则跑。
+  if (ctx.injectedAgentPrompt !== undefined && o.agentPrompt === undefined) {
+    o.agentPrompt = ctx.injectedAgentPrompt
   }
 
   // RULE 2: 必填字段类型 + 非空
-  for (const f of ['id', 'name', 'description', 'version', 'agentPrompt'] as const) {
+  for (const f of ['id', 'name', 'description', 'agentPrompt'] as const) {
     const v = o[f]
     if (typeof v !== 'string' || v.trim() === '') {
       errors.push({
@@ -69,8 +76,6 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
       })
     }
   }
-
-  // 后续规则依赖结构完整;有 rule 2 错误就停
   if (errors.length > 0) return { valid: false, errors, warnings }
 
   // RULE 3: id 格式
@@ -81,21 +86,6 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
       path: 'id',
       message: 'must match /^[a-z0-9_-]+$/ or platform pattern /^__[a-z0-9_-]+__$/',
     })
-  }
-
-  // RULE 4: semver
-  if (typeof o.version === 'string' && !semverValid(o.version)) {
-    errors.push({ severity: 'error', rule: 4, path: 'version', message: 'must be valid semver' })
-  }
-  if (o.minAppVersion !== undefined && o.minAppVersion !== null) {
-    if (typeof o.minAppVersion !== 'string' || !semverValid(o.minAppVersion)) {
-      errors.push({
-        severity: 'error',
-        rule: 4,
-        path: 'minAppVersion',
-        message: 'must be valid semver',
-      })
-    }
   }
 
   // RULE 5: tools 白名单
@@ -110,82 +100,6 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
             rule: 5,
             path: `tools[${i}]`,
             message: `must be one of: ${BUILTIN_TOOL_NAMES.join(', ')}`,
-          })
-        }
-      })
-    }
-  }
-
-  // RULE 6: references
-  if (o.references !== undefined) {
-    if (!Array.isArray(o.references)) {
-      errors.push({ severity: 'error', rule: 6, path: 'references', message: 'must be array' })
-    } else {
-      const seen = new Set<string>()
-      o.references.forEach((r, i) => {
-        if (!r || typeof r !== 'object') {
-          errors.push({
-            severity: 'error',
-            rule: 6,
-            path: `references[${i}]`,
-            message: 'must be object',
-          })
-          return
-        }
-        const ref = r as Record<string, unknown>
-        if (typeof ref.id !== 'string' || !ID_RE.test(ref.id)) {
-          errors.push({
-            severity: 'error',
-            rule: 6,
-            path: `references[${i}].id`,
-            message: 'must match /^[a-z0-9_-]+$/',
-          })
-        } else if (seen.has(ref.id)) {
-          errors.push({
-            severity: 'error',
-            rule: 6,
-            path: `references[${i}].id`,
-            message: `duplicate reference id "${ref.id}"`,
-          })
-        } else {
-          seen.add(ref.id)
-        }
-        if (typeof ref.path !== 'string' || ref.path.trim() === '') {
-          errors.push({
-            severity: 'error',
-            rule: 6,
-            path: `references[${i}].path`,
-            message: 'must be non-empty string',
-          })
-        } else if (
-          ref.path.includes('\\') ||
-          isAbsolute(ref.path) ||
-          normalize(ref.path).startsWith('..')
-        ) {
-          errors.push({
-            severity: 'error',
-            rule: 6,
-            path: `references[${i}].path`,
-            message:
-              'must be a relative path within agent dir (no .., absolute paths, or backslashes)',
-          })
-        } else if (ctx.agentRoot) {
-          const full = resolve(ctx.agentRoot, ref.path)
-          if (!existsSync(full)) {
-            errors.push({
-              severity: 'error',
-              rule: 6,
-              path: `references[${i}].path`,
-              message: `file does not exist: ${ref.path}`,
-            })
-          }
-        }
-        if (typeof ref.description !== 'string' || ref.description.trim() === '') {
-          errors.push({
-            severity: 'error',
-            rule: 6,
-            path: `references[${i}].description`,
-            message: 'must be non-empty string',
           })
         }
       })
@@ -239,66 +153,68 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
     }
   }
 
-  // RULE 8: preferences.modelId 已注册
-  if (o.preferences !== undefined && o.preferences !== null) {
-    if (typeof o.preferences !== 'object' || Array.isArray(o.preferences)) {
-      errors.push({ severity: 'error', rule: 8, path: 'preferences', message: 'must be object' })
+  // RULE 12: skills 是平台 skill name 数组(string[])
+  if (o.skills !== undefined) {
+    if (!Array.isArray(o.skills)) {
+      errors.push({
+        severity: 'error',
+        rule: 12,
+        path: 'skills',
+        message: 'must be string[] (platform skill names)',
+      })
     } else {
-      const p = o.preferences as Record<string, unknown>
-      if (typeof p.modelId === 'string' && ctx.knownModelIds && !ctx.knownModelIds.has(p.modelId)) {
-        errors.push({
-          severity: 'error',
-          rule: 8,
-          path: 'preferences.modelId',
-          message: `unknown model "${p.modelId}"`,
-        })
-      }
+      o.skills.forEach((s, i) => {
+        if (typeof s !== 'string' || s.trim() === '') {
+          errors.push({
+            severity: 'error',
+            rule: 12,
+            path: `skills[${i}]`,
+            message: 'must be a non-empty string (platform skill name)',
+          })
+        } else if (ctx.knownSkillNames && !ctx.knownSkillNames.has(s)) {
+          errors.push({
+            severity: 'error',
+            rule: 12,
+            path: `skills[${i}]`,
+            message: `skill "${s}" not found in platform ~/.talor/skills/`,
+          })
+        }
+      })
+    }
+  }
+
+  // RULE 13: mcpServers 是平台 MCP server name 数组(string[])
+  if (o.mcpServers !== undefined) {
+    if (!Array.isArray(o.mcpServers)) {
+      errors.push({
+        severity: 'error',
+        rule: 13,
+        path: 'mcpServers',
+        message: 'must be string[] (platform mcp_servers DB names)',
+      })
+    } else {
+      o.mcpServers.forEach((m, i) => {
+        if (typeof m !== 'string' || m.trim() === '') {
+          errors.push({
+            severity: 'error',
+            rule: 13,
+            path: `mcpServers[${i}]`,
+            message: 'must be a non-empty string (platform MCP server name)',
+          })
+        } else if (ctx.knownMcpServerNames && !ctx.knownMcpServerNames.has(m)) {
+          errors.push({
+            severity: 'error',
+            rule: 13,
+            path: `mcpServers[${i}]`,
+            message: `MCP server "${m}" not configured in Settings → MCP Servers`,
+          })
+        }
+      })
     }
   }
 
   if (errors.length > 0) return { valid: false, errors, warnings }
 
   const profile = o as unknown as AgentProfile
-
-  // W1 (rule 9): 实体污染
-  validateNoSpecificEntities(profile, warnings)
-
   return { valid: true, profile, warnings }
-}
-
-// ─── W1 (rule 9): description / agentPrompt / references.description 不含具体实体 ──
-
-function validateNoSpecificEntities(profile: AgentProfile, warnings: ValidatorIssue[]): void {
-  const checks: Array<{ path: string; text: string }> = [
-    { path: 'description', text: profile.description },
-    { path: 'agentPrompt', text: profile.agentPrompt },
-  ]
-  ;(profile.references ?? []).forEach((r: ReferenceFile, i) => {
-    checks.push({ path: `references[${i}].description`, text: r.description })
-  })
-
-  for (const { path, text } of checks) {
-    if (!text) continue
-    const entities = extractEntities(text)
-    const flagged = entities.filter((e) => {
-      if (e.category === 'ticker' || e.category === 'stock-code' || e.category === 'path')
-        return true
-      if (e.category === 'cn-name' && e.text.length >= 4) return true
-      return false
-    })
-    if (flagged.length === 0) continue
-    const sample = flagged
-      .slice(0, 3)
-      .map((e) => e.text)
-      .join(', ')
-    warnings.push({
-      severity: 'warn',
-      rule: 9,
-      path,
-      message:
-        `contains specific entities [${sample}${flagged.length > 3 ? ', ...' : ''}] — ` +
-        `prompt-rendered fields should use generic language. ` +
-        `Specific entities bias all delegations regardless of user intent.`,
-    })
-  }
 }

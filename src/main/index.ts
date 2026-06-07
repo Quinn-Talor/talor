@@ -23,6 +23,7 @@ import { registerChatHandlers } from './ipc/chat'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerMCPHandlers } from './ipc/mcp'
 import { registerAgentHandlers } from './ipc/agents'
+import { registerSkillHandlers } from './ipc/skills'
 import { registerAccountHandlers } from './ipc/accounts'
 import { registerPermissionHandlers } from './ipc/permission'
 import { mcpRegistry } from './mcp/client'
@@ -55,6 +56,7 @@ registerChatHandlers(agentManager)
 registerFileHandlers()
 registerMCPHandlers()
 registerAgentHandlers(agentManager)
+registerSkillHandlers(agentManager)
 registerPermissionHandlers()
 
 let mainWindow: BrowserWindow | null = null
@@ -174,8 +176,11 @@ app.whenReady().then(() => {
   const builtinToolDefs = toolRegistry.listAll()
   const builtinRegistry = new BuiltinToolRegistry(builtinToolDefs)
   const agentsDir = join(app.getPath('home'), '.talor', 'agents')
+  // Skills 统一存 Talor 平台目录 ~/.talor/skills/;business agent 仅按 name 引用,
+  // 不再持有私有副本。skill-installer 在缺失时会从 ~/.claude/skills 等位置兜底 cp 过来,
+  // 跟 Claude Code 共享 skill 库的用户无需重复下载。
   const skillsDir = join(app.getPath('home'), '.talor', 'skills')
-  const platformSkillRegistry = SkillRegistry.fromDir(skillsDir)
+  const platformSkillRegistry = SkillRegistry.fromPlatformDir(skillsDir)
   const safeStorageInstance = SafeStorageService.getInstance()
   // Account 凭据已迁至 DB(account_keys 表),不再需要 filePath 参数。
   // safeStorage 仍用于加密 secret 字段,与旧实现保持同样的 OS 级保护。

@@ -6,11 +6,9 @@ vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error:
 import { dryRunAgent } from './dry-runner'
 
 const VALID_PROFILE_V2 = {
-  schemaVersion: '2.0',
   id: 'code_reviewer',
   name: 'Code Reviewer',
   description: 'Reviews code against team standards.',
-  version: '1.0.0',
   agentPrompt: '# Identity\nYou are a code reviewer.\n\n## Responsibilities\n- Review PRs.',
 }
 

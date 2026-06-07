@@ -1,16 +1,24 @@
 # Talor — 项目架构总览
 
-> Electron + TypeScript 桌面 AI Agent 应用 (v0.1.0)
+> 纯 Agent 平台 · Electron + TypeScript 桌面应用 (v0.1.0)
+
+## 定位
+
+Talor 是**纯 agent 运行平台**,自身不含业务 agent。所有业务通过对话沉淀(Crystallizer)由用户产出。
+
+**Agent profile · 极简 8 字段**:`id` / `name` / `description` / `agentPrompt`(磁盘上拆为 sibling `prompt.md`)+ `tools?` / `skills?` / `mcpServers?` / `subagents?`
+
+数据真相归属 Talor 自己:`~/.talor/agents/<id>/` + `~/.talor/skills/<name>/` + SQLite(`chat.db`)。
 
 ## 技术栈
 
-| 层 | 技术 |
-|---|------|
-| 前端 | React 19 + Tailwind CSS + Zustand |
-| 模型 | Vercel AI SDK v6（Anthropic / OpenAI / Google / Ollama） |
-| 工具 | 7 个内置工具 + MCP 外部工具 + Skill 技能体系 |
-| 持久化 | better-sqlite3（sessions, messages, session_summaries） |
-| 桌面 | Electron (sandbox:true + contextIsolation:true) |
+| 层     | 技术                                                                                       |
+| ------ | ------------------------------------------------------------------------------------------ |
+| 前端   | React 19 + Tailwind CSS + Zustand                                                          |
+| 模型   | Vercel AI SDK v6(Anthropic / OpenAI / Google / Ollama)                                     |
+| 工具   | 7 个内置工具 + MCP 外部工具 + Skill 技能体系                                               |
+| 持久化 | better-sqlite3(sessions / messages / mcp_servers / account_keys) + 文件(agents/ + skills/) |
+| 桌面   | Electron (sandbox:true + contextIsolation:true)                                            |
 
 ---
 
@@ -136,93 +144,93 @@
 
 ### 入口层
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Chat IPC | `ipc/chat.ts` | 注册 `chat:send`/`chat:abort`，回调桥接到 `webContents.send` |
-| Session IPC | `ipc/session.ts` | Session CRUD + 模型/Provider 切换 |
-| Providers IPC | `ipc/providers.ts` | Provider CRUD + 模型列表 + 连接测试 |
+| 组件          | 文件               | 职责                                                         |
+| ------------- | ------------------ | ------------------------------------------------------------ |
+| Chat IPC      | `ipc/chat.ts`      | 注册 `chat:send`/`chat:abort`，回调桥接到 `webContents.send` |
+| Session IPC   | `ipc/session.ts`   | Session CRUD + 模型/Provider 切换                            |
+| Providers IPC | `ipc/providers.ts` | Provider CRUD + 模型列表 + 连接测试                          |
 
 ### 业务层 — 编排
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Orchestrator | `chat/orchestrator.ts` | 8 步编排：校验→Provider→持久化→ReAct→Done。单一错误出口 onDone |
-| Provider Selector | `chat/provider-selector.ts` | 按 ID 查 Provider / 取默认 Provider |
-| Stream Registry | `chat/stream-registry.ts` | 同 session AbortController 管理，新请求 abort 旧的 |
-| Event Bus | `chat/events.ts` | Per-execution 事件总线（当前仅 `memory.compressed`） |
+| 组件              | 文件                        | 职责                                                           |
+| ----------------- | --------------------------- | -------------------------------------------------------------- |
+| Orchestrator      | `chat/orchestrator.ts`      | 8 步编排：校验→Provider→持久化→ReAct→Done。单一错误出口 onDone |
+| Provider Selector | `chat/provider-selector.ts` | 按 ID 查 Provider / 取默认 Provider                            |
+| Stream Registry   | `chat/stream-registry.ts`   | 同 session AbortController 管理，新请求 abort 旧的             |
+| Event Bus         | `chat/events.ts`            | Per-execution 事件总线（当前仅 `memory.compressed`）           |
 
 ### 业务层 — Prompt 构建
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| PromptPipeline | `prompt/PromptPipeline.ts` | 5 插件链顺序执行，关键插件失败抛出，非关键降级 |
-| SystemPlugin | `prompt/plugins/SystemPlugin.ts` | Layer 1 行为宪法（11 条）+ Layer 2 决策路由表 |
-| AgentPromptPlugin | `prompt/plugins/AgentPromptPlugin.ts` | Layer 3-4 Agent 角色 + 知识索引 + Skill 列表 + few-shot |
-| MemoryPlugin | `prompt/plugins/MemoryPlugin.ts` | Layer 6 历史消息（委托 ShortTermMemory） |
-| MessagePlugin | `prompt/plugins/MessagePlugin.ts` | Layer 7 当前 turn 消息（Memory pop 后放回） |
-| ToolSelectionPlugin | `prompt/plugins/ToolSelectionPlugin.ts` | >50 工具时 LLM 精选 + 降级通知 |
+| 组件                | 文件                                    | 职责                                                    |
+| ------------------- | --------------------------------------- | ------------------------------------------------------- |
+| PromptPipeline      | `prompt/PromptPipeline.ts`              | 5 插件链顺序执行，关键插件失败抛出，非关键降级          |
+| SystemPlugin        | `prompt/plugins/SystemPlugin.ts`        | Layer 1 行为宪法（11 条）+ Layer 2 决策路由表           |
+| AgentPromptPlugin   | `prompt/plugins/AgentPromptPlugin.ts`   | Layer 3-4 Agent 角色 + 知识索引 + Skill 列表 + few-shot |
+| MemoryPlugin        | `prompt/plugins/MemoryPlugin.ts`        | Layer 6 历史消息（委托 ShortTermMemory）                |
+| MessagePlugin       | `prompt/plugins/MessagePlugin.ts`       | Layer 7 当前 turn 消息（Memory pop 后放回）             |
+| ToolSelectionPlugin | `prompt/plugins/ToolSelectionPlugin.ts` | >50 工具时 LLM 精选 + 降级通知                          |
 
 ### 业务层 — 推理引擎
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| ReAct Loop | `loop/react-loop.ts` | 多步推理循环：prompt→stream→persist→检测→继续/停止 |
-| Stream Utils | `loop/stream-utils.ts` | 输出截断、错误检测、XML 包装、超时信号 |
-| Quote Verifier | `loop/quote-verifier.ts` | 兜底摘要引用验证，标记 ⟨unverifiable⟩ |
+| 组件           | 文件                     | 职责                                               |
+| -------------- | ------------------------ | -------------------------------------------------- |
+| ReAct Loop     | `loop/react-loop.ts`     | 多步推理循环：prompt→stream→persist→检测→继续/停止 |
+| Stream Utils   | `loop/stream-utils.ts`   | 输出截断、错误检测、XML 包装、超时信号             |
+| Quote Verifier | `loop/quote-verifier.ts` | 兜底摘要引用验证，标记 ⟨unverifiable⟩              |
 
 ### 业务层 — 工具系统
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Build Tools | `tools/build-tools.ts` | ToolMetadata → AI SDK dynamicTool 包装 + HIGH_RISK 确认 |
-| Tool Registry | `tools/registry.ts` | 4 阶段执行管线：Zod 校验→业务校验→execute→verify |
-| Path Guard | `tools/path-guard.ts` | resolveToolPath 3 态：allowed/sensitive/needs_consent |
-| Builtin Tools | `tools/builtin/*.ts` | bash / read / write / edit / glob / grep / ls |
+| 组件          | 文件                   | 职责                                                    |
+| ------------- | ---------------------- | ------------------------------------------------------- |
+| Build Tools   | `tools/build-tools.ts` | ToolMetadata → AI SDK dynamicTool 包装 + HIGH_RISK 确认 |
+| Tool Registry | `tools/registry.ts`    | 4 阶段执行管线：Zod 校验→业务校验→execute→verify        |
+| Path Guard    | `tools/path-guard.ts`  | resolveToolPath 3 态：allowed/sensitive/needs_consent   |
+| Builtin Tools | `tools/builtin/*.ts`   | bash / read / write / edit / glob / grep / ls           |
 
 ### 业务层 — Agent 系统
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Agent | `agent/agent.ts` | 不可变 Agent 实例：profile + toolRegistry + skillRegistry |
-| Agent ToolRegistry | `agent/tool-registry.ts` | 3 源合并 + 白名单过滤（ALWAYS_AVAILABLE 绕过） |
-| Agent Manager | `agent/agent-manager.ts` | 平台 Agent（__chat__）+ 业务 Agent 生命周期管理 |
+| 组件               | 文件                     | 职责                                                      |
+| ------------------ | ------------------------ | --------------------------------------------------------- |
+| Agent              | `agent/agent.ts`         | 不可变 Agent 实例：profile + toolRegistry + skillRegistry |
+| Agent ToolRegistry | `agent/tool-registry.ts` | 3 源合并 + 白名单过滤（ALWAYS_AVAILABLE 绕过）            |
+| Agent Manager      | `agent/agent-manager.ts` | 平台 Agent（**chat**）+ 业务 Agent 生命周期管理           |
 
 ### 业务层 — 记忆系统
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| ShortTermMemory | `memory/ShortTermMemory.ts` | Path A 全量 / Path B 压缩（摘要+锚点），失败冷却机制 |
-| Memory Types | `memory/types.ts` | dbToModelMessages（透传 + tool guide 注入）、token 估算 |
-| Memory Manager | `memory/MemoryManager.ts` | ShortTermMemory 的外壳 |
+| 组件            | 文件                        | 职责                                                    |
+| --------------- | --------------------------- | ------------------------------------------------------- |
+| ShortTermMemory | `memory/ShortTermMemory.ts` | Path A 全量 / Path B 压缩（摘要+锚点），失败冷却机制    |
+| Memory Types    | `memory/types.ts`           | dbToModelMessages（透传 + tool guide 注入）、token 估算 |
+| Memory Manager  | `memory/MemoryManager.ts`   | ShortTermMemory 的外壳                                  |
 
 ### 业务层 — Provider 适配
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Model Adapter | `providers/model-adapter.ts` | getAdapter() 工厂 → 4 个适配器 |
-| OpenAI Adapter | `providers/adapters/openai-adapter.ts` | `.chat()` 强制 Chat Completions + DeepSeek thinking 禁用 |
-| Anthropic Adapter | `providers/adapters/anthropic-adapter.ts` | createAnthropic + x-api-key 认证 |
-| Google Adapter | `providers/adapters/google-adapter.ts` | createGoogleGenerativeAI |
-| Ollama Adapter | `providers/adapters/ollama-adapter.ts` | createOllama + `/api/tags` 模型列表 |
+| 组件              | 文件                                      | 职责                                                     |
+| ----------------- | ----------------------------------------- | -------------------------------------------------------- |
+| Model Adapter     | `providers/model-adapter.ts`              | getAdapter() 工厂 → 4 个适配器                           |
+| OpenAI Adapter    | `providers/adapters/openai-adapter.ts`    | `.chat()` 强制 Chat Completions + DeepSeek thinking 禁用 |
+| Anthropic Adapter | `providers/adapters/anthropic-adapter.ts` | createAnthropic + x-api-key 认证                         |
+| Google Adapter    | `providers/adapters/google-adapter.ts`    | createGoogleGenerativeAI                                 |
+| Ollama Adapter    | `providers/adapters/ollama-adapter.ts`    | createOllama + `/api/tags` 模型列表                      |
 
 ### 基础设施层
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Session Repo | `repos/session-repo.ts` | Session/Message CRUD + createBatch 原子落盘 |
-| DB | `db/index.ts` | SQLite 初始化 + WAL + schema 迁移 |
-| Config Store | `store/config-store.ts` | electron-store Provider/Config 配置 |
-| Safe Storage | `services/safe-storage.ts` | OS keychain API key 加密存储 |
+| 组件         | 文件                       | 职责                                        |
+| ------------ | -------------------------- | ------------------------------------------- |
+| Session Repo | `repos/session-repo.ts`    | Session/Message CRUD + createBatch 原子落盘 |
+| DB           | `db/index.ts`              | SQLite 初始化 + WAL + schema 迁移           |
+| Config Store | `store/config-store.ts`    | electron-store Provider/Config 配置         |
+| Safe Storage | `services/safe-storage.ts` | OS keychain API key 加密存储                |
 
 ### 前端
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| Chat Store | `renderer/store/chatStore.ts` | StreamItem[] 统一模型（text + tool_call 交错） |
-| useStreamingMessage | `renderer/hooks/useStreamingMessage.ts` | IPC 事件 → store mutations |
-| ToolCallLog | `renderer/components/ToolCallLog.tsx` | Streaming 态按 step 分组渲染 text + tools |
-| ToolCallMessage | `renderer/components/ToolCallMessage.tsx` | 持久化态工具行渲染 |
-| MessageBubble | `renderer/components/MessageBubble.tsx` | Markdown 渲染 + 代码高亮 + 附件 |
+| 组件                | 文件                                      | 职责                                           |
+| ------------------- | ----------------------------------------- | ---------------------------------------------- |
+| Chat Store          | `renderer/store/chatStore.ts`             | StreamItem[] 统一模型（text + tool_call 交错） |
+| useStreamingMessage | `renderer/hooks/useStreamingMessage.ts`   | IPC 事件 → store mutations                     |
+| ToolCallLog         | `renderer/components/ToolCallLog.tsx`     | Streaming 态按 step 分组渲染 text + tools      |
+| ToolCallMessage     | `renderer/components/ToolCallMessage.tsx` | 持久化态工具行渲染                             |
+| MessageBubble       | `renderer/components/MessageBubble.tsx`   | Markdown 渲染 + 代码高亮 + 附件                |
 
 ---
 
@@ -234,12 +242,12 @@ DB 直接存储 AI SDK `ModelMessage` 原生格式，零中间转换：
 SDK response → JSON.stringify → DB (messages.content) → JSON.parse → SDK (直传)
 ```
 
-| role | content 格式 |
-|------|-------------|
-| system | `string`（纯文本） |
-| user | `UserContent`（TextPart / FilePart / ImagePart 数组，纯文本时为 string） |
-| assistant | `AssistantContent`（TextPart / ReasoningPart / ToolCallPart 数组） |
-| tool | `ToolContent`（ToolResultPart 数组，output 为 `{ type: 'text', value }`） |
+| role      | content 格式                                                              |
+| --------- | ------------------------------------------------------------------------- |
+| system    | `string`（纯文本）                                                        |
+| user      | `UserContent`（TextPart / FilePart / ImagePart 数组，纯文本时为 string）  |
+| assistant | `AssistantContent`（TextPart / ReasoningPart / ToolCallPart 数组）        |
+| tool      | `ToolContent`（ToolResultPart 数组，output 为 `{ type: 'text', value }`） |
 
 唯一的动态处理：`dbToModelMessages()` 在 rebuild prompt 时为 tool-result 注入结构化指引（guide），帮助模型理解工具输出。
 
@@ -247,13 +255,13 @@ SDK response → JSON.stringify → DB (messages.content) → JSON.parse → SDK
 
 ## 关键设计决策
 
-| 决策 | 原因 |
-|------|------|
-| 消息格式对齐 SDK | 零转换损耗，reasoning/providerOptions 自动保留 |
-| Provider 适配层 | 屏蔽 baseURL/apiKey/API 模式差异，Talor 内部稳定 |
-| 5 插件 prompt 管线 | 关键插件必须成功，非关键降级 + 通知 |
-| 事务化消息落盘 | assistant(tool_use) + tool(result) 配对不变量 |
-| 工具 4 阶段执行 | Zod 校验→业务校验→执行→输出验证 |
-| 死循环 3 路检测 | 签名重复 + 连续失败 + 空文本循环 |
-| 记忆压缩 + 锚点 | 90% 阈值压缩，最近 4 条 tool 保留原文 |
+| 决策                | 原因                                                 |
+| ------------------- | ---------------------------------------------------- |
+| 消息格式对齐 SDK    | 零转换损耗，reasoning/providerOptions 自动保留       |
+| Provider 适配层     | 屏蔽 baseURL/apiKey/API 模式差异，Talor 内部稳定     |
+| 5 插件 prompt 管线  | 关键插件必须成功，非关键降级 + 通知                  |
+| 事务化消息落盘      | assistant(tool_use) + tool(result) 配对不变量        |
+| 工具 4 阶段执行     | Zod 校验→业务校验→执行→输出验证                      |
+| 死循环 3 路检测     | 签名重复 + 连续失败 + 空文本循环                     |
+| 记忆压缩 + 锚点     | 90% 阈值压缩，最近 4 条 tool 保留原文                |
 | StreamItem 统一模型 | text + tool_call 按 step 交错，解决文本/工具分离问题 |

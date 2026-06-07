@@ -90,6 +90,9 @@ declare global {
         clearSession: (workspacePath: string) => Promise<void>
         listWorkspaces: () => Promise<Array<{ workspacePath: string; ruleCount: number }>>
       }
+      skills: {
+        listPlatform: () => Promise<Array<{ name: string; description: string }>>
+      }
       mcp: {
         list: () => Promise<import('../../preload/index').MCPServer[]>
         create: (
@@ -161,8 +164,6 @@ declare global {
         delete: (id: string) => Promise<void>
         reload: () => Promise<unknown[]>
         checkDeps: (id: string) => Promise<unknown>
-        export: (id: string) => Promise<unknown>
-        import: () => Promise<unknown>
         installDeps: (id: string) => Promise<unknown>
         update: (id: string, profile: unknown) => Promise<void>
         startCrystallize: (sessionId: string) => Promise<{
@@ -309,6 +310,10 @@ const stubPermissions = {
   listWorkspaces: () => Promise.resolve([]),
 }
 
+const stubSkills = {
+  listPlatform: () => Promise.resolve([]),
+}
+
 const stubMcp = {
   list: () => Promise.resolve([]),
   create: () => Promise.resolve({}),
@@ -345,8 +350,6 @@ const stubAgents = {
   delete: () => Promise.resolve(),
   reload: () => Promise.resolve([]),
   checkDeps: () => Promise.resolve(null),
-  export: () => Promise.resolve(null),
-  import: () => Promise.resolve(null),
   installDeps: () => Promise.resolve(null),
   update: () => Promise.resolve(),
   startCrystallize: () => Promise.resolve({ success: false, error: 'no preload' }),
@@ -441,6 +444,17 @@ export const talorAPI = new Proxy({} as Window['talorAPI'], {
               : (stubMcp as Record<string, unknown>)?.[p as string],
         },
       ) as Window['talorAPI']['mcp']
+    }
+    if (prop === 'skills') {
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubSkills as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['skills']
     }
     if (prop === 'window') {
       return new Proxy(

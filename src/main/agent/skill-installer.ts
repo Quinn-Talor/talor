@@ -1,16 +1,15 @@
-// src/main/agent/skill-installer.ts — 业务层:Schema 2.0 skill 自动安装
+// src/main/agent/skill-installer.ts — 业务层:Skill 平台位置 onboarding
 //
-// v2.0: SkillItem 是 flat 形态 { name, required, purpose? }—— 没有 source 字段。
-// skill 安装来源由 Talor 装配阶段从全局位置扫描:
-//   1. ~/.claude/skills/<name>/SKILL.md
-//   2. ~/.skills/<name>/SKILL.md
-//   3. ~/.agents/skills/<name>/SKILL.md
-//   命中即 cpSync(deref symlinks) 到 <agentDir>/skills/<name>/。
-//   全部未命中 → log warn,失败不阻断保存,dep-checker 后续会标 missing,
-//   UI 提示用户手动放到 ~/.claude/skills/<name>/。
+// 引用化架构:profile.skills 是 string[] 引用 ~/.talor/skills/<name>/SKILL.md。
+// agent 不再有私有 skill 副本。
 //
-// 用户痛点:profile.skills 声明依赖,但 SKILL.md 不在 <root>/skills/<name>/
-// 时 SkillRegistry 加载空 → LLM 看到 capabilities 提到 skill 但工具列表里没 → 卡死。
+// 安装流程:遍历 profile.skills,若 Talor 平台目录 ~/.talor/skills/<name>/SKILL.md
+// 已存在 → 跳过;否则从备用位置 cpSync 到平台目录(含 Claude Code skill 库共享)。
+//
+//   1. ~/.talor/skills/<name>/SKILL.md   (Talor 平台真相, 优先)
+//   2. ~/.claude/skills/<name>/SKILL.md  (Claude Code 共享,兼容既有库)
+//   3. ~/.skills/<name>/SKILL.md         (备用源)
+//   4. ~/.agents/skills/<name>/SKILL.md  (备用源)
 //
 // 允许依赖:agent/*、shared/*、Node std
 // 禁止依赖:ipc/*
@@ -27,52 +26,56 @@ export interface InstallResult {
   failed: Array<{ name: string; error: string }>
 }
 
-const GLOBAL_SKILL_ROOTS = [
+const PLATFORM_SKILLS_DIR = join(homedir(), '.talor', 'skills')
+const FALLBACK_SKILL_ROOTS = [
   join(homedir(), '.claude', 'skills'),
   join(homedir(), '.skills'),
   join(homedir(), '.agents', 'skills'),
 ]
 
 /**
- * 为 agent 安装 profile.skills 中声明的 skill 包到 <agentDir>/skills/<name>/.
- * 幂等:若 SKILL.md 已存在则跳过。失败仅 log warn,不抛(让 IPC 完成保存)。
+ * 确保 profile.skills 中每个 skill 在平台目录 ~/.talor/skills/ 已 onboard。
+ * 若已在平台 → 跳过;否则从 fallback 源(~/.claude/skills、~/.skills、~/.agents/skills)cpSync 过去。
+ * 失败仅 log warn,不抛(让 IPC 完成保存),dep-checker 后续会标 missing。
  *
- * v8.1 仅支持全局目录扫描 — SkillItem 是 flat,无 source 字段。
+ * @param profile - agent profile (consumes profile.skills: string[])
+ * @param _agentDir - unused (kept for signature compatibility);引用化后 agent 不存 skill
  */
 export async function installAgentSkills(
   profile: AgentProfile,
-  agentDir: string,
+  _agentDir: string,
 ): Promise<InstallResult> {
   const result: InstallResult = { installed: [], skipped: [], failed: [] }
   const skills = profile.skills ?? []
   if (skills.length === 0) return result
 
-  const skillsRoot = join(agentDir, 'skills')
-  if (!existsSync(skillsRoot)) mkdirSync(skillsRoot, { recursive: true })
+  if (!existsSync(PLATFORM_SKILLS_DIR)) {
+    mkdirSync(PLATFORM_SKILLS_DIR, { recursive: true })
+  }
 
-  for (const item of skills) {
-    const targetDir = join(skillsRoot, item.name)
+  for (const skillName of skills) {
+    const targetDir = join(PLATFORM_SKILLS_DIR, skillName)
 
-    // 已安装(SKILL.md 存在) → 幂等跳过
+    // 已在平台 → 跳过
     if (existsSync(join(targetDir, 'SKILL.md'))) {
-      result.skipped.push({ name: item.name, reason: 'already installed' })
+      result.skipped.push({ name: skillName, reason: 'already at platform' })
       continue
     }
 
-    const globalHit = findInGlobalSkillRoots(item.name)
-    if (globalHit) {
+    const fallbackHit = findInFallbackRoots(skillName)
+    if (fallbackHit) {
       try {
-        cpSync(globalHit, targetDir, { recursive: true, dereference: true })
-        result.installed.push({ name: item.name, from: `global:${globalHit}` })
+        cpSync(fallbackHit, targetDir, { recursive: true, dereference: true })
+        result.installed.push({ name: skillName, from: `fallback:${fallbackHit}` })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        log.warn('[skill-installer]', item.name, 'copy failed:', msg)
-        result.failed.push({ name: item.name, error: msg })
+        log.warn('[skill-installer]', skillName, 'copy failed:', msg)
+        result.failed.push({ name: skillName, error: msg })
       }
     } else {
-      const hint = `skill "${item.name}" not found in any of: ${GLOBAL_SKILL_ROOTS.join(', ')}`
+      const hint = `skill "${skillName}" not found in platform ${PLATFORM_SKILLS_DIR} nor fallback ${FALLBACK_SKILL_ROOTS.join(', ')}`
       log.warn('[skill-installer]', hint)
-      result.failed.push({ name: item.name, error: hint })
+      result.failed.push({ name: skillName, error: hint })
     }
   }
 
@@ -87,8 +90,8 @@ export async function installAgentSkills(
   return result
 }
 
-function findInGlobalSkillRoots(skillName: string): string | null {
-  for (const root of GLOBAL_SKILL_ROOTS) {
+function findInFallbackRoots(skillName: string): string | null {
+  for (const root of FALLBACK_SKILL_ROOTS) {
     const candidate = join(root, skillName)
     if (existsSync(join(candidate, 'SKILL.md'))) return candidate
   }

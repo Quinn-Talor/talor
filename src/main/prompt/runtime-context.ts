@@ -1,24 +1,17 @@
-// src/main/prompt/runtime-context.ts — 业务层: 模板渲染上下文 (Schema 2.0)
+// src/main/prompt/runtime-context.ts — 业务层: 模板渲染上下文 (极简 schema)
 //
 // 把 Agent 实体属性 → TemplateContext (供 render.ts 消费)。
-// 大幅简化: 不再有 mission/method/delivery 段渲染,只剩 identity (扁平) + agentPrompt 自由文本 +
-// references 索引 + skills listing。
 //
 // 允许依赖: agent/*、shared/*
 // 禁止依赖: ipc/*
 
 import type { Agent } from '../agent/agent'
-import type { ReferenceFile } from '@shared/types/agent'
 
 export interface TemplateContext {
   // ── 顶层标识 (模板直接读) ──
   name: string
   description: string
   agentPrompt: string
-
-  // ── References 段 ──
-  hasReferences: boolean
-  references: ReferenceFile[]
 
   // ── Critical role constraints (platform agent 内置) ──
   criticalRoleConstraints: string[]
@@ -30,15 +23,11 @@ export interface TemplateContext {
 
 export function buildRuntimeContext(agent: Agent): TemplateContext {
   const p = agent.profile
-  const references = p.references ?? []
 
   return {
     name: p.name,
     description: p.description,
     agentPrompt: p.agentPrompt,
-
-    hasReferences: references.length > 0,
-    references,
 
     criticalRoleConstraints: buildCriticalRoleConstraints(p.id),
 
