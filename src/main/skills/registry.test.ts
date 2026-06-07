@@ -12,14 +12,17 @@ let tempDir: string
 function createSkillDir(baseDir: string, name: string, description: string): void {
   const dir = join(baseDir, name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'SKILL.md'), `---
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---
 name: ${name}
 description: "${description}"
 ---
 
 # ${name}
 content for ${name}
-`)
+`,
+  )
 }
 
 beforeEach(() => {
@@ -64,14 +67,14 @@ describe('SkillRegistry', () => {
     const descriptions = registry.listDescriptions()
 
     expect(descriptions).toHaveLength(2)
-    const names = descriptions.map(d => d.name).sort()
+    const names = descriptions.map((d) => d.name).sort()
     expect(names).toEqual(['skill-a', 'skill-b'])
   })
 
   it('SkillRegistry has no activation state (ADR-5: per-session)', () => {
     const registry = SkillRegistry.fromDir(null)
-    expect((registry as Record<string, unknown>).markActivated).toBeUndefined()
-    expect((registry as Record<string, unknown>).isActivated).toBeUndefined()
+    expect((registry as unknown as Record<string, unknown>).markActivated).toBeUndefined()
+    expect((registry as unknown as Record<string, unknown>).isActivated).toBeUndefined()
   })
 })
 

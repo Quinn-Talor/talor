@@ -1,4 +1,4 @@
-// src/main/agent/skill-installer.test.ts — Schema 2.0 SkillItem 安装策略验证
+// src/main/agent/skill-installer.test.ts — 引用化:skill onboard 到平台 ~/.claude/skills/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -28,7 +28,7 @@ afterEach(() => {
   rmSync(tempAgentDir, { recursive: true, force: true })
 })
 
-describe('installAgentSkills (schema 2.0 flat SkillItem)', () => {
+describe('installAgentSkills (引用化:onboard 到平台 ~/.claude/skills/)', () => {
   it('returns empty result when skills is empty / undefined', async () => {
     const r = await installAgentSkills(MINIMAL_PROFILE, tempAgentDir)
     expect(r.installed).toEqual([])
@@ -36,66 +36,46 @@ describe('installAgentSkills (schema 2.0 flat SkillItem)', () => {
     expect(r.failed).toEqual([])
   })
 
-  it('copies skill from ~/.claude/skills if SKILL.md exists there', async () => {
-    const globalLarkDoc = join(homedir(), '.claude', 'skills', 'lark-doc', 'SKILL.md')
-    if (!existsSync(globalLarkDoc)) {
+  it('skips skill already in platform', async () => {
+    const platformLarkDoc = join(homedir(), '.claude', 'skills', 'lark-doc', 'SKILL.md')
+    if (!existsSync(platformLarkDoc)) {
       console.warn('Skipping: ~/.claude/skills/lark-doc/SKILL.md not on this machine')
       return
     }
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      skills: [{ name: 'lark-doc', required: true }],
+      skills: ['lark-doc'],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
-    expect(r.installed).toHaveLength(1)
-    expect(r.installed[0].name).toBe('lark-doc')
-    expect(r.installed[0].from).toMatch(/^global:/)
-    expect(existsSync(join(tempAgentDir, 'skills', 'lark-doc', 'SKILL.md'))).toBe(true)
-  })
-
-  it('skips already-installed skill (idempotent)', async () => {
-    const skillDir = join(tempAgentDir, 'skills', 'fake-skill')
-    mkdirSync(skillDir, { recursive: true })
-    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: fake-skill\n---\n')
-
-    const profile: AgentProfile = {
-      ...MINIMAL_PROFILE,
-      skills: [{ name: 'fake-skill', required: true }],
-    }
-    const r = await installAgentSkills(profile, tempAgentDir)
-    expect(r.installed).toHaveLength(0)
     expect(r.skipped).toHaveLength(1)
-    expect(r.skipped[0].name).toBe('fake-skill')
-    expect(r.skipped[0].reason).toBe('already installed')
+    expect(r.skipped[0].name).toBe('lark-doc')
+    expect(r.skipped[0].reason).toContain('already at platform')
+    // 不会在 agent dir 创建 skills/(引用化语义)
+    expect(existsSync(join(tempAgentDir, 'skills'))).toBe(false)
   })
 
-  it('records failure when skill not found anywhere (not throws)', async () => {
+  it('records failure when skill not found in platform nor fallback', async () => {
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      skills: [{ name: 'totally-fake-skill-name-xyz123', required: true }],
+      skills: ['totally-fake-skill-name-xyz123'],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
     expect(r.failed).toHaveLength(1)
     expect(r.installed).toHaveLength(0)
     expect(r.failed[0].name).toBe('totally-fake-skill-name-xyz123')
-    expect(r.failed[0].error).toContain('not found in any of')
+    expect(r.failed[0].error).toContain('not found in platform')
   })
 
   it('handles multiple skills in one call', async () => {
-    // 预先放一个,另一个找不到 → skipped=1, failed=1
-    const ok = join(tempAgentDir, 'skills', 'pre-installed')
-    mkdirSync(ok, { recursive: true })
-    writeFileSync(join(ok, 'SKILL.md'), '---\nname: pre-installed\n---\n')
-
     const profile: AgentProfile = {
       ...MINIMAL_PROFILE,
-      skills: [
-        { name: 'pre-installed', required: true },
-        { name: 'unknown-skill-zzz', required: false },
-      ],
+      skills: ['unknown-skill-zzz-a', 'unknown-skill-zzz-b'],
     }
     const r = await installAgentSkills(profile, tempAgentDir)
-    expect(r.skipped.map((s) => s.name)).toContain('pre-installed')
-    expect(r.failed.map((f) => f.name)).toContain('unknown-skill-zzz')
+    expect(r.failed.map((f) => f.name).sort()).toEqual([
+      'unknown-skill-zzz-a',
+      'unknown-skill-zzz-b',
+    ])
+    expect(r.installed).toHaveLength(0)
   })
 })

@@ -25,7 +25,6 @@ import { AgentManager } from './agent-manager'
 import { BuiltinToolRegistry } from './builtin-registry'
 import { AccountStore } from '../accounts/account-store'
 import { resolveVariables } from './variable-resolver'
-import { checkDependencies } from './dependency-checker'
 import { parseSlashInvoke } from './slash-invoke-parser'
 import { extractDependenciesFromMessages } from './crystallizer'
 import { extractSkillCliBins } from '../skills/metadata-extractor'
@@ -219,45 +218,6 @@ describe('Block A: Agent 基础框架', () => {
 // ══════════════════════════════════════════════════════
 
 describe('Block B: Agent 存储与依赖检查', () => {
-  describe('AC-B2-01: minAppVersion 不满足时报错', () => {
-    it('需要 99.0.0，当前 0.2.0 → fail', () => {
-      const profile = { ...VALID_PROFILE, minAppVersion: '99.0.0' }
-      const result = checkDependencies(profile, tempDir, { appVersion: '0.2.0' })
-      expect(result.passed).toBe(false)
-      const step = result.steps.find((s) => s.step === 'minAppVersion')!
-      expect(step.status).toBe('fail')
-      expect(step.message).toContain('99.0.0')
-      expect(step.message).toContain('0.2.0')
-    })
-  })
-
-  describe('AC-B2-02: MCP Server auth 缺失提示', () => {
-    it('缺少 COMPANY_API_TOKEN → missing + 含 envVar 名', () => {
-      const profile: AgentProfile = {
-        ...VALID_PROFILE,
-        mcpServers: [
-          {
-            name: 'company-api',
-            transport: {
-              type: 'http',
-              url: 'https://mcp.company.com',
-              auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
-            },
-            tools: ['search_orders'],
-            required: true,
-          },
-        ],
-      }
-      const result = checkDependencies(profile, tempDir, {
-        appVersion: '1.0.0',
-        accountValues: new Map(),
-      })
-      const step = result.steps.find((s) => s.step === 'mcpServer')!
-      expect(step.status).toBe('missing')
-      expect(step.message).toContain('COMPANY_API_TOKEN')
-    })
-  })
-
   describe('AC-B3-01: 删除 agent 后 session 仍可查询', () => {
     it('AgentLoader.remove 后 session 数据不受影响（模拟）', () => {
       writeAgentDir('sales', VALID_PROFILE)

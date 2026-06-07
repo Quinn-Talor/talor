@@ -1,10 +1,36 @@
-// src/main/agent/dependency-checker.test.ts — Schema 2.0 tests
+// src/main/agent/dependency-checker.test.ts — Schema 2.0 引用化 tests
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
+
+// mock mcpServerRepo — dep-checker 用它做 MCP name lookup
+vi.mock('../repos/mcp-server-repo', () => ({
+  mcpServerRepo: {
+    getByName: vi.fn((name: string) => {
+      if (name === 'company-api') {
+        return {
+          id: '1',
+          name: 'company-api',
+          type: 'http',
+          url: 'https://mcp.company.com',
+          auth: { type: 'bearer', token: 'COMPANY_API_TOKEN' },
+          enabled: true,
+          created_at: '',
+          updated_at: '',
+        }
+      }
+      return null
+    }),
+  },
+}))
+
+// mock skill extractor — 引用化后从平台路径读
+vi.mock('../skills/metadata-extractor', () => ({
+  extractSkillCliBins: vi.fn(() => [] as string[]),
+}))
 
 import { checkDependencies } from './dependency-checker'
 import type { AgentProfile } from '@shared/types/agent'
@@ -28,33 +54,11 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true })
 })
 
-describe('checkDependencies (schema 2.0)', () => {
+describe('checkDependencies (schema 2.0 引用化)', () => {
   it('all pass for minimal profile', () => {
-    const result = checkDependencies(BASE_PROFILE, tempDir, { appVersion: '1.0.0' })
+    const result = checkDependencies(BASE_PROFILE, tempDir)
     expect(result.passed).toBe(true)
     expect(result.steps.every((s) => s.status === 'pass')).toBe(true)
-  })
-
-  it('minAppVersion fail', () => {
-    const profile: AgentProfile = {
-      ...BASE_PROFILE,
-      minAppVersion: '99.0.0',
-    }
-    const result = checkDependencies(profile, tempDir, { appVersion: '0.2.0' })
-    expect(result.passed).toBe(false)
-    const step = result.steps.find((s) => s.step === 'minAppVersion')!
-    expect(step.status).toBe('fail')
-    expect(step.message).toContain('99.0.0')
-  })
-
-  it('minAppVersion pass', () => {
-    const profile: AgentProfile = {
-      ...BASE_PROFILE,
-      minAppVersion: '0.1.0',
-    }
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find((s) => s.step === 'minAppVersion')!
-    expect(step.status).toBe('pass')
   })
 
   it('missing reference file → missing status', () => {
@@ -68,7 +72,7 @@ describe('checkDependencies (schema 2.0)', () => {
         },
       ],
     }
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
+    const result = checkDependencies(profile, tempDir)
     expect(result.passed).toBe(false)
     const step = result.steps.find((s) => s.step === 'references')!
     expect(step.status).toBe('missing')
@@ -88,55 +92,40 @@ describe('checkDependencies (schema 2.0)', () => {
         },
       ],
     }
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
+    const result = checkDependencies(profile, tempDir)
     const step = result.steps.find((s) => s.step === 'references')!
     expect(step.status).toBe('pass')
   })
 
-  it('missing skill → missing status', () => {
+  it('missing skill in platform → missing status', () => {
+    // 不创建 ~/.claude/skills/missing-skill/ 让它必然 missing
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      skills: [{ name: 'missing-skill', required: true }],
+      skills: ['missing-skill-that-does-not-exist-in-platform'],
     }
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
+    const result = checkDependencies(profile, tempDir)
     const step = result.steps.find((s) => s.step === 'skill')!
     expect(step.status).toBe('missing')
-    expect(step.details).toContain('missing-skill')
+    expect(step.details).toContain('missing-skill-that-does-not-exist-in-platform')
   })
 
-  it('skill exists → pass', () => {
-    const skillDir = join(tempDir, 'skills', 'my-skill')
-    mkdirSync(skillDir, { recursive: true })
-    writeFileSync(join(skillDir, 'SKILL.md'), '---\nname: my-skill\n---\n# content')
+  it('MCP Server not configured in DB → missing', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      skills: [{ name: 'my-skill', required: true }],
+      mcpServers: ['nonexistent-mcp'],
     }
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
-    const step = result.steps.find((s) => s.step === 'skill')!
-    expect(step.status).toBe('pass')
+    const result = checkDependencies(profile, tempDir, { accountValues: new Map() })
+    const step = result.steps.find((s) => s.step === 'mcpServer')!
+    expect(step.status).toBe('missing')
+    expect(step.message).toContain('未在 Settings → MCP Servers 配置')
   })
 
   it('MCP Server auth missing → missing', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      mcpServers: [
-        {
-          name: 'company-api',
-          transport: {
-            type: 'http',
-            url: 'https://mcp.company.com',
-            auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
-          },
-          tools: ['search_orders'],
-          required: true,
-        },
-      ],
+      mcpServers: ['company-api'],
     }
-    const result = checkDependencies(profile, tempDir, {
-      appVersion: '1.0.0',
-      accountValues: new Map(),
-    })
+    const result = checkDependencies(profile, tempDir, { accountValues: new Map() })
     const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('missing')
     expect(step.message).toContain('COMPANY_API_TOKEN')
@@ -145,43 +134,29 @@ describe('checkDependencies (schema 2.0)', () => {
   it('MCP Server auth configured → pass', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      mcpServers: [
-        {
-          name: 'company-api',
-          transport: {
-            type: 'http',
-            url: 'https://mcp.company.com',
-            auth: { type: 'bearer', envVar: 'COMPANY_API_TOKEN' },
-          },
-          tools: ['search_orders'],
-          required: true,
-        },
-      ],
+      mcpServers: ['company-api'],
     }
     const result = checkDependencies(profile, tempDir, {
-      appVersion: '1.0.0',
       accountValues: new Map([['COMPANY_API_TOKEN', 'tok_xxx']]),
     })
     const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('pass')
   })
 
-  // v2.0: tools is BuiltinToolName[] whitelist (positive list)
   it('builtin tool in whitelist → pass', () => {
     const profile: AgentProfile = { ...BASE_PROFILE, tools: ['bash'] }
-    const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
+    const result = checkDependencies(profile, tempDir)
     const step = result.steps.find((s) => s.step === 'tool')!
     expect(step.status).toBe('pass')
   })
 
-  describe('subagent dependency check (v2.0: profile.subagents.ids)', () => {
+  describe('subagent dependency check', () => {
     it('missing required subagent', () => {
       const profile: AgentProfile = {
         ...BASE_PROFILE,
         subagents: { ids: [{ id: 'B', required: true }] },
       }
       const result = checkDependencies(profile, tempDir, {
-        appVersion: '1.0.0',
         registeredBusinessAgents: new Set(['A', 'C']),
       })
       const step = result.steps.find((s) => s.step === 'subagent')!
@@ -200,7 +175,6 @@ describe('checkDependencies (schema 2.0)', () => {
         },
       }
       const result = checkDependencies(profile, tempDir, {
-        appVersion: '1.0.0',
         registeredBusinessAgents: new Set(['A', 'B', 'C']),
       })
       const step = result.steps.find((s) => s.step === 'subagent')!
@@ -212,7 +186,7 @@ describe('checkDependencies (schema 2.0)', () => {
         ...BASE_PROFILE,
         subagents: { ids: [{ id: 'B', required: true }] },
       }
-      const result = checkDependencies(profile, tempDir, { appVersion: '1.0.0' })
+      const result = checkDependencies(profile, tempDir)
       const step = result.steps.find((s) => s.step === 'subagent')!
       expect(step.status).toBe('pass')
     })

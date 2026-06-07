@@ -176,57 +176,34 @@ describe('AgentLoader (schema 2.0)', () => {
     ).toEqual(['sales_analyst', 'translator'])
   })
 
-  describe('sanitizeOnLoad migration', () => {
-    it('strips dead serverPackage field from mcpServers (in-memory only)', () => {
-      writeAgent('legacy', {
+  describe('引用化 schema 加载', () => {
+    it('loads agent with string[] skills/mcpServers/cli (new schema)', () => {
+      writeAgent('refs', {
         ...VALID_AGENT_V2,
-        mcpServers: [
-          {
-            name: 'github',
-            required: true,
-            tools: ['create_issue'],
-            // 已死字段,运行时应被剥离
-            serverPackage: { type: 'npm', package: '@org/mcp-server-github' },
-            transport: { type: 'stdio', command: 'npx', args: ['-y', '@org/mcp-server-github'] },
-          },
-        ],
+        skills: ['lark-doc'],
+        mcpServers: ['github'],
+        cli: ['gh', 'jq'],
       })
 
       const loader = new AgentLoader(tempDir)
       loader.loadAll()
       expect(loader.size).toBe(1)
       const entry = loader.getById('sales_analyst')!
-      const mcp = entry.profile.mcpServers![0] as unknown as Record<string, unknown>
-      expect('serverPackage' in mcp).toBe(false)
+      expect(entry.profile.skills).toEqual(['lark-doc'])
+      expect(entry.profile.mcpServers).toEqual(['github'])
+      expect(entry.profile.cli).toEqual(['gh', 'jq'])
     })
 
-    it('loads agent with suspicious credential value in env (lenient mode warns only)', () => {
-      writeAgent('with-creds', {
+    it('rejects agent.json with object[] skills (旧 schema,无 backward compat)', () => {
+      writeAgent('legacy', {
         ...VALID_AGENT_V2,
-        mcpServers: [
-          {
-            name: 'github',
-            required: true,
-            tools: [],
-            transport: {
-              type: 'stdio',
-              command: 'npx',
-              env: { GITHUB_TOKEN: 'ghp_abcdef1234567890' },
-            },
-          },
-        ],
+        skills: [{ name: 'lark-doc', required: true }],
       })
 
       const loader = new AgentLoader(tempDir)
       loader.loadAll()
-      // 关键:存量带可疑凭据的 agent 仍能加载,而不是被 silently 丢掉
-      expect(loader.size).toBe(1)
-      const entry = loader.getById('sales_analyst')!
-      const mcp = entry.profile.mcpServers![0]
-      // 值保留(不重写磁盘也不清内存),让用户在 EditPage 自己迁移
-      expect(
-        (mcp.transport as { type: 'stdio'; env?: Record<string, string> }).env?.GITHUB_TOKEN,
-      ).toBe('ghp_abcdef1234567890')
+      // 旧格式不再被接受 — agent 加载失败,不进入 entries
+      expect(loader.size).toBe(0)
     })
   })
 })

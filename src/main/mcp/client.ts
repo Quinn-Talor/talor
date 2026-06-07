@@ -24,10 +24,17 @@ const RECONNECT_DELAY_MS = [1000, 2000, 4000]
 
 export class McpRegistry {
   private servers = new Map<string, StdioTransport | HttpTransport>()
-  private toolProviders = new Map<string, {
-    listTools(): ToolMetadata[]
-    execute(toolName: string, input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }>
-  }>()
+  private toolProviders = new Map<
+    string,
+    {
+      listTools(): ToolMetadata[]
+      execute(
+        toolName: string,
+        input: unknown,
+        context: ToolExecuteContext,
+      ): Promise<{ output: unknown }>
+    }
+  >()
   private pendingConfigs: MCPServerConfig[] = []
   private lazyConnectDone = false
 
@@ -60,9 +67,8 @@ export class McpRegistry {
   private async connectWithConfig(config: MCPServerConfig): Promise<void> {
     if (this.servers.has(config.id)) return
 
-    const transport: StdioTransport | HttpTransport = config.type === 'stdio'
-      ? new StdioTransport(config)
-      : new HttpTransport(config)
+    const transport: StdioTransport | HttpTransport =
+      config.type === 'stdio' ? new StdioTransport(config) : new HttpTransport(config)
 
     try {
       await transport.connect()
@@ -85,9 +91,15 @@ export class McpRegistry {
     }
 
     const config: MCPServerConfig = {
-      id: server.id, name: server.name, type: server.type as MCPServerType,
-      command: server.command, args: server.args, env: server.env,
-      url: server.url, auth: server.auth, enabled: server.enabled,
+      id: server.id,
+      name: server.name,
+      type: server.type as MCPServerType,
+      command: server.command,
+      args: server.args,
+      env: server.env,
+      url: server.url,
+      auth: server.auth,
+      enabled: server.enabled,
     }
     await this.connectWithConfig(config)
   }
@@ -95,19 +107,26 @@ export class McpRegistry {
   private async reconnect(serverId: string): Promise<StdioTransport | HttpTransport | null> {
     for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
       const delayMs = RECONNECT_DELAY_MS[attempt] ?? 4000
-      log.warn(`[McpRegistry] Reconnect attempt ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS} for ${serverId} in ${delayMs}ms`)
-      await new Promise(resolve => setTimeout(resolve, delayMs))
+      log.warn(
+        `[McpRegistry] Reconnect attempt ${attempt + 1}/${MAX_RECONNECT_ATTEMPTS} for ${serverId} in ${delayMs}ms`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
       try {
         const server = mcpServerRepo.getById(serverId)
         if (!server) return null
         const config: MCPServerConfig = {
-          id: server.id, name: server.name, type: server.type as MCPServerType,
-          command: server.command, args: server.args, env: server.env,
-          url: server.url, auth: server.auth, enabled: server.enabled,
+          id: server.id,
+          name: server.name,
+          type: server.type as MCPServerType,
+          command: server.command,
+          args: server.args,
+          env: server.env,
+          url: server.url,
+          auth: server.auth,
+          enabled: server.enabled,
         }
-        const newTransport: StdioTransport | HttpTransport = server.type === 'stdio'
-          ? new StdioTransport(config)
-          : new HttpTransport(config)
+        const newTransport: StdioTransport | HttpTransport =
+          server.type === 'stdio' ? new StdioTransport(config) : new HttpTransport(config)
         await newTransport.connect()
         this.servers.set(serverId, newTransport)
         log.info(`[McpRegistry] Reconnected server ${serverId} on attempt ${attempt + 1}`)
@@ -119,7 +138,10 @@ export class McpRegistry {
     return null
   }
 
-  private async registerTools(serverId: string, transport: StdioTransport | HttpTransport): Promise<void> {
+  private async registerTools(
+    serverId: string,
+    transport: StdioTransport | HttpTransport,
+  ): Promise<void> {
     const tools = await transport.listTools()
     const serverConfig = transport.serverConfig
     const serverName = serverConfig.name
@@ -138,15 +160,16 @@ export class McpRegistry {
       async execute(
         toolName: string,
         input: unknown,
-        _context: ToolExecuteContext
+        _context: ToolExecuteContext,
       ): Promise<{ output: unknown }> {
         log.info('[McpRegistry] execute called, toolName:', toolName)
 
         const t = self.servers.get(serverId) ?? transport
         if (!t.isConnected()) {
           log.warn('[McpRegistry] Server disconnected, triggering background reconnect:', serverId)
-          self.reconnect(serverId).catch(err =>
-            log.error('[McpRegistry] Background reconnect failed:', serverId, err))
+          self
+            .reconnect(serverId)
+            .catch((err) => log.error('[McpRegistry] Background reconnect failed:', serverId, err))
           const envelope: ToolErrorEnvelope = {
             __talor_error: true,
             code: 'MCP_DISCONNECTED',
@@ -160,7 +183,10 @@ export class McpRegistry {
           const result = await Promise.race([
             t.callTool(toolName, input as Record<string, unknown>),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new MCPError('Tool execution timed out', -32603)), TOOL_TIMEOUT_MS)
+              setTimeout(
+                () => reject(new MCPError('Tool execution timed out', -32603)),
+                TOOL_TIMEOUT_MS,
+              ),
             ),
           ])
 
@@ -207,7 +233,9 @@ export class McpRegistry {
 
   listRegisteredTools(): ToolMetadata[] {
     if (this.pendingConfigs.length > 0 && !this.lazyConnectDone) {
-      this.ensureLazyConnect().catch(err => log.error('[McpRegistry] ensureLazyConnect error:', err))
+      this.ensureLazyConnect().catch((err) =>
+        log.error('[McpRegistry] ensureLazyConnect error:', err),
+      )
     }
     const all: ToolMetadata[] = []
     for (const provider of this.toolProviders.values()) {
@@ -216,15 +244,62 @@ export class McpRegistry {
     return all
   }
 
-  async execute(toolName: string, input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
+  async execute(
+    toolName: string,
+    input: unknown,
+    context: ToolExecuteContext,
+  ): Promise<{ output: unknown }> {
     await this.ensureLazyConnect()
     for (const provider of this.toolProviders.values()) {
-      const tool = provider.listTools().find(t => t.name === toolName)
+      const tool = provider.listTools().find((t) => t.name === toolName)
       if (tool) {
         return provider.execute(toolName, input, context)
       }
     }
     throw new MCPError(`MCP tool not found: ${toolName}`, -32601)
+  }
+
+  /**
+   * 返回受限 McpToolSource — 仅暴露 allowedServerNames 列出的 MCP server 的工具。
+   * 用于按 agent.profile.mcpServers (string[]) 过滤平台 mcpRegistry。
+   */
+  filterByServerNames(allowedServerNames: string[]): {
+    listRegisteredTools(): ToolMetadata[]
+    execute(
+      toolName: string,
+      input: unknown,
+      context: ToolExecuteContext,
+    ): Promise<{ output: unknown }>
+  } {
+    const allowed = new Set(allowedServerNames)
+    const self = this
+    return {
+      listRegisteredTools(): ToolMetadata[] {
+        if (self.pendingConfigs.length > 0 && !self.lazyConnectDone) {
+          self
+            .ensureLazyConnect()
+            .catch((err) => log.error('[McpRegistry] ensureLazyConnect error:', err))
+        }
+        const out: ToolMetadata[] = []
+        for (const [serverName, provider] of self.toolProviders.entries()) {
+          if (!allowed.has(serverName)) continue
+          out.push(...provider.listTools())
+        }
+        return out
+      },
+      async execute(toolName, input, context) {
+        await self.ensureLazyConnect()
+        for (const [serverName, provider] of self.toolProviders.entries()) {
+          if (!allowed.has(serverName)) continue
+          const tool = provider.listTools().find((t) => t.name === toolName)
+          if (tool) return provider.execute(toolName, input, context)
+        }
+        throw new MCPError(
+          `MCP tool not found in allowed servers [${allowedServerNames.join(', ')}]: ${toolName}`,
+          -32601,
+        )
+      },
+    }
   }
 
   async disconnectServer(serverId: string): Promise<void> {
@@ -260,9 +335,14 @@ export class McpRegistry {
     return { connected: true, toolCount: provider?.listTools().length ?? 0 }
   }
 
-  getAllServerStatus(): Array<{ serverId: string; name: string; connected: boolean; toolCount: number }> {
+  getAllServerStatus(): Array<{
+    serverId: string
+    name: string
+    connected: boolean
+    toolCount: number
+  }> {
     const servers = mcpServerRepo.list()
-    return servers.map(server => {
+    return servers.map((server) => {
       const status = this.getServerStatus(server.id)
       return { serverId: server.id, name: server.name, ...status }
     })

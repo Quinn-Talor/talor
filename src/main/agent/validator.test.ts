@@ -58,10 +58,6 @@ describe('validateProfile (v2.0)', () => {
   it('rejects bad version', () => {
     expect(validateProfile(minimal({ version: 'foo' })).valid).toBe(false)
   })
-  it('rejects bad minAppVersion', () => {
-    expect(validateProfile(minimal({ minAppVersion: 'foo' })).valid).toBe(false)
-  })
-
   // RULE 5 tools whitelist
   it('rejects non-builtin tool', () => {
     const r = validateProfile(minimal({ tools: ['read', 'NOPE' as never] }))
@@ -174,81 +170,40 @@ describe('validateProfile (v2.0)', () => {
     if (!r.valid) expect(r.errors.some((e) => e.rule === 8)).toBe(true)
   })
 
-  // W1 entity pollution (warn only)
-  it('warns on specific entities in description', () => {
-    const r = validateProfile(minimal({ description: 'Reviews code for 百度 and BIDU stocks.' }))
-    expect(r.valid).toBe(true)
-    expect(r.warnings.some((w) => w.rule === 9)).toBe(true) // W1 → numbered 9
-  })
-
-  // RULE 10: envFromAccount 格式
-  describe('RULE 10 (envFromAccount format)', () => {
-    it('accepts valid envFromAccount', () => {
-      const r = validateProfile(
-        minimal({
-          mcpServers: [
-            {
-              name: 'github',
-              required: true,
-              tools: ['create_issue'],
-              transport: {
-                type: 'stdio',
-                command: 'npx',
-                envFromAccount: { GITHUB_TOKEN: 'GITHUB_PAT' },
-              },
-            },
-          ],
-        }),
-      )
+  // RULE 12: skills 是 string[]
+  describe('RULE 12 (skills string[])', () => {
+    it('accepts string[] skills', () => {
+      const r = validateProfile(minimal({ skills: ['lark-mail', 'lark-doc'] }))
       expect(r.valid).toBe(true)
     })
-
-    it('rejects lowercase subprocess var key', () => {
+    it('rejects object[] skills (旧 SkillItem 格式)', () => {
       const r = validateProfile(
-        minimal({
-          mcpServers: [
-            {
-              name: 'github',
-              required: true,
-              tools: [],
-              transport: {
-                type: 'stdio',
-                command: 'npx',
-                envFromAccount: { github_token: 'GITHUB_PAT' },
-              },
-            },
-          ],
-        }),
+        minimal({ skills: [{ name: 'lark-mail', required: true }] as never }),
       )
       expect(r.valid).toBe(false)
-      if (!r.valid) expect(r.errors.some((e) => e.rule === 10)).toBe(true)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 12)).toBe(true)
     })
-
-    it('rejects lowercase Account envVar reference', () => {
-      const r = validateProfile(
-        minimal({
-          mcpServers: [
-            {
-              name: 'github',
-              required: true,
-              tools: [],
-              transport: {
-                type: 'stdio',
-                command: 'npx',
-                envFromAccount: { GITHUB_TOKEN: 'github_pat' },
-              },
-            },
-          ],
-        }),
-      )
+    it('rejects empty string in skills', () => {
+      const r = validateProfile(minimal({ skills: ['', 'ok'] }))
       expect(r.valid).toBe(false)
-      if (!r.valid) expect(r.errors.some((e) => e.rule === 10)).toBe(true)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 12)).toBe(true)
+    })
+    it('enforces knownSkillNames when provided', () => {
+      const r = validateProfile(minimal({ skills: ['missing-platform-skill'] }), {
+        knownSkillNames: new Set(['installed-skill']),
+      })
+      expect(r.valid).toBe(false)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 12)).toBe(true)
     })
   })
 
-  // RULE 11: env 凭据嫌疑扫描
-  describe('RULE 11 (env credential scan)', () => {
-    it('rejects ghp_ prefixed credential in env', () => {
+  // RULE 13: mcpServers 是 string[]
+  describe('RULE 13 (mcpServers string[])', () => {
+    it('accepts string[] mcpServers', () => {
+      const r = validateProfile(minimal({ mcpServers: ['github', 'linear'] }))
+      expect(r.valid).toBe(true)
+    })
+    it('rejects object[] mcpServers (旧 McpServerDependency 格式)', () => {
       const r = validateProfile(
         minimal({
           mcpServers: [
@@ -256,78 +211,39 @@ describe('validateProfile (v2.0)', () => {
               name: 'github',
               required: true,
               tools: [],
-              transport: {
-                type: 'stdio',
-                command: 'npx',
-                env: { GITHUB_TOKEN: 'ghp_abcdef1234567890' },
-              },
+              transport: { type: 'stdio', command: 'npx' },
             },
-          ],
+          ] as never,
         }),
       )
       expect(r.valid).toBe(false)
-      if (!r.valid) expect(r.errors.some((e) => e.rule === 11)).toBe(true)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 13)).toBe(true)
     })
+    it('enforces knownMcpServerNames when provided', () => {
+      const r = validateProfile(minimal({ mcpServers: ['unconfigured'] }), {
+        knownMcpServerNames: new Set(['github']),
+      })
+      expect(r.valid).toBe(false)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 13)).toBe(true)
+    })
+  })
 
-    it('rejects sk- prefixed credential', () => {
+  // RULE 14: cli 是 string[]
+  describe('RULE 14 (cli string[])', () => {
+    it('accepts string[] cli', () => {
+      const r = validateProfile(minimal({ cli: ['gh', 'jq'] }))
+      expect(r.valid).toBe(true)
+    })
+    it('rejects object[] cli (旧 CliDependency 格式)', () => {
       const r = validateProfile(
         minimal({
-          mcpServers: [
-            {
-              name: 'openai',
-              required: true,
-              tools: [],
-              transport: {
-                type: 'stdio',
-                command: 'npx',
-                env: { OPENAI_KEY: 'sk-abcdefghijklmnop' },
-              },
-            },
-          ],
+          cli: [
+            { command: 'gh', install: { type: 'brew', formula: 'gh' }, required: true },
+          ] as never,
         }),
       )
       expect(r.valid).toBe(false)
-      if (!r.valid) expect(r.errors.some((e) => e.rule === 11)).toBe(true)
-    })
-
-    it('accepts harmless config values (LOG_LEVEL=debug)', () => {
-      const r = validateProfile(
-        minimal({
-          mcpServers: [
-            {
-              name: 'service',
-              required: true,
-              tools: [],
-              transport: {
-                type: 'stdio',
-                command: 'npx',
-                env: { LOG_LEVEL: 'debug', NODE_ENV: 'production' },
-              },
-            },
-          ],
-        }),
-      )
-      expect(r.valid).toBe(true)
-    })
-
-    it('does not trigger on http transport (rule 11 is stdio-only)', () => {
-      const r = validateProfile(
-        minimal({
-          mcpServers: [
-            {
-              name: 'http-svc',
-              required: true,
-              tools: [],
-              transport: {
-                type: 'http',
-                url: 'https://example.com/mcp',
-                auth: { type: 'bearer', envVar: 'API_TOKEN' },
-              },
-            },
-          ],
-        }),
-      )
-      expect(r.valid).toBe(true)
+      if (!r.valid) expect(r.errors.some((e) => e.rule === 14)).toBe(true)
     })
   })
 })

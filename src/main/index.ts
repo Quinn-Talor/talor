@@ -174,8 +174,10 @@ app.whenReady().then(() => {
   const builtinToolDefs = toolRegistry.listAll()
   const builtinRegistry = new BuiltinToolRegistry(builtinToolDefs)
   const agentsDir = join(app.getPath('home'), '.talor', 'agents')
-  const skillsDir = join(app.getPath('home'), '.talor', 'skills')
-  const platformSkillRegistry = SkillRegistry.fromDir(skillsDir)
+  // Skills 统一存平台目录 ~/.claude/skills/(与 Claude Code skills 共用约定);
+  // business agent 不再持有私有 skill 副本,仅按 name 引用平台 registry。
+  const skillsDir = join(app.getPath('home'), '.claude', 'skills')
+  const platformSkillRegistry = SkillRegistry.fromPlatformDir(skillsDir)
   const safeStorageInstance = SafeStorageService.getInstance()
   // Account 凭据已迁至 DB(account_keys 表),不再需要 filePath 参数。
   // safeStorage 仍用于加密 secret 字段,与旧实现保持同样的 OS 级保护。

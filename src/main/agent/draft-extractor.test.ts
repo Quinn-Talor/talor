@@ -31,7 +31,7 @@ const VALID_PROFILE_JSON = {
 }
 
 describe('serializeS1History (TASK-1, AC-004)', () => {
-  it('AC-004 (normal): renders user/assistant/tool with prefixes', () => {
+  it('renders user/assistant/tool with prefixes, preserves original text', () => {
     const messages: ChatMessage[] = [
       msg('user', [{ type: 'text', text: '帮我写一段挽回语录' }]),
       msg('assistant', [
@@ -48,26 +48,14 @@ describe('serializeS1History (TASK-1, AC-004)', () => {
       msg('assistant', [{ type: 'text', text: '好的，下面是挽回语录...' }]),
     ]
     const result = serializeS1History(messages)
-    // D1: 中文专有内容会被脱敏成占位符 / 路径同样脱敏。验证结构而非具体文本。
-    expect(result).toContain('**user**:')
-    expect(result).toContain('[tool: read(')
-    // 路径已被脱敏成 <PATH_*> 占位符
-    expect(result).toMatch(/<PATH_\d+>/)
-    expect(result).toContain('**assistant**:')
-    // 分隔符
-    expect(result).toContain('\n\n---\n\n')
-    // 原始具体实体已被脱敏（"挽回语录"等会触发 cn-name 实体）
-    expect(result).not.toContain('帮我写一段挽回语录')
-  })
-
-  it('AC-004 (D1 unredacted variant): serializeS1HistoryRaw preserves original text', async () => {
-    const { serializeS1HistoryRaw } = await import('./draft-extractor')
-    const messages: ChatMessage[] = [msg('user', [{ type: 'text', text: '帮我写一段挽回语录' }])]
-    const result = serializeS1HistoryRaw(messages)
     expect(result).toContain('**user**: 帮我写一段挽回语录')
+    expect(result).toContain('[tool: read(')
+    expect(result).toContain('/tmp/x')
+    expect(result).toContain('**assistant**:')
+    expect(result).toContain('\n\n---\n\n')
   })
 
-  it('D1: redacts specific entities (companies / tickers / paths) before crystallizer sees', () => {
+  it('preserves specific entities (companies / tickers / paths) — Crystallizer sees raw text', () => {
     const messages: ChatMessage[] = [
       msg('user', [{ type: 'text', text: '为中际旭创和阿里巴巴写诗' }]),
       msg('assistant', [
@@ -81,13 +69,10 @@ describe('serializeS1History (TASK-1, AC-004)', () => {
       msg('user', [{ type: 'text', text: 'Buy BIDU stock' }]),
     ]
     const result = serializeS1History(messages)
-    expect(result).not.toContain('中际旭创')
-    expect(result).not.toContain('阿里巴巴')
-    expect(result).not.toContain('BIDU')
-    expect(result).not.toContain('/var/log/x.log')
-    expect(result).toMatch(/<COMPANY_/)
-    expect(result).toMatch(/<TICKER_/)
-    expect(result).toMatch(/<PATH_/)
+    expect(result).toContain('中际旭创')
+    expect(result).toContain('阿里巴巴')
+    expect(result).toContain('BIDU')
+    expect(result).toContain('/var/log/x.log')
   })
 
   it('AC-004 (skip system messages)', () => {

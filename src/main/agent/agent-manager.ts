@@ -4,23 +4,21 @@
 // 平台 Agent 共享全局 mcpRegistry/skillRegistry。
 // 业务 Agent 按 profile 创建独立 mcpRegistry（懒加载）+ 独立 skillRegistry。
 
-import { join } from 'path'
 import log from 'electron-log'
-import type { AgentProfile, McpServerDependency } from '@shared/types/agent'
+import type { AgentProfile } from '@shared/types/agent'
 import { Agent } from './agent'
 import type { AgentOptions } from './agent'
 import { AgentLoader } from './loader'
 import type { BuiltinToolRegistry } from './builtin-registry'
 import type { McpToolSource } from './agent-toolset'
-import { composeMcpSources } from './agent-toolset'
 import { SkillRegistry } from '../skills/registry'
-import { McpRegistry } from '../mcp/client'
-import type { MCPServerConfig } from '../mcp/types'
+import type { McpRegistry } from '../mcp/client'
 import type { DelegationRuntime } from './delegate-agent'
 
 export interface PlatformAgentDeps {
   builtinRegistry: BuiltinToolRegistry
-  mcpRegistry: McpToolSource
+  /** 平台 MCP registry — 持有 mcp_servers DB 表中所有已配 server。业务 agent 按 name 过滤。 */
+  mcpRegistry: McpRegistry
   skillRegistry: SkillRegistry
   agentsDir?: string
   /**
@@ -164,25 +162,19 @@ Terse, evidence-based. Chinese when the user writes Chinese. Natural language on
   // No preferences — model not locked. Crystallizer uses session-selected provider/model.
 }
 
-function buildAgentMcpRegistry(mcpServers: McpServerDependency[]): McpRegistry | null {
-  if (mcpServers.length === 0) return null
-  const registry = new McpRegistry()
-  for (const dep of mcpServers) {
-    const transport = dep.transport
-    const config: MCPServerConfig = {
-      id: dep.name,
-      name: dep.name,
-      type: transport.type === 'stdio' ? 'stdio' : 'http',
-      command: transport.type === 'stdio' ? transport.command : undefined,
-      args: transport.type === 'stdio' ? transport.args : undefined,
-      env: transport.type === 'stdio' ? transport.env : undefined,
-      envFromAccount: transport.type === 'stdio' ? transport.envFromAccount : undefined,
-      url: transport.type === 'http' ? transport.url : undefined,
-      enabled: true,
-    }
-    registry.addPendingConfig(config)
-  }
-  return registry
+/**
+ * 把 agent.profile.mcpServers (string[] of platform MCP server names) 转换为
+ * 受限的 McpToolSource — 仅暴露列在白名单的 server 的工具。
+ *
+ * 平台 MCP servers 在 Settings 配置(mcp_servers DB),全部加载到 platform mcpRegistry;
+ * 这里只是 view filter,不复制不重连。
+ */
+function buildAgentMcpToolSource(
+  platformRegistry: McpRegistry,
+  allowedServerNames: string[],
+): McpToolSource | null {
+  if (allowedServerNames.length === 0) return null
+  return platformRegistry.filterByServerNames(allowedServerNames)
 }
 
 export class AgentManager {
@@ -203,14 +195,11 @@ export class AgentManager {
 
       for (const entry of this.loader.getAll()) {
         const profile = entry.profile
-        // v2.0: 业务 agent 默认继承平台 mcpRegistry (含 Playwright 等),
-        // 同时合并 profile 自带 mcpServers 的独立 registry。
-        const agentOwnMcp = buildAgentMcpRegistry(profile.mcpServers ?? [])
-        const agentMcpRegistry = composeMcpSources(deps.mcpRegistry, agentOwnMcp)
+        // v2.0 引用化: 业务 agent 从平台 mcpRegistry 按 name 过滤,不再自带 transport 定义
+        const agentMcpRegistry = buildAgentMcpToolSource(deps.mcpRegistry, profile.mcpServers ?? [])
 
-        const agentSkillRegistry = entry.dirPath
-          ? SkillRegistry.fromDir(join(entry.dirPath, 'skills'))
-          : new SkillRegistry()
+        // skills 从平台 ~/.claude/skills 按 name 过滤(SkillRegistry.fromPlatformDir 由 deps 提供)
+        const agentSkillRegistry = deps.skillRegistry.filterByNames(profile.skills ?? [])
 
         this.registerBusinessAgent(profile.id, {
           profile,
@@ -310,6 +299,18 @@ export class AgentManager {
   getMcpToolSource(): import('./agent-toolset').McpToolSource | null {
     if (!this.deps) throw new Error('AgentManager not initialized')
     return this.deps.mcpRegistry ?? null
+  }
+
+  /** 公开平台 McpRegistry,供 IPC 装配时按 agent.profile.mcpServers 过滤。 */
+  getMcpRegistry(): McpRegistry | null {
+    if (!this.deps) throw new Error('AgentManager not initialized')
+    return this.deps.mcpRegistry ?? null
+  }
+
+  /** 公开平台 SkillRegistry,供 IPC 装配时按 agent.profile.skills 过滤。 */
+  getPlatformSkillRegistry(): SkillRegistry | null {
+    if (!this.deps) throw new Error('AgentManager not initialized')
+    return this.deps.skillRegistry ?? null
   }
 
   get isInitialized(): boolean {

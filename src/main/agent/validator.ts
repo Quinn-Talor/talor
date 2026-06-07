@@ -8,14 +8,8 @@
 import { existsSync } from 'node:fs'
 import { isAbsolute, normalize, resolve } from 'node:path'
 import { valid as semverValid } from 'semver'
-import type {
-  AgentProfile,
-  ValidateProfileResult,
-  ValidatorIssue,
-  ReferenceFile,
-} from '@shared/types/agent'
+import type { AgentProfile, ValidateProfileResult, ValidatorIssue } from '@shared/types/agent'
 import { BUILTIN_TOOL_NAMES } from '@shared/types/agent'
-import { extractEntities } from './entity-extractor'
 
 export interface ValidatorContext {
   /** 已注册工具名集合,不传时跳过 rule 5 严格匹配 */
@@ -24,14 +18,12 @@ export interface ValidatorContext {
   knownModelIds?: Set<string>
   /** 已注册 agent id 集合,不传时跳过 rule 7 */
   knownAgentIds?: Set<string>
+  /** 已配置的平台 skill 名集合(~/.claude/skills),不传时跳过 rule 12 */
+  knownSkillNames?: Set<string>
+  /** 已配置的平台 MCP server name 集合(mcp_servers DB),不传时跳过 rule 13 */
+  knownMcpServerNames?: Set<string>
   /** agent 根目录,用于 references[].path 存在性检查 */
   agentRoot?: string
-  /**
-   * 宽松模式 — 把 rule 11(env 凭据嫌疑)从 error 降为 warning。
-   * 仅用于 AgentLoader 加载存量 agent,避免误伤已存在的凭据写法导致 agent 加载失败;
-   * write 路径(agents:update / agents:create-from-draft)不应传此标志。
-   */
-  lenientCredentialScan?: boolean
 }
 
 const ID_RE = /^[a-z0-9_-]+$/
@@ -92,16 +84,6 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
   // RULE 4: semver
   if (typeof o.version === 'string' && !semverValid(o.version)) {
     errors.push({ severity: 'error', rule: 4, path: 'version', message: 'must be valid semver' })
-  }
-  if (o.minAppVersion !== undefined && o.minAppVersion !== null) {
-    if (typeof o.minAppVersion !== 'string' || !semverValid(o.minAppVersion)) {
-      errors.push({
-        severity: 'error',
-        rule: 4,
-        path: 'minAppVersion',
-        message: 'must be valid semver',
-      })
-    }
   }
 
   // RULE 5: tools 白名单
@@ -262,122 +244,91 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
     }
   }
 
-  // RULE 10 + 11: MCP stdio 凭据机制
-  if (Array.isArray(o.mcpServers)) {
-    o.mcpServers.forEach((m, i) => {
-      if (!m || typeof m !== 'object') return
-      const mcp = m as Record<string, unknown>
-      const transport = mcp.transport as Record<string, unknown> | undefined
-      if (!transport || transport.type !== 'stdio') return
-
-      // RULE 10: envFromAccount key/value 格式
-      const efa = transport.envFromAccount as Record<string, unknown> | undefined
-      if (efa !== undefined) {
-        if (typeof efa !== 'object' || Array.isArray(efa) || efa === null) {
+  // RULE 12: skills 是平台 skill name 数组(string[])
+  if (o.skills !== undefined) {
+    if (!Array.isArray(o.skills)) {
+      errors.push({
+        severity: 'error',
+        rule: 12,
+        path: 'skills',
+        message: 'must be string[] (platform skill names)',
+      })
+    } else {
+      o.skills.forEach((s, i) => {
+        if (typeof s !== 'string' || s.trim() === '') {
           errors.push({
             severity: 'error',
-            rule: 10,
-            path: `mcpServers[${i}].transport.envFromAccount`,
-            message: 'must be object mapping subprocess var name → Account envVar name',
+            rule: 12,
+            path: `skills[${i}]`,
+            message: 'must be a non-empty string (platform skill name)',
           })
-        } else {
-          for (const [subprocVar, accountVar] of Object.entries(efa)) {
-            if (!ENV_VAR_NAME_RE.test(subprocVar)) {
-              errors.push({
-                severity: 'error',
-                rule: 10,
-                path: `mcpServers[${i}].transport.envFromAccount`,
-                message: `key "${subprocVar}" must match ${ENV_VAR_NAME_RE} (uppercase env var)`,
-              })
-            }
-            if (typeof accountVar !== 'string' || !ENV_VAR_NAME_RE.test(accountVar)) {
-              errors.push({
-                severity: 'error',
-                rule: 10,
-                path: `mcpServers[${i}].transport.envFromAccount.${subprocVar}`,
-                message: `Account envVar reference must match ${ENV_VAR_NAME_RE}`,
-              })
-            }
-          }
+        } else if (ctx.knownSkillNames && !ctx.knownSkillNames.has(s)) {
+          errors.push({
+            severity: 'error',
+            rule: 12,
+            path: `skills[${i}]`,
+            message: `skill "${s}" not found in platform ~/.claude/skills/`,
+          })
         }
-      }
+      })
+    }
+  }
 
-      // RULE 11: env 凭据嫌疑扫描(防止字面凭据被打包/泄露)
-      // lenientCredentialScan 模式下降为 warning,避免误伤存量 agent 加载
-      const env = transport.env as Record<string, unknown> | undefined
-      if (env && typeof env === 'object') {
-        for (const [key, value] of Object.entries(env)) {
-          if (typeof value !== 'string') continue
-          if (looksLikeCredential(value)) {
-            const issue: ValidatorIssue = {
-              severity: ctx.lenientCredentialScan ? 'warn' : 'error',
-              rule: 11,
-              path: `mcpServers[${i}].transport.env.${key}`,
-              message:
-                'value looks like a credential — use transport.envFromAccount to reference an Account envVar instead',
-            }
-            if (ctx.lenientCredentialScan) warnings.push(issue)
-            else errors.push(issue)
-          }
+  // RULE 13: mcpServers 是平台 MCP server name 数组(string[])
+  if (o.mcpServers !== undefined) {
+    if (!Array.isArray(o.mcpServers)) {
+      errors.push({
+        severity: 'error',
+        rule: 13,
+        path: 'mcpServers',
+        message: 'must be string[] (platform mcp_servers DB names)',
+      })
+    } else {
+      o.mcpServers.forEach((m, i) => {
+        if (typeof m !== 'string' || m.trim() === '') {
+          errors.push({
+            severity: 'error',
+            rule: 13,
+            path: `mcpServers[${i}]`,
+            message: 'must be a non-empty string (platform MCP server name)',
+          })
+        } else if (ctx.knownMcpServerNames && !ctx.knownMcpServerNames.has(m)) {
+          errors.push({
+            severity: 'error',
+            rule: 13,
+            path: `mcpServers[${i}]`,
+            message: `MCP server "${m}" not configured in Settings → MCP Servers`,
+          })
         }
-      }
-    })
+      })
+    }
+  }
+
+  // RULE 14: cli 是 command name 数组(string[])
+  if (o.cli !== undefined) {
+    if (!Array.isArray(o.cli)) {
+      errors.push({
+        severity: 'error',
+        rule: 14,
+        path: 'cli',
+        message: 'must be string[] (CLI command names)',
+      })
+    } else {
+      o.cli.forEach((c, i) => {
+        if (typeof c !== 'string' || c.trim() === '') {
+          errors.push({
+            severity: 'error',
+            rule: 14,
+            path: `cli[${i}]`,
+            message: 'must be a non-empty string (CLI command name)',
+          })
+        }
+      })
+    }
   }
 
   if (errors.length > 0) return { valid: false, errors, warnings }
 
   const profile = o as unknown as AgentProfile
-
-  // W1 (rule 9): 实体污染
-  validateNoSpecificEntities(profile, warnings)
-
   return { valid: true, profile, warnings }
-}
-
-const ENV_VAR_NAME_RE = /^[A-Z_][A-Z0-9_]*$/
-const CREDENTIAL_VALUE_PREFIX_RE = /^(sk-|ghp_|gho_|ghs_|ghr_|pk_|api_|token_|Bearer\s|Basic\s)/i
-const NON_CREDENTIAL_LITERAL_RE =
-  /^(true|false|debug|info|warn|error|production|development|test|0|1)$/i
-
-function looksLikeCredential(value: string): boolean {
-  if (value.length < 8) return false
-  if (NON_CREDENTIAL_LITERAL_RE.test(value)) return false
-  return CREDENTIAL_VALUE_PREFIX_RE.test(value)
-}
-
-// ─── W1 (rule 9): description / agentPrompt / references.description 不含具体实体 ──
-
-function validateNoSpecificEntities(profile: AgentProfile, warnings: ValidatorIssue[]): void {
-  const checks: Array<{ path: string; text: string }> = [
-    { path: 'description', text: profile.description },
-    { path: 'agentPrompt', text: profile.agentPrompt },
-  ]
-  ;(profile.references ?? []).forEach((r: ReferenceFile, i) => {
-    checks.push({ path: `references[${i}].description`, text: r.description })
-  })
-
-  for (const { path, text } of checks) {
-    if (!text) continue
-    const entities = extractEntities(text)
-    const flagged = entities.filter((e) => {
-      if (e.category === 'ticker' || e.category === 'stock-code' || e.category === 'path')
-        return true
-      if (e.category === 'cn-name' && e.text.length >= 4) return true
-      return false
-    })
-    if (flagged.length === 0) continue
-    const sample = flagged
-      .slice(0, 3)
-      .map((e) => e.text)
-      .join(', ')
-    warnings.push({
-      severity: 'warn',
-      rule: 9,
-      path,
-      message:
-        `contains specific entities [${sample}${flagged.length > 3 ? ', ...' : ''}] — ` +
-        `prompt-rendered fields should use generic language. ` +
-        `Specific entities bias all delegations regardless of user intent.`,
-    })
-  }
 }

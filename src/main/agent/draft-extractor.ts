@@ -4,18 +4,15 @@
 //   1. serializeS1History — 把 S1 messages 序列化为 markdown 文本（推给 crystallizer 做 first user message）
 //   2. parseAgentDraft    — 从 crystallizer 输出的 markdown 抠 ```json``` 块 + validateProfile
 //
-// D1 (entity redaction):
-//   serializeS1History 在末尾对输出做 redactEntities,把具体公司名/股票代号/路径
-//   替换成 <COMPANY_A>/<TICKER_X>/<PATH_N> 占位符。crystallizer 看不到具体实体,
-//   产出的 profile 不会把"中际旭创"等会话特定锚点冻结进 identity/mission 文本。
+// 注:新定位下 crystallizer 直接吐原始实体名(BIDU / 百度 / klook 等具体实体合理);
+//    旧版的 redactEntities 已删,不再脱敏。
 //
-// 允许依赖：repos/* (类型) / shared/* / agent/validator / agent/entity-extractor
+// 允许依赖：repos/* (类型) / shared/* / agent/validator
 // 禁止依赖：ipc/*
 
 import type { ChatMessage } from '../repos/session-repo'
 import type { AgentProfile } from '@shared/types/agent'
 import { validateProfile } from './validator'
-import { redactEntities } from './entity-extractor'
 
 /** 历史快照字符长度上限（防 LLM context 爆）。超过截断。 */
 export const SNAPSHOT_MAX_CHARS = 50_000
@@ -44,27 +41,6 @@ function truncate(s: string, max: number): string {
  *   - 总长度超 SNAPSHOT_MAX_CHARS：截断 + 末尾 `[...truncated]` 标记
  */
 export function serializeS1History(messages: ChatMessage[]): string {
-  const parts: string[] = []
-  for (const msg of messages) {
-    if (msg.role === 'system') continue
-    const textPart = extractTextFromContent(msg.content)
-    parts.push(`**${msg.role}**: ${textPart.trim()}`)
-  }
-  let output = parts.join('\n\n---\n\n')
-  if (output.length > SNAPSHOT_MAX_CHARS) {
-    output = output.slice(0, SNAPSHOT_MAX_CHARS) + '\n[...truncated]'
-  }
-  // D1: 脱敏。crystallizer 应基于"对话结构"而非"具体实体"产出 profile。
-  // 后果可控：占位符仍然保留实体身份（同一实体复用同一占位符）,只是 crystallizer
-  // 看不到原始字符串。
-  const { redacted } = redactEntities(output)
-  return redacted
-}
-
-/**
- * 不脱敏的 serializeS1History 变体,仅供调试或非 crystallizer 链路使用。
- */
-export function serializeS1HistoryRaw(messages: ChatMessage[]): string {
   const parts: string[] = []
   for (const msg of messages) {
     if (msg.role === 'system') continue

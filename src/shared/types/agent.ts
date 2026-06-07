@@ -24,7 +24,6 @@ export interface AgentProfile {
    */
   description: string
   version: string
-  minAppVersion?: string
   avatar?: string
 
   // ── 行为定义（自由 markdown） ──
@@ -34,11 +33,14 @@ export interface AgentProfile {
    */
   agentPrompt: string
 
-  // ── 依赖 manifest ──
+  // ── 依赖 manifest(全部 string[] 引用平台资源) ──
   tools?: BuiltinToolName[]
-  skills?: SkillItem[]
-  mcpServers?: McpServerDependency[]
-  cli?: CliDependency[]
+  /** 平台 ~/.claude/skills/ 下的 skill name */
+  skills?: string[]
+  /** mcp_servers DB 表中的 server name(用户在 Settings 配置) */
+  mcpServers?: string[]
+  /** 系统 PATH 上的 command name(dep-checker 仅校验存在,不安装) */
+  cli?: string[]
   /** Agent 专属参考资料(按需 read 加载,不自动注入) */
   references?: ReferenceFile[]
   subagents?: AgentCollaboration
@@ -73,61 +75,9 @@ export interface ReferenceFile {
   description: string
 }
 
-export interface SkillItem {
-  name: string
-  required: boolean
-  purpose?: string
-}
-
-export interface McpTransportStdio {
-  type: 'stdio'
-  command: string
-  args?: string[]
-  /** 字面配置变量,非凭据。例: { LOG_LEVEL: 'debug', NODE_ENV: 'production' } */
-  env?: Record<string, string>
-  /**
-   * 凭据引用。key=子进程的环境变量名,value=Account store 里的 envVar 名。
-   * 主进程在启动 stdio 子进程前用 resolveAccountVars 注入,
-   * LLM / 渲染端永远拿不到真值。
-   */
-  envFromAccount?: Record<string, string>
-}
-export interface McpTransportHttp {
-  type: 'http'
-  url: string
-  auth?: { type: 'bearer' | 'apiKey'; envVar: string }
-}
-export type McpTransportConfig = McpTransportStdio | McpTransportHttp
-
-export interface McpServerDependency {
-  name: string
-  description?: string
-  transport: McpTransportConfig
-  tools: string[]
-  required: boolean
-}
-
-export interface CliInstallNpm {
-  type: 'npm'
-  package: string
-}
-export interface CliInstallBrew {
-  type: 'brew'
-  formula: string
-}
-export interface CliInstallScript {
-  type: 'script'
-  url: string
-}
-export type CliInstallMethod = CliInstallNpm | CliInstallBrew | CliInstallScript
-
-export interface CliDependency {
-  command: string
-  version?: string
-  checkCommand?: string
-  install: CliInstallMethod
-  required: boolean
-}
+// SkillItem / McpServerDependency / CliDependency / Mcp transport / CliInstall*
+// 已从 agent schema 移除 — agent 仅按 name 引用平台资源。
+// MCP transport 类型现仅存在于 src/main/mcp/types.ts(DB 表对应的运行时配置)。
 
 export interface AgentCollaboration {
   ids?: SubagentRef[]
@@ -237,7 +187,6 @@ export interface ResolveResult {
 
 // ═══ 依赖检查类型 ═══════════════════════════════════════════
 export type DependencyStepName =
-  | 'minAppVersion'
   | 'cli'
   | 'skill'
   | 'mcpServer'
