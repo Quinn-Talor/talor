@@ -24,7 +24,6 @@ import { Agent } from './agent'
 import { AgentManager } from './agent-manager'
 import { BuiltinToolRegistry } from './builtin-registry'
 import { AccountStore } from '../accounts/account-store'
-import { resolveVariables } from './variable-resolver'
 import { parseSlashInvoke } from './slash-invoke-parser'
 import { extractDependenciesFromMessages } from './crystallizer'
 import { extractSkillCliBins } from '../skills/metadata-extractor'
@@ -58,11 +57,9 @@ const BUILTIN_TOOLS = [
 const builtinRegistry = new BuiltinToolRegistry(BUILTIN_TOOLS)
 
 const VALID_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'sales-analyst-001',
   name: '销售分析师',
   description: '自动汇总周度销售数据并生成趋势分析报告',
-  version: '1.0.0',
   agentPrompt:
     '## Workflow\n1. 从飞书表格获取销售数据。\n2. 生成趋势分析图表。\n\n## Principles\n- 只处理销售相关数据。\n- 输出 Markdown 格式的分析报告。',
   tools: ['bash'],
@@ -126,17 +123,7 @@ describe('Block A: Agent 基础框架', () => {
     })
   })
 
-  describe('AC-A1-03: 非法 version 拒绝', () => {
-    it('version="abc" → errors 含 semver 文案', () => {
-      const result = validateProfile({ ...VALID_PROFILE, version: 'abc' })
-      expect(result.valid).toBe(false)
-      if (!result.valid) {
-        expect(
-          result.errors.some((e) => e.path === 'version' && e.message.includes('semver')),
-        ).toBe(true)
-      }
-    })
-  })
+  // AC-A1-03 已删 — version 字段从 schema 移除
 
   describe('AC-A2-01: 启动加载合法 agent', () => {
     it('合法 agent.json → getById 返回 AgentEntry, status=disabled', () => {
@@ -270,23 +257,7 @@ describe('Block C: 依赖管理与账户管理', () => {
     })
   })
 
-  describe('AC-C3-01: 变量替换成功', () => {
-    it('{{feishu_appid}} → cli_xxx', () => {
-      const result = resolveVariables(
-        { APP_ID: '{{feishu_appid}}' },
-        new Map([['feishu_appid', 'cli_xxx']]),
-      )
-      expect(result.resolved).toEqual({ APP_ID: 'cli_xxx' })
-      expect(result.missing).toEqual([])
-    })
-  })
-
-  describe('AC-C3-02: 变量缺失报错', () => {
-    it('{{feishu_appid}} 未配置 → missing', () => {
-      const result = resolveVariables({ APP_ID: '{{feishu_appid}}' }, new Map())
-      expect(result.missing).toContain('feishu_appid')
-    })
-  })
+  // AC-C3-01/02 已删:variable-resolver 模块整删,极简 schema 不再支持 {{var}} 模板
 })
 
 // ══════════════════════════════════════════════════════
@@ -360,7 +331,6 @@ describe('Block E: 沉淀流程', () => {
       expect(cryst).not.toBeNull()
       expect(cryst!.id).toBe('__crystallizer__')
       // v2.0: crystallizer agentPrompt contains the schema instructions
-      expect(cryst!.profile.schemaVersion).toBe('2.0')
       expect(cryst!.profile.agentPrompt).toBeTruthy()
       expect(cryst!.profile.agentPrompt!.toLowerCase()).toMatch(/analyz|依赖|workflow/)
     })

@@ -9,11 +9,9 @@ import { parseSlashInvoke } from './slash-invoke-parser'
 import { AgentLoader } from './loader'
 
 const VALID_AGENT = {
-  schemaVersion: '2.0',
   id: 'sales-001',
   name: '销售分析师',
   description: '自动分析销售数据',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. 分析销售数据。',
 }
 

@@ -32,20 +32,16 @@ const builtinRegistry = new BuiltinToolRegistry([
 ])
 
 const PLATFORM_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: '__chat__',
   name: 'Talor',
   description: 'Platform default',
-  version: '0.2.0',
   agentPrompt: '# Identity\nYou are Talor, a helpful AI assistant.',
 }
 
 const BUSINESS_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'sales_001',
   name: '销售分析师',
   description: '汇总销售数据',
-  version: '1.0.0',
   agentPrompt:
     '# Identity\nYou are a sales analyst.\n\n## Responsibilities\n- Generate weekly sales summary.',
   tools: ['bash'],

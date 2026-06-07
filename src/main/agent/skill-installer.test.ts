@@ -1,6 +1,6 @@
 // src/main/agent/skill-installer.test.ts — 引用化:skill onboard 到平台 ~/.claude/skills/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 
@@ -12,11 +12,9 @@ import type { AgentProfile } from '@shared/types/agent'
 let tempAgentDir: string
 
 const MINIMAL_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 't',
   name: 't',
   description: 't',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. Do thing.',
 }
 

@@ -22,11 +22,9 @@ function msg(
 }
 
 const VALID_PROFILE_JSON = {
-  schemaVersion: '2.0',
   id: 'love-letter-writer',
   name: '情感挽回助手',
   description: '基于对话生成挽回语录',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. 分析对话背景。\n2. 生成挽回语录。',
 }
 

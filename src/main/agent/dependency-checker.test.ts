@@ -1,6 +1,6 @@
 // src/main/agent/dependency-checker.test.ts — Schema 2.0 引用化 tests
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -38,11 +38,9 @@ import type { AgentProfile } from '@shared/types/agent'
 let tempDir: string
 
 const BASE_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'test_agent',
   name: 'Test',
   description: 'Test agent.',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. Do the thing.',
 }
 
@@ -61,42 +59,7 @@ describe('checkDependencies (schema 2.0 引用化)', () => {
     expect(result.steps.every((s) => s.status === 'pass')).toBe(true)
   })
 
-  it('missing reference file → missing status', () => {
-    const profile: AgentProfile = {
-      ...BASE_PROFILE,
-      references: [
-        {
-          id: 'manual',
-          path: './knowledge/manual.md',
-          description: 'Manual',
-        },
-      ],
-    }
-    const result = checkDependencies(profile, tempDir)
-    expect(result.passed).toBe(false)
-    const step = result.steps.find((s) => s.step === 'references')!
-    expect(step.status).toBe('missing')
-    expect(step.message).toContain('manual.md')
-  })
-
-  it('reference file exists → pass', () => {
-    mkdirSync(join(tempDir, 'knowledge'), { recursive: true })
-    writeFileSync(join(tempDir, 'knowledge', 'manual.md'), '# Manual')
-    const profile: AgentProfile = {
-      ...BASE_PROFILE,
-      references: [
-        {
-          id: 'manual',
-          path: './knowledge/manual.md',
-          description: 'Manual',
-        },
-      ],
-    }
-    const result = checkDependencies(profile, tempDir)
-    const step = result.steps.find((s) => s.step === 'references')!
-    expect(step.status).toBe('pass')
-  })
-
+  // references step 已删(字段从 schema 移除)
   it('missing skill in platform → missing status', () => {
     // 不创建 ~/.claude/skills/missing-skill/ 让它必然 missing
     const profile: AgentProfile = {
@@ -143,12 +106,8 @@ describe('checkDependencies (schema 2.0 引用化)', () => {
     expect(step.status).toBe('pass')
   })
 
-  it('builtin tool in whitelist → pass', () => {
-    const profile: AgentProfile = { ...BASE_PROFILE, tools: ['bash'] }
-    const result = checkDependencies(profile, tempDir)
-    const step = result.steps.find((s) => s.step === 'tool')!
-    expect(step.status).toBe('pass')
-  })
+  // tool step 已删:validator rule 5 静态校验 tools 是 BuiltinToolName[],
+  // 运行时无失败可能。dep-checker 不再重复校验。
 
   describe('subagent dependency check', () => {
     it('missing required subagent', () => {

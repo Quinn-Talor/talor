@@ -1,19 +1,15 @@
-// src/shared/types/agent.ts — 共享类型：Agent Schema 2.0
+// src/shared/types/agent.ts — 共享类型：Agent 极简 schema
 //
 // 设计原则:
-//   - 顶层 15 字段扁平结构,无 mission/method/delivery/execution 包装
-//   - 6 必填: schemaVersion, id, name, description, version, agentPrompt
-//   - 行为面统一在 agentPrompt (自由 markdown)
-//   - 仅保留代码真正读、真正用的字段;契约/验证回到 prompt 通路
-//   - 与 Claude Agent SDK 形态对齐
-
-export const SCHEMA_VERSION = '2.0' as const
+//   - 8 字段极简: 3 元数据 + 1 prompt + 4 能力(tools/mcp/skills/subagents)
+//   - 必填: id, name, description, agentPrompt
+//   - 行为面统一在 agentPrompt (自由 markdown,磁盘上是 sibling prompt.md)
+//   - 依赖三件套(skills/mcpServers/subagents)全是 name 引用
+//   - 删去: schemaVersion / version / avatar / cli / references / preferences(无消费 / 价值低)
 
 // ═══ AgentProfile 顶层 ═══════════════════════════════════════
 export interface AgentProfile {
-  schemaVersion: typeof SCHEMA_VERSION
-
-  // ── Manifest ──
+  // ── 元数据 ──
   id: string
   name: string
   /**
@@ -23,30 +19,23 @@ export interface AgentProfile {
    *   3. 不会做什么（2-5 条短句；命中应礼貌拒绝）
    */
   description: string
-  version: string
-  avatar?: string
 
-  // ── 行为定义（自由 markdown） ──
+  // ── 行为定义（自由 markdown,磁盘上 prompt.md） ──
   /**
    * 完整 agent 操作手册。承载输入引导、工作流、原则、输出格式、风格。
    * 渲染时整段塞进 system prompt。
    */
   agentPrompt: string
 
-  // ── 依赖 manifest(全部 string[] 引用平台资源) ──
+  // ── 能力:tools(内置) + mcpServers + skills + subagents ──
+  /** 内置工具白名单 */
   tools?: BuiltinToolName[]
-  /** 平台 ~/.claude/skills/ 下的 skill name */
+  /** 平台 ~/.claude/skills/ 下的 skill name 引用 */
   skills?: string[]
-  /** mcp_servers DB 表中的 server name(用户在 Settings 配置) */
+  /** mcp_servers DB 表中的 server name 引用(用户在 Settings 配置) */
   mcpServers?: string[]
-  /** 系统 PATH 上的 command name(dep-checker 仅校验存在,不安装) */
-  cli?: string[]
-  /** Agent 专属参考资料(按需 read 加载,不自动注入) */
-  references?: ReferenceFile[]
+  /** delegate_agent 工具的 scope 配置 */
   subagents?: AgentCollaboration
-
-  // ── 运行时偏好 ──
-  preferences?: AgentPreferences
 }
 
 // ═══ 子结构 ═══════════════════════════════════════════════════
@@ -63,22 +52,6 @@ export const BUILTIN_TOOL_NAMES: readonly BuiltinToolName[] = [
   'ls',
 ] as const
 
-/**
- * 参考资料文件索引。LLM 看到清单后用 `read` 工具按需加载,不预读。
- * 建议放在 <agent_dir>/references/ 下。
- */
-export interface ReferenceFile {
-  /** snake_case;agentPrompt 中可用 @<id> 引用 */
-  id: string
-  /** 相对 agent 根目录的路径;禁止 ../ 越界 */
-  path: string
-  description: string
-}
-
-// SkillItem / McpServerDependency / CliDependency / Mcp transport / CliInstall*
-// 已从 agent schema 移除 — agent 仅按 name 引用平台资源。
-// MCP transport 类型现仅存在于 src/main/mcp/types.ts(DB 表对应的运行时配置)。
-
 export interface AgentCollaboration {
   ids?: SubagentRef[]
   /** true 时可委托所有已注册业务 agent;与 ids 同时声明 ids 优先 */
@@ -90,53 +63,7 @@ export interface SubagentRef {
   purpose?: string
 }
 
-export interface AgentPreferences {
-  modelId?: string
-  providerId?: string
-
-  // v4 Phase 1: 采样参数(全部 optional,覆盖 Provider 级默认)
-  /** 输出 token 预算。覆盖 provider.max_output_tokens / 全局默认 64K。 */
-  maxOutputTokens?: number
-  /** 采样温度,默认 provider 决定。 */
-  temperature?: number
-  /** Nucleus sampling 概率,默认 provider 决定。 */
-  topP?: number
-  /** 仅测试场景:固定 seed 复现。 */
-  seed?: number
-  /** 工具选择策略。默认 'auto'。 */
-  toolChoice?: 'auto' | 'required' | { type: 'tool'; toolName: string }
-  /**
-   * v3.7.3 承接:turn-end 二审(judge)配置。
-   * Phase 2 + Phase 5 启用,Phase 1 仅记 schema。
-   */
-  turnEndJudge?: {
-    enabled: boolean
-    model?: string
-    timeoutMs?: number
-  }
-
-  /** PeriodicReflector 触发间隔, 默认 5。0 = 关闭周期 reflect。 */
-  reflectEveryN?: number
-
-  /**
-   * 关闭 UI block 协议注入。
-   *
-   * 默认 false: UiBlockPlugin 会向 system prompt 末尾注入 5-block 词典
-   * (done / need_input / blocked / warning / proposal) 鼓励 LLM 用结构化
-   * block。这是通用 agent 的合理默认。
-   *
-   * 设为 true 适用于:
-   *   - 严格 JSON-only 输出的 API 代理
-   *   - 输出会喂给下游 parser 不需要 talor block
-   *   - agent prompt 已经定义了自己的输出协议,不想被通用协议覆盖
-   *
-   * 仅影响 prompt 注入。Renderer 端的 block 渲染逻辑不变 — 即便 LLM
-   * 自己 emit block,parser 仍正常解析、UI 仍正常显示。
-   */
-  disableUiBlocks?: boolean
-}
-
-// ═══ 运行时辅助类型 (基本沿用) ════════════════════════════════
+// ═══ 运行时辅助类型 ════════════════════════════════════════════
 export type AgentStatus = 'disabled' | 'ready' | 'dependency_missing' | 'running'
 
 export interface AgentEntry {
@@ -148,7 +75,7 @@ export interface AgentEntry {
 
 export interface ValidatorIssue {
   severity: 'error' | 'warn'
-  /** 规则编号(1..9)。0 = 输入级错误 */
+  /** 规则编号 */
   rule: number
   /** JSON path */
   path: string
@@ -186,15 +113,7 @@ export interface ResolveResult {
 }
 
 // ═══ 依赖检查类型 ═══════════════════════════════════════════
-export type DependencyStepName =
-  | 'cli'
-  | 'skill'
-  | 'mcpServer'
-  | 'tool'
-  | 'subagent'
-  | 'config'
-  | 'references' // renamed from 'knowledge'
-  | 'complete'
+export type DependencyStepName = 'skill' | 'mcpServer' | 'subagent' | 'complete'
 
 export interface DependencyStepResult {
   step: DependencyStepName

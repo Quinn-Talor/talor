@@ -17,14 +17,12 @@ const builtin = new BuiltinToolRegistry([
 ])
 
 const REVIEWER = {
-  schemaVersion: '2.0',
   id: 'reviewer',
   name: 'Reviewer',
   description: `Reviews pull requests against team coding standards.
 
 会做：分析 diff、引用规则编号、分级 blocker/major/minor/nit。
 不会做：修改源代码、执行代码、评审超过 2000 行的超大 diff。`,
-  version: '1.0.0',
   agentPrompt: `## Required Inputs
 - **pr_url** (text, REQUIRED): Pull request URL or raw diff to review.
 
@@ -59,16 +57,15 @@ describe('previewAgent (v2.0)', () => {
     // estimates
     expect(r.estimates.promptTokens).toBeGreaterThan(0)
     expect(r.estimates.toolsCount).toBeGreaterThan(0)
-    expect(r.estimates.referencesCount).toBe(1)
 
-    // validatorIssues empty for valid v2.0 profile (warnings ok)
+    // validatorIssues empty for valid profile (warnings ok)
     expect(r.validatorIssues.filter((i) => i.severity === 'error')).toHaveLength(0)
   })
 
   it('invalid profile returns errors but still renders best-effort', async () => {
-    const broken = { ...REVIEWER, schemaVersion: '0.5' }
+    const broken = { ...REVIEWER, id: 'Bad Id!' }
     const r = await previewAgent(broken, { builtinRegistry: builtin, mcpRegistry: null })
     expect(r.validatorIssues.length).toBeGreaterThan(0)
-    expect(r.validatorIssues.some((i) => i.rule === 1)).toBe(true)
+    expect(r.validatorIssues.some((i) => i.rule === 3)).toBe(true)
   })
 })

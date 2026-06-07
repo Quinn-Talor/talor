@@ -44,7 +44,6 @@ export interface PreviewResult {
   estimates: {
     promptTokens: number
     toolsCount: number
-    referencesCount: number
   }
   validatorIssues: ValidatorIssue[]
 }
@@ -53,7 +52,6 @@ export interface PreviewDeps {
   builtinRegistry: BuiltinToolRegistry
   mcpRegistry: McpToolSource | null
   knownToolNames?: Set<string>
-  knownModelIds?: Set<string>
 }
 
 export async function previewAgent(
@@ -63,7 +61,6 @@ export async function previewAgent(
   // 1. validate (尽力,即使非法也尝试渲染)
   const validatorCtx: ValidatorContext = {
     knownToolNames: deps.knownToolNames,
-    knownModelIds: deps.knownModelIds,
   }
   const validation = validateProfile(profileInput, validatorCtx)
   const validatorIssues: ValidatorIssue[] = validation.valid
@@ -105,9 +102,6 @@ export async function previewAgent(
     source: builtinNames.includes(t.name) ? 'builtin' : 'agent-private',
   }))
 
-  // 5. References count (v2.0 replaces knowledge)
-  const referencesCount = (profile.references ?? []).length
-
   return {
     renderedPrompt: {
       persistent: samples.firstIteration,
@@ -117,7 +111,6 @@ export async function previewAgent(
     estimates: {
       promptTokens: Math.ceil(samples.firstIteration.length / 3),
       toolsCount: enabledTools.length,
-      referencesCount,
     },
     validatorIssues,
   }

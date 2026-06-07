@@ -221,7 +221,6 @@ function createFromDraft(
   const created = (wsMeta.created_agents as Array<Record<string, unknown>> | undefined) ?? []
   created.push({
     id: profile.id,
-    version: profile.version,
     created_at: new Date().toISOString(),
     based_on_message_count: sourceMsgCount,
   })
@@ -232,11 +231,9 @@ function createFromDraft(
 }
 
 const VALID_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'love-letter-writer',
   name: '挽回助手',
   description: '基于对话生成挽回语录',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. 撰写挽回语录。\n\n## Output\n- 输出 Markdown 格式。',
 }
 
@@ -454,7 +451,6 @@ describe('create-from-draft (TASK-2: AC-009/010/011)', () => {
     const created = meta.created_agents as Array<Record<string, unknown>>
     expect(created.length).toBe(1)
     expect(created[0].id).toBe('love-letter-writer')
-    expect(created[0].version).toBe('1.0.0')
     expect(created[0].based_on_message_count).toBe(1)
   })
 
@@ -537,13 +533,11 @@ describe('list-from-workbench / remove-from-workbench (TASK-2: AC-013/014)', () 
       created_agents: [
         {
           id: 'A',
-          version: '1.0.0',
           created_at: '2026-05-08T00:00:00Z',
           based_on_message_count: 1,
         },
         {
           id: 'B',
-          version: '1.0.0',
           created_at: '2026-05-08T00:00:00Z',
           based_on_message_count: 1,
         },

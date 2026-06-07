@@ -25,12 +25,7 @@ import {
   checkVisionSupport,
   type ValidatedAttachment,
 } from './attachments'
-import {
-  getDefaultProvider,
-  getProviderById,
-  findProviderByPreference,
-  findProviderByModel,
-} from './provider-selector'
+import { getDefaultProvider, getProviderById } from './provider-selector'
 import { streamRegistry } from './stream-registry'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
@@ -141,59 +136,19 @@ export async function sendChat(
     const agentId = session?.agent_id ?? '__chat__'
     const agent = ports.agentManager.getAgent(agentId) ?? ports.agentManager.getChatAgent()
 
-    // Step 4: provider + model；预热 API key；视觉能力校验
-    // agent.profile.preferences 优先于 session 选型(profile lock)。
-    // 关键: provider 和 model 必须**配对校验** — profile 锁定的 model 必须在某个
-    // 已配置 provider 的 models 列表里。否则放弃整个 profile lock,fallback 到
-    // session(避免 deepseek provider + claude model 这种错配)。
-    const profilePrefs = agent.profile.preferences
-    let provider: ReturnType<typeof getProviderById> | null = null
-    let modelLocked = false
-
-    if (profilePrefs?.providerId || profilePrefs?.modelId) {
-      // findProviderByPreference 同时校验 provider+model 配对:
-      // - 若 providerId 提供 → 在该 provider(或同 type) 中查 modelId
-      // - 若仅 modelId 提供 → 用空字符串作 idOrType,fallback 第二段不会命中,但仍可走下面的"按 model 扫所有"
-      const pid = profilePrefs.providerId
-      const mid = profilePrefs.modelId
-      provider = pid ? findProviderByPreference(pid, mid) : null
-      if (!provider && mid) {
-        // 仅锁 modelId 或 providerId 不可达 — 扫所有 provider 找有此 model 且 enabled 的
-        provider = findProviderByPreference('', mid) ?? findProviderByModel(mid)
-      }
-      if (provider) modelLocked = true
-      else
-        log.warn(
-          `[chat-orch] profile lock unmet: providerId=${pid} modelId=${mid} — falling back to session/default`,
-        )
-    }
-
-    provider =
-      provider ??
-      (session?.provider_id ? getProviderById(session.provider_id) : null) ??
-      getDefaultProvider()
+    // Step 4: provider + model;预热 API key;视觉能力校验
+    // 极简:不再读 profile.preferences,直接走 session 或 default。
+    const provider =
+      (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
     SafeStorageService.getInstance().getApiKey(provider.id)
     if (validated.length > 0) checkVisionSupport(provider, validated)
 
     const adapter = getAdapter(provider.type)
-    // model fallback 链:
-    //   1. profile.preferences.modelId (锁定且匹配)
-    //   2. session.model_id (用户上次选的)
-    //   3. provider.models[0].id (provider 第一个可用 model 兜底,不再用 'default' 占位)
-    //   4. 'default' (provider 没声明任何 model 时的最后降级)
+    // model fallback 链: session.model_id → provider.models[0].id → 'default' 占位
     const fallbackProviderModel = provider.models?.[0]?.id
-    const effectiveModelId = modelLocked
-      ? (profilePrefs?.modelId ?? session?.model_id ?? fallbackProviderModel ?? 'default')
-      : (session?.model_id ?? fallbackProviderModel ?? 'default')
+    const effectiveModelId = session?.model_id ?? fallbackProviderModel ?? 'default'
     const model = adapter.createModel(provider, effectiveModelId)
     const workspace = session?.workspace ?? ''
-    if (modelLocked) {
-      log.info(
-        '[chat-orch] Using profile preferences:',
-        `provider=${provider.id}(${provider.type})`,
-        `model=${effectiveModelId}`,
-      )
-    }
 
     // Step 5: 持久化用户消息
     messageRepo.create({

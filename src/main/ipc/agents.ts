@@ -7,7 +7,7 @@
 
 import { ipcMain } from 'electron'
 import { join, sep as pathSep, resolve as pathResolve } from 'path'
-import { rmSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { rmSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import log from 'electron-log'
 import { AgentManager } from '../agent/agent-manager'
 import { SkillRegistry } from '../skills/registry'
@@ -15,7 +15,6 @@ import { checkDependencies } from '../agent/dependency-checker'
 import { validateProfile } from '../agent/validator'
 import { persistAgentProfile } from '../agent/profile-fs'
 import { previewAgent } from '../agent/preview'
-import { getRegisteredModelSet } from '../providers/registry'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { streamRegistry } from '../chat/stream-registry'
 import { getDefaultProvider } from '../chat/provider-selector'
@@ -78,7 +77,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
    */
   function reconcileCreatedAgents(workbenchSessionId: string): Array<{
     id: string
-    version: string
     created_at: string
     based_on_message_count: number
   }> {
@@ -87,7 +85,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       (meta.created_agents as
         | Array<{
             id: string
-            version: string
             created_at: string
             based_on_message_count: number
           }>
@@ -119,8 +116,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       id: entry.profile.id,
       name: entry.profile.name,
       description: entry.profile.description,
-      avatar: entry.profile.avatar,
-      version: entry.profile.version,
       status: entry.status,
       lastUsedAt: entry.lastUsedAt,
       dirPath: entry.dirPath,
@@ -136,8 +131,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       id: entry.profile.id,
       name: entry.profile.name,
       description: entry.profile.description,
-      avatar: entry.profile.avatar,
-      version: entry.profile.version,
       status: entry.status,
       lastUsedAt: entry.lastUsedAt,
       dirPath: entry.dirPath,
@@ -155,12 +148,9 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     //   - 否则 default provider + 其第一个 model
     //   避免 session.model_id 为 null 时 orchestrator 拿到 'default' 字符串字面量
     //   被 OpenAI-compatible API 拒收 (e.g. deepseek 报 'but you passed default')
+    // 极简:不再读 profile.preferences,直接用 default provider 的首个 model
     const provider = getDefaultProvider()
-    const prefsModel =
-      (agent.profile.preferences as { modelId?: string } | undefined)?.modelId ?? null
-    const fallbackModel = provider.models?.[0]?.id ?? null
-    const modelId =
-      prefsModel && provider.models?.some((m) => m.id === prefsModel) ? prefsModel : fallbackModel
+    const modelId = provider.models?.[0]?.id ?? null
 
     const session = sessionRepo.create({
       title: agent.name,
@@ -298,9 +288,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
    * 供编辑 UI 实时反馈。
    */
   ipcMain.handle('agents:validate', (_event, profile: unknown) => {
-    const result = validateProfile(profile, {
-      knownModelIds: getRegisteredModelSet() as Set<string>,
-    })
+    const result = validateProfile(profile)
     if (result.valid) {
       return { valid: true, errors: [], warnings: result.warnings }
     }
@@ -316,7 +304,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     return previewAgent(profile, {
       builtinRegistry: agentManager.getBuiltinRegistry(),
       mcpRegistry: agentManager.getMcpToolSource(),
-      knownModelIds: getRegisteredModelSet() as Set<string>,
     })
   })
 
@@ -559,30 +546,12 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
             error: `Directory already exists: ${targetDir}. Pick a different id.`,
           }
         }
-        // Schema 2.0 引用化 · Agent 文件夹 bundle:
-        //   <root>/agent.json       — profile (必有)
-        //   <root>/references/      — profile.references[].path 引用的本地文件
-        //   <root>/README.md        — 自动生成给人看的元数据
-        // skills/ 目录不再创建 — skills 引用平台 ~/.claude/skills/<name>/SKILL.md
+        // 极简 · Agent 文件夹 bundle:
+        //   <root>/agent.json   — profile 元数据 (不含 agentPrompt)
+        //   <root>/prompt.md    — 完整 agentPrompt
+        //   <root>/README.md    — 自动生成给人看的元数据
+        // skills/ 与 references/ 子目录不再创建
         mkdirSync(targetDir, { recursive: true })
-        mkdirSync(join(targetDir, 'references'), { recursive: true })
-
-        // P1: 物理化 references[]
-        // LLM 可能写绝对路径(workspace 内的文件)或相对路径,尝试从这些来源复制到 <root>/references/<basename>:
-        //   1. 路径已经是绝对路径 + 文件存在 → 直接 cp
-        //   2. 路径相对于 workbench session 的 source workspace → cp
-        //   3. 都没找到 → 保留 entry,dep-checker 会标 missing,UI 警告用户
-        // 复制后 path 改写为 './references/<basename>',让 agent 自包含且导出 .talor-pack 时整目录跟带
-        const sourceWorkspace = resolveSourceWorkspaceFromWorkbench(raw.workbench_session_id)
-        const referencesReport = materializeReferenceFiles(profile, targetDir, sourceWorkspace)
-        if (referencesReport.copied > 0 || referencesReport.missing.length > 0) {
-          log.info(
-            '[agents:create-from-draft] references — copied:',
-            referencesReport.copied,
-            'missing:',
-            referencesReport.missing,
-          )
-        }
 
         // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
         persistAgentProfile(profile, targetDir)
@@ -640,7 +609,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         const created = (wsMeta.created_agents as Array<Record<string, unknown>> | undefined) ?? []
         created.push({
           id: profile.id,
-          version: profile.version,
           created_at: new Date().toISOString(),
           based_on_message_count: sourceMsgCount,
         })
@@ -652,7 +620,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         const createdAt =
           (created[created.length - 1]?.created_at as string) ?? new Date().toISOString()
         log.info(
-          `[Crystallize] saved agent=${profile.id} v=${profile.version} from workbench=${raw.workbench_session_id} ` +
+          `[Crystallize] saved agent=${profile.id} from workbench=${raw.workbench_session_id} ` +
             `skills installed=${skillInstallResult.installed.length} skipped=${skillInstallResult.skipped.length} failed=${skillInstallResult.failed.length}`,
         )
         return {
@@ -682,11 +650,9 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       return {
         id: c.id,
         name: entry?.profile.name ?? c.id,
-        version: c.version,
         created_at: c.created_at,
         based_on_message_count: c.based_on_message_count,
         exists: entry !== null,
-        current_version: entry?.profile.version,
       }
     })
   })
@@ -734,86 +700,6 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
   )
 }
 
-/**
- * 从 workbench session 元数据回溯 source 对话的 workspace 路径,
- * 用于解析 profile.references[].path 中的相对路径。
- */
-function resolveSourceWorkspaceFromWorkbench(workbenchSessionId: string): string | null {
-  try {
-    const wsMeta = sessionRepo.getMetadata(workbenchSessionId)
-    const sourceSessionId = wsMeta.source_session_id as string | undefined
-    if (!sourceSessionId) return null
-    const sourceSession = sessionRepo.getById(sourceSessionId)
-    return sourceSession?.workspace ?? null
-  } catch {
-    return null
-  }
-}
-
-interface ReferenceMaterializeReport {
-  copied: number
-  missing: string[]
-}
-
-/**
- * 把 profile.references[].path 引用的文件复制到 <agentDir>/references/<basename>,
- * 并把 profile 中的 path 改写为相对路径 './references/<basename>'。
- *
- * 找不到源文件时保留 entry 但 path 不变,dep-checker 会标 missing,UI 警示用户。
- */
-function materializeReferenceFiles(
-  profile: AgentProfile,
-  agentDir: string,
-  sourceWorkspace: string | null,
-): ReferenceMaterializeReport {
-  const report: ReferenceMaterializeReport = { copied: 0, missing: [] }
-  const items = profile.references ?? []
-  if (items.length === 0) return report
-
-  const referencesDir = join(agentDir, 'references')
-
-  for (let i = 0; i < items.length; i++) {
-    const k = items[i]
-    const declaredPath = k.path
-
-    // 候选源路径:绝对 path / sourceWorkspace 相对 / cwd 相对
-    const candidates: string[] = []
-    if (declaredPath.startsWith('/')) {
-      candidates.push(declaredPath)
-    } else {
-      if (sourceWorkspace) candidates.push(join(sourceWorkspace, declaredPath))
-      candidates.push(declaredPath) // 相对 cwd 兜底
-    }
-
-    let foundSrc: string | null = null
-    for (const c of candidates) {
-      if (existsSync(c)) {
-        foundSrc = c
-        break
-      }
-    }
-
-    if (!foundSrc) {
-      report.missing.push(declaredPath)
-      continue
-    }
-
-    const basename = declaredPath.split('/').pop() ?? `reference-${i}.bin`
-    const dest = join(referencesDir, basename)
-    try {
-      writeFileSync(dest, readFileSync(foundSrc))
-      // 改写 profile 中的 path 为相对路径
-      ;(profile.references as Array<{ path: string }>)[i].path = `./references/${basename}`
-      report.copied++
-    } catch (err) {
-      log.warn('[references-materialize] copy failed:', foundSrc, '→', dest, err)
-      report.missing.push(declaredPath)
-    }
-  }
-
-  return report
-}
-
 function buildReadmeContent(profile: AgentProfile): string {
   const lines: string[] = []
   lines.push(`# ${profile.name}`)
@@ -821,17 +707,14 @@ function buildReadmeContent(profile: AgentProfile): string {
   lines.push(`> ${profile.description}`)
   lines.push('')
   lines.push(`- **id**: \`${profile.id}\``)
-  lines.push(`- **version**: ${profile.version}`)
-  lines.push(`- **schemaVersion**: ${profile.schemaVersion}`)
   lines.push(`- **created_at**: ${new Date().toISOString()}`)
   lines.push('')
   lines.push('## Folder Structure')
   lines.push('')
   lines.push('```')
-  lines.push('agent.json        Schema 2.0 profile (元数据,不含 agentPrompt)')
-  lines.push('prompt.md         完整 agentPrompt (LLM 操作手册,markdown)')
-  lines.push('references/       profile.references 引用的本地文件')
-  lines.push('README.md         本文件')
+  lines.push('agent.json   profile 元数据')
+  lines.push('prompt.md    完整 agentPrompt (LLM 操作手册,markdown)')
+  lines.push('README.md    本文件')
   lines.push('```')
   lines.push('')
   lines.push(

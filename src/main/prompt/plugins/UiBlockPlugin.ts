@@ -78,15 +78,8 @@ becomes the user's next message; use for "rewrite/change tone" follow-ups.
 export class UiBlockPlugin implements PromptPlugin {
   name = 'UiBlockPlugin'
 
-  async build(ctx: PipelineContext): Promise<PluginResult> {
-    // Opt-out: agents with disableUiBlocks=true (e.g. JSON-API agents with their
-    // own output protocol) skip the block vocabulary injection. The renderer
-    // still parses+displays any block the agent does emit — this only controls
-    // whether we encourage block usage via the system prompt.
-    if (ctx.agent?.profile?.preferences?.disableUiBlocks) {
-      return { messages: [], tools: [], tokenEstimate: 0 }
-    }
-
+  async build(_ctx: PipelineContext): Promise<PluginResult> {
+    // 极简: 总是注入 block 词典(disableUiBlocks 已从 schema 删除)
     return {
       messages: [{ role: 'system', content: BLOCK_PROTOCOL }],
       tools: [],

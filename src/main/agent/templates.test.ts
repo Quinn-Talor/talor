@@ -15,7 +15,6 @@ describe('listTemplates (v2.0)', () => {
       const result = validateProfile(t.profile)
       const errors = result.valid ? [] : result.errors
       expect(errors, `template ${t.id} has errors: ${JSON.stringify(errors)}`).toEqual([])
-      expect(t.profile.schemaVersion).toBe('2.0')
     }
   })
 

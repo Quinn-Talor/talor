@@ -46,11 +46,9 @@ const builtinReg = new BuiltinToolRegistry([
 let tempDir: string
 
 const AGENT_PROFILE: AgentProfile = {
-  schemaVersion: '2.0',
   id: 'test-agent',
   name: '测试Agent',
   description: '集成测试用',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. 执行测试能力。\n\n## Output\n- 输出文本格式。',
 }
 

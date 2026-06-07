@@ -41,34 +41,4 @@ describe('Provider registry', () => {
   })
 })
 
-describe('AC-091/AC-092: integration with validator §12', async () => {
-  const { validateProfile } = await import('../agent/validator')
-
-  const baseProfile = {
-    schemaVersion: '2.0',
-    id: 'a',
-    name: 'A',
-    description: 'd',
-    version: '1.0.0',
-    agentPrompt: '## Workflow\n1. Do task.',
-  }
-
-  it('AC-092: profile with locked DEFAULT_MODEL passes validator', () => {
-    const r = validateProfile(
-      { ...baseProfile, preferences: { modelId: DEFAULT_MODEL } },
-      { knownModelIds: getRegisteredModelSet() as Set<string> },
-    )
-    expect(r.valid).toBe(true)
-  })
-
-  it('AC-093 integration: profile with obsolete model fails validator', () => {
-    const r = validateProfile(
-      { ...baseProfile, preferences: { modelId: 'claude-3-opus' } },
-      { knownModelIds: getRegisteredModelSet() as Set<string> },
-    )
-    expect(r.valid).toBe(false)
-    if (!r.valid) {
-      expect(r.errors.some((e) => e.path === 'preferences.modelId')).toBe(true)
-    }
-  })
-})
+// AC-091/AC-092/AC-093 已删 — preferences 字段已从 schema 移除,模型选择由 session 层负责

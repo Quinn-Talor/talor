@@ -10,11 +10,9 @@ vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error:
 import { AgentLoader } from './loader'
 
 const VALID_AGENT_V2 = {
-  schemaVersion: '2.0',
   id: 'sales_analyst',
   name: '销售分析师',
   description: '汇总销售数据并产出周报。',
-  version: '1.0.0',
   agentPrompt: '## Workflow\n1. Test.\n\n## Output\nText.',
 }
 
@@ -22,7 +20,6 @@ const OLD_SCHEMA_AGENT = {
   id: 'sales_001',
   name: '销售',
   description: 'old',
-  version: '1.0.0',
   role: { capabilities: ['x'], outputFormat: 'md' },
   knowledge: { files: [] },
   dependencies: { tools: [], mcpServers: [], skills: [], cli: [] },
@@ -182,12 +179,11 @@ describe('AgentLoader (schema 2.0)', () => {
   })
 
   describe('引用化 schema 加载', () => {
-    it('loads agent with string[] skills/mcpServers/cli (new schema)', () => {
+    it('loads agent with string[] skills/mcpServers (new schema)', () => {
       writeAgent('refs', {
         ...VALID_AGENT_V2,
         skills: ['lark-doc'],
         mcpServers: ['github'],
-        cli: ['gh', 'jq'],
       })
 
       const loader = new AgentLoader(tempDir)
@@ -196,7 +192,6 @@ describe('AgentLoader (schema 2.0)', () => {
       const entry = loader.getById('sales_analyst')!
       expect(entry.profile.skills).toEqual(['lark-doc'])
       expect(entry.profile.mcpServers).toEqual(['github'])
-      expect(entry.profile.cli).toEqual(['gh', 'jq'])
     })
 
     it('rejects agent.json with object[] skills (旧 schema,无 backward compat)', () => {
