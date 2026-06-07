@@ -554,7 +554,7 @@ AI SDK 给我们的所有 metadata 信号按 J-SHOULD-2 分类纳入消费:
 
 - 每场景独立 `ReflectAgent<SNAPSHOT, RESULT>` (system prompt + Zod schema + maxOutputTokens + timeoutMs)
 - `runReflectAgent` 统一调 `generateObject` + abort + 失败静默 null
-- 便宜 model 由 `resolveReflectModel(agent, provider)` 解析 (优先级: agent.preferences.reflectModelId > provider.reflect_model_id > null)
+- 便宜 model 由 `resolveReflectModel(agent, provider)` 解析(优先级:`provider.reflect_model_id` > `null` — 极简 schema 后不再读 agent.preferences)
 
 **关闭开关**: `reflectModelId=undefined` 时 `runReflectorChain` 自动跳过 `requiresLLM=true` 的 reflector, L1 reflector 仍工作, 行为退回当前。
 

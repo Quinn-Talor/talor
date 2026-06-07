@@ -7,13 +7,14 @@
 
 ## 1. 项目一句话
 
-Talor 是 **专业 Agent 平台** — Electron + TypeScript 桌面应用（v0.1.0，Apache 2.0 + Commons Clause）。用户在本地从对话历史沉淀 agent → 编辑 → 运行。**不做 agent 跨机迁移**(无 import/export/pack 能力)。
+Talor 是 **纯 Agent 平台** — Electron + TypeScript 桌面应用(v0.1.0,Apache 2.0 + Commons Clause)。**自身不含任何业务**,所有业务由用户通过对话沉淀(Crystallizer)产出 agent 表达。Talor 提供:agent 运行时 + 工具栈(builtin + MCP)+ skill 系统 + subagent 委托 + 凭据管理。
 
-- 前端：React 19 + Tailwind + Zustand
-- 模型层：Vercel AI SDK（Anthropic / OpenAI / Google / Ollama）
-- 工具：7 个内置工具（bash / read / write / edit / glob / grep / ls）+ MCP 外部工具
-- 持久化：better-sqlite3 (sessions, messages, mcp_servers, session_summaries)
-- Agent Profile：**Schema 2.0 扁平 15 字段**，行为定义统一在 `agentPrompt` 自由 markdown
+- **前端**:React 19 + Tailwind + Zustand
+- **模型层**:Vercel AI SDK(Anthropic / OpenAI / Google / Ollama)
+- **工具**:7 个内置(bash / read / write / edit / glob / grep / ls)+ MCP 外部
+- **持久化**:better-sqlite3(sessions, messages, mcp_servers, account_keys)+ 文件(`~/.talor/agents/<id>/` + `~/.talor/skills/<name>/`)
+- **Agent Profile** · **极简 schema 8 字段**:`id` / `name` / `description` / `agentPrompt`(磁盘上拆为 sibling `prompt.md`)+ `tools?` / `skills?` / `mcpServers?` / `subagents?`
+- **核心差异化**:Crystallizer — 从对话历史一键提炼出可复用的 agent
 
 ---
 
@@ -100,11 +101,24 @@ bash 危险命令、敏感路径在 validate/path-guard 层就拦住。详见 `s
 
 ### 4.5 "模型应该怎么做"的硬规则必须代码强制
 
-Prompt 是软引导。任何"必须"级规则要有代码实现（`⟨unverifiable⟩`、`EDIT_AMBIGUOUS_MATCH`、context halt 都是这样来的）。
+Prompt 是软引导。任何"必须"级规则要有代码实现(`⟨unverifiable⟩`、`EDIT_AMBIGUOUS_MATCH`、context halt 都是这样来的)。
 
-Schema 2.0 下：`agentPrompt` 是 LLM 行为定义的唯一 prompt 层载体；`validateProfile` 强制执行结构规则（rules 1~9）；运行时不再有 `delivery.acceptance` 钩子。LLM 硬约束在代码层（validator + path-guard + quote-verifier），`agentPrompt` 只做软引导。
+**极简 schema 下**:`agentPrompt`(磁盘 `<agentDir>/prompt.md`)是 LLM 行为定义的唯一 prompt 层载体;`validateProfile` 6 条规则做结构校验(rule 2/3/5/7/12/13)。LLM 硬约束在代码层(validator + path-guard + quote-verifier),`agentPrompt` 只做软引导。
 
 详见 `standards.md §J-SHOULD-1` + `patterns.md §P4`。
+
+### 4.8 Agent profile 必须用 splitter 持久化
+
+写 agent 时不要直接 `JSON.stringify(profile)` 含 agentPrompt 字段。用 `persistAgentProfile(profile, dirPath)` 拆为 `agent.json`(不含 agentPrompt) + sibling `prompt.md`。读时用 `loadAgentBundle(dirPath)` 合并。
+
+`agent.json` 内含 agentPrompt 字段时 loader 会 reject。
+
+### 4.9 Skill / MCP 引用化:agent 不自带,只引用
+
+`profile.skills: string[]` 引用 `~/.talor/skills/<name>/SKILL.md`(skill-installer 在缺失时从 `~/.claude/skills` 等位置兜底 cp)。
+`profile.mcpServers: string[]` 引用 `mcp_servers` DB 表(用户在 Settings 配置)。
+
+业务 agent 装配时用 `SkillRegistry.filterByNames` + `McpRegistry.filterByServerNames` 拿受限视图,**不复制不重建**。
 
 ### 4.6 Zod 已校验过的规则不要在 `execute` 里再写一遍
 
@@ -176,22 +190,34 @@ npm run build         # electron-vite build + electron-builder 打包
 
 ---
 
-## 8. 项目现状（自动维护）
+## 8. 项目现状(自动维护)
 
-**最近重要变更**（详见 `git log`）：
+**最近重要变更**(详见 `git log`):
 
-- `refactor(agent)`: **定位调整为专业平台** — 移除全部 agent 迁移能力(`agent-pack/` / `importer.ts` / `exporter.ts` / IPC `agents:export*` `agents:import*` / preload import/export 暴露面)；扩展名 `.agent.zip` / `.talor-pack` 不再支持
-- `fix(mcp)`: stdio transport 凭据机制 — 加 `envFromAccount` 引用,字面 `env` 不再当凭据；删 `serverPackage` 死字段；validator rule 10/11 防止凭据写进 agent.json；loader lenient 模式兼容存量
-- `feat(agent)`: **Schema 2.0** — 扁平 15 字段 profile；`agentPrompt` 自由 markdown 承载全部 LLM 行为定义；deliverables / acceptance / workflow DAG 全部移除
-- `feat(tools,loop)`: 结构化错误信封、Zod 工具校验、fallback 引用校验
-- `refactor(prompt,tools)`: 分层 prompt 架构 + 鲁棒性升级
-- `fix(prompt)`: RULE 0 anti-self-refuse
+- `refactor(skills)`: Skills 平台目录 `~/.claude/skills/` → `~/.talor/skills/`(Talor 拥有自己数据目录);`~/.claude/skills/` 降为 fallback,跟 Claude Code 共享 skill 库的用户仍兼容
+- `refactor(agent)`: **终极极简** schema 14 字段 → **8 字段**;validator 14 rules → 6;dep-checker 8 steps → 3;删 `schemaVersion / version / avatar / cli / references / preferences` + `AgentPreferences` / `ReferenceFile` 类型 + `variable-resolver` 模块
+- `refactor(agent)`: **prompt.md 拆分** — `agentPrompt` 不再内嵌 agent.json,改为 sibling `<agentDir>/prompt.md`;`profile-fs.ts` 双向 splitter;validator dual-mode(inline / directory + injectedAgentPrompt)
+- `feat(ipc,crystallizer)`: `skills:list-platform` IPC(供 UI 下拉)+ Crystallizer prompt 改造为 reference name 数组(不再 inline 定义)
+- `refactor(agent,schema)`: skills/mcpServers/cli 全部 `string[]` 引用平台资源;agent 不再持有私有 skill 副本;`SkillRegistry.filterByNames` / `McpRegistry.filterByServerNames` 给业务 agent 受限视图;dep-checker 删 auto-install
+- `refactor(agent)`: 定位调整为纯本地平台 — 移除全部 agent 迁移能力(`agent-pack/` / `importer.ts` / `exporter.ts` / 相关 IPC)
+- `fix(mcp)`: stdio transport 凭据机制 — `envFromAccount` 引用 Account,删 `serverPackage` 死字段
 
-**尚未实现**：
+**Agent 磁盘形态**:
 
-- KnowledgeBase（RAG） — 返回空
-- LongTermMemory（跨 session 持久记忆） — 返回空
-- AgentPromptPlugin 的数字员工契约系统 — Phase 3 stub
+```
+~/.talor/agents/<agent-id>/
+  agent.json     # 元数据(不含 agentPrompt)
+  prompt.md      # 完整 agentPrompt
+  README.md      # 派生
+~/.talor/skills/<name>/
+  SKILL.md       # 平台 skill(被所有 agent 共享)
+```
+
+**尚未实现**:
+
+- KnowledgeBase(RAG) — 返回空
+- LongTermMemory(跨 session 持久记忆) — 返回空
+- AgentEditPage UI 下拉(IPC 已有,UI 仍是 JSON 编辑器)
 
 ---
 
