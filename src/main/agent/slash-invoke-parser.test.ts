@@ -24,7 +24,10 @@ beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'slash-'))
   const dir = join(tempDir, 'sales')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'agent.json'), JSON.stringify(VALID_AGENT))
+  // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
+  const { agentPrompt, ...rest } = VALID_AGENT
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify(rest))
+  writeFileSync(join(dir, 'prompt.md'), agentPrompt)
   loader = new AgentLoader(tempDir)
   loader.loadAll()
 })

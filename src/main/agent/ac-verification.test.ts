@@ -89,10 +89,13 @@ afterEach(() => {
   accountsTestDb.close()
 })
 
+// Bundle splitter for tests (writes agent.json without agentPrompt + sibling prompt.md)
 function writeAgentDir(name: string, profile: AgentProfile): string {
   const dir = join(tempDir, name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'agent.json'), JSON.stringify(profile, null, 2))
+  const { agentPrompt, ...rest } = profile
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify(rest, null, 2))
+  writeFileSync(join(dir, 'prompt.md'), agentPrompt)
   return dir
 }
 
@@ -152,6 +155,7 @@ describe('Block A: Agent 基础框架', () => {
       const dir = join(tempDir, 'broken')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'agent.json'), JSON.stringify({ id: 'broken', version: '1.0.0' }))
+      writeFileSync(join(dir, 'prompt.md'), 'placeholder')
 
       writeAgentDir('good', VALID_PROFILE)
 

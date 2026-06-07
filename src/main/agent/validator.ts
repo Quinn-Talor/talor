@@ -24,6 +24,13 @@ export interface ValidatorContext {
   knownMcpServerNames?: Set<string>
   /** agent 根目录,用于 references[].path 存在性检查 */
   agentRoot?: string
+  /**
+   * 已注入的 agentPrompt 文本。dual-mode 支持:
+   *   - inline 模式: raw 对象自带 agentPrompt 字段(编辑实时校验场景)
+   *   - directory 模式: loader 从 prompt.md 读完后传 injectedAgentPrompt(磁盘加载场景)
+   * 两种模式至少要有一种提供 agentPrompt,否则 rule 2 失败。
+   */
+  injectedAgentPrompt?: string
 }
 
 const ID_RE = /^[a-z0-9_-]+$/
@@ -43,6 +50,12 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
     }
   }
   const o = json as Record<string, unknown>
+
+  // dual-mode: 若调用方传入 injectedAgentPrompt (loader 从 prompt.md 读出后),
+  // 把它合并进 raw 让后续规则 (rule 2 必填、rule 9 实体污染等) 仍能跑。
+  if (ctx.injectedAgentPrompt !== undefined && o.agentPrompt === undefined) {
+    o.agentPrompt = ctx.injectedAgentPrompt
+  }
 
   // RULE 1: schemaVersion
   if (o.schemaVersion !== '2.0') {

@@ -13,6 +13,7 @@ import { AgentManager } from '../agent/agent-manager'
 import { SkillRegistry } from '../skills/registry'
 import { checkDependencies } from '../agent/dependency-checker'
 import { validateProfile } from '../agent/validator'
+import { persistAgentProfile } from '../agent/profile-fs'
 import { previewAgent } from '../agent/preview'
 import { getRegisteredModelSet } from '../providers/registry'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
@@ -284,11 +285,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       throw new Error(`Invalid profile: ${summary}`)
     }
 
-    writeFileSync(
-      join(entry.dirPath, 'agent.json'),
-      JSON.stringify(result.profile, null, 2),
-      'utf-8',
-    )
+    // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
+    persistAgentProfile(result.profile, entry.dirPath)
     loader.loadAll()
     log.info('[agents:update] Updated agent:', raw.id)
   })
@@ -586,7 +584,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
           )
         }
 
-        writeFileSync(join(targetDir, 'agent.json'), JSON.stringify(profile, null, 2), 'utf-8')
+        // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
+        persistAgentProfile(profile, targetDir)
 
         // README — 给人看的轻量元数据,从 profile 派生,不影响装配
         const readmeContent = buildReadmeContent(profile)
@@ -829,7 +828,8 @@ function buildReadmeContent(profile: AgentProfile): string {
   lines.push('## Folder Structure')
   lines.push('')
   lines.push('```')
-  lines.push('agent.json        Schema 2.0 profile')
+  lines.push('agent.json        Schema 2.0 profile (元数据,不含 agentPrompt)')
+  lines.push('prompt.md         完整 agentPrompt (LLM 操作手册,markdown)')
   lines.push('references/       profile.references 引用的本地文件')
   lines.push('README.md         本文件')
   lines.push('```')

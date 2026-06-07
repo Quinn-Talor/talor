@@ -41,7 +41,11 @@ afterEach(() => {
 function writeAgent(name: string, json: unknown): void {
   const dir = join(tempDir, name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'agent.json'), JSON.stringify(json, null, 2))
+  // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
+  const obj = json as Record<string, unknown>
+  const { agentPrompt, ...rest } = obj
+  writeFileSync(join(dir, 'agent.json'), JSON.stringify(rest, null, 2))
+  writeFileSync(join(dir, 'prompt.md'), (agentPrompt as string) ?? '')
 }
 
 describe('AgentLoader (schema 2.0)', () => {
@@ -87,6 +91,7 @@ describe('AgentLoader (schema 2.0)', () => {
     const dir = join(tempDir, 'legacy')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'agent.json'), JSON.stringify(v1Profile))
+    writeFileSync(join(dir, 'prompt.md'), '## Workflow\n1. Do.')
 
     const loader = new AgentLoader(tempDir)
     loader.loadAll()
