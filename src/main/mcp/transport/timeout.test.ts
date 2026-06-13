@@ -19,15 +19,18 @@ vi.mock('child_process', () => {
     spawn: vi.fn(() => {
       const proc = new MockProcess()
       setTimeout(() => {
-        proc.stdout.emit('data', JSON.stringify({
-          jsonrpc: '2.0',
-          id: '1',
-          result: {
-            protocolVersion: '2024-11-05',
-            serverInfo: { name: 'test-server', version: '1.0' },
-            capabilities: { tools: true },
-          },
-        }) + '\n')
+        proc.stdout.emit(
+          'data',
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: '1',
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'test-server', version: '1.0' },
+              capabilities: { tools: true },
+            },
+          }) + '\n',
+        )
       }, 10)
       return proc
     }),
@@ -44,14 +47,17 @@ import { spawn } from 'child_process'
 describe('AC-005-03: Timeout Handling', () => {
   describe('StdioTransport timeout', () => {
     it('rejects with timeout error when server does not respond within TIMEOUT_MS', async () => {
-      const transport = new StdioTransport({
-        id: 'slow-server',
-        name: 'Slow Server',
-        type: 'stdio',
-        command: 'echo',
-        args: [],
-        enabled: true,
-      })
+      const transport = new StdioTransport(
+        {
+          id: 'slow-server',
+          name: 'Slow Server',
+          type: 'stdio',
+          command: 'echo',
+          args: [],
+          enabled: true,
+        },
+        200, // 注入短超时,避免真实等待 5min 默认值
+      )
 
       await transport.connect()
 
@@ -61,14 +67,17 @@ describe('AC-005-03: Timeout Handling', () => {
     }, 35000)
 
     it('cleans up pending request after timeout', async () => {
-      const transport = new StdioTransport({
-        id: 'timeout-server',
-        name: 'Timeout Server',
-        type: 'stdio',
-        command: 'echo',
-        args: [],
-        enabled: true,
-      })
+      const transport = new StdioTransport(
+        {
+          id: 'timeout-server',
+          name: 'Timeout Server',
+          type: 'stdio',
+          command: 'echo',
+          args: [],
+          enabled: true,
+        },
+        200, // 注入短超时,避免真实等待 5min 默认值
+      )
 
       await transport.connect()
 
@@ -81,11 +90,14 @@ describe('AC-005-03: Timeout Handling', () => {
       const mockProcess = (spawn as ReturnType<typeof vi.fn>).mock.results[0].value
 
       setTimeout(() => {
-        mockProcess.stdout.emit('data', JSON.stringify({
-          jsonrpc: '2.0',
-          id: '3',
-          result: { content: [{ type: 'text', text: 'late response' }] },
-        }) + '\n')
+        mockProcess.stdout.emit(
+          'data',
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: '3',
+            result: { content: [{ type: 'text', text: 'late response' }] },
+          }) + '\n',
+        )
       }, 10)
 
       // The late response should not cause errors (request already removed)
@@ -130,13 +142,16 @@ describe('AC-005-03: Timeout Handling', () => {
         })
       })
 
-      const transport = new HttpTransport({
-        id: 'http-timeout',
-        name: 'HTTP Timeout',
-        type: 'http',
-        url: 'https://mcp.example.com/slow',
-        enabled: true,
-      })
+      const transport = new HttpTransport(
+        {
+          id: 'http-timeout',
+          name: 'HTTP Timeout',
+          type: 'http',
+          url: 'https://mcp.example.com/slow',
+          enabled: true,
+        },
+        200, // 注入短超时,避免真实等待 5min 默认值
+      )
 
       await transport.connect()
       await expect(transport.callTool('slow_tool', {})).rejects.toThrow(/timed out/)
@@ -144,16 +159,16 @@ describe('AC-005-03: Timeout Handling', () => {
   })
 
   describe('Client-level timeout via Promise.race', () => {
-    it('TOOL_TIMEOUT_MS is set to 30000ms in client.ts', async () => {
-      const clientSource = await import('fs').then(fs =>
-        fs.readFileSync(require('path').resolve(__dirname, '../client.ts'), 'utf-8')
+    it('TOOL_TIMEOUT_MS is set to 300000ms (5min) in client.ts', async () => {
+      const clientSource = await import('fs').then((fs) =>
+        fs.readFileSync(require('path').resolve(__dirname, '../client.ts'), 'utf-8'),
       )
-      expect(clientSource).toContain('TOOL_TIMEOUT_MS = 30000')
+      expect(clientSource).toContain('TOOL_TIMEOUT_MS = 300000')
     })
 
     it('client uses Promise.race for tool execution timeout', async () => {
-      const clientSource = await import('fs').then(fs =>
-        fs.readFileSync(require('path').resolve(__dirname, '../client.ts'), 'utf-8')
+      const clientSource = await import('fs').then((fs) =>
+        fs.readFileSync(require('path').resolve(__dirname, '../client.ts'), 'utf-8'),
       )
       expect(clientSource).toContain('Promise.race')
       expect(clientSource).toContain('TOOL_TIMEOUT_MS')

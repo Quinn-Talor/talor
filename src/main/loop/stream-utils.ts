@@ -136,6 +136,73 @@ export function buildStreamSignal(abortSignal: AbortSignal): AbortSignal {
 }
 
 /**
+ * 可重置 / 可暂停的流超时控制器(用于 react-loop 的带工具 step)。
+ *
+ * 与 buildStreamSignal 的"绝对 120s 墙"不同:这里 120s 衡量的是**模型流的不活跃时长**,
+ * 而非"这一步含等工具的总耗时"。因为 stepCountIs(1) 下工具(含 delegate_agent / 慢 MCP)
+ * 在 streamText 内执行,绝对墙会把合法的长工具误判为超时(外层 delegate 200s 撞 120s)。
+ *
+ * 语义:
+ *   - 起始武装 timeoutMs 计时;
+ *   - ping():模型产出 chunk → 重置(仅在无工具执行时);
+ *   - pause()/resume():工具开始/结束 → 暂停/恢复(执行期不计入,计数支持并行工具);
+ *   - 计时到点 → 以 TimeoutError abort(上层分类为 LLM_TIMEOUT,与原行为一致);
+ *   - dispose():流结束清理 timer。
+ * 父 abortSignal(用户停止)仍并入,任一触发即 abort。
+ */
+export interface StreamTimeoutController {
+  signal: AbortSignal
+  ping(): void
+  pause(): void
+  resume(): void
+  dispose(): void
+}
+
+export function buildStreamTimeout(
+  abortSignal: AbortSignal,
+  timeoutMs: number = STREAM_TIMEOUT_MS,
+): StreamTimeoutController {
+  const ctl = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let active = 0 // 正在执行的工具数(>0 时暂停计时)
+
+  const clear = (): void => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+  const arm = (): void => {
+    clear()
+    timer = setTimeout(
+      () => ctl.abort(new DOMException(`stream inactivity > ${timeoutMs}ms`, 'TimeoutError')),
+      timeoutMs,
+    )
+    if (timer.unref) timer.unref()
+  }
+
+  arm() // 起始武装
+
+  return {
+    signal: AbortSignal.any([abortSignal, ctl.signal]),
+    ping(): void {
+      if (active === 0) arm()
+    },
+    pause(): void {
+      active++
+      clear()
+    },
+    resume(): void {
+      active = Math.max(0, active - 1)
+      if (active === 0) arm()
+    },
+    dispose(): void {
+      clear()
+    },
+  }
+}
+
+/**
  * 把 AI SDK 的 tool-result parts 转成 DB 存储用的 ToolResultBlock[]。
  * 普通工具按 MAX_TOOL_RESULT_BYTES (8KB) 截断。
  * skill 工具按 MAX_SKILL_RESULT_BYTES (1MB) 截断——Skill 内容是完整指令，不能粗暴截断。

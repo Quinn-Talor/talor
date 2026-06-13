@@ -7,7 +7,8 @@ import {
   MCPError,
 } from '../types'
 
-const TIMEOUT_MS = 30000
+// MCP 请求超时默认 5 分钟(与 stdio 一致)。可经构造器 timeoutMs 覆盖(测试注入短值)。
+const DEFAULT_TIMEOUT_MS = 300000
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = [500, 1000, 2000]
 
@@ -17,7 +18,10 @@ export class HttpTransport {
   private serverInfo: { name: string; version: string } | null = null
   private headers: Record<string, string> = {}
 
-  constructor(serverConfig: MCPServerConfig) {
+  constructor(
+    serverConfig: MCPServerConfig,
+    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  ) {
     this.serverConfig = serverConfig
     this.buildHeaders()
   }
@@ -66,10 +70,7 @@ export class HttpTransport {
     return result
   }
 
-  private async sendRequest<T>(
-    method: string,
-    params?: Record<string, unknown>
-  ): Promise<T> {
+  private async sendRequest<T>(method: string, params?: Record<string, unknown>): Promise<T> {
     if (!this.serverConfig.url) {
       throw new MCPError('HTTP transport not connected', -32602)
     }
@@ -79,11 +80,11 @@ export class HttpTransport {
       if (attempt > 0) {
         const delay = RETRY_DELAY_MS[attempt - 1] ?? 2000
         log.warn(`[HttpTransport] Retry ${attempt}/${MAX_RETRIES - 1} for ${method} in ${delay}ms`)
-        await new Promise(resolve => setTimeout(resolve, delay))
+        await new Promise((resolve) => setTimeout(resolve, delay))
       }
 
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
+      const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs)
 
       try {
         const response = await fetch(this.serverConfig.url!, {
@@ -112,7 +113,7 @@ export class HttpTransport {
           throw new MCPError(`HTTP ${response.status}: ${response.statusText}`, -32603)
         }
 
-        const data = await response.json() as {
+        const data = (await response.json()) as {
           error?: { message: string; code: number }
           result?: T
         }

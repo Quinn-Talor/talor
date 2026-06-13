@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { toolResultPartsToBlocks, buildStreamSignal } from './stream-utils'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { toolResultPartsToBlocks, buildStreamSignal, buildStreamTimeout } from './stream-utils'
 
 describe('toolResultPartsToBlocks', () => {
   it('sets isError=false for successful tool result and stores raw (no guide in DB)', () => {
@@ -103,9 +103,7 @@ describe('toolResultPartsToBlocks', () => {
     ['MCP server "lark" is disconnected. Reconnecting...', 'lark.send_message'],
     ['Tool execution error: timeout', 'lark.send_message'],
   ])('marks builtin/MCP error text "%s" as isError=true', (text, toolName) => {
-    const blocks = toolResultPartsToBlocks([
-      { toolCallId: 'c', toolName, output: text },
-    ])
+    const blocks = toolResultPartsToBlocks([{ toolCallId: 'c', toolName, output: text }])
     expect(blocks[0].isError).toBe(true)
   })
 
@@ -138,9 +136,7 @@ describe('toolResultPartsToBlocks', () => {
       code: 'MCP_EXCEPTION',
       message: 'connection refused',
     }
-    const blocks = toolResultPartsToBlocks([
-      { toolCallId: 'c', toolName: 'mcp', output: envelope },
-    ])
+    const blocks = toolResultPartsToBlocks([{ toolCallId: 'c', toolName: 'mcp', output: envelope }])
     expect(blocks[0].output).toContain('[MCP_EXCEPTION] connection refused')
     expect(blocks[0].output).not.toContain('hint:')
   })
@@ -159,5 +155,71 @@ describe('buildStreamSignal', () => {
     const signal = buildStreamSignal(base.signal)
     base.abort()
     expect(signal.aborted).toBe(true)
+  })
+})
+
+describe('buildStreamTimeout (不活跃超时 + 工具期暂停)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('不活跃超过 timeoutMs → 以 TimeoutError abort', () => {
+    vi.useFakeTimers()
+    const base = new AbortController()
+    const t = buildStreamTimeout(base.signal, 1000)
+    expect(t.signal.aborted).toBe(false)
+    vi.advanceTimersByTime(1001)
+    expect(t.signal.aborted).toBe(true)
+    expect((t.signal.reason as Error)?.name).toBe('TimeoutError')
+  })
+
+  it('工具执行期 pause → 即使超过 timeoutMs 也不 abort;resume 后才重新计时', () => {
+    vi.useFakeTimers()
+    const base = new AbortController()
+    const t = buildStreamTimeout(base.signal, 1000)
+    t.pause() // 工具开始
+    vi.advanceTimersByTime(5000) // 工具跑很久
+    expect(t.signal.aborted).toBe(false) // 不计入流超时
+    t.resume() // 工具结束
+    vi.advanceTimersByTime(999)
+    expect(t.signal.aborted).toBe(false)
+    vi.advanceTimersByTime(2)
+    expect(t.signal.aborted).toBe(true) // 恢复后才触发
+  })
+
+  it('并行工具:计数归零后才恢复计时', () => {
+    vi.useFakeTimers()
+    const t = buildStreamTimeout(new AbortController().signal, 1000)
+    t.pause()
+    t.pause() // 两个并行工具
+    t.resume() // 一个结束
+    vi.advanceTimersByTime(2000)
+    expect(t.signal.aborted).toBe(false) // 仍有工具在跑,不超时
+    t.resume() // 全部结束
+    vi.advanceTimersByTime(1001)
+    expect(t.signal.aborted).toBe(true)
+  })
+
+  it('ping 重置计时(模型持续产出不超时)', () => {
+    vi.useFakeTimers()
+    const t = buildStreamTimeout(new AbortController().signal, 1000)
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(800)
+      t.ping() // 每 800ms 来一个 chunk
+    }
+    expect(t.signal.aborted).toBe(false) // 持续活跃,不超时
+    vi.advanceTimersByTime(1001)
+    expect(t.signal.aborted).toBe(true) // 停止产出后超时
+  })
+
+  it('父 abort 仍生效;dispose 后不再触发', () => {
+    vi.useFakeTimers()
+    const base = new AbortController()
+    const t = buildStreamTimeout(base.signal, 1000)
+    base.abort()
+    expect(t.signal.aborted).toBe(true)
+
+    const t2 = buildStreamTimeout(new AbortController().signal, 1000)
+    t2.dispose()
+    vi.advanceTimersByTime(2000)
+    expect(t2.signal.aborted).toBe(false) // 已清理,不会超时
   })
 })

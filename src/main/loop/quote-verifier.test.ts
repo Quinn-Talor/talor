@@ -87,7 +87,7 @@ describe('verifyEntityGrounding (C2)', () => {
   it('does not flag entity grounded in instruction', () => {
     const r = verifyEntityGrounding('百度股价飘摇', {
       instruction: '为百度写一首七言绝句',
-      toolOutputs: [],
+      toolOutputs: ['(some unrelated tool output)'], // 非空,绕过"无来源跳过"guard,实测 instruction 接地
     })
     expect(r.ungroundedCount).toBe(0)
     expect(r.cleaned).toBe('百度股价飘摇')
@@ -113,10 +113,32 @@ describe('verifyEntityGrounding (C2)', () => {
   it('does not flag short Chinese phrases (low signal, length < 4)', () => {
     const r = verifyEntityGrounding('百度的股价表现良好', {
       instruction: 'unrelated',
-      toolOutputs: [],
+      toolOutputs: ['no relevant data'], // 非空,绕过 guard,实测 ≥4 过滤
     })
     // 阈值 ≥4 字: "百度"(2) / "百度股"(3) / "价飘摇"(3) 等都不参与
     expect(r.ungroundedEntities.every((e) => e.length >= 4)).toBe(true)
+  })
+
+  it('skips grounding entirely when there are no tool outputs (no source → no mask)', () => {
+    // 普通对话 / 被打断的兜底摘要:无工具输出 = 无事实来源可接地。
+    // 即使实体未在指令出现,也不应遮罩(否则整段话被剁成 ⟨ungrounded⟩ 碎片)。
+    const r = verifyEntityGrounding('为中际旭创写一首悲情绝句', {
+      instruction: '为什么这么奇怪',
+      toolOutputs: [],
+    })
+    expect(r.ungroundedCount).toBe(0)
+    expect(r.cleaned).toBe('为中际旭创写一首悲情绝句')
+    expect(r.cleaned).not.toContain('⟨ungrounded:')
+  })
+
+  it('still masks the SAME drift entity once a tool output exists (guard does not over-suppress)', () => {
+    // 对照:同样的漂移实体,只要有工具输出(有事实来源),仍应被遮罩。
+    const r = verifyEntityGrounding('为中际旭创写一首悲情绝句', {
+      instruction: '搜索百度',
+      toolOutputs: ['百度公司最新公告原文如下'],
+    })
+    expect(r.ungroundedCount).toBeGreaterThan(0)
+    expect(r.cleaned).toContain('⟨ungrounded:')
   })
 
   it('handles empty input', () => {

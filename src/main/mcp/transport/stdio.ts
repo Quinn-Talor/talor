@@ -8,7 +8,9 @@ import {
   MCPError,
 } from '../types'
 
-const TIMEOUT_MS = 30000
+// MCP 请求超时默认 5 分钟。akshare 类慢数据源单次取数常 >30s,30s 会大面积超时。
+// 可经构造器 timeoutMs 覆盖(测试注入短值,避免真实等待)。
+const DEFAULT_TIMEOUT_MS = 300000
 
 export class StdioTransport {
   private process: ChildProcess | null = null
@@ -24,7 +26,10 @@ export class StdioTransport {
     }
   >()
 
-  constructor(serverConfig: MCPServerConfig) {
+  constructor(
+    serverConfig: MCPServerConfig,
+    private readonly timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  ) {
     this.serverConfig = serverConfig
   }
 
@@ -149,7 +154,7 @@ export class StdioTransport {
           this.pendingRequests.delete(id)
           reject(new MCPError(`Request ${method} timed out`, -32603))
         }
-      }, TIMEOUT_MS)
+      }, this.timeoutMs)
     })
   }
 

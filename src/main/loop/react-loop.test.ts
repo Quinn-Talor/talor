@@ -21,6 +21,13 @@ vi.mock('electron-log', () => ({
 
 vi.mock('./stream-utils', () => ({
   buildStreamSignal: vi.fn((signal: AbortSignal) => signal),
+  buildStreamTimeout: vi.fn((signal: AbortSignal) => ({
+    signal,
+    ping: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    dispose: vi.fn(),
+  })),
   toolResultPartsToBlocks: vi.fn((parts: unknown[]) =>
     (parts as Array<{ toolCallId: string; toolName: string; output: unknown }>).map((p) => ({
       type: 'tool_result' as const,

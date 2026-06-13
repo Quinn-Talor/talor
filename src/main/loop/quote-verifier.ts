@@ -86,6 +86,12 @@ export function verifyEntityGrounding(
 ): { cleaned: string; ungroundedCount: number; ungroundedEntities: string[] } {
   if (!text) return { cleaned: text, ungroundedCount: 0, ungroundedEntities: [] }
 
+  // 无工具输出 = 无"事实来源"可接地。此时实体接地校验不适用:模型不是在陈述
+  // 工具得来的事实(只是普通对话 / 被打断的兜底摘要),逐实体比对会把整段话
+  // 剁成 ⟨ungrounded:⟩ 碎片。无来源 → 跳过(verifyQuotedFacts 的引号校验仍独立生效)。
+  const hasToolOutput = (groundingSources.toolOutputs ?? []).some((o) => o.trim() !== '')
+  if (!hasToolOutput) return { cleaned: text, ungroundedCount: 0, ungroundedEntities: [] }
+
   const instructionText = groundingSources.instruction ?? ''
   const toolOutputCorpus = (groundingSources.toolOutputs ?? []).join('\n')
   const sourceCorpus = `${instructionText}\n${toolOutputCorpus}`

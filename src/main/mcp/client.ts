@@ -14,7 +14,8 @@ import { MCPServerConfig, MCPError } from './types'
 import { StdioTransport } from './transport/stdio'
 import { HttpTransport } from './transport/http'
 
-const TOOL_TIMEOUT_MS = 30000
+// 客户端层工具执行超时 5 分钟(与 transport 层默认一致),容纳 akshare 类慢数据源。
+const TOOL_TIMEOUT_MS = 300000
 const MAX_RECONNECT_ATTEMPTS = 3
 const RECONNECT_DELAY_MS = [1000, 2000, 4000]
 

@@ -19,7 +19,7 @@ import { streamText, stepCountIs, type LanguageModel, type StepResult, type Tool
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
-import { buildStreamSignal } from './stream-utils'
+import { buildStreamTimeout } from './stream-utils'
 import { buildTools } from '../tools/build-tools'
 import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks, LoopExitReason } from './types'
@@ -596,22 +596,27 @@ async function runReactStep(
   log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)
 
   // 6. streamText (single step — stepCountIs(1) 显式)
+  // 流超时 = 模型不活跃超时,工具执行期暂停(delegate_agent / 慢 MCP 在 step 内执行,
+  // 不应计入流超时;delegate 有自己的 executionTimeoutMs 预算)。见 stream-utils。
+  const streamTimeout = buildStreamTimeout(ctx.abortSignal)
   const result = streamText({
     model: ctx.model,
     messages,
     tools,
     ...ctx.streamOptions,
     ...streamParams,
-    abortSignal: buildStreamSignal(ctx.abortSignal),
+    abortSignal: streamTimeout.signal,
     stopWhen: stepCountIs(1),
 
     onChunk({ chunk }) {
+      streamTimeout.ping() // 模型在产出 → 重置不活跃计时
       if (chunk.type === 'text-delta' && chunk.text.length > 0) {
         ctx.callbacks.onTextDelta(chunk.text, stepIndex)
       }
     },
 
     experimental_onToolCallStart({ toolCall }) {
+      streamTimeout.pause() // 工具执行期不计入流超时
       const startedAt = Date.now()
       log.info(
         `[ReactLoop]   ⊳ tool-start: ${toolCall.toolName} id=${toolCall.toolCallId.slice(0, 12)}`,
@@ -626,6 +631,7 @@ async function runReactStep(
     },
 
     experimental_onToolCallFinish(event) {
+      streamTimeout.resume() // 工具结束 → 恢复不活跃计时
       log.info(
         `[ReactLoop]   ⊲ tool-finish: ${event.toolCall.toolName} id=${event.toolCall.toolCallId.slice(0, 12)} [${event.durationMs}ms] success=${event.success}`,
       )
@@ -749,5 +755,7 @@ async function runReactStep(
       ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
     }
     throw err
+  } finally {
+    streamTimeout.dispose() // 清理流超时 timer(无论成功/异常)
   }
 }

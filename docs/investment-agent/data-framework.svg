@@ -1,0 +1,278 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1780" font-family="Noto Sans SC, PingFang SC, Microsoft YaHei, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2f7"/>
+    </linearGradient>
+    <linearGradient id="macroG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e3a8a"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="indG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="tgtG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b45309"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="baseG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#334155"/>
+      <stop offset="1" stop-color="#475569"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1600" height="1780" fill="url(#bg)"/>
+
+  <!-- ===== HEADER ===== -->
+  <text x="60" y="86" font-size="40" font-weight="700" fill="#0f172a">A股投资 Agent · 数据框架体系</text>
+  <text x="62" y="122" font-size="19" fill="#64748b">宏观 → 行业 → 标的 ｜ 三层「数据 → 逻辑」加工管道</text>
+
+  <!-- pipeline chips -->
+  <g font-size="15" font-weight="600">
+    <rect x="60" y="150" width="150" height="46" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="135" y="179" fill="#5b21b6" text-anchor="middle">① 原始数据</text>
+    <polyline points="214,173 230,173" stroke="#7c3aed" stroke-width="2" fill="none"/>
+    <polygon points="230,168 240,173 230,178" fill="#7c3aed"/>
+    <rect x="244" y="150" width="150" height="46" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="319" y="179" fill="#5b21b6" text-anchor="middle">② 衍生指标</text>
+    <polyline points="398,173 414,173" stroke="#7c3aed" stroke-width="2" fill="none"/>
+    <polygon points="414,168 424,173 414,178" fill="#7c3aed"/>
+    <rect x="428" y="150" width="150" height="46" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="503" y="179" fill="#5b21b6" text-anchor="middle">③ 三维对比</text>
+    <polyline points="582,173 598,173" stroke="#7c3aed" stroke-width="2" fill="none"/>
+    <polygon points="598,168 608,173 598,178" fill="#7c3aed"/>
+    <rect x="612" y="150" width="130" height="46" rx="10" fill="#ede9fe" stroke="#7c3aed"/>
+    <text x="677" y="179" fill="#5b21b6" text-anchor="middle">④ 信号</text>
+    <polyline points="746,173 762,173" stroke="#7c3aed" stroke-width="2" fill="none"/>
+    <polygon points="762,168 772,173 762,178" fill="#7c3aed"/>
+    <rect x="776" y="150" width="150" height="46" rx="10" fill="#ddd6fe" stroke="#7c3aed"/>
+    <text x="851" y="179" fill="#5b21b6" text-anchor="middle">⑤ 逻辑产出</text>
+  </g>
+
+  <!-- 预期差 callout -->
+  <rect x="966" y="138" width="574" height="74" rx="12" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="990" y="170" font-size="18" font-weight="700" fill="#dc2626">★ 超额收益 = 数据揭示的「预期差」</text>
+  <text x="990" y="196" font-size="14.5" fill="#7f1d1d">实际数据 vs 市场一致预期 —— 而非数据绝对值(否则早已 price in)</text>
+
+  <!-- ================= MACRO LAYER ================= -->
+  <!-- label card -->
+  <rect x="44" y="295" width="216" height="286" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="40" y="290" width="216" height="286" rx="14" fill="url(#macroG)"/>
+  <text x="148" y="362" font-size="30" font-weight="700" fill="#ffffff" text-anchor="middle">宏观层</text>
+  <text x="148" y="396" font-size="15" fill="#bfdbfe" text-anchor="middle">环境底座</text>
+  <text x="148" y="420" font-size="15" fill="#bfdbfe" text-anchor="middle">agent 主导</text>
+  <line x1="80" y1="446" x2="216" y2="446" stroke="#93c5fd" stroke-width="1"/>
+  <text x="148" y="478" font-size="14" fill="#dbeafe" text-anchor="middle">季度级 · 低频</text>
+  <text x="148" y="520" font-size="13" fill="#bfdbfe" text-anchor="middle">不预测点位</text>
+  <text x="148" y="542" font-size="13" fill="#bfdbfe" text-anchor="middle">只识别环境</text>
+
+  <!-- 数据源 -->
+  <rect x="294" y="295" width="400" height="286" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="290" y="290" width="400" height="286" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="290" y="290" width="400" height="8" rx="4" fill="#3b82f6"/>
+  <text x="314" y="334" font-size="17" font-weight="700" fill="#1d4ed8">数据源 / DATA</text>
+  <g font-size="15" fill="#334155">
+    <text x="314" y="372">· M2 · 社融增速</text>
+    <text x="314" y="400">· 利率 DR007 / LPR / 10Y国债</text>
+    <text x="314" y="428">· 央行公开市场操作</text>
+    <text x="314" y="456">· PMI · CPI · PPI · GDP</text>
+    <text x="314" y="484">· 北向 · 两融 · 新基金发行</text>
+    <text x="314" y="512">· 政策文本(规划/会议/部委)</text>
+  </g>
+
+  <polyline points="694,433 728,433" stroke="#94a3b8" stroke-width="2.5" fill="none"/>
+  <polygon points="728,426 742,433 728,440" fill="#94a3b8"/>
+
+  <!-- 数据逻辑 -->
+  <rect x="734" y="295" width="386" height="286" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="730" y="290" width="386" height="286" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="730" y="290" width="386" height="8" rx="4" fill="#3b82f6"/>
+  <text x="754" y="334" font-size="17" font-weight="700" fill="#1d4ed8">数据逻辑 / LOGIC</text>
+  <g font-size="15" fill="#334155">
+    <text x="754" y="376">· 流动性松紧 → 估值环境</text>
+    <text x="754" y="408">· 美林时钟(增长 × 通胀)</text>
+    <text x="754" y="440">· 利率方向 → 价值 / 成长</text>
+    <text x="754" y="472">· 政策打标:顺风/逆风/否决</text>
+  </g>
+
+  <polyline points="1120,433 1154,433" stroke="#94a3b8" stroke-width="2.5" fill="none"/>
+  <polygon points="1154,426 1168,433 1154,440" fill="#94a3b8"/>
+
+  <!-- 产出 -->
+  <rect x="1164" y="295" width="396" height="286" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="1160" y="290" width="396" height="286" rx="14" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="1184" y="334" font-size="17" font-weight="700" fill="#1d4ed8">产出 / OUTPUT</text>
+  <g font-size="15.5" fill="#1e3a8a">
+    <text x="1184" y="380" font-weight="600">① 仓位基调</text>
+    <text x="1300" y="380" font-size="14" fill="#475569">进攻/中性/防守</text>
+    <text x="1184" y="420" font-weight="600">② 风格基调</text>
+    <text x="1300" y="420" font-size="14" fill="#475569">价值/成长·大/小盘</text>
+    <text x="1184" y="460" font-weight="600">③ 赛道过滤名单</text>
+    <text x="1184" y="494" font-size="13.5" fill="#64748b">(向下为行业层划定边界)</text>
+  </g>
+
+  <!-- ====== inter-band arrows: macro -> industry ====== -->
+  <polyline points="1090,581 1090,655" stroke="#1d4ed8" stroke-width="3" fill="none"/>
+  <polygon points="1083,652 1090,668 1097,652" fill="#1d4ed8"/>
+  <text x="1110" y="628" font-size="15" font-weight="600" fill="#1d4ed8">约束 ▾ 划定赛道边界</text>
+
+  <polyline points="430,668 430,594" stroke="#0d9488" stroke-width="3" fill="none" stroke-dasharray="6 5"/>
+  <polygon points="423,597 430,581 437,597" fill="#0d9488"/>
+  <text x="190" y="636" font-size="15" font-weight="600" fill="#0d9488">验证 ▴ 逻辑卡回填</text>
+
+  <!-- ================= INDUSTRY LAYER ================= -->
+  <rect x="44" y="685" width="216" height="266" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="40" y="680" width="216" height="266" rx="14" fill="url(#indG)"/>
+  <text x="148" y="752" font-size="30" font-weight="700" fill="#ffffff" text-anchor="middle">行业层</text>
+  <text x="148" y="786" font-size="15" fill="#99f6e4" text-anchor="middle">选景气赛道</text>
+  <text x="148" y="810" font-size="15" fill="#99f6e4" text-anchor="middle">人机协作</text>
+  <line x1="80" y1="836" x2="216" y2="836" stroke="#5eead4" stroke-width="1"/>
+  <text x="148" y="870" font-size="14" fill="#ccfbf1" text-anchor="middle">月度 / 周度</text>
+  <text x="148" y="906" font-size="13" fill="#99f6e4" text-anchor="middle">量价 + 库存周期</text>
+
+  <rect x="294" y="685" width="400" height="266" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="290" y="680" width="400" height="266" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="290" y="680" width="400" height="8" rx="4" fill="#14b8a6"/>
+  <text x="314" y="724" font-size="17" font-weight="700" fill="#0f766e">数据源 / DATA</text>
+  <g font-size="15" fill="#334155">
+    <text x="314" y="764">· 产销量 · 产品价格(高频先行)</text>
+    <text x="314" y="796">· 库存 · 产能利用率</text>
+    <text x="314" y="828">· 行业 PE / PB 历史分位</text>
+    <text x="314" y="860">· 行业资金流向(北向/ETF)</text>
+  </g>
+
+  <polyline points="694,815 728,815" stroke="#94a3b8" stroke-width="2.5" fill="none"/>
+  <polygon points="728,808 742,815 728,822" fill="#94a3b8"/>
+
+  <rect x="734" y="685" width="386" height="266" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="730" y="680" width="386" height="266" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="730" y="680" width="386" height="8" rx="4" fill="#14b8a6"/>
+  <text x="754" y="724" font-size="17" font-weight="700" fill="#0f766e">数据逻辑 / LOGIC</text>
+  <g font-size="15" fill="#334155">
+    <text x="754" y="764">· 量价齐升 → 景气上行</text>
+    <text x="754" y="796">· 低库存 + 需求 → 补库拐点</text>
+    <text x="754" y="828">· 低分位 + 景气 = 双击候选</text>
+    <text x="754" y="860">· 景气·估值·资金 三共振</text>
+  </g>
+
+  <polyline points="1120,815 1154,815" stroke="#94a3b8" stroke-width="2.5" fill="none"/>
+  <polygon points="1154,808 1168,815 1154,822" fill="#94a3b8"/>
+
+  <rect x="1164" y="685" width="396" height="266" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="1160" y="680" width="396" height="266" rx="14" fill="#f0fdfa" stroke="#14b8a6" stroke-width="1.5"/>
+  <text x="1184" y="724" font-size="17" font-weight="700" fill="#0f766e">产出 / OUTPUT</text>
+  <g fill="#115e59">
+    <text x="1184" y="780" font-size="20" font-weight="700">1 ~ 3 个景气向上行业</text>
+    <text x="1184" y="824" font-size="14.5" fill="#475569">在宏观允许范围内,缩小</text>
+    <text x="1184" y="850" font-size="14.5" fill="#475569">到具体战场,供标的层深耕</text>
+  </g>
+
+  <!-- ====== inter-band arrows: industry -> target ====== -->
+  <polyline points="1090,951 1090,1025" stroke="#0f766e" stroke-width="3" fill="none"/>
+  <polygon points="1083,1022 1090,1038 1097,1022" fill="#0f766e"/>
+  <text x="1110" y="998" font-size="15" font-weight="600" fill="#0f766e">约束 ▾ 缩小到具体行业</text>
+
+  <polyline points="430,1038 430,964" stroke="#d97706" stroke-width="3" fill="none" stroke-dasharray="6 5"/>
+  <polygon points="423,967 430,951 437,967" fill="#d97706"/>
+  <text x="190" y="1006" font-size="15" font-weight="600" fill="#d97706">验证 ▴ 个股逻辑反推</text>
+
+  <!-- ================= TARGET LAYER ================= -->
+  <rect x="44" y="1055" width="216" height="356" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="40" y="1050" width="216" height="356" rx="14" fill="url(#tgtG)"/>
+  <text x="148" y="1126" font-size="30" font-weight="700" fill="#ffffff" text-anchor="middle">标的层</text>
+  <text x="148" y="1160" font-size="15" fill="#fde68a" text-anchor="middle">逻辑卡 7 要素</text>
+  <text x="148" y="1184" font-size="15" fill="#fde68a" text-anchor="middle">人主导</text>
+  <line x1="80" y1="1210" x2="216" y2="1210" stroke="#fcd34d" stroke-width="1"/>
+  <text x="148" y="1244" font-size="14" fill="#fef3c7" text-anchor="middle">季报 / 事件驱动</text>
+  <text x="148" y="1288" font-size="13" fill="#fde68a" text-anchor="middle">定性判断</text>
+  <text x="148" y="1310" font-size="13" fill="#fde68a" text-anchor="middle">留给人(能力圈)</text>
+  <text x="148" y="1356" font-size="13" fill="#fef3c7" text-anchor="middle">agent 供料</text>
+  <text x="148" y="1378" font-size="13" fill="#fef3c7" text-anchor="middle">+ 排雷 + 追踪</text>
+
+  <rect x="294" y="1055" width="400" height="356" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="290" y="1050" width="400" height="356" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="290" y="1050" width="400" height="8" rx="4" fill="#f59e0b"/>
+  <text x="314" y="1094" font-size="17" font-weight="700" fill="#b45309">数据源 / DATA</text>
+  <g font-size="15" fill="#334155">
+    <text x="314" y="1134">· 营收 · 扣非净利润增速</text>
+    <text x="314" y="1166">· 毛利率 · ROE 杜邦拆解</text>
+    <text x="314" y="1198">· 经营现金流 / 净利润</text>
+    <text x="314" y="1230">· 应收 · 存货 · 商誉 · 负债</text>
+    <text x="314" y="1262">· 在建工程 · 合同负债</text>
+    <text x="314" y="1294">· 解禁 · 减持 · 融券余额</text>
+    <text x="314" y="1336" font-size="13.5" fill="#94a3b8">一手:巨潮 cninfo 公告 / 财报</text>
+  </g>
+
+  <polyline points="694,1228 728,1228" stroke="#94a3b8" stroke-width="2.5" fill="none"/>
+  <polygon points="728,1221 742,1228 728,1235" fill="#94a3b8"/>
+
+  <rect x="734" y="1055" width="386" height="356" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="730" y="1050" width="386" height="356" rx="14" fill="#ffffff" stroke="#e2e8f0"/>
+  <rect x="730" y="1050" width="386" height="8" rx="4" fill="#f59e0b"/>
+  <text x="754" y="1094" font-size="17" font-weight="700" fill="#b45309">数据逻辑 / LOGIC</text>
+  <g font-size="15" fill="#334155">
+    <text x="754" y="1138">· 三表勾稽 → 财务排雷</text>
+    <text x="754" y="1176">· 现金流/利润 &lt; 1 → 白条</text>
+    <text x="754" y="1214">· 毛利率 vs 同业 → 护城河</text>
+    <text x="754" y="1252">· 在建/合同负债 → 催化剂</text>
+    <text x="754" y="1290">· 实际 vs 一致预期 → 预期差</text>
+  </g>
+  <rect x="754" y="1316" width="342" height="64" rx="9" fill="#fef2f2" stroke="#fca5a5"/>
+  <text x="772" y="1342" font-size="13.5" font-weight="600" fill="#dc2626">排雷红灯:存贷双高 · 商誉过高</text>
+  <text x="772" y="1364" font-size="13.5" font-weight="600" fill="#dc2626">应收&gt;&gt;营收 · 审计非标 → 一票否决</text>
+
+  <polyline points="1120,1228 1154,1228" stroke="#94a3b8" stroke-width="2.5" fill="none"/>
+  <polygon points="1154,1221 1168,1228 1154,1235" fill="#94a3b8"/>
+
+  <rect x="1164" y="1055" width="396" height="356" rx="14" fill="#000" opacity="0.05"/>
+  <rect x="1160" y="1050" width="396" height="356" rx="14" fill="#fffbeb" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="1184" y="1094" font-size="17" font-weight="700" fill="#b45309">产出 / OUTPUT</text>
+  <text x="1184" y="1134" font-size="19" font-weight="700" fill="#92400e">逻辑卡 · 7 要素</text>
+  <g font-size="14.5" fill="#78350f">
+    <text x="1184" y="1172">① 核心命题  ② 收益来源</text>
+    <text x="1184" y="1202">③ 因果链(β/α/催化)</text>
+    <text x="1184" y="1232">④ 关键假设  ⑤ 证伪条件</text>
+    <text x="1184" y="1262">⑥ 赔率  ⑦ 反方观点</text>
+  </g>
+  <rect x="1184" y="1290" width="352" height="92" rx="10" fill="#fef9c3" stroke="#eab308"/>
+  <text x="1204" y="1322" font-size="15" font-weight="700" fill="#854d0e">→ 证伪追踪</text>
+  <text x="1204" y="1350" font-size="13.5" fill="#713f12">季报自动比对关键假设,逻辑</text>
+  <text x="1204" y="1372" font-size="13.5" fill="#713f12">破坏即预警(连接交易纪律)</text>
+
+  <!-- ====== inter-band arrow: target -> base ====== -->
+  <polyline points="800,1455 800,1490" stroke="#475569" stroke-width="3" fill="none" stroke-dasharray="6 5"/>
+  <polygon points="793,1457 800,1441 807,1457" fill="#475569"/>
+  <text x="820" y="1480" font-size="14" font-weight="600" fill="#475569">↑ 全部三层由统一数据底座供血</text>
+
+  <!-- ================= DATA FOUNDATION ================= -->
+  <rect x="44" y="1505" width="1516" height="240" rx="16" fill="#000" opacity="0.05"/>
+  <rect x="40" y="1500" width="1516" height="240" rx="16" fill="url(#baseG)"/>
+  <text x="72" y="1552" font-size="24" font-weight="700" fill="#ffffff">数据采集底座</text>
+  <text x="270" y="1552" font-size="15" fill="#cbd5e1">落库 → better-sqlite3(Talor 现成持久化) · 衍生计算走代码(确定性硬规则)</text>
+
+  <g>
+    <rect x="72" y="1576" width="282" height="76" rx="11" fill="#1e293b" stroke="#64748b"/>
+    <text x="92" y="1606" font-size="15" font-weight="700" fill="#7dd3fc">行情 + 财务</text>
+    <text x="92" y="1632" font-size="14" fill="#cbd5e1">Tushare / AkShare(开源)</text>
+
+    <rect x="374" y="1576" width="282" height="76" rx="11" fill="#1e293b" stroke="#64748b"/>
+    <text x="394" y="1606" font-size="15" font-weight="700" fill="#7dd3fc">公告 / 财报</text>
+    <text x="394" y="1632" font-size="14" fill="#cbd5e1">巨潮 cninfo(官方一手)</text>
+
+    <rect x="676" y="1576" width="282" height="76" rx="11" fill="#1e293b" stroke="#64748b"/>
+    <text x="696" y="1606" font-size="15" font-weight="700" fill="#7dd3fc">宏观</text>
+    <text x="696" y="1632" font-size="14" fill="#cbd5e1">央行 / 统计局官网</text>
+
+    <rect x="978" y="1576" width="282" height="76" rx="11" fill="#1e293b" stroke="#64748b"/>
+    <text x="998" y="1606" font-size="15" font-weight="700" fill="#7dd3fc">政策</text>
+    <text x="998" y="1632" font-size="14" fill="#cbd5e1">政府网 / 部委(抓取+解析)</text>
+
+    <rect x="1280" y="1576" width="258" height="76" rx="11" fill="#1e293b" stroke="#64748b"/>
+    <text x="1300" y="1606" font-size="15" font-weight="700" fill="#7dd3fc">资金面</text>
+    <text x="1300" y="1632" font-size="14" fill="#cbd5e1">交易所:北向/两融/龙虎榜</text>
+  </g>
+
+  <rect x="72" y="1668" width="1466" height="50" rx="10" fill="#422006" stroke="#f59e0b"/>
+  <text x="92" y="1699" font-size="15" font-weight="600" fill="#fbbf24">⚠ 边界:免费源覆盖宏观 + 财务,基本够用;深度产业链景气数据 = 付费天花板,是 agent 的现实短板</text>
+</svg>
