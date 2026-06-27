@@ -46,6 +46,20 @@ describe('bash tool', () => {
     expect(String(result.output)).toContain('No such file')
   })
 
+  // 回归(Principle 3 逐字报告失败):非零退出时,写到 STDOUT 的诊断信息也必须返回。
+  // 旧实现只取 stderr,丢弃 stdout → 很多 CLI 把错误打到 stdout、或模型用 `2>&1`
+  // 把 stderr 并进 stdout 时,模型只看到 "exit code 1" 无任何线索 → 盲目重试 →
+  // failure-streak 收尾,任务卡死。
+  it('非零退出时保留 stdout 诊断输出(不止 stderr)', async () => {
+    const result = await run('echo "DIAGNOSTIC_ON_STDOUT" && exit 1')
+    expect(String(result.output)).toContain('DIAGNOSTIC_ON_STDOUT')
+  })
+
+  it('非零退出 + 2>&1 合并流:错误内容仍可见', async () => {
+    const result = await run('{ echo "to-stderr" >&2; } 2>&1; exit 3')
+    expect(String(result.output)).toContain('to-stderr')
+  })
+
   it('blocks access to sensitive system paths', async () => {
     const result = await run('ls /etc/passwd')
     expect(String(result.output)).toContain('not allowed')
@@ -139,7 +153,10 @@ describe('bash tool', () => {
   it('abort signal terminates running command quickly', async () => {
     const controller = new AbortController()
     const start = Date.now()
-    const pending = run('sleep 30', makeCtx({ toolTimeoutMs: 60_000, abortSignal: controller.signal }))
+    const pending = run(
+      'sleep 30',
+      makeCtx({ toolTimeoutMs: 60_000, abortSignal: controller.signal }),
+    )
     setTimeout(() => controller.abort(), 200)
     const result = await pending
     const elapsed = Date.now() - start
@@ -161,7 +178,10 @@ describe('bash tool', () => {
   it('exit=0 but stderr contains "error" keyword → BASH_STDERR_FAILURE envelope', async () => {
     const result = await run('echo "error: oauth token expired" >&2')
     const env = result.output as {
-      __talor_error?: boolean; code?: string; message?: string; hint?: string
+      __talor_error?: boolean
+      code?: string
+      message?: string
+      hint?: string
     }
     expect(env.__talor_error).toBe(true)
     expect(env.code).toBe('BASH_STDERR_FAILURE')

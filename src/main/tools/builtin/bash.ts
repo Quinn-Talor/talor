@@ -2,7 +2,12 @@ import { spawn } from 'child_process'
 import * as os from 'os'
 import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, ToolErrorEnvelope, ValidationResult, VerifyResult } from '../types'
+import type {
+  ToolExecuteContext,
+  ToolErrorEnvelope,
+  ValidationResult,
+  VerifyResult,
+} from '../types'
 import { DEFAULT_TOOL_TIMEOUT_MS } from '../types'
 import { writeTmpOutput } from '../tool-tmp'
 
@@ -10,7 +15,8 @@ import { writeTmpOutput } from '../tool-tmp'
 // 成功时也会往 stderr 写 warning,仅凭"stderr 非空"误判会太嘈杂;用关键字筛选
 // 出**语义上明确指示失败**的输出。反之 exit=0 + 普通 stderr 加标注即可,模型看到
 // "[stderr — informational only, exit=0]" 就不会当成失败。
-const STDERR_FAILURE_HINTS = /\b(error|fatal|denied|refused|forbidden|unauthorized|not authorized|permission denied)\b/i
+const STDERR_FAILURE_HINTS =
+  /\b(error|fatal|denied|refused|forbidden|unauthorized|not authorized|permission denied)\b/i
 
 const DANGEROUS_SUBSTRINGS = [
   'rm -rf /',
@@ -42,19 +48,12 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /(^|\s)sudo(\s|$)/i,
 ]
 
-const SENSITIVE_PATH_PATTERNS = [
-  '/etc/',
-  '/root/',
-  '/.ssh/',
-  '/.aws/',
-  '/usr/bin/',
-  '/usr/sbin/',
-]
+const SENSITIVE_PATH_PATTERNS = ['/etc/', '/root/', '/.ssh/', '/.aws/', '/usr/bin/', '/usr/sbin/']
 
 function isCommandDangerous(command: string): boolean {
-  if (DANGEROUS_SUBSTRINGS.some(s => command.includes(s))) return true
-  if (DANGEROUS_PATTERNS.some(re => re.test(command))) return true
-  if (SENSITIVE_PATH_PATTERNS.some(p => command.includes(p))) return true
+  if (DANGEROUS_SUBSTRINGS.some((s) => command.includes(s))) return true
+  if (DANGEROUS_PATTERNS.some((re) => re.test(command))) return true
+  if (SENSITIVE_PATH_PATTERNS.some((p) => command.includes(p))) return true
   return false
 }
 
@@ -95,11 +94,15 @@ const MAX_BUFFER_BYTES = 10 * 1024 * 1024
 // transform(s.trim()) 虽然更优雅但会让 toJSONSchema 崩溃(transform 不可序列化),
 // 所以把 trim 逻辑放到 refine 里(校验 trim 后的内容),输出不做变换。
 const BashInput = z.object({
-  command: z.string()
+  command: z
+    .string()
     .describe('Shell command to execute')
-    .refine(s => s.trim().length > 0, 'Missing required parameter: "command" must be a non-empty string.')
-    .refine(s => s.trim().length <= 2000, 'Command too long (max 2000 chars).')
-    .refine(s => !isCommandDangerous(s), 'Dangerous command not allowed.'),
+    .refine(
+      (s) => s.trim().length > 0,
+      'Missing required parameter: "command" must be a non-empty string.',
+    )
+    .refine((s) => s.trim().length <= 2000, 'Command too long (max 2000 chars).')
+    .refine((s) => !isCommandDangerous(s), 'Dangerous command not allowed.'),
   description: z.string().describe('Description of the command (optional)').optional(),
 })
 type BashInputT = z.infer<typeof BashInput>
@@ -120,24 +123,36 @@ const bashTool = {
     if (!context.workspace)
       return { ok: false, error: 'Workspace not set. Please set workspace first.' }
     const writeViolation = checkWritePaths(params.command, context.workspace)
-    if (writeViolation)
-      return { ok: false, error: writeViolation }
+    if (writeViolation) return { ok: false, error: writeViolation }
     return { ok: true }
   },
 
-  async verify(output: unknown, input: unknown, context: ToolExecuteContext): Promise<VerifyResult> {
+  async verify(
+    output: unknown,
+    input: unknown,
+    context: ToolExecuteContext,
+  ): Promise<VerifyResult> {
     // ToolErrorEnvelope 由 execute 直接产出(如 BASH_STDERR_FAILURE),verify 不应
     // 把它降级成字符串——原样透传,让 registry / stream-utils 按结构识别。
-    if (output && typeof output === 'object' && (output as { __talor_error?: boolean }).__talor_error) {
+    if (
+      output &&
+      typeof output === 'object' &&
+      (output as { __talor_error?: boolean }).__talor_error
+    ) {
       return { ok: true, output }
     }
     const raw = String(output ?? '')
     const { command } = input as { command: string }
 
-    if (raw.includes('[exit: non-zero]') &&
-        (raw.includes('unknown flag') || raw.includes('unknown command'))) {
+    if (
+      raw.includes('[exit: non-zero]') &&
+      (raw.includes('unknown flag') || raw.includes('unknown command'))
+    ) {
       const base = command.trim().split(/\s+/).slice(0, 2).join(' ')
-      return { ok: true, output: `${raw}\n[hint: run "${base} --help" to see available flags and commands]` }
+      return {
+        ok: true,
+        output: `${raw}\n[hint: run "${base} --help" to see available flags and commands]`,
+      }
     }
 
     if (raw.length > STDOUT_THRESHOLD_BYTES && context.tmpDir) {
@@ -172,11 +187,21 @@ const bashTool = {
       let killed: 'timeout' | 'abort' | 'oversize' | null = null
       let settled = false
 
-      const hardKill = () => { try { child.kill('SIGKILL') } catch { /* already exited */ } }
+      const hardKill = () => {
+        try {
+          child.kill('SIGKILL')
+        } catch {
+          /* already exited */
+        }
+      }
       const terminate = (reason: 'timeout' | 'abort' | 'oversize') => {
         if (killed) return
         killed = reason
-        try { child.kill('SIGTERM') } catch { /* ignore */ }
+        try {
+          child.kill('SIGTERM')
+        } catch {
+          /* ignore */
+        }
         setTimeout(hardKill, 2000).unref()
       }
 
@@ -212,11 +237,24 @@ const bashTool = {
       })
 
       child.on('close', (code) => {
-        if (killed === 'timeout') return finish({ output: `Command timed out after ${toolTimeoutMs}ms` })
+        if (killed === 'timeout')
+          return finish({ output: `Command timed out after ${toolTimeoutMs}ms` })
         if (killed === 'abort') return finish({ output: `[aborted] Command was cancelled.` })
-        if (killed === 'oversize') return finish({ output: `[exit: non-zero]\nCommand output exceeded ${MAX_BUFFER_BYTES} bytes and was terminated.` })
+        if (killed === 'oversize')
+          return finish({
+            output: `[exit: non-zero]\nCommand output exceeded ${MAX_BUFFER_BYTES} bytes and was terminated.`,
+          })
         if (code !== 0) {
-          const errBody = stderr.trim() || `exit code ${code}`
+          // Principle 3(逐字报告失败):非零退出要把命令实际输出原样带回。只取 stderr
+          // 会丢两类常见情形 —— (1) CLI 把错误打到 stdout;(2) 模型用 `2>&1` 把 stderr
+          // 并进 stdout(此时 stderr 捕获为空)。两种都会让模型只看到 "exit code N" 而
+          // 无从诊断,盲目重试直至 failure-streak 收尾。合并 stdout+stderr 即可。
+          const out = stdout.trim()
+          const err = stderr.trim()
+          const parts: string[] = []
+          if (out) parts.push(out)
+          if (err) parts.push(err)
+          const errBody = parts.join('\n') || `exit code ${code}`
           return finish({ output: `[exit: non-zero]\n${errBody}` })
         }
         const out = stdout.trim()
