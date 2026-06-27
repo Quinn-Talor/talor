@@ -188,6 +188,7 @@ export async function runForcedSummary(
       maxOutputTokens: 64_000,
       messages: [...messages, opts.guardrail],
       abortSignal: buildStreamSignal(ctx.abortSignal),
+      allowSystemInMessages: true, // v7: system 走 messages 数组
     })
 
     let summaryText = ''

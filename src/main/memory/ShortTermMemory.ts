@@ -395,6 +395,7 @@ async function generateSummary(
     ],
     maxOutputTokens: Math.ceil(summaryBudget),
     abortSignal: AbortSignal.timeout(60_000),
+    allowSystemInMessages: true, // v7: system 走 messages 数组
   })
   recordUsage(sessionId, usage, providerMetadata as Record<string, unknown> | undefined)
 

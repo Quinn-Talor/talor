@@ -68,6 +68,7 @@ export async function runReflectAgent<SNAPSHOT, RESULT>(
       ],
       maxOutputTokens: agent.maxOutputTokens,
       abortSignal: combinedSignal,
+      allowSystemInMessages: true, // v7: system 走 messages 数组
     })
     if (sessionId) {
       recordUsage(sessionId, res.usage, res.providerMetadata as Record<string, unknown> | undefined)
