@@ -1,4 +1,4 @@
-import type { CoreMessage } from 'ai'
+import type { ModelMessage } from 'ai'
 import type { Provider } from '../store/config-store'
 import type { Agent } from '../agent/agent'
 import type { ToolMetadata } from '../tools/types'
@@ -46,7 +46,7 @@ export interface PipelineContext {
 }
 
 export interface PluginResult {
-  messages: CoreMessage[]
+  messages: ModelMessage[]
   tools: ToolMetadata[]
   tokenEstimate: number
 }

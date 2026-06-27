@@ -10,7 +10,7 @@ import { MemoryManager } from '../memory/MemoryManager'
 import type { PipelineContext, PluginResult, ProviderContextConfig } from './types'
 import type { ToolMetadata } from '../tools/types'
 import type { Provider } from '../store/config-store'
-import type { CoreMessage } from 'ai'
+import type { ModelMessage } from 'ai'
 import log from 'electron-log'
 
 /**
@@ -91,9 +91,9 @@ export class PromptPipeline {
    * Non-critical plugins: failure is logged and a [DEGRADED] system message is
    * prepended so the model knows some context is missing.
    */
-  async build(ctx: PipelineContext): Promise<{ messages: CoreMessage[]; tools: ToolMetadata[] }> {
+  async build(ctx: PipelineContext): Promise<{ messages: ModelMessage[]; tools: ToolMetadata[] }> {
     const plugins = await this.getPlugins()
-    const allMessages: CoreMessage[] = []
+    const allMessages: ModelMessage[] = []
     const allTools: ToolMetadata[] = []
     const degraded: string[] = []
 

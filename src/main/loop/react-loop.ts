@@ -15,7 +15,7 @@
 // 允许依赖: loop/*, repos/*, shared/*
 // 禁止依赖: ipc/*
 
-import { streamText, stepCountIs, type LanguageModel, type StepResult, type ToolSet } from 'ai'
+import { streamText, isStepCount, type LanguageModel, type StepResult, type ToolSet } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
@@ -607,7 +607,7 @@ async function runReactStep(
     ...ctx.streamOptions,
     ...streamParams,
     abortSignal: streamTimeout.signal,
-    stopWhen: stepCountIs(1),
+    stopWhen: isStepCount(1),
 
     onChunk({ chunk }) {
       streamTimeout.ping() // 模型在产出 → 重置不活跃计时
@@ -616,7 +616,7 @@ async function runReactStep(
       }
     },
 
-    experimental_onToolCallStart({ toolCall }) {
+    onToolExecutionStart({ toolCall }) {
       streamTimeout.pause() // 工具执行期不计入流超时
       const startedAt = Date.now()
       log.info(
@@ -631,28 +631,30 @@ async function runReactStep(
       )
     },
 
-    experimental_onToolCallFinish(event) {
+    // v7: experimental_onToolCallFinish → onToolExecutionEnd;成败由 toolOutput.type
+    // 判别('tool-result' / 'tool-error'),时长来自 toolExecutionMs。
+    onToolExecutionEnd(event) {
       streamTimeout.resume() // 工具结束 → 恢复不活跃计时
+      const { toolOutput, toolExecutionMs } = event
+      let output: unknown
+      if (toolOutput.type === 'tool-error') {
+        const e = toolOutput.error
+        output = {
+          __talor_error: true,
+          code: 'SDK_TOOL_ERROR',
+          message: e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e),
+        }
+      } else {
+        output = toolOutput.output
+      }
       log.info(
-        `[ReactLoop]   ⊲ tool-finish: ${event.toolCall.toolName} id=${event.toolCall.toolCallId.slice(0, 12)} [${event.durationMs}ms] success=${event.success}`,
+        `[ReactLoop]   ⊲ tool-finish: ${toolOutput.toolName} id=${String(toolOutput.toolCallId).slice(0, 12)} [${toolExecutionMs}ms] success=${toolOutput.type !== 'tool-error'}`,
       )
-      const output = event.success
-        ? event.output
-        : {
-            __talor_error: true,
-            code: 'SDK_TOOL_ERROR',
-            message:
-              event.error instanceof Error
-                ? event.error.message
-                : typeof event.error === 'string'
-                  ? event.error
-                  : JSON.stringify(event.error),
-          }
       ctx.callbacks.onToolResult(
-        event.toolCall.toolCallId,
-        event.toolCall.toolName,
+        toolOutput.toolCallId,
+        toolOutput.toolName,
         output,
-        event.durationMs,
+        toolExecutionMs,
       )
     },
 
