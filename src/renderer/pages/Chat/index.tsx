@@ -85,6 +85,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const [modelUnavailable, setModelUnavailable] = useState(false)
   const [showMcpPopover, setShowMcpPopover] = useState(false)
   const [showToolsPopover, setShowToolsPopover] = useState(false)
+  const [showUsage, setShowUsage] = useState(false)
   const [expandedMcpServers, setExpandedMcpServers] = useState<Set<string>>(new Set())
   const mcpPopoverRef = useRef<HTMLDivElement>(null)
   const toolsPopoverRef = useRef<HTMLDivElement>(null)
@@ -362,7 +363,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   }, [sessions, currentSessionId])
 
   useEffect(() => {
-    if (streamState === 'done' && currentSessionId) loadMessages(currentSessionId)
+    if (streamState === 'done' && currentSessionId) {
+      loadMessages(currentSessionId)
+      // token 用量累加在 session 行上, 一轮结束后刷新 sessions 拿最新计数
+      loadSessions()
+    }
   }, [streamState, currentSessionId]) // eslint-disable-line
 
   // v3.6 事件驱动: 主进程一条 message 落库后,通过 chat:message-persisted
@@ -1222,6 +1227,86 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
 
             {/* Input area — symmetric padding, neutral bg, 1px line top (spec §13) */}
             <div className="shrink-0 px-8 py-[14px] bg-canvas border-t border-line">
+              {/* Session token usage — 消息区与输入框之间的接缝 */}
+              {(() => {
+                const s = sessions.find((x) => x.id === currentSessionId)
+                if (!s) return null
+                const inTok = s.input_tokens ?? 0
+                const outTok = s.output_tokens ?? 0
+                const cacheRead = s.cache_read_tokens ?? 0
+                const cacheWrite = s.cache_write_tokens ?? 0
+                if (inTok + outTok === 0) return null
+                const rows: Array<[string, number, string]> = [
+                  ['输入', inTok, '#334155'],
+                  ['输出', outTok, '#334155'],
+                  ['缓存读', cacheRead, '#059669'],
+                  ['缓存写', cacheWrite, '#334155'],
+                ]
+                return (
+                  <div className="relative flex justify-end mb-2.5">
+                    {showUsage && (
+                      <div
+                        className="absolute bottom-full right-0 mb-1.5 rounded-[10px] overflow-hidden z-40"
+                        style={{
+                          width: 216,
+                          background: '#ffffff',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 6px 24px rgba(0,0,0,0.10)',
+                        }}
+                      >
+                        <div
+                          className="px-3 py-2 border-b"
+                          style={{
+                            borderColor: '#f1f5f9',
+                            fontSize: 10,
+                            letterSpacing: '0.03em',
+                            textTransform: 'uppercase',
+                            color: '#94a3b8',
+                          }}
+                        >
+                          本会话累计
+                        </div>
+                        <div className="px-3 py-2">
+                          {rows.map(([label, val, color]) => (
+                            <div
+                              key={label}
+                              className="flex justify-between py-0.5"
+                              style={{ fontSize: 12, color: '#64748b' }}
+                            >
+                              <span>{label}</span>
+                              <span style={{ color }}>{val.toLocaleString()}</span>
+                            </div>
+                          ))}
+                          <div
+                            className="mt-1.5 pt-1.5 border-t"
+                            style={{ borderColor: '#f1f5f9', fontSize: 11, color: '#94a3b8' }}
+                          >
+                            含 reflect / 压缩调用
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setShowUsage((p) => !p)}
+                      className="inline-flex items-center gap-1.5"
+                      style={{ fontSize: 11, color: '#94a3b8' }}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path d="M12 2 2 7l10 5 10-5-10-5z" />
+                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+                      </svg>
+                      本会话{' '}
+                      <span style={{ color: '#64748b', fontWeight: 500 }}>
+                        {(inTok + outTok).toLocaleString()}
+                      </span>{' '}
+                      tokens
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                        <path d={showUsage ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+                      </svg>
+                    </button>
+                  </div>
+                )
+              })()}
               {/* Attachment previews */}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">

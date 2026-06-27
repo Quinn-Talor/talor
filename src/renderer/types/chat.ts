@@ -49,6 +49,11 @@ export interface ChatSession {
   status?: SessionStatus
   created_at: string
   updated_at: string
+  /** 本会话累计 token 用量（含 reflect / 压缩等隐藏调用）。旧 session 缺省视为 0。 */
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
 }
 
 export interface ChatToolCallEvent {
