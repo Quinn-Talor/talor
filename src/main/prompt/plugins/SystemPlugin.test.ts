@@ -164,7 +164,7 @@ describe('SystemPlugin', () => {
     const content = (result.messages[0] as { content: string }).content
     const principlesIdx = content.indexOf('# Core Behavior Principles')
     const routingIdx = content.indexOf('# Task Routing')
-    const runtimeIdx = content.indexOf('Current time:')
+    const runtimeIdx = content.indexOf('Current date:')
     expect(principlesIdx).toBeGreaterThan(-1)
     expect(routingIdx).toBeGreaterThan(principlesIdx)
     expect(runtimeIdx).toBeGreaterThan(routingIdx)

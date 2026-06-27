@@ -182,8 +182,10 @@ export class SystemPlugin implements PromptPlugin {
   name = 'SystemPlugin'
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
+    // 日期级(非毫秒时间戳)— 让 system 前缀在一天内字节稳定, 不每轮破坏 prompt 缓存。
+    // 毫秒时间戳会让 deepseek/openai 等的前缀缓存每轮失效(命中率被打到个位数)。
     const runtimeLines = [
-      `Current time: ${new Date().toISOString()}`,
+      `Current date: ${new Date().toISOString().slice(0, 10)}`,
       `Operating system: ${process.platform}`,
       `Workspace: ${ctx.workspacePath ?? '(not set)'}`,
     ]
