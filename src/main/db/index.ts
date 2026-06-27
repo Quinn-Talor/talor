@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS sessions (
     status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('running', 'completed', 'aborted')),
     metadata TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    input_tokens       INTEGER NOT NULL DEFAULT 0,
+    output_tokens      INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
 `
 
@@ -180,6 +184,7 @@ export function initChatDb(): Database.Database {
   recreateSessionsIfOutdated(db)
 
   db.exec(CREATE_SESSIONS)
+  ensureSessionUsageColumns(db)
   db.exec(CREATE_MESSAGES)
   db.exec(CREATE_INDEX)
   db.exec(CREATE_MCP_SERVERS)
@@ -352,6 +357,23 @@ export function cleanupOrphanRunningSubSessions(db: Database.Database): void {
     .run(new Date().toISOString())
   if (info.changes > 0) {
     log.info(`[ChatDB] Cleaned up ${info.changes} orphan running sub-sessions`)
+  }
+}
+
+/**
+ * 给已存在的 sessions 表补 token 统计列(增量 ALTER, 不丢历史)。
+ * 列已存在时 SQLite 报 "duplicate column", 捕获忽略 → 幂等。
+ * 注: 这几列不进 recreateSessionsIfOutdated 的必需列清单, 避免触发 drop。
+ */
+function ensureSessionUsageColumns(db: Database.Database): void {
+  const cols = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens']
+  for (const c of cols) {
+    try {
+      db.exec(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
+      log.info(`[ChatDB] added sessions.${c}`)
+    } catch {
+      // 列已存在, 忽略
+    }
   }
 }
 

@@ -19,6 +19,10 @@ export interface SessionRow {
   metadata: string | null
   created_at: string
   updated_at: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
 }
 
 export interface MessageRow {
@@ -45,6 +49,10 @@ export interface ChatSession {
   metadata?: Record<string, unknown>
   created_at: string
   updated_at: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
 }
 
 export interface ChatMessage {
@@ -70,6 +78,10 @@ function rowToSession(row: SessionRow): ChatSession {
     metadata: parseMetadata(row.metadata),
     created_at: row.created_at,
     updated_at: row.updated_at,
+    input_tokens: row.input_tokens ?? 0,
+    output_tokens: row.output_tokens ?? 0,
+    cache_read_tokens: row.cache_read_tokens ?? 0,
+    cache_write_tokens: row.cache_write_tokens ?? 0,
   }
 }
 
@@ -166,6 +178,10 @@ export const sessionRepo = {
       status,
       created_at: now,
       updated_at: now,
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_read_tokens: 0,
+      cache_write_tokens: 0,
     }
   },
 
@@ -197,6 +213,35 @@ export const sessionRepo = {
     const json = JSON.stringify(metadata)
     db.prepare('UPDATE sessions SET metadata = ?, updated_at = ? WHERE id = ?').run(json, now, id)
     log.info('[SessionRepo] Updated metadata:', id, 'keys:', Object.keys(metadata).join(','))
+  },
+
+  /**
+   * 累加 session 的 token 用量(归一后的非缓存 input / output / 缓存读写)。
+   * 增量 UPDATE; fail-open(出错只 warn, 不阻断主流程)。
+   */
+  addUsage(
+    id: string,
+    t: {
+      inputTokens: number
+      outputTokens: number
+      cacheReadTokens: number
+      cacheWriteTokens: number
+    },
+  ): void {
+    try {
+      getDb()
+        .prepare(
+          `UPDATE sessions SET
+             input_tokens       = input_tokens + ?,
+             output_tokens      = output_tokens + ?,
+             cache_read_tokens  = cache_read_tokens + ?,
+             cache_write_tokens = cache_write_tokens + ?
+           WHERE id = ?`,
+        )
+        .run(t.inputTokens, t.outputTokens, t.cacheReadTokens, t.cacheWriteTokens, id)
+    } catch (err) {
+      log.warn('[SessionRepo] addUsage failed:', id, err)
+    }
   },
 
   /**
