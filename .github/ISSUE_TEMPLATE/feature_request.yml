@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest an enhancement to the platform
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Talor is a **pure agent platform** — it ships no business agents. Feature requests should strengthen the runtime (loop, tools, skills, providers, prompt pipeline), not add domain logic.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that's hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

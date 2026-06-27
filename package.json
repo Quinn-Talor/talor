@@ -6,6 +6,14 @@
   "main": "./out/main/index.js",
   "author": "Talor",
   "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/Quinn-Talor/talor#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Quinn-Talor/talor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Quinn-Talor/talor/issues"
+  },
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"

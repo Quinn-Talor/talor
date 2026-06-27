@@ -1,143 +1,135 @@
 # Talor
 
-> 纯 Agent 平台 · 从你的对话沉淀出可复用的 AI 数字员工
+[![License: Apache-2.0 + Commons Clause](https://img.shields.io/badge/license-Apache--2.0%20%2B%20Commons%20Clause-blue.svg)](./LICENSE)
+[![CI](https://github.com/Quinn-Talor/talor/actions/workflows/ci.yml/badge.svg)](https://github.com/Quinn-Talor/talor/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](#prerequisites)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-Talor 是一款 Electron 桌面应用,自身**不含任何业务 agent**。它提供 agent 运行平台 + 工具栈,所有业务 agent 由用户通过对话历史自动沉淀(Crystallizer)产出。
+**English** · [中文](./docs/zh-CN/README.md)
 
----
+> A pure agent platform — distill reusable AI coworkers from your own conversations.
 
-## 它解决什么问题
-
-跟 ChatGPT / Claude 跑了一段有用的对话后,这段经验通常就丢了 — 下次类似任务还要重头说一遍。Talor 让你:
-
-1. **跟 Talor 跑一段对话**(用平台内置工具 / MCP / Skill)
-2. **点 Crystallize**,Talor 把这段对话沉淀成一个**可复用 agent**(`prompt.md` + 工具配置)
-3. 下次类似任务,**直接 invoke 这个 agent**,它带着原来的工作流和知识
+Talor is an Electron desktop app that ships **no business agents of its own**. It provides an agent runtime + tool stack; every business agent is distilled by the user from chat history (the **Crystallizer**).
 
 ---
 
-## 关键特性
+## What problem it solves
 
-- **极简 schema**:agent 只有 8 个字段(`id / name / description / agentPrompt / tools / skills / mcpServers / subagents`)
-- **prompt.md sibling**:行为定义在独立 markdown 文件,可单独编辑
-- **引用化架构**:skill 和 MCP 由平台统一管理,agent 仅按 name 引用,无副本
-- **subagent 委托**:agent 可调用其他 agent(`delegate_agent` 工具)
-- **Feature 扩展框架**:业务对象(如投研标的卡)以 Feature 接入——`ArtifactStore` 读写抽象 + `ArtifactUI` 独立渲染 + 工具操作,平台核心对业务无感知(见 [docs/talor-feature-architecture.md](./docs/talor-feature-architecture.md))
-- **凭据安全**:MCP `envFromAccount` 引用 Account store,真值不进 prompt / 不进 IPC / 不进 LLM
-- **本地优先**:所有数据在 `~/.talor/` 下,无云端依赖
-- **跨模型**:Anthropic / OpenAI / Google / Ollama(通过 Vercel AI SDK v7)
-- **prompt 前缀缓存**:append-only 分层装配让稳定前缀连续可缓存,Anthropic 打 `cacheControl` 断点;deepseek 等自动缓存(实测命中 ~80%)
-- **token 用量统计**:跨厂商归一,会话级 input/output/缓存读写 落库 + UI 展示(k/M)
-- **跨 skill 库兼容**:`~/.talor/skills/` 是真相位置;若有 `~/.claude/skills/` 会自动 cp 兼容
+After a useful session with ChatGPT / Claude, that experience is usually lost — next time you start over. Talor lets you:
+
+1. **Run a conversation** with Talor (using builtin tools / MCP / Skills).
+2. **Click Crystallize** — Talor distills that conversation into a **reusable agent** (`prompt.md` + tool config).
+3. **Invoke that agent** next time — it carries the original workflow and knowledge.
 
 ---
 
-## 数据布局
+## Key features
+
+- **Minimal schema** — an agent has just 8 fields (`id / name / description / agentPrompt / tools / skills / mcpServers / subagents`).
+- **`prompt.md` sibling** — behavior lives in a standalone markdown file, editable on its own.
+- **Reference architecture** — skills and MCP are managed by the platform; agents reference them by name, no copies.
+- **Subagent delegation** — agents can call other agents (`delegate_agent` tool).
+- **Feature framework** — business objects plug in as Features (`ArtifactStore` for read/write + `ArtifactUI` for rendering + tool ops); the platform core stays domain-agnostic. See [docs/talor-feature-architecture.md](./docs/talor-feature-architecture.md).
+- **Credential safety** — MCP `envFromAccount` references the Account store; secrets never reach prompts, IPC, or the LLM.
+- **Local-first** — all data under `~/.talor/`, no cloud dependency.
+- **Multi-model** — Anthropic / OpenAI / Google / Ollama via Vercel AI SDK v7.
+- **Prompt prefix caching** — append-only stability-layered assembly keeps the stable prefix contiguous and cacheable; Anthropic gets `cacheControl` breakpoints, others (e.g. deepseek) cache automatically (~80% hit measured).
+- **Token usage stats** — vendor-agnostic, per-session input/output/cache read+write persisted and shown in the UI (k/M).
+
+---
+
+## Data layout
 
 ```
 ~/.talor/
   agents/<agent-id>/
-    agent.json       # 元数据(7 字段,不含 agentPrompt)
-    prompt.md        # agentPrompt 全文
-    README.md        # 派生
+    agent.json       # metadata (7 fields, excludes agentPrompt)
+    prompt.md        # full agentPrompt
+    README.md        # derived
   skills/<skill-name>/
-    SKILL.md         # 平台 skill(被所有 agent 共享)
+    SKILL.md         # platform skill (shared by all agents)
     ...
   chat.db            # SQLite: sessions / messages / mcp_servers / account_keys
 ```
 
 ---
 
-## 安装
+## Install
 
-### 前置
+### Prerequisites
 
-- Node.js 22+ (Electron 41 native module 编译需要)
+- Node.js 22+ (required to compile Electron 41 native modules)
 - npm 10+
-- macOS / Linux (Windows 未测试)
+- macOS / Linux (Windows untested)
 
-### 开发模式
+### Development
 
 ```bash
-git clone <repo>
+git clone https://github.com/Quinn-Talor/talor.git
 cd talor
 npm install
 npm run dev
 ```
 
-Vite HMR + Electron 主进程会同时启动。
+Vite HMR and the Electron main process start together.
 
-### 打包
+### Build
 
 ```bash
-npm run build       # electron-vite + electron-builder
+npm run build       # electron-vite + electron-builder → dist/
 ```
-
-输出在 `dist/`。
 
 ---
 
-## 第一次使用
+## First run
 
-1. 启动后默认进入 `__chat__`(主对话)
-2. 跟它跑一段你想沉淀的工作流(例:"帮我审一下 PR https://github.com/.../pull/123 …")
-3. 在对话末尾点 **Crystallize** 按钮
-4. Crystallizer 会引导你确认意图,然后产出 `agent.json` + `prompt.md` 草稿
-5. 审阅 → 保存,agent 出现在 `AgentsPage`
-6. 下次想做类似任务时,在 chat 里输入 `/<agent-name> …` 或在 AgentsPage 直接启动
+1. On launch you land in `__chat__` (the platform assistant).
+2. Run a workflow you want to capture (e.g. "review this PR https://github.com/.../pull/123 …").
+3. Click **Crystallize** at the end of the turn.
+4. The Crystallizer confirms your intent, then drafts `agent.json` + `prompt.md`.
+5. Review → save; the agent appears on the Agents page.
+6. Next time, type `/<agent-name> …` in chat or launch it from the Agents page.
 
-### 配 MCP / Skill / Account
+### Configuring MCP / Skills / Accounts
 
-- **MCP**:Settings → MCP Servers,添加 stdio / http transport
-- **Skill**:把 `SKILL.md`(+ 附属文件)放到 `~/.talor/skills/<name>/`(若你已用 Claude Code,放在 `~/.claude/skills/` 也会被自动 cp 过来)
-- **Account**:Settings → Accounts,配 API key / envVar(如 `GITHUB_TOKEN`)
+- **MCP**: Settings → MCP Servers (stdio / http transport).
+- **Skill**: drop a `SKILL.md` (+ assets) into `~/.talor/skills/<name>/` (if you use Claude Code, `~/.claude/skills/` is auto-copied).
+- **Account**: Settings → Accounts (API keys / envVars like `GITHUB_TOKEN`).
 
 ---
 
-## 架构
+## Architecture
+
+See [vibe/project/overview.md](./vibe/project/overview.md) for the full architecture and the agent execution flow (detect / reflect / turn-end).
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Renderer (React 19 + Tailwind + Zustand)               │
-│  pages/Chat · pages/Agents · pages/Settings             │
-└───────────────────────────┬─────────────────────────────┘
-                            │ IPC
-┌───────────────────────────┴─────────────────────────────┐
-│  Main Process                                            │
-│                                                          │
-│  ipc/* ─── 入口层(IPC handler)                           │
-│       ↓                                                 │
-│  chat/orchestrator + loop/react-loop ─── ReAct 引擎       │
-│  prompt/PromptPipeline ─── 7 plugin append-only 装配      │
-│  agent/agent-manager ─── 平台 + 业务 agent 注册/装配      │
-│       ↓                                                 │
-│  agent/profile-fs (splitter) ─── agent.json+prompt.md   │
-│  mcp/client ─── MCP 协议(stdio + http)                   │
-│  skills/registry ─── 平台 SkillRegistry + filterByNames  │
-│  tools/* ─── 7 个 builtin(bash/read/write/edit/glob/…)   │
-│       ↓                                                 │
-│  repos/* + db/ ─── SQLite                                │
-│  accounts/account-store ─── 加密凭据                      │
-└─────────────────────────────────────────────────────────┘
+Renderer (React 19 + Tailwind + Zustand)
+   │ IPC
+Main Process
+   ipc/*                       entry layer
+   chat/orchestrator + loop/react-loop   ReAct engine
+   prompt/PromptPipeline       7-plugin append-only assembly
+   agent/agent-manager         platform + business agent lifecycle
+   mcp/client                  MCP (stdio + http)
+   skills/registry             platform SkillRegistry
+   tools/*                     7 builtins (bash/read/write/edit/glob/grep/ls)
+   repos/* + db/               SQLite
+   accounts/account-store      encrypted credentials
 ```
+
+---
+
+## Contributing & community
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md) — dev setup, workflow, non-negotiable invariants
+- [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) — Contributor Covenant
+- [SECURITY.md](./SECURITY.md) — private vulnerability reporting
+- [CHANGELOG.md](./CHANGELOG.md)
+
+Engineering knowledge base lives in [vibe/project/](./vibe/project/); the AI-agent collaboration guide is [CLAUDE.md](./CLAUDE.md). Issues and PRs welcome — please read CONTRIBUTING first.
 
 ---
 
 ## License
 
-Apache 2.0 + Commons Clause(本仓库)。
-
-详见 [LICENSE](./LICENSE)。
-
----
-
-## 给开发者
-
-工程规范见 [vibe/project/](./vibe/project/):
-
-- [overview.md](./vibe/project/overview.md) — 架构总览
-- [standards.md](./vibe/project/standards.md) — MUST / SHOULD / NEVER 规则
-- [patterns.md](./vibe/project/patterns.md) — 模式 + 参考实现索引
-- [docs/talor-feature-architecture.md](./docs/talor-feature-architecture.md) — 业务对象融入平台的 Feature 架构(三抽象:对象 / 读写 / 渲染)
-
-AI agent 协作指南见 [CLAUDE.md](./CLAUDE.md)。
+Apache 2.0 + Commons Clause (no commercial resale). See [LICENSE](./LICENSE).
