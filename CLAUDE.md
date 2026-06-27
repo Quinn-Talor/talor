@@ -75,7 +75,7 @@ src/
 做对应任务时读：
 
 - 加新工具 → `tools/builtin/read.ts`（最简范例）+ `patterns.md §P1`
-- 改 ReAct 循环 / context 处理 → `loop/react-loop.ts` + `patterns.md §P4/§P9`
+- 改 ReAct 循环 / 检测-反思-收尾机制 → `loop/react-loop.ts` + `loop/reflect/*` + `loop/detectors/*` + `overview.md` §「Agent 作业流程」+ `patterns.md §P4/§P9`
 - 加 IPC handler → `ipc/mcp.ts`（范式最完整）+ `standards.md §D`
 - 改 prompt → `prompt/PromptPipeline.ts` + `patterns.md §P8`
 - 加 Repo 方法 → `repos/session-repo.ts` + `patterns.md §P5`
