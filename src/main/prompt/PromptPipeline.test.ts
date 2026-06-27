@@ -181,6 +181,76 @@ describe('PromptPipeline.build', () => {
     )
   })
 
+  const hasCacheBreakpoint = (m: { providerOptions?: unknown }) =>
+    !!(m.providerOptions as { anthropic?: { cacheControl?: unknown } } | undefined)?.anthropic
+      ?.cacheControl
+
+  it('anthropic provider: 稳定前缀末条打 cacheControl 断点', async () => {
+    const pipeline = await mockAllPlugins({
+      SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },
+    })
+    const ctx = makeCtx()
+    ctx.provider = { id: 'p1', type: 'anthropic' } as Provider
+    const result = await pipeline.build(ctx)
+    expect(result.messages.some(hasCacheBreakpoint)).toBe(true)
+  })
+
+  it('非 anthropic provider(openai): 不打断点(自动缓存)', async () => {
+    const pipeline = await mockAllPlugins({
+      SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },
+    })
+    const ctx = makeCtx()
+    ctx.provider = { id: 'p1', type: 'openai' } as Provider
+    const result = await pipeline.build(ctx)
+    expect(result.messages.some(hasCacheBreakpoint)).toBe(false)
+  })
+
+  // 回归:tool_use(history 末尾)与 tool_result(当前 turn)之间不得插入任何消息。
+  // Phase 1 把 RuntimeMetaPlugin(volatile)排在 MessagePlugin 前,导致其 system 消息
+  // 劈开二者 → SDK convertToLanguageModelPrompt 抛 AI_MissingToolResultsError → 每个
+  // 工具回合的续做步必崩。MessagePlugin 契约要求 Memory 末尾 ↔ Message 相邻配对。
+  it('tool_use 与 tool_result 必须相邻(volatile 元信息不得劈开配对)', async () => {
+    const pipeline = await mockAllPlugins({
+      MemoryPlugin: {
+        messages: [
+          {
+            role: 'assistant',
+            content: [{ type: 'tool-call', toolCallId: 'tc1', toolName: 'bash', input: {} }],
+          },
+        ],
+        tools: [],
+        tokenEstimate: 0,
+      },
+      MessagePlugin: {
+        messages: [
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'tc1',
+                toolName: 'bash',
+                output: { type: 'text', value: 'ok' },
+              },
+            ],
+          },
+        ],
+        tools: [],
+        tokenEstimate: 0,
+      },
+    })
+    const result = await pipeline.build(makeCtx())
+
+    const hasCall = (m: { content: unknown }) =>
+      Array.isArray(m.content) && m.content.some((p: { type?: string }) => p.type === 'tool-call')
+    const hasResult = (m: { content: unknown }) =>
+      Array.isArray(m.content) && m.content.some((p: { type?: string }) => p.type === 'tool-result')
+    const callIdx = result.messages.findIndex(hasCall)
+    const resultIdx = result.messages.findIndex(hasResult)
+    expect(callIdx).toBeGreaterThanOrEqual(0)
+    expect(resultIdx).toBe(callIdx + 1) // 必须紧邻;中间有 RuntimeMeta 则失败
+  })
+
   it('all plugins succeed: no [DEGRADED] notice', async () => {
     const pipeline = await mockAllPlugins({
       SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },

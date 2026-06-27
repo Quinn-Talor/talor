@@ -8,6 +8,7 @@
 import { ConfigStore } from '../store/config-store'
 import { MemoryManager } from '../memory/MemoryManager'
 import type { PipelineContext, ProviderContextConfig, PromptPlugin, StabilityLayer } from './types'
+import { applyAnthropicCacheBreakpoints } from './cache-breakpoints'
 import type { ToolMetadata } from '../tools/types'
 import type { Provider } from '../store/config-store'
 import type { ModelMessage } from 'ai'
@@ -71,15 +72,23 @@ export class PromptPipeline {
     // 装配顺序由 plugin.layer 决定(见 buildLayered),非数组顺序。数组顺序仅决定
     // 同层内的相对次序(确定性)+ tools 收集。append-only 分层:
     //   system → agent(Agent, UiBlock) → tools → history(Memory)
-    //   → volatile(RuntimeMeta, Message;当前 turn / 运行时元等易变内容)
+    //   → volatile(Message, RuntimeMeta)
+    //
+    // ⚠️ volatile 层内 MessagePlugin 必须排在 RuntimeMetaPlugin **之前**:
+    //   MessagePlugin 注入当前 turn 的 allMessages[-1],它与 MemoryPlugin 末尾的
+    //   allMessages[-2] 构成对话线程(典型:assistant(tool_use) ↔ tool(result))。
+    //   若 RuntimeMetaPlugin 的 system 消息插在 history 与 current-turn 之间,会劈开
+    //   tool_use/tool_result 配对 → SDK convertToLanguageModelPrompt 抛
+    //   AI_MissingToolResultsError → 每个工具回合的续做步必崩。运行时元属"线程外
+    //   旁注",必须落在 current-turn 之后(react-loop 追加的 hint 同理在更后)。
     this.plugins = [
       new SystemPlugin(),
       new AgentPromptPlugin(),
       new UiBlockPlugin(),
       new ToolSelectionPlugin(),
       new MemoryPlugin(this.memoryManager),
-      new RuntimeMetaPlugin(),
       new MessagePlugin(),
+      new RuntimeMetaPlugin(),
     ]
     return this.plugins
   }
@@ -101,9 +110,7 @@ export class PromptPipeline {
    *
    * Critical plugin 失败抛出;非 critical 失败降级 + 注入 [DEGRADED](volatile)。
    */
-  async buildLayered(
-    ctx: PipelineContext,
-  ): Promise<{
+  async buildLayered(ctx: PipelineContext): Promise<{
     segments: Array<{ layer: StabilityLayer; messages: ModelMessage[] }>
     tools: ToolMetadata[]
   }> {
@@ -161,9 +168,16 @@ export class PromptPipeline {
     }
   }
 
-  /** 扁平化 buildLayered 结果。外部签名不变(callers 仍拿 {messages, tools})。 */
+  /**
+   * 扁平化 buildLayered 结果。外部签名不变(callers 仍拿 {messages, tools})。
+   *
+   * Anthropic provider:在扁平化前给稳定前缀打 cacheControl 断点(Anthropic 不自动
+   * 缓存,需显式标)。断点落在稳定层末条 message,volatile(当前 turn / 运行时元)
+   * 在其后,不进缓存前缀。react-loop 之后追加的 hint 同属 volatile,也在断点之后。
+   */
   async build(ctx: PipelineContext): Promise<{ messages: ModelMessage[]; tools: ToolMetadata[] }> {
     const { segments, tools } = await this.buildLayered(ctx)
+    if (ctx.provider.type === 'anthropic') applyAnthropicCacheBreakpoints(segments)
     return { messages: segments.flatMap((s) => s.messages), tools }
   }
 }

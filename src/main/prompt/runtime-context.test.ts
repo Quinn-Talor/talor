@@ -65,4 +65,32 @@ describe('buildRuntimeContext', () => {
     expect(ctx.hasSkillListing).toBe(false)
     expect(ctx.skillListing).toBe('')
   })
+
+  // ── append-only 缓存守护(Phase 3)──────────────────────────────────────
+  // buildRuntimeContext 产出进入 prompt 的 agent 稳定层(AgentPromptPlugin)。
+  // 该层必须是 agent 的纯函数 —— 同一 agent 多次构建字节一致,否则缓存前缀每轮
+  // 失效。历史上 SystemPlugin 的 `Current time` 毫秒戳正是这类污染(把命中率从
+  // ~99% 打到 ~14%);彼时 system 层有守护测试,agent 层没有 —— 这里补上。
+  describe('determinism(缓存前缀不变量)', () => {
+    it('同一 agent 多次构建字节一致(无时间戳/随机/自增)', () => {
+      const agent = makeAgentStub(BUSINESS_PROFILE)
+      const a = JSON.stringify(buildRuntimeContext(agent))
+      const b = JSON.stringify(buildRuntimeContext(agent))
+      expect(a).toBe(b)
+    })
+
+    it('__chat__ agent 同样字节一致', () => {
+      const agent = makeAgentStub(PLATFORM_PROFILE)
+      const a = JSON.stringify(buildRuntimeContext(agent))
+      const b = JSON.stringify(buildRuntimeContext(agent))
+      expect(a).toBe(b)
+    })
+
+    it('产出不含 ISO 时间戳形态(YYYY-MM-DDThh:mm)', () => {
+      // 防御:若有人把 new Date().toISOString() 等塞进 agent 层,这条会失败。
+      // (BUSINESS_PROFILE 本身不含此形态,故任何命中都是 builder 注入的。)
+      const ctx = buildRuntimeContext(makeAgentStub(BUSINESS_PROFILE))
+      expect(JSON.stringify(ctx)).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
+    })
+  })
 })
