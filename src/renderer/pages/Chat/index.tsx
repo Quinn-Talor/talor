@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useChatStore } from '../../store/chatStore'
 import { useStreamingMessage } from '../../hooks/useStreamingMessage'
 import { talorAPI } from '../../api/talorAPI'
+import { formatTokens } from '../../lib/format-tokens'
 import { MessageBubble } from '../../components/MessageBubble'
 import { agentColor } from '../../components/SessionItem'
 import { Sidebar } from './Sidebar'
@@ -1235,7 +1236,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 const outTok = s.output_tokens ?? 0
                 const cacheRead = s.cache_read_tokens ?? 0
                 const cacheWrite = s.cache_write_tokens ?? 0
-                if (inTok + outTok === 0) return null
+                // 本会话总量 = 实际处理的所有 token(含缓存读;缓存读是真实被处理、
+                // 只是按 ~0.1x 计费的 token)。等于下方明细 4 行之和,头部与面板自洽。
+                const total = inTok + outTok + cacheRead + cacheWrite
+                if (total === 0) return null
                 const rows: Array<[string, number, string]> = [
                   ['输入', inTok, '#334155'],
                   ['输出', outTok, '#334155'],
@@ -1274,7 +1278,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                               style={{ fontSize: 12, color: '#64748b' }}
                             >
                               <span>{label}</span>
-                              <span style={{ color }}>{val.toLocaleString()}</span>
+                              <span style={{ color }} title={val.toLocaleString()}>
+                                {formatTokens(val)}
+                              </span>
                             </div>
                           ))}
                           <div
@@ -1290,17 +1296,32 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                       onClick={() => setShowUsage((p) => !p)}
                       className="inline-flex items-center gap-1.5"
                       style={{ fontSize: 11, color: '#94a3b8' }}
+                      title={`${total.toLocaleString()} tokens (本会话累计 = 输入+输出+缓存读+缓存写,含 reflect / 压缩)`}
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
                         <path d="M12 2 2 7l10 5 10-5-10-5z" />
                         <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
                       </svg>
                       本会话{' '}
                       <span style={{ color: '#64748b', fontWeight: 500 }}>
-                        {(inTok + outTok).toLocaleString()}
+                        {formatTokens(total)}
                       </span>{' '}
                       tokens
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                      <svg
+                        width="9"
+                        height="9"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                      >
                         <path d={showUsage ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
                       </svg>
                     </button>
