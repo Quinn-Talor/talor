@@ -33,12 +33,13 @@ src/
 │   ├── tools/             业务层:内置工具仓库(registry) + path-guard
 │   │   └── builtin/      bash / read / write / edit / glob / grep / ls
 │   ├── loop/              业务层:ReAct 循环、stream utils、quote-verifier
-│   ├── prompt/            业务层:prompt pipeline + plugins(System/Agent/Memory/Message/ToolSelection)
+│   ├── prompt/            业务层:append-only 分层 pipeline + 7 plugins(System/Agent/UiBlock/ToolSelection/Memory/Message/RuntimeMeta)+ cache-breakpoints(Anthropic 前缀缓存断点)
 │   ├── memory/            业务层:ShortTermMemory (压缩 + 锚点)
 │   ├── mcp/               业务层:MCP 协议客户端(stdio / http transport)
 │   ├── permissions/       业务层:权限规则、path matcher
 │   ├── providers/         业务层:LLM provider 工厂、模型拉取/测试/可用性
-│   │   ├── adapters/     anthropic / openai / google / ollama
+│   │   ├── (usage-normalizer + usage-recorder:跨厂商 token 用量归一→落库 session)
+│   │   ├── adapters/     anthropic / openai / google / ollama(经官方 @ai-sdk/openai-compatible)
 │   │   └── capability/   模型能力检测(detector) + 手动覆盖(updater)
 │   ├── skills/            业务层:skill 注册表 + metadata-extractor(SKILL.md frontmatter 解析)
 │   ├── repos/             基础设施:session/message/mcp-server CRUD
@@ -128,6 +129,19 @@ Prompt 是软引导。任何"必须"级规则要有代码实现(`⟨unverifiable
 
 否则 `vi.mock` hoist 时 mock fn 还是 undefined。详见 `standards.md §L-MUST-2` + `patterns.md §P10`。
 
+### 4.10 prompt 重建不得劈开 message 线程(配对不变量的装配层)
+
+§4.2 讲的是「同事务落盘」;这里是它的孪生:**重新装配 prompt 时,`tool_use`(history 末尾)与 `tool_result`(当前 turn)之间不得插入任何消息**。否则 SDK `convertToLanguageModelPrompt` 抛 `AI_MissingToolResultsError`,工具回合续做必崩(v7 严格校验,v6 曾默默容忍)。两条具体约束:
+
+- **volatile plugin 排序**:`RuntimeMetaPlugin` 等「线程外旁注」必须排在 `MessagePlugin`(当前 turn)**之后**;runtime meta / hint / DEGRADED 都归 current-turn 之后的尾部。见 `PromptPipeline.getPlugins` 的数组顺序注释。
+- **`listBySession` 排序**:必须 `ORDER BY created_at ASC, rowid ASC` —— `createBatch` 给同批消息盖同一 `created_at`,只按 created_at 排会让 assistant/tool 顺序不确定、可能反转。rowid 是插入序 = 正确配对序。
+
+守护:`prompt-cache-stability.test.ts` 守稳定前缀字节一致;`PromptPipeline.test.ts` 守 tool_use/tool_result 相邻;`session-repo-message-order.test.ts` 守排序。
+
+### 4.11 工具失败必须把命令实际输出原样带回(Principle 3)
+
+bash 等工具非零退出时,要合并返回 **stdout + stderr**(不能只取 stderr)。否则 CLI 把错误打到 stdout、或模型用 `2>&1` 合并流时,模型只看到 `exit code N` 无从诊断 → 盲目重试 → 触发 failure-streak 收尾,任务卡死。见 `tools/builtin/bash.ts` close handler + `standards.md` Principle 3。
+
 ---
 
 ## 5. 常用命令
@@ -194,6 +208,10 @@ npm run build         # electron-vite build + electron-builder 打包
 
 **最近重要变更**(详见 `git log`):
 
+- `chore(deps)`: **Vercel AI SDK v6 → v7**(providers v3 → v4);`CoreMessage` → `ModelMessage`;`allowSystemInMessages: true`(Talor 多层 system 刻意放 messages 数组);Ollama 改走官方 `@ai-sdk/openai-compatible`(删社区包)
+- `feat(token)`: **会话级 token 用量统计** — `usage-normalizer`(跨厂商归一,读 v7 统一 `inputTokenDetails`)+ `usage-recorder` 在 3 个 LLM 调用点(主对话/reflect/压缩)记录 → session 表 4 列(input/output/cache_read/cache_write);UI 接缝行展示(k/M 缩写,头部=全部 token 含缓存读)
+- `perf(prompt)`: **prompt 前缀缓存优化** — ① 时间戳粗化到日期级(去掉打碎前缀的毫秒戳)② append-only 分层装配(`PromptPlugin.layer`,稳定前缀连续在前/volatile 在尾)③ Anthropic `cacheControl` 断点(`cache-breakpoints.ts`,仅 anthropic);deepseek 实测缓存命中 ~80%
+- `fix(loop,tools,repos)`: 三个工具回合 bug — RuntimeMeta 劈开 tool_use/tool_result 配对(见 §4.10)、`listBySession` 排序不确定、bash 非零退出吞 stdout(见 §4.11)
 - `refactor(skills)`: Skills 平台目录 `~/.claude/skills/` → `~/.talor/skills/`(Talor 拥有自己数据目录);`~/.claude/skills/` 降为 fallback,跟 Claude Code 共享 skill 库的用户仍兼容
 - `refactor(agent)`: **终极极简** schema 14 字段 → **8 字段**;validator 14 rules → 6;dep-checker 8 steps → 3;删 `schemaVersion / version / avatar / cli / references / preferences` + `AgentPreferences` / `ReferenceFile` 类型 + `variable-resolver` 模块
 - `refactor(agent)`: **prompt.md 拆分** — `agentPrompt` 不再内嵌 agent.json,改为 sibling `<agentDir>/prompt.md`;`profile-fs.ts` 双向 splitter;validator dual-mode(inline / directory + injectedAgentPrompt)
@@ -213,11 +231,14 @@ npm run build         # electron-vite build + electron-builder 打包
   SKILL.md       # 平台 skill(被所有 agent 共享)
 ```
 
-**尚未实现**:
+**尚未实现 / 暂缓**:
 
 - KnowledgeBase(RAG) — 返回空
 - LongTermMemory(跨 session 持久记忆) — 返回空
 - AgentEditPage UI 下拉(IPC 已有,UI 仍是 JSON 编辑器)
+- 缓存优化 Phase 4(暂缓):epoch-based 压缩(压缩重写 history 前缀会丢 history 断点缓存)+ tools cumulative-append(search_tool 处工具列表伸缩抖动前缀);评估触发条件窄,待 live 数据再定
+- Anthropic 1h 扩展缓存 TTL:SDK 不自动加 `extended-cache-ttl` beta header,暂用默认 5m ephemeral
+- Phase 2 Anthropic 断点的 live 验证:需配 Anthropic provider 才能看 `cache_write→cache_read` 跳变(当前仅 openai/deepseek)
 
 ---
 

@@ -453,6 +453,16 @@ messageRepo.create({ role: 'assistant', content: [...tool_use] })
 messageRepo.create({ role: 'tool', content: [...tool_result] })
 ```
 
+### tool_use/tool_result 配对不变量的三个面
+
+同事务落盘只是第一道。配对在「写 → 读 → 装配」三处都可能被破坏,**三处都要守**:
+
+1. **写**(P6 本体):`createBatch` 同事务落 `assistant(tool_use)` + `tool(result)`,杜绝孤儿。
+2. **读**(I-MUST-3):`listBySession` 必须 `ORDER BY created_at ASC, rowid ASC`。createBatch 给同批盖同一 created_at,只按 created_at 排会让二者顺序不确定、可能反转。
+3. **装配**(J-MUST-2b):重建 prompt 时 history 末尾的 tool_use 与当前 turn 的 tool_result 必须相邻,volatile 旁注(RuntimeMeta/hint/DEGRADED)排在 current-turn 之后,不得插在中间。
+
+任一处违反 → SDK `convertToLanguageModelPrompt` 抛 `AI_MissingToolResultsError`(v7 严格,v6 曾默默容忍)→ 工具回合崩。本会话三个 bug 正是分别命中读、装配两处(写早已有 P6 守住)。
+
 ### 取舍
 
 - **何时不适用**：单条写入不需要事务。
@@ -461,7 +471,7 @@ messageRepo.create({ role: 'tool', content: [...tool_result] })
 
 ### 相关标准
 
-E-MUST-4、I-MUST-1
+E-MUST-4、I-MUST-1、I-MUST-3、J-MUST-2b
 
 ---
 
@@ -1013,7 +1023,7 @@ v3.6 在这两个反模式上都踩过(`forced-closure` + `WaitAndAct` + `"type 
 
 ### 原则
 
-凡 AI SDK v6 已提供的能力,Talor **不再自造**:
+凡 AI SDK v7 已提供的能力,Talor **不再自造**:
 
 | Talor 自造                                      | SDK 原生                                                       | v4 状态                           |
 | ----------------------------------------------- | -------------------------------------------------------------- | --------------------------------- |
