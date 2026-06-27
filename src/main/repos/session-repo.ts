@@ -424,8 +424,13 @@ export interface MessageCreateParams {
 export const messageRepo = {
   listBySession(sessionId: string): ChatMessage[] {
     const db = getDb()
+    // 二级排序 rowid ASC 是配对不变量的关键:createBatch 给同批 assistant(tool_use)
+    // + tool(result) 盖同一个 created_at,仅按 created_at 排序时二者顺序由 SQLite 任意
+    // 决定,可能把 tool(result) 排到 tool_use 之前 → SDK 抛 AI_MissingToolResultsError
+    // (v7 严格校验下变成硬错误,v6 曾默默容忍)。rowid 是单调插入序,createBatch 先插
+    // assistant 后插 tool,故 rowid 升序即正确配对序。见 §4.2 配对不变量。
     const rows = db
-      .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC')
+      .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC')
       .all(sessionId) as MessageRow[]
     return rows.map(rowToMessage)
   },
