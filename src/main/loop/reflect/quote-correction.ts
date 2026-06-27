@@ -59,6 +59,7 @@ export class QuoteCorrectionReflector implements Reflector {
       },
       ctx.reflectModel,
       ctx.abortSignal,
+      ctx.sessionId,
     )
 
     if (!result) return null

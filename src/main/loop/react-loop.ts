@@ -51,6 +51,7 @@ import {
 } from './turn-end-policies'
 import { factsFromStep, outcomeFromStep, extractTextFromStep } from './step-adapter'
 import { persistStepFromResult, persistAbortedStep } from './persist-step'
+import { recordUsage } from '../providers/usage-recorder'
 
 const DEFAULT_MAX_STEPS = 1000
 
@@ -702,6 +703,9 @@ async function runReactStep(
     } catch (err) {
       log.error('[ReactLoop]   persist failed:', err)
     }
+
+    // 8.5 统计本步 token 用量(主对话) — usage/providerMetadata 来自 SDK, 累加到 session
+    recordUsage(ctx.sessionId, usage, providerMetadata as Record<string, unknown> | undefined)
 
     // 9. Provider warnings 日志
     if (warnings && warnings.length > 0) {

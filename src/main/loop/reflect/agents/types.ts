@@ -17,6 +17,7 @@
 import { generateText, type LanguageModel } from 'ai'
 import type { z } from 'zod'
 import log from 'electron-log'
+import { recordUsage } from '../../../providers/usage-recorder'
 
 /**
  * 反思 agent 接口 — 每场景一个实现。
@@ -54,11 +55,12 @@ export async function runReflectAgent<SNAPSHOT, RESULT>(
   snapshot: SNAPSHOT,
   model: LanguageModel,
   abortSignal: AbortSignal,
+  sessionId?: string,
 ): Promise<RESULT | null> {
   const timeoutMs = agent.timeoutMs ?? 30_000
   const combinedSignal = AbortSignal.any([abortSignal, AbortSignal.timeout(timeoutMs)])
   try {
-    const { text } = await generateText({
+    const res = await generateText({
       model,
       messages: [
         { role: 'system', content: agent.systemPrompt + JSON_INSTRUCTION },
@@ -67,6 +69,10 @@ export async function runReflectAgent<SNAPSHOT, RESULT>(
       maxOutputTokens: agent.maxOutputTokens,
       abortSignal: combinedSignal,
     })
+    if (sessionId) {
+      recordUsage(sessionId, res.usage, res.providerMetadata as Record<string, unknown> | undefined)
+    }
+    const text = res.text
     const cleaned = stripJsonFence(text)
     let parsed: unknown
     try {

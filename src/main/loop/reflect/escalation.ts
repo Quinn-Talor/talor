@@ -57,6 +57,7 @@ export class EscalationReflector implements Reflector {
       },
       ctx.reflectModel,
       ctx.abortSignal,
+      ctx.sessionId,
     )
     if (!reflection) return null
 

@@ -127,6 +127,7 @@ export class PeriodicReflector implements Reflector {
       },
       ctx.reflectModel,
       ctx.abortSignal,
+      ctx.sessionId,
     )
     if (!reflection) return null
 

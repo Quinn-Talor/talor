@@ -147,6 +147,7 @@ export class JudgeCompletionReflector implements Reflector {
       },
       ctx.reflectModel,
       ctx.abortSignal,
+      ctx.sessionId,
     )
 
     if (!result) return null

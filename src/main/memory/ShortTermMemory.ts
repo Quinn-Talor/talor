@@ -1,6 +1,7 @@
 import { generateObject } from 'ai'
 import { z } from 'zod'
 import { getAdapter } from '../providers/model-adapter'
+import { recordUsage } from '../providers/usage-recorder'
 import { messageRepo } from '../repos/session-repo'
 import { getDb } from '../db/index'
 import log from 'electron-log'
@@ -206,6 +207,7 @@ export class ShortTermMemory {
           compressible,
           summaryBudget,
           config,
+          sessionId,
         )
         this.saveSummary(sessionId, summaryText, lastCompressedId, estimate(summaryText))
         this.compressionFailures.delete(sessionId)
@@ -317,6 +319,7 @@ async function generateSummary(
   oldMessages: ChatMessage[],
   summaryBudget: number,
   config: ProviderContextConfig,
+  sessionId: string,
 ): Promise<string> {
   const summaryBudgetChars = summaryBudget * 3
   const MAX_CONTENT_BYTES = 8192
@@ -383,7 +386,7 @@ async function generateSummary(
     `Respond in English. Total output ≤ ~${summaryBudgetChars} characters.`
 
   const model = getAdapter(config.provider.type).createModel(config.provider, 'default')
-  const { object } = await generateObject({
+  const { object, usage, providerMetadata } = await generateObject({
     model,
     schema: CompressionSchema,
     messages: [
@@ -393,6 +396,7 @@ async function generateSummary(
     maxOutputTokens: Math.ceil(summaryBudget),
     abortSignal: AbortSignal.timeout(60_000),
   })
+  recordUsage(sessionId, usage, providerMetadata as Record<string, unknown> | undefined)
 
   const text = renderCompressionAsText(object)
   log.info(
