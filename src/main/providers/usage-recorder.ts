@@ -12,7 +12,18 @@ import { sessionRepo } from '../repos/session-repo'
 
 export function recordUsage(
   sessionId: string,
-  usage: { inputTokens?: number; outputTokens?: number } | undefined,
+  usage:
+    | {
+        inputTokens?: number
+        outputTokens?: number
+        // v7: 统一缓存细分;运行时存在,调用方静态类型可能省略(可选即可)。
+        inputTokenDetails?: {
+          noCacheTokens?: number
+          cacheReadTokens?: number
+          cacheWriteTokens?: number
+        }
+      }
+    | undefined,
   providerMetadata: Record<string, unknown> | undefined,
 ): void {
   try {
