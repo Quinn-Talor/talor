@@ -97,6 +97,14 @@ async function mockAllPlugins(
 
   const empty: PluginResult = { messages: [], tools: [], tokenEstimate: 0 }
 
+  const LAYERS: Record<string, string> = {
+    SystemPlugin: 'system',
+    AgentPromptPlugin: 'agent',
+    MemoryPlugin: 'history',
+    MessagePlugin: 'volatile',
+    ToolSelectionPlugin: 'tools',
+  }
+
   const configure = <T>(
     name: string,
     ctor: T,
@@ -113,6 +121,7 @@ async function mockAllPlugins(
       this: Record<string, unknown>,
     ) {
       this.name = name
+      this.layer = LAYERS[name] ?? 'volatile'
       this.build = build
     } as unknown as new () => unknown)
   }
@@ -132,19 +141,28 @@ async function mockAllPlugins(
 }
 
 describe('PromptPipeline.build', () => {
-  it('non-critical plugin failure: other plugins still run, [DEGRADED] notice prepended', async () => {
+  it('non-critical plugin failure: other plugins still run, [DEGRADED] notice in volatile tail', async () => {
     const pipeline = await mockAllPlugins({
       SystemPlugin: { messages: [{ role: 'system', content: 'sys' }], tools: [], tokenEstimate: 0 },
       ToolSelectionPlugin: new Error('tool selection failed'),
     })
     const result = await pipeline.build(makeCtx())
 
-    expect(result.messages[0]).toEqual({
-      role: 'system',
-      content: expect.stringContaining('[DEGRADED]'),
-    })
-    expect(result.messages[0].content as string).toContain('ToolSelectionPlugin')
-    expect(result.messages).toContainEqual({ role: 'system', content: 'sys' })
+    // append-only 设计:DEGRADED 是易变内容 → 归 volatile 尾部(不再 prepend 到 [0])。
+    const degraded = result.messages.find(
+      (m) => typeof m.content === 'string' && m.content.startsWith('[DEGRADED]'),
+    )
+    expect(degraded).toBeDefined()
+    expect(degraded!.content as string).toContain('ToolSelectionPlugin')
+    // 稳定层 system('sys')应排在易变 DEGRADED 之前。
+    const sysIdx = result.messages.findIndex(
+      (m) => typeof m.content === 'string' && m.content === 'sys',
+    )
+    const degIdx = result.messages.findIndex(
+      (m) => typeof m.content === 'string' && m.content.startsWith('[DEGRADED]'),
+    )
+    expect(sysIdx).toBeGreaterThanOrEqual(0)
+    expect(degIdx).toBeGreaterThan(sysIdx)
   })
 
   it('critical plugin failure (MemoryPlugin): throws with plugin name', async () => {

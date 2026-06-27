@@ -159,27 +159,20 @@ describe('SystemPlugin', () => {
     expect(content).toMatch(/not pre-read/i)
   })
 
-  it('顺序: Principles → Task Routing → Runtime meta', async () => {
+  it('顺序: Principles → Task Routing', async () => {
     const result = await new SystemPlugin().build(makeCtx('/tmp/ws'))
     const content = (result.messages[0] as { content: string }).content
     const principlesIdx = content.indexOf('# Core Behavior Principles')
     const routingIdx = content.indexOf('# Task Routing')
-    const runtimeIdx = content.indexOf('Current date:')
     expect(principlesIdx).toBeGreaterThan(-1)
     expect(routingIdx).toBeGreaterThan(principlesIdx)
-    expect(runtimeIdx).toBeGreaterThan(routingIdx)
   })
 
-  it('runtime footer 含 workspace', async () => {
+  it('稳定层不含运行时元(已移到 RuntimeMetaPlugin / volatile 尾部)', async () => {
     const result = await new SystemPlugin().build(makeCtx('/my/workspace'))
     const content = (result.messages[0] as { content: string }).content
-    expect(content).toContain('Workspace: /my/workspace')
-  })
-
-  it('workspace 未设置时显示 (not set)', async () => {
-    const result = await new SystemPlugin().build(makeCtx())
-    const content = (result.messages[0] as { content: string }).content
-    expect(content).toContain('Workspace: (not set)')
+    expect(content).not.toContain('Current date:')
+    expect(content).not.toContain('Workspace:')
   })
 
   it('不含旧版 RULE 0 / 历史命令式文案', async () => {

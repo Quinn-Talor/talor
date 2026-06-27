@@ -16,6 +16,7 @@ import type { PromptPlugin, PipelineContext, PluginResult } from '../types'
 
 export class MessagePlugin implements PromptPlugin {
   name = 'MessagePlugin'
+  readonly layer = 'volatile' as const
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
     const all = messageRepo.listBySession(ctx.sessionId)
@@ -28,7 +29,9 @@ export class MessagePlugin implements PromptPlugin {
 
     if (coreMessages.length === 0) {
       // messagesToCoreMessages 若返回空说明 last 消息无法转换(格式异常),保守跳过。
-      log.warn(`[MessagePlugin] last message (id=${last.id}, role=${last.role}) converted to empty; skipping`)
+      log.warn(
+        `[MessagePlugin] last message (id=${last.id}, role=${last.role}) converted to empty; skipping`,
+      )
       return { messages: [], tools: [], tokenEstimate: 0 }
     }
 

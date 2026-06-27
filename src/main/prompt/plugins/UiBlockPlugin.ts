@@ -77,6 +77,7 @@ becomes the user's next message; use for "rewrite/change tone" follow-ups.
 
 export class UiBlockPlugin implements PromptPlugin {
   name = 'UiBlockPlugin'
+  readonly layer = 'agent' as const
 
   async build(_ctx: PipelineContext): Promise<PluginResult> {
     // 极简: 总是注入 block 词典(disableUiBlocks 已从 schema 删除)

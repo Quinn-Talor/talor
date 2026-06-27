@@ -8,12 +8,17 @@ const FALLBACK_RECENT_COUNT = 20
 
 export class MemoryPlugin implements PromptPlugin {
   name = 'MemoryPlugin'
+  readonly layer = 'history' as const
 
   constructor(private memoryManager: MemoryManager) {}
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
     try {
-      const result = await this.memoryManager.getContext(ctx.sessionId, ctx.providerConfig, ctx.events)
+      const result = await this.memoryManager.getContext(
+        ctx.sessionId,
+        ctx.providerConfig,
+        ctx.events,
+      )
       const messages = []
       if (result.summaryMessage !== null) messages.push(result.summaryMessage)
       messages.push(...result.recentMessages)

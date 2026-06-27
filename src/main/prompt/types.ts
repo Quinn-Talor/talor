@@ -5,8 +5,17 @@ import type { ToolMetadata } from '../tools/types'
 import type { SkillActivationTracker } from '../skills/registry'
 import type { ExecutionEventBus } from '../chat/events'
 
+/**
+ * Prompt 稳定性分层(append-only 设计)。rank 越小越稳定 → 越靠 prompt 前面。
+ * 稳定层(system/agent/tools/history)构成可缓存前缀,跨 build 必须字节一致;
+ * volatile 是易变尾部(当前 turn / 运行时元 / hint / guide),每轮可变。
+ */
+export type StabilityLayer = 'system' | 'agent' | 'tools' | 'history' | 'volatile'
+
 export interface PromptPlugin {
   name: string
+  /** 本 plugin 输出所属的稳定性层;pipeline 据此排序装配(append-only)。 */
+  layer: StabilityLayer
   build(ctx: PipelineContext): Promise<PluginResult>
 }
 

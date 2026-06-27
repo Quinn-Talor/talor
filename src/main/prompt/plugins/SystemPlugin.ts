@@ -180,16 +180,11 @@ it only sees its profile, \`instruction\`, and \`context\` you provide.`
 
 export class SystemPlugin implements PromptPlugin {
   name = 'SystemPlugin'
+  // L0 稳定层:行为宪法/路由/委托是应用版本内不变的内容,构成可缓存前缀的最前段。
+  // 运行时元(date/os/workspace)已抽到 RuntimeMetaPlugin(volatile 尾部),不进此层。
+  readonly layer = 'system' as const
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
-    // 日期级(非毫秒时间戳)— 让 system 前缀在一天内字节稳定, 不每轮破坏 prompt 缓存。
-    // 毫秒时间戳会让 deepseek/openai 等的前缀缓存每轮失效(命中率被打到个位数)。
-    const runtimeLines = [
-      `Current date: ${new Date().toISOString().slice(0, 10)}`,
-      `Operating system: ${process.platform}`,
-      `Workspace: ${ctx.workspacePath ?? '(not set)'}`,
-    ]
-
     // 仅当此 agent 实际持有 delegate_agent 工具时，注入委托引导文本。
     // 工作模式 / __crystallizer__ 因 disabledTools 拿不到此工具，引导文本
     // 不出现，避免误导模型尝试调用不存在的工具。
@@ -197,7 +192,6 @@ export class SystemPlugin implements PromptPlugin {
     if (ctx.agent?.toolRegistry.hasTool('delegate_agent')) {
       sections.push('---', DELEGATION_GUIDANCE)
     }
-    sections.push('---', runtimeLines.join('\n'))
 
     const content = sections.join('\n\n')
     return {

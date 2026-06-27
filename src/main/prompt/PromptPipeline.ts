@@ -7,7 +7,7 @@
 
 import { ConfigStore } from '../store/config-store'
 import { MemoryManager } from '../memory/MemoryManager'
-import type { PipelineContext, PluginResult, ProviderContextConfig } from './types'
+import type { PipelineContext, ProviderContextConfig, PromptPlugin, StabilityLayer } from './types'
 import type { ToolMetadata } from '../tools/types'
 import type { Provider } from '../store/config-store'
 import type { ModelMessage } from 'ai'
@@ -42,41 +42,44 @@ export function resolveProviderConfig(provider: Provider): ProviderContextConfig
   }
 }
 
+/** append-only 装配:层 rank 越小越靠前(可缓存前缀),volatile 在尾部。 */
+const LAYER_RANK: Record<StabilityLayer, number> = {
+  system: 0,
+  agent: 1,
+  tools: 2,
+  history: 3,
+  volatile: 4,
+}
+
 export class PromptPipeline {
   private memoryManager: MemoryManager
-  private plugins: Array<{
-    name: string
-    build(ctx: PipelineContext): Promise<PluginResult>
-  }> | null = null
+  private plugins: PromptPlugin[] | null = null
 
   constructor(memoryManager: MemoryManager) {
     this.memoryManager = memoryManager
   }
 
-  private async getPlugins(): Promise<
-    Array<{ name: string; build(ctx: PipelineContext): Promise<PluginResult> }>
-  > {
+  private async getPlugins(): Promise<PromptPlugin[]> {
     if (this.plugins !== null) return this.plugins
     const { SystemPlugin } = await import('./plugins/SystemPlugin')
     const { AgentPromptPlugin } = await import('./plugins/AgentPromptPlugin')
     const { UiBlockPlugin } = await import('./plugins/UiBlockPlugin')
+    const { RuntimeMetaPlugin } = await import('./plugins/RuntimeMetaPlugin')
     const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
     const { MessagePlugin } = await import('./plugins/MessagePlugin')
     const { ToolSelectionPlugin } = await import('./plugins/ToolSelectionPlugin')
-    // 顺序映射到最终 prompt 结构:
-    //   System (Layer 1+2) → Agent (Layer 3+4) → UiBlock (Layer 5, block 协议)
-    //   → Memory (Layer 6) → Message (Layer 7,当前 turn)
-    //   → ToolSelection (仅 ≥50 工具时的 notice)
-    // MessagePlugin 必须紧跟 MemoryPlugin:Memory pop 了末尾,Message 把它放回来。
-    // UiBlockPlugin 在 AgentPromptPlugin 后:agent 自定义 prompt 之后再给通用 UI
-    // 块协议,避免被 agent prompt 的"严格 JSON only"等强势规则覆盖。
+    // 装配顺序由 plugin.layer 决定(见 buildLayered),非数组顺序。数组顺序仅决定
+    // 同层内的相对次序(确定性)+ tools 收集。append-only 分层:
+    //   system → agent(Agent, UiBlock) → tools → history(Memory)
+    //   → volatile(RuntimeMeta, Message;当前 turn / 运行时元等易变内容)
     this.plugins = [
       new SystemPlugin(),
       new AgentPromptPlugin(),
       new UiBlockPlugin(),
-      new MemoryPlugin(this.memoryManager),
-      new MessagePlugin(),
       new ToolSelectionPlugin(),
+      new MemoryPlugin(this.memoryManager),
+      new RuntimeMetaPlugin(),
+      new MessagePlugin(),
     ]
     return this.plugins
   }
@@ -91,16 +94,32 @@ export class PromptPipeline {
    * Non-critical plugins: failure is logged and a [DEGRADED] system message is
    * prepended so the model knows some context is missing.
    */
-  async build(ctx: PipelineContext): Promise<{ messages: ModelMessage[]; tools: ToolMetadata[] }> {
+  /**
+   * append-only 分层装配。每个 plugin 产出归到其 layer;按 LAYER_RANK 稳定排序
+   * (同层保 plugin 顺序)→ 稳定层(system/agent/tools/history)连续在前构成可缓存
+   * 前缀,volatile 在尾。供 build() 与守护测试消费。
+   *
+   * Critical plugin 失败抛出;非 critical 失败降级 + 注入 [DEGRADED](volatile)。
+   */
+  async buildLayered(
+    ctx: PipelineContext,
+  ): Promise<{
+    segments: Array<{ layer: StabilityLayer; messages: ModelMessage[] }>
+    tools: ToolMetadata[]
+  }> {
     const plugins = await this.getPlugins()
-    const allMessages: ModelMessage[] = []
+    const collected: Array<{ layer: StabilityLayer; order: number; messages: ModelMessage[] }> = []
     const allTools: ToolMetadata[] = []
     const degraded: string[] = []
 
+    let order = 0
     for (const plugin of plugins) {
+      const idx = order++
       try {
         const result = await plugin.build(ctx)
-        allMessages.push(...result.messages)
+        if (result.messages.length > 0) {
+          collected.push({ layer: plugin.layer, order: idx, messages: result.messages })
+        }
         allTools.push(...result.tools)
       } catch (err) {
         if (CRITICAL_PLUGIN_NAMES.has(plugin.name)) {
@@ -118,15 +137,33 @@ export class PromptPipeline {
     }
 
     if (degraded.length > 0) {
-      allMessages.unshift({
-        role: 'system',
-        content:
-          `[DEGRADED] The following prompt plugins failed and were skipped: ${degraded.join(', ')}. ` +
-          `Some context may be missing. If the current task depends on them ` +
-          `(e.g. tool selection, external knowledge), tell the user and ask whether to retry.`,
+      // 降级告警是易变内容 → 归 volatile 尾部,不污染可缓存前缀。
+      collected.push({
+        layer: 'volatile',
+        order: order++,
+        messages: [
+          {
+            role: 'system',
+            content:
+              `[DEGRADED] The following prompt plugins failed and were skipped: ${degraded.join(', ')}. ` +
+              `Some context may be missing. If the current task depends on them ` +
+              `(e.g. tool selection, external knowledge), tell the user and ask whether to retry.`,
+          },
+        ],
       })
     }
 
-    return { messages: allMessages, tools: allTools }
+    // 稳定排序:先按 layer rank,再按 emit 顺序 → 确定性、append-only。
+    collected.sort((a, b) => LAYER_RANK[a.layer] - LAYER_RANK[b.layer] || a.order - b.order)
+    return {
+      segments: collected.map((c) => ({ layer: c.layer, messages: c.messages })),
+      tools: allTools,
+    }
+  }
+
+  /** 扁平化 buildLayered 结果。外部签名不变(callers 仍拿 {messages, tools})。 */
+  async build(ctx: PipelineContext): Promise<{ messages: ModelMessage[]; tools: ToolMetadata[] }> {
+    const { segments, tools } = await this.buildLayered(ctx)
+    return { messages: segments.flatMap((s) => s.messages), tools }
   }
 }

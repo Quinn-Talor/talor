@@ -18,6 +18,7 @@ import { estimate } from '../../memory/types'
 
 export class ToolSelectionPlugin implements PromptPlugin {
   name = 'ToolSelectionPlugin'
+  readonly layer = 'tools' as const
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
     if (!ctx.agent) {

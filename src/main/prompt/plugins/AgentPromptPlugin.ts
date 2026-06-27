@@ -15,6 +15,7 @@ export { _resetTemplateCache }
 
 export class AgentPromptPlugin implements PromptPlugin {
   name = 'AgentPromptPlugin'
+  readonly layer = 'agent' as const
 
   async build(ctx: PipelineContext): Promise<PluginResult> {
     if (!ctx.agent) {
