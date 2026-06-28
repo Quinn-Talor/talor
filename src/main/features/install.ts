@@ -1,24 +1,30 @@
-// src/main/features/install.ts — 启动期 Feature 融合循环(main 侧)
+// src/main/features/install.ts — 启动期 Feature 融合(main 侧)
 //
-// 对每个 Feature 调 init(注册工具/建表)+ registerIpc,聚合 seedAgents 返回给调用方安装。
-// 纯函数(不碰 fs/electron):seedAgents 的实际安装(拷贝到 ~/.talor/agents)由调用方处理,
-// 保持本函数可单测。必须在 toolRegistry.listAll() 快照前调用(方案3:feature 工具进 builtin)。
+// **平台拥有注册**:对每个 Feature 依次 init(建数据) → agents(声明,逐个 registerAgent) →
+// artifacts(声明读口,逐个 registerArtifactReader) → registerIpc → mcpDeps(校验缺失,告警)。
+// feature 只声明贡献;注册动作经 ports 由平台执行 —— 加新业务平台核心零改动。
 //
-// 允许依赖:./types
+// 允许依赖:./types / electron-log
 // 禁止依赖:任何具体业务
 
-import type { FeatureInitCtx, SeedAgentRef, TalorFeatureMain } from './types'
+import log from 'electron-log'
+import type { FeatureInitCtx, FeaturePorts, TalorFeatureMain } from './types'
 
-/**
- * 融合所有 main 侧 Feature:逐个 init + registerIpc。
- * @returns 聚合的种子 agent 列表(调用方负责幂等安装到 ~/.talor/agents)。
- */
-export function installFeatures(features: TalorFeatureMain[], ctx: FeatureInitCtx): SeedAgentRef[] {
-  const seeds: SeedAgentRef[] = []
+/** 融合所有 main 侧 Feature。平台经 ports 注册各 Feature 声明的 agent / 读口,并校验 mcp 依赖。 */
+export function installFeatures(
+  features: TalorFeatureMain[],
+  ctx: FeatureInitCtx,
+  ports: FeaturePorts,
+): void {
   for (const f of features) {
     f.init(ctx)
+    for (const agent of f.agents?.() ?? []) ports.registerAgent(agent)
+    for (const artifact of f.artifacts?.() ?? []) ports.registerArtifactReader(artifact)
     f.registerIpc?.()
-    seeds.push(...(f.seedAgents?.() ?? []))
+    for (const dep of f.mcpDeps?.() ?? []) {
+      if (!ports.isMcpConfigured(dep.name)) {
+        log.warn(`[features] ${f.id} 需要 MCP server "${dep.name}" 未配置 — ${dep.hint}`)
+      }
+    }
   }
-  return seeds
 }

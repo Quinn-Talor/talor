@@ -23,6 +23,8 @@ import { detectDraftInText } from '../lib/draft-extractor'
 import { splitMessageWithTalorBlocks } from './TalorBlockRenderer'
 import { Prose } from './markdown/Prose'
 import { DonePill, NeedInput, BlockedRow, WarningRow, Proposal } from './talor-blocks'
+import { artifactUI } from '../artifacts/registry'
+import { openArtifact } from '../artifacts/openArtifact'
 
 class ErrorBoundary extends React.Component<
   { fallback: React.ReactNode; children: React.ReactNode },
@@ -190,6 +192,19 @@ function MessageBubbleInner({
         )}
 
         {isStreaming && <span className="streaming-cursor" />}
+
+        {/* 业务对象 chip(数据驱动,从本消息自识别;点击经 CustomEvent 打开案卷抽屉) */}
+        {!isUser &&
+          'id' in message &&
+          artifactUI
+            .all()
+            .map((ui) =>
+              ui.Inline ? (
+                <React.Fragment key={ui.type}>
+                  {ui.Inline({ message, onSelect: (id) => openArtifact({ type: ui.type, id }) })}
+                </React.Fragment>
+              ) : null,
+            )}
 
         {draftDetected?.detected && draftDetected.profile && onReviewDraft && (
           <button

@@ -30,6 +30,12 @@ export interface AgentOptions {
    *   - 都没声明 → scope=[]，工具持有但 listing 为空
    */
   delegationRuntime?: DelegationRuntime
+  /**
+   * S1 作用域化 feature 工具:仅本 agent 应获得的业务工具(如 invest 的 12 工具),
+   * 走 agentTools 注入通道——不进全局 builtin,故不泄漏给其它 agent。由 AgentManager
+   * .registerFeatureAgent 从 feature 声明的 FeatureAgent.tools 注入。
+   */
+  featureTools?: ToolDefinition[]
 }
 
 export class Agent {
@@ -67,6 +73,10 @@ export class Agent {
     //   search_tool:    profile 声明了 mcpServers OR mcpRegistry 非 null → 注入
     //   delegate_agent: 总是注入（由下方 collaboration 段处理）
     const agentTools: ToolDefinition[] = []
+    // S1:作用域化 feature 工具(invest 等)只注入本 agent,不进全局 builtin。
+    if (opts.featureTools && opts.featureTools.length > 0) {
+      agentTools.push(...opts.featureTools)
+    }
     const declaredSkills = opts.profile.skills ?? []
     if (declaredSkills.length > 0 || !opts.skillRegistry.isEmpty()) {
       agentTools.push(createSkillTool(opts.skillRegistry))

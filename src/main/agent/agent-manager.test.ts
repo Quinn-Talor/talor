@@ -188,3 +188,73 @@ describe('AgentManager platform delegation (AC-031, AC-047)', () => {
     expect(cryst.allowedAgentIds).toEqual([])
   })
 })
+
+describe('AgentManager feature agents (内存自管,不落盘)', () => {
+  const FEATURE_PROFILE: AgentProfile = {
+    id: 'invest_research',
+    name: '投研主理人',
+    description: '投研建卡与跟踪。',
+    agentPrompt: `## Workflow
+1. Build the card.
+
+## Principles
+- Cite sources.
+
+## Output
+Markdown card.`,
+    // 不声明 tools(同真实 invest agent)→ allowedTools 空集 → feature 工具不被白名单过滤
+  }
+
+  function freshManager(): AgentManager {
+    const m = new AgentManager()
+    m.init({
+      builtinRegistry,
+      mcpRegistry: null,
+      skillRegistry: SkillRegistry.fromDir(null),
+    } as unknown as Parameters<AgentManager['init']>[0])
+    return m
+  }
+
+  it('registerFeatureAgent: 内存注册为业务 agent(可委托、source=null、无本地目录)', () => {
+    const m = freshManager()
+    m.registerFeatureAgent(FEATURE_PROFILE)
+
+    const agent = m.getAgent('invest_research')
+    expect(agent).not.toBeNull()
+    expect(m.listBusinessAgentIds()).toContain('invest_research')
+    // 内存态:与平台 agent 一致,source=null → 不绑磁盘目录(无本地 skills/knowledge)
+    expect(agent!.source).toBeNull()
+    expect(agent!.skillsDir).toBeNull()
+  })
+
+  it('registerFeatureAgent(profile, tools): feature 工具注入该 agent', () => {
+    const m = freshManager()
+    m.registerFeatureAgent(FEATURE_PROFILE, [makeTool('compute_red_flags')])
+    expect(m.getAgent('invest_research')!.toolRegistry.getToolNames()).toContain(
+      'compute_red_flags',
+    )
+  })
+
+  it('getFeatureAgentProfiles 暴露已注册 feature profile(供 agents:list 只读列出)', () => {
+    const m = freshManager()
+    m.registerFeatureAgent(FEATURE_PROFILE)
+    expect(m.getFeatureAgentProfiles().map((p) => p.id)).toEqual(['invest_research'])
+  })
+
+  it('fork-override: 同 id 已注册 → 跳过,不重复', () => {
+    const m = freshManager()
+    m.registerFeatureAgent(FEATURE_PROFILE)
+    m.registerFeatureAgent(FEATURE_PROFILE) // 第二次:businessAgents 已有 → 跳过
+    expect(m.getFeatureAgentProfiles()).toHaveLength(1)
+  })
+
+  it('未 init 即调 registerFeatureAgent → 抛', () => {
+    expect(() => new AgentManager().registerFeatureAgent(FEATURE_PROFILE)).toThrow()
+  })
+
+  it('不触发:无 feature 注册 → 只有平台 agent,无业务 agent(不抛)', () => {
+    const m = freshManager()
+    expect(m.listBusinessAgentIds()).toEqual([])
+    expect(m.getAgent('__chat__')).not.toBeNull()
+  })
+})

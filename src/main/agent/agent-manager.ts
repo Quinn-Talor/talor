@@ -14,6 +14,7 @@ import type { McpToolSource } from './agent-toolset'
 import { SkillRegistry } from '../skills/registry'
 import type { McpRegistry } from '../mcp/client'
 import type { DelegationRuntime } from './delegate-agent'
+import type { ToolDefinition } from '../tools/types'
 
 export interface PlatformAgentDeps {
   builtinRegistry: BuiltinToolRegistry
@@ -169,7 +170,9 @@ function buildAgentMcpToolSource(
   platformRegistry: McpRegistry,
   allowedServerNames: string[],
 ): McpToolSource | null {
-  if (allowedServerNames.length === 0) return null
+  // 默认全给(与 builtin 一致:profile 不声明 mcpServers = 全部已配置 MCP);
+  // 显式声明则收窄到该子集。McpRegistry 结构上满足 McpToolSource(listRegisteredTools + execute)。
+  if (allowedServerNames.length === 0) return platformRegistry
   return platformRegistry.filterByServerNames(allowedServerNames)
 }
 
@@ -177,6 +180,8 @@ export class AgentManager {
   private platformChat: Agent | null = null
   private platformCrystallizer: Agent | null = null
   private readonly businessAgents = new Map<string, Agent>()
+  /** Feature 声明并注册的 agent profile(origin=feature),供 getFeatureAgentProfiles / 只读门禁。 */
+  private readonly featureProfiles: AgentProfile[] = []
 
   private deps: PlatformAgentDeps | null = null
   private loader: AgentLoader | null = null
@@ -184,25 +189,15 @@ export class AgentManager {
   init(deps: PlatformAgentDeps): void {
     this.deps = deps
 
+    // 用户池 agent(磁盘 ~/.talor/agents)。v2.0 引用化:mcp/skill 按 name 从平台过滤。
+    // 先于 feature 注册(feature 经 installFeatures 在 init 之后 registerFeatureAgent):
+    // 同 id 时用户版已注册 → feature 跳过(fork-override,用户优先)。
     if (deps.agentsDir) {
       this.loader = new AgentLoader(deps.agentsDir)
       this.loader.loadAll()
       log.info('[AgentManager] AgentLoader initialized, agents:', this.loader.size)
-
       for (const entry of this.loader.getAll()) {
-        const profile = entry.profile
-        // v2.0 引用化: 业务 agent 从平台 mcpRegistry 按 name 过滤,不再自带 transport 定义
-        const agentMcpRegistry = buildAgentMcpToolSource(deps.mcpRegistry, profile.mcpServers ?? [])
-
-        // skills 从平台 ~/.talor/skills 按 name 过滤(SkillRegistry.fromPlatformDir 由 deps 提供)
-        const agentSkillRegistry = deps.skillRegistry.filterByNames(profile.skills ?? [])
-
-        this.registerBusinessAgent(profile.id, {
-          profile,
-          source: entry.dirPath,
-          mcpRegistry: agentMcpRegistry,
-          skillRegistry: agentSkillRegistry,
-        })
+        this.businessAgents.set(entry.profile.id, this.buildAgent(entry.profile, entry.dirPath, []))
       }
     }
 
@@ -217,6 +212,8 @@ export class AgentManager {
       mcpRegistry: deps.mcpRegistry,
       skillRegistry: deps.skillRegistry,
       delegationRuntime: deps.delegationRuntime,
+      // __chat__ 无 feature 工具 → 拿不到 invest 等业务工具(只能 delegate)。
+      featureTools: [],
     })
 
     this.platformCrystallizer = new Agent({
@@ -226,6 +223,7 @@ export class AgentManager {
       mcpRegistry: deps.mcpRegistry,
       skillRegistry: deps.skillRegistry,
       delegationRuntime: deps.delegationRuntime,
+      featureTools: [],
     })
 
     log.info('[AgentManager] Initialized with platform agents: __chat__, __crystallizer__')
@@ -240,6 +238,40 @@ export class AgentManager {
   getChatAgent(): Agent {
     if (!this.platformChat) throw new Error('AgentManager not initialized')
     return this.platformChat
+  }
+
+  /**
+   * 从 profile 构造一个业务 Agent 实例(mcp/skill 按 profile 引用从平台过滤)。
+   * source:磁盘用户 agent = dirPath(派生本地 skills/knowledge);feature agent = null。
+   * 用户池循环 + registerFeatureAgent 共用。
+   */
+  private buildAgent(profile: AgentProfile, source: string | null, tools: ToolDefinition[]): Agent {
+    if (!this.deps) throw new Error('AgentManager not initialized')
+    return new Agent({
+      profile,
+      source,
+      builtinRegistry: this.deps.builtinRegistry,
+      delegationRuntime: this.deps.delegationRuntime,
+      mcpRegistry: buildAgentMcpToolSource(this.deps.mcpRegistry, profile.mcpServers ?? []),
+      skillRegistry: this.deps.skillRegistry.filterByNames(profile.skills ?? []),
+      featureTools: tools,
+    })
+  }
+
+  /**
+   * Feature 装配端口的落地(installFeatures 经 ports.registerAgent 调用):
+   * 把 feature 声明的 agent(连工具)内存注册为业务 agent,标 origin=feature(featureProfiles)。
+   * 同 id 已注册(用户池)→ 跳过(fork-override,用户版优先)。须在 init() 之后调用。
+   */
+  registerFeatureAgent(profile: AgentProfile, tools: ToolDefinition[] = []): void {
+    if (!this.deps) throw new Error('AgentManager.init() must run before feature registration')
+    if (this.businessAgents.has(profile.id)) {
+      log.info('[AgentManager] user agent overrides feature agent:', profile.id)
+      return
+    }
+    this.businessAgents.set(profile.id, this.buildAgent(profile, null, tools))
+    this.featureProfiles.push(profile)
+    log.info('[AgentManager] Registered feature agent:', profile.id)
   }
 
   registerBusinessAgent(
@@ -261,6 +293,8 @@ export class AgentManager {
       ...opts,
       builtinRegistry: this.deps.builtinRegistry,
       delegationRuntime: this.deps.delegationRuntime,
+      // 用户/业务 agent 经此路径(enable/duplicate)无 feature 工具;feature agent 走 registerFeatureAgent。
+      featureTools: [],
     })
     this.businessAgents.set(agentId, agent)
     log.info('[AgentManager] Registered business agent:', agentId)
@@ -307,6 +341,14 @@ export class AgentManager {
   getPlatformSkillRegistry(): SkillRegistry | null {
     if (!this.deps) throw new Error('AgentManager not initialized')
     return this.deps.skillRegistry ?? null
+  }
+
+  /**
+   * 公开 feature 自管的内存 agent profile(只读;不在 ~/.talor/agents 用户池)。
+   * 供 agents:list / agents:get 把内置 feature agent 只读露出给 UI(可选择/预览,不可编辑删除)。
+   */
+  getFeatureAgentProfiles(): AgentProfile[] {
+    return this.featureProfiles
   }
 
   get isInitialized(): boolean {

@@ -1,7 +1,7 @@
 # Talor Feature 架构 — 业务对象融入平台(完整方案 · 含 invest 实例)
 
 > **目标**:任意业务(投资卡片 / 机器人 …)以 Feature 融入 Talor,同时:① 平台业务无关(可独立)② LLM 经**指令(工具)**正确操作业务对象 ③ 页面独立渲染业务对象。
-> **设计基调(经讨论收敛)**:面向接口 + 低耦合。**抽象三件(对象 / 读 / 渲染),写不抽象成通用 CRUD(写=工具)**;平台新增**几乎归零**(只一个 UI 槽);对象读写一律走 LLM 指令,不做平台自动注入/溯源/焦点。
+> **设计基调(经讨论收敛)**:面向接口 + 低耦合 + **声明式契约,平台拥有注册**。一个 Feature = 一类业务的完全封装,声明**五类贡献(agent / tool / mcp / ui / 数据读口)**;平台只依赖 `TalorFeatureMain` / `TalorFeatureRenderer` 接口,经 `installFeatures` 统一注册。加新业务 = 实现两半接口 + 组合根各登记一行,平台核心零改动。抽象三件(对象 / 读 / 渲染),写不抽象成通用 CRUD(写=工具);对象读写一律走 LLM 指令,不做平台自动注入/溯源/焦点。
 
 ---
 
@@ -70,10 +70,10 @@ class ArtifactUIRegistry {
 export const artifactUI = new ArtifactUIRegistry()
 ```
 
-两个挂载点:
+两个挂载点(均按 `type` 派发,平台不认识具体业务):
 
-- **对话流(inline)**:`MessageBubble` 对每条消息调所有 `artifactUI.all()` 的 `Inline(message)`,渲出 chip(feature 自己从 message.content 的工具结果里识别本类对象 id)。
-- **面板(panel)**:`Chat/index.tsx` 右侧槽,渲 `selectedArtifact`(用户点 chip 选中)对应 `type` 的 `Panel({id})`。
+- **对话流(inline)**:`MessageBubble` 对每条消息调所有 `artifactUI.all()` 的 `Inline(message)`,渲出 chip;点击 → `openArtifact(type,id)` 派发通用 `artifact:open` 事件。
+- **案卷面板(panel)**:平台 `ArtifactDrawer`(`renderer/artifacts/`)听 `artifact:open` → `artifactUI.get(type).Panel({id})` 渲右侧抽屉(低耦合,不穿 props 链)。
 
 > 平台**不认识** card/robot:只认 `ArtifactUI.type` 字符串 + 抽象组件;不读对象数据(组件自己经 feature IPC 取)。
 
@@ -81,38 +81,93 @@ export const artifactUI = new ArtifactUIRegistry()
 
 ## 4. Feature 契约 + 启动融合
 
-`src/shared/types/feature.ts`:
+### 4.0 理念:一个 Feature = 一束完整业务(四支柱 · agent 中枢 · 单一真相)
+
+平台核心**无任何业务**;一个业务以 **Feature** 整体接入,**四支柱**缺一不可:
+
+```
+① 数据  init 建表 + ArtifactStore(read/apply)      —— 业务数据(一份真相)
+② agent agents(): FeatureAgent[](profile + 工具)    —— 谁来操作(连其工具,内聚声明)
+③ 读口  artifacts(): FeatureArtifact[](按 type)     —— UI 怎么取数(平台通用 artifact:read 路由)
+④ 渲染  TalorFeatureRenderer.ui(): ArtifactUI[]      —— 怎么呈现(renderer 半)
+（+ mcpDeps() 声明依赖的 MCP server,installFeatures 校验缺失即告警)
+```
+
+**feature 只声明,平台拥有注册**:feature 的 `agents()` / `artifacts()` 返回**纯数据**(可枚举 / 可测);平台 `installFeatures` 经 `FeaturePorts` 逐条注册(`registerFeatureAgent` / `registerArtifactReader`),校验 / 去重 / origin 都在平台一处。
+
+**agent 与工具内聚**:`FeatureAgent = { profile, tools? }` —— agent 声明时连它的工具一起给,平台注册时把 tools 作为 per-agent `featureTools` 注入(不进全局 builtin)。
+
+**注册 Feature = fan-out**:`installFeatures` 对每个 Feature 依次 init(建数据)→ agents(声明,平台 registerAgent)→ artifacts(声明读口,平台 registerArtifactReader)→ registerIpc → mcpDeps(校验);renderer 半另注册 ArtifactUI。
+
+**关键不变量**:
+
+- **工具作用域化(S1)**:featureTools **不进全局 builtin**,按 agent 注入 `agentTools` → `__chat__` 等通用 agent **拿不到业务工具**,只能 `delegate_agent` 给业务 agent(领域入口自然收敛,方法论 prompt 必生效)。
+- **对象根归属(S3)**:对象 `create` 的 origin 取**根会话**(沿 parent_session 链),委托子会话建的对象仍归用户主会话 → 跨委托树幂等 + 归属正确。
+
+### 4.1 契约
 
 ```ts
+// src/main/features/types.ts
+export interface FeatureInitCtx {
+  db: Database
+} // init 建数据用
+export interface FeatureAgent {
+  profile: AgentProfile
+  tools?: ToolDefinition[]
+} // agent + 其工具(内聚)
+export interface FeatureArtifact {
+  type: string
+  read(id: string): unknown
+} // 业务对象读口(按 type)
+
 export interface TalorFeatureMain {
   id: string
-  init(ctx: { db: Database; tools: typeof toolRegistry }): void // 建表 + 注册写/读工具
-  registerIpc?(): void // feature 自有只读 IPC(给 UI)
-  seedAgents?(): { id: string; dir: string }[] // 幂等种 agent
-  mcpDeps?(): { name: string; hint: string }[] // 依赖声明
+  init(ctx: FeatureInitCtx): void // ① 建表 + 构造 store(只数据)
+  agents?(): FeatureAgent[] // ② 声明 agent(连工具),平台注册 origin=feature
+  artifacts?(): FeatureArtifact[] // ③ 声明读口,平台经通用 artifact:read 暴露
+  registerIpc?(): void // 其他自有 IPC(读口走 artifacts() 时可省)
+  mcpDeps?(): { name: string; hint: string }[] // 依赖声明(installFeatures 校验)
+  dispose?(): void // 预留:停用注销
+}
+// 平台注入给 installFeatures 的注册端口(feature 看不到,保持只声明)
+export interface FeaturePorts {
+  registerAgent(agent: FeatureAgent): void
+  registerArtifactReader(artifact: FeatureArtifact): void
+  isMcpConfigured(serverName: string): boolean
 }
 export interface TalorFeatureRenderer {
   id: string
   ui(): ArtifactUI[]
-} // 注册 ArtifactUI
+} // ④ 渲染:注册 ArtifactUI
 ```
 
 组合根(唯一认识业务的地方):
 
 ```ts
-// main index.ts(app.whenReady,改造现有序列)
-initChatDb()
+// main index.ts(app.whenReady)—— 唯一认识具体业务的地方
+agentManager.init({ ...deps, agentsDir }) // 平台 + 用户池 agent 先就位
+const artifactReaders = new ArtifactReaderRegistry()
+ipcMain.handle('artifact:read', (_e, { type, id }) => artifactReaders.read(type, id)) // 通用读口
 const FEATURES: TalorFeatureMain[] = [investFeatureMain]
-for (const f of FEATURES) {
-  f.init({ db: getDb(), tools: toolRegistry })
-  installSeedAgents(f.seedAgents?.())
-  f.registerIpc?.()
-}
-const builtinToolDefs = toolRegistry.listAll() // 方案3:工具进 builtin(在此前注册)
-// renderer bootstrap
+installFeatures(
+  FEATURES,
+  { db: getDb() },
+  {
+    registerAgent: (fa) => agentManager.registerFeatureAgent(fa.profile, fa.tools ?? []), // 内存注册,不落盘
+    registerArtifactReader: (a) => artifactReaders.register(a),
+    isMcpConfigured: (name) => mcpServerRepo.list().some((s) => s.name === name),
+  },
+)
+// renderer bootstrap(main.tsx)
 const RENDERER_FEATURES: TalorFeatureRenderer[] = [investFeatureRenderer]
 for (const f of RENDERER_FEATURES) for (const ui of f.ui()) artifactUI.register(ui)
 ```
+
+> 演进说明(依次取代):① `seedAgents(){id,dir}[]`(dir-based)→ `agents(): AgentProfile[]`(嵌入式);
+> ② 方案3 工具进全局 builtin → S1 作用域化注入(防泄漏);
+> ③ feature agent "幂等种到 ~/.talor/agents" → **内存注册**(参考平台 agent;feature 自管、升级随码、卸载随移除;用户池保持纯 Crystallizer);
+> ④ **声明式收口(当前)**:`agents()` 改返 `FeatureAgent{profile,tools}`(agent 与工具内聚)、新增 `artifacts()` 读口 + 平台通用 `artifact:read`;`installFeatures` 不再聚合返回,改经 `FeaturePorts` 由平台逐条注册(`registerFeatureAgent` / `registerArtifactReader`)。**feature 只声明、平台拥有注册**。
+> fork 定制:用户在用户池放同 id 副本即覆盖 feature 版(feature 注册时同 id 已存在 → 跳过)。
 
 ---
 
@@ -153,25 +208,28 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
 - 写工具(LLM 指令)= 薄适配器,**建 `CardCmd` → `store.apply`**:`create_card`(`{kind:'create',…}`)/ `append_snapshot` / `append_decision` / `append_review`;读工具 `get_card / get_timeline` → `store.read`。校验在 `apply` 内(BR)。
 - `create_card` 的 `execute(input, ctx)` 读 **`ctx.sessionId`** → `store.apply({kind:'create', …input, originSessionId: ctx.sessionId})`,完成对象↔会话关联。
 
-### 5.3 feature 自有只读 IPC(给 UI)— `src/main/ipc/invest.ts`
+### 5.3 读口经平台通用 IPC(给 UI)
+
+invest 不自开 IPC,改在 `artifacts()` 声明读口:
 
 ```ts
-ipcMain.handle('invest:card:read', (_e, id) => cardStore.read(id)) // CardBundle | null
+artifacts: () => [{ type: 'stock_card', read: (id) => cardStore.read(id) }] // CardBundle | null
 ```
 
-preload + `renderer/api` 封装 `talorAPI.invest.readCard(id)`。
+平台 `ArtifactReaderRegistry` 按 type 收口 → 通用 `ipcMain.handle('artifact:read', {type,id})` 路由;preload + `renderer/api` 封装 `talorAPI.artifact.read('stock_card', id)`。**加 Feature#2 的读口零改平台 IPC**。
 
 ### 5.4 main/renderer feature 清单
 
 ```ts
 investFeatureMain = {
   id: 'invest',
-  init() {
-    建表 + new CardRepo() + 注册工具
-  },
-  registerIpc,
-  seedAgents: () => SEED_AGENTS,
-  mcpDeps: () => [{ name: 'akshare-one', hint }],
+  init({ db }) {
+    createCardTables(db)
+    investStore = new CardRepo(db)
+  }, // 只建数据
+  agents: () => INVEST_SEED_AGENTS.map((p) => ({ profile: p, tools: investTools })), // 5 agent 连 23 工具
+  artifacts: () => [{ type: 'stock_card', read: (id) => investStore.read(id) }], // 读口
+  mcpDeps: () => [{ name: 'Playwright', hint }],
 }
 investFeatureRenderer = { id: 'invest', ui: () => [stockCardUI] } // stockCardUI: {type:'stock_card', Inline, Panel}
 ```
@@ -183,7 +241,7 @@ investFeatureRenderer = { id: 'invest', ui: () => [stockCardUI] } // stockCardUI
 `src/renderer/invest/stockCardUI.tsx`:
 
 - **`Inline(message)`**:扫 `message.content` 的工具结果,命中 `create_card/get_card/append_*` → 取 card_id → 渲 chip(`code name · status · 健康度🟢🟡🔴 · thesis`);点击 `onSelect(id)`。健康度 = `summarizeHealth(latest)` 纯函数。
-- **`Panel({id})`**:`talorAPI.invest.readCard(id)` 取 `CardBundle` → 渲案卷(§9.4):
+- **`Panel({id})`**:`talorAPI.artifact.read('stock_card', id)` 取 `CardBundle` → 渲案卷(§9.4):
   - **两区**:事实区(折叠,stock/industry/macro)+ 判断区(每判断 conclusion + fulcrums:statement/ref/状态色)。
   - **时间线时光机**:`●snapshot ◆decision ★review`(at 升序);点历史节点 → 主区切该 snapshot(**只读 + as_of**,只渲该节点 payload,无后视镜);"回到当前"。
   - **命门清单**:全判断支点按 ref 事实去重 + 健康度。
