@@ -185,6 +185,8 @@ describe('AC-005-02: MCP HTTP Tool Calling', () => {
           capabilities: { tools: true },
         })
       }
+      // 只对 tools/call 计数 —— 连接期的 notifications/initialized 不算重试。
+      if (body.method !== 'tools/call') return createJsonRpcResponse(body.id ?? 'n', {})
       callCount++
       if (callCount < 3) return { ok: false, status: 503, statusText: 'Service Unavailable' }
       return createJsonRpcResponse(body.id, { content: [{ type: 'text', text: 'ok' }] })
@@ -197,8 +199,12 @@ describe('AC-005-02: MCP HTTP Tool Calling', () => {
 
     expect(result.content[0].text).toBe('ok')
     // 2 failures + 1 success = 3 tool/call fetches
-    const toolCalls = mockFetch.mock.calls.filter(c => {
-      try { return JSON.parse(c[1].body).method === 'tools/call' } catch { return false }
+    const toolCalls = mockFetch.mock.calls.filter((c) => {
+      try {
+        return JSON.parse(c[1].body).method === 'tools/call'
+      } catch {
+        return false
+      }
     })
     expect(toolCalls).toHaveLength(3)
     vi.useRealTimers()
