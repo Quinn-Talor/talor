@@ -90,10 +90,17 @@ const ValuationAssumptionZ = z.object({
   key: z.string().describe('参数键(可复用 fact key,或估值专用如 pe_central)'),
   label: z.string(),
   unit: z.string().optional(),
-  bear: z.union([z.string(), z.number()]).describe('熊'),
+  bear: z.union([z.string(), z.number()]).describe('熊(proj_mode≠absolute 时为相对锚的推测)'),
   base: z.union([z.string(), z.number()]).describe('中性'),
   bull: z.union([z.string(), z.number()]).describe('牛'),
-  from_fact: z.string().optional().describe('立足:派生自 facts key@as_of(须已 add_facts)'),
+  proj_mode: z
+    .enum(['delta', 'factor', 'absolute'])
+    .optional()
+    .describe('推测方式:未来=锚(from_fact最新)应用 delta(锚+值)/factor(锚×值);默认 absolute 直取'),
+  from_fact: z
+    .string()
+    .optional()
+    .describe('立足:派生自 facts key@as_of(锚=该指标最新;须已 add_facts)'),
   verify: z.array(VerifyHookZ).optional().describe('验证:对账事实(命门必填,先行+终验)'),
   sensitivity: z.enum(['high', 'mid', 'low']).optional().describe('high=命门'),
   logic_anchor: z.string().optional().describe('命门:挂哪条逻辑(空话拒)'),

@@ -59,6 +59,9 @@ export type Facts = Record<string, Fact>
 // ============ ② 逻辑 thesis(冻结快照·版本化)============
 export type ProfitType = '成长' | '拐点' | '估值修复' | '周期' | '分红'
 export type ValuationMethod = 'pe' | 'dcf' | 'pb-roe' | 'ddm' | 'nav'
+/** 推测方式:命门未来值 = 锚(from_fact 最新事实)应用推测。
+ *  delta=锚+值(同单位,如份额 +0.5pp);factor=锚×值(倍数);absolute=直取(默认;利率/倍数/常量)。 */
+export type ProjMode = 'delta' | 'factor' | 'absolute'
 export type Sensitivity = 'high' | 'mid' | 'low'
 export type ChangeScope = '建立' | '校准' | '重写'
 
@@ -96,10 +99,11 @@ export interface ValuationAssumption {
   key: string // 参数键(可复用 fact key,如 co_share;或估值专用如 pe_central)
   label: string
   unit?: string | null
-  bear: number | string // 三档预测(逻辑+当前事实推出)
+  bear: number | string // 三档预测;proj_mode≠absolute 时为"相对锚的推测"(delta/factor)
   base: number | string
   bull: number | string
-  from_fact?: string // ← 立足:派生自 facts key@as_of(派生基线)
+  proj_mode?: ProjMode // 推测方式:未来值=锚(from_fact 最新)应用推测;默认 absolute(直取)
+  from_fact?: string // ← 立足:派生自 facts key@as_of(锚=该指标最新观测)
   verify?: VerifyHook[] // → 验证:对账事实(先行快验+终验)
   sensitivity?: Sensitivity // @deprecated 命门改由 logic_anchor 派生;字段保留兼容,不再用作命门标志
   logic_anchor?: string // 命门:挂哪条逻辑(空话拒)

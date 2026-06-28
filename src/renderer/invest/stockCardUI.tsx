@@ -389,7 +389,7 @@ function DecisionSurface({ bundle }: { bundle: CardBundle }) {
   const rl = redLines(bundle)
   const validity = latestValidity(bundle)
   const conviction = latestConviction(bundle)
-  const vt = valuationTrace(cur)
+  const vt = valuationTrace(cur, bundle.facts) // V_now:当前版从最新事实活算
   const rc = recompute(bundle)
   const V = vt?.ok && vt.V ? vt.V : (cp?.value_now?.V ?? cur.valuation.V)
   const vOld = rc.active ? rc.priorByOut['V'] : undefined
@@ -693,7 +693,7 @@ function ThesisDrill({ bundle }: { bundle: CardBundle }) {
   const v = cur.valuation
   const cores = coreAssumptions(cur)
   const support = v.assumptions.filter((a) => !a.logic_anchor)
-  const vt = valuationTrace(cur)
+  const vt = valuationTrace(cur, bundle.facts) // 下钻阶梯:从最新事实活算
   const rc = recompute(bundle)
   return (
     <div className="space-y-2">

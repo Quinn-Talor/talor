@@ -9,7 +9,7 @@
 //
 // 允许依赖: ../types/invest(纯类型)   禁止依赖: 任何运行时模块
 
-import type { ValuationMethod } from '../types/invest'
+import type { ValuationMethod, ValuationAssumption, Facts } from '../types/invest'
 
 /** 阶梯参数(逐参数三档;%-单位的值按 /100 折算)。 */
 export interface TraceAssumption {
@@ -265,4 +265,42 @@ export function computeValuationTrace(
     default:
       return fallback(method, ['(未知配模式)'])
   }
+}
+
+/** facts ref "key@as_of" → key。 */
+const factKeyOf = (ref: string | undefined): string => (ref ?? '').split('@')[0]
+
+/** facts[key] 最新观测数值(append-only,取末元素);无 → NaN。 */
+function latestFactValue(facts: Facts | undefined, key: string): number {
+  const series = facts?.[key]?.series
+  if (!series || series.length === 0) return NaN
+  return toNum(series[series.length - 1]?.value)
+}
+
+/**
+ * 把 thesis 的 assumptions 解析成引擎吃的绝对未来值 TraceAssumption(价值链:逻辑→最新事实→推算)。
+ *   · 命门 core = !!logic_anchor(支持逻辑的指标)。
+ *   · proj_mode delta/factor:未来值 = 锚(from_fact 指标的最新事实)应用推测(delta=锚+值 / factor=锚×值);
+ *     缺锚 → NaN(引擎 missingOf 捕获 → ok:false,不臆造)。
+ *   · absolute(默认):bear/base/bull 直取(技术输入 / 利率 / 倍数 / 常量)。
+ * 事实更新 → 锚变 → 未来值与 V 自动重算(只要重新调本函数)。
+ */
+export function resolveTraceAssumptions(
+  assumptions: ValuationAssumption[],
+  facts: Facts | undefined,
+): TraceAssumption[] {
+  return (assumptions ?? []).map((a) => {
+    const core = !!a.logic_anchor
+    const unit = a.unit ?? undefined
+    if ((a.proj_mode ?? 'absolute') === 'absolute') {
+      return { key: a.key, bear: a.bear, base: a.base, bull: a.bull, unit, core }
+    }
+    const anchor = latestFactValue(facts, factKeyOf(a.from_fact))
+    const apply = (band: number | string): number => {
+      const v = toNum(band)
+      if (!Number.isFinite(anchor) || !Number.isFinite(v)) return NaN
+      return a.proj_mode === 'delta' ? anchor + v : anchor * v
+    }
+    return { key: a.key, bear: apply(a.bear), base: apply(a.base), bull: apply(a.bull), unit, core }
+  })
 }

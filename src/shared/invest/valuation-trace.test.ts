@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { computeValuationTrace, METHOD_PARAMS, type TraceAssumption } from './valuation-trace'
+import {
+  computeValuationTrace,
+  resolveTraceAssumptions,
+  METHOD_PARAMS,
+  type TraceAssumption,
+} from './valuation-trace'
+import type { ValuationAssumption, Facts } from '../types/invest'
 
 // 全 pe 参数集(比亚迪示意:命门 high 撑三档,支撑参数固定 base)
 const PE: TraceAssumption[] = [
@@ -145,5 +151,74 @@ describe('computeValuationTrace — 其余配模式', () => {
       { key: 'coe', bear: 8, base: 8, bull: 8, unit: '%' },
     ])
     expect(ddm.ok).toBe(false)
+  })
+})
+
+describe('resolveTraceAssumptions — 锚(最新事实)→ 推算未来', () => {
+  const facts: Facts = {
+    co_share: {
+      level: 'company',
+      label: '份额',
+      series: [
+        { value: '16%', as_of: '2025-12', source: 'x' },
+        { value: '14%', as_of: '2026-07', source: 'x' }, // 最新 = 14(锚)
+      ],
+    },
+  }
+  const A = (o: Partial<ValuationAssumption>): ValuationAssumption => ({
+    key: 'co_share',
+    label: '份额',
+    bear: 0,
+    base: 0,
+    bull: 0,
+    ...o,
+  })
+
+  it('absolute(默认):三档直取;命门由 logic_anchor 派生', () => {
+    const [r] = resolveTraceAssumptions(
+      [A({ bear: 13, base: 14, bull: 15, logic_anchor: '逻辑' })],
+      facts,
+    )
+    expect(r).toMatchObject({ bear: 13, base: 14, bull: 15, core: true })
+  })
+
+  it('delta:未来 = 锚(最新 14) + 三档增量;非命门(无 logic_anchor)', () => {
+    const [r] = resolveTraceAssumptions(
+      [A({ proj_mode: 'delta', from_fact: 'co_share@2026-07', bear: -0.5, base: 0.5, bull: 1.5 })],
+      facts,
+    )
+    expect(r.bear).toBe(13.5)
+    expect(r.base).toBe(14.5)
+    expect(r.bull).toBe(15.5)
+    expect(r.core).toBe(false)
+  })
+
+  it('factor:未来 = 锚 × 倍数', () => {
+    const [r] = resolveTraceAssumptions(
+      [A({ proj_mode: 'factor', from_fact: 'co_share', bear: 1, base: 1.1, bull: 1.2 })],
+      facts,
+    )
+    expect(r.base).toBeCloseTo(15.4) // 14 × 1.1
+  })
+
+  it('proj 缺锚 → NaN(引擎 missingOf 捕获·不臆造)', () => {
+    const [r] = resolveTraceAssumptions(
+      [A({ key: 'ghost', proj_mode: 'delta', from_fact: 'nonexist', bear: 1, base: 2, bull: 3 })],
+      facts,
+    )
+    expect(Number.isNaN(r.base as number)).toBe(true)
+  })
+
+  it('事实更新 → 锚变 → 未来自动重算(同 assumptions·不同 facts)', () => {
+    const a = A({ proj_mode: 'delta', from_fact: 'co_share', bear: -0.5, base: 0.5, bull: 1.5 })
+    const newer: Facts = {
+      co_share: {
+        level: 'company',
+        label: '份额',
+        series: [{ value: '13%', as_of: '2026-09', source: 'x' }],
+      },
+    }
+    expect(resolveTraceAssumptions([a], facts)[0].base).toBe(14.5) // 锚 14
+    expect(resolveTraceAssumptions([a], newer)[0].base).toBe(13.5) // 锚 13 → 自动重算
   })
 })

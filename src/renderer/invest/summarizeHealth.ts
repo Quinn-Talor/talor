@@ -19,10 +19,11 @@ import type {
   ThesisSnapshot,
   ValuationAssumption,
   TimelineEvent,
+  Facts,
 } from '@shared/types/invest'
 import {
   computeValuationTrace,
-  type TraceAssumption,
+  resolveTraceAssumptions,
   type ValuationTrace,
 } from '@shared/invest/valuation-trace'
 
@@ -221,16 +222,10 @@ export function timelineRows(bundle: CardBundle | null): TimelineRow[] {
 // ===== 估值恒等式阶梯 + 重算(value-chain-rigor §8.3 / §9)=====
 
 /** 当前/给定逻辑版本的估值 trace(参数→中间量→V);无 valuation → null。 */
-export function valuationTrace(snap: ThesisSnapshot | null): ValuationTrace | null {
+export function valuationTrace(snap: ThesisSnapshot | null, facts?: Facts): ValuationTrace | null {
   if (!snap?.valuation) return null
-  const assumps: TraceAssumption[] = snap.valuation.assumptions.map((a) => ({
-    key: a.key,
-    bear: a.bear,
-    base: a.base,
-    bull: a.bull,
-    unit: a.unit ?? undefined,
-    core: !!a.logic_anchor, // 命门(有 logic_anchor)撑区间;非命门固定 base
-  }))
+  // 锚(最新事实)→ 推算未来 → 恒等式(命门撑区间·非命门固定 base);proj_mode 缺锚 → 引擎判缺不臆造。
+  const assumps = resolveTraceAssumptions(snap.valuation.assumptions, facts)
   return computeValuationTrace(snap.valuation.method, assumps)
 }
 
@@ -258,8 +253,9 @@ export function recompute(bundle: CardBundle | null): Recompute {
   if (!t || !cur) return empty
   const prior = t.versions.filter((v) => v.v < cur.v).sort((a, b) => b.v - a.v)[0]
   if (!prior) return empty
-  const curT = valuationTrace(cur)
-  const priorT = valuationTrace(prior)
+  // 同喂最新事实 → 隔离"本期校准"的纯参数改动(事实驱动的变化由 drivingFact 单列;历史 V 冻结见 timelineTrajectory)
+  const curT = valuationTrace(cur, bundle!.facts)
+  const priorT = valuationTrace(prior, bundle!.facts)
   if (!curT?.ok || !priorT?.ok) return empty // 无完整恒等式无法 diff
 
   const priorByOut: Record<string, number> = {}

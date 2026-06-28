@@ -63,17 +63,23 @@ const facts = {
 }
 
 // ② 逻辑:冻结快照·版本化(v1 建立 → v2 校准);claim = 大白话一句话(散户决策面头条)
-// valuation.assumptions = 全部估值预测参数(命门=high,带 logic_anchor/falsify;每参数双向挂事实 from_fact/verify)
-// 命门(渗透率/份额,带 logic_anchor/falsify/market_implied,双向挂事实)
+// valuation.assumptions = 全部估值预测参数(命门 = 挂 logic_anchor 的参数,带 falsify;每参数双向挂事实 from_fact/verify)
+// 命门(渗透率/份额):proj_mode delta —— 未来 = 锚(该指标最新事实) + 三档增量;事实更新 → 锚变 → V 自动重算
+const SHARE_NOW = 14 // co_share 最新事实(@2026-07);命门 delta 推测自此锚
 const aShare = (base, falsify) => ({
-  key: 'co_share', label: '公司份额', unit: '%', bear: base - 1, base, bull: base + 1,
-  from_fact: 'co_share@2025-12', verify: [{ fact: 'monthly_sales', at: 'monthly', role: '先行' }, { fact: 'co_share', at: 'quarterly', role: '终验' }],
-  sensitivity: 'high', logic_anchor: '成本护城河', falsify, market_implied: '16%',
+  key: 'co_share', label: '公司份额', unit: '%',
+  proj_mode: 'delta', // 未来份额 = 锚(14%) + 增量;事实降 → 自动下修
+  bear: base - 1 - SHARE_NOW, base: base - SHARE_NOW, bull: base + 1 - SHARE_NOW,
+  from_fact: 'co_share@2026-07', verify: [{ fact: 'monthly_sales', at: 'monthly', role: '先行' }, { fact: 'co_share', at: 'quarterly', role: '终验' }],
+  logic_anchor: '成本护城河', falsify, market_implied: '16%',
 })
+const PEN_NOW = 42 // ev_pen 最新事实(@2026-06);命门 delta 推测自此锚
 const aPen = {
-  key: 'ev_pen', label: '行业渗透率', unit: '%', bear: 45, base: 50, bull: 55,
-  from_fact: 'ev_pen@2025-12', verify: [{ fact: 'ev_pen', at: 'annual', role: '终验' }],
-  sensitivity: 'high', logic_anchor: '政策驱动消费', falsify: '年报<45%', market_implied: '48%',
+  key: 'ev_pen', label: '行业渗透率', unit: '%',
+  proj_mode: 'delta', // 未来渗透率 = 锚(42%) + 增量
+  bear: 45 - PEN_NOW, base: 50 - PEN_NOW, bull: 55 - PEN_NOW,
+  from_fact: 'ev_pen@2026-06', verify: [{ fact: 'ev_pen', at: 'annual', role: '终验' }],
+  logic_anchor: '政策驱动消费', falsify: '年报<45%', market_implied: '48%',
 }
 // 支撑 / 常量(pe 恒等式叶子参数;seed 直插 DB,from_fact 仅示意)
 const aCap = { key: 'mkt_capacity', label: '行业容量', unit: '万辆', bear: 2826, base: 2826, bull: 2826, from_fact: 'ev_pen@2025-12', sensitivity: 'low' }
