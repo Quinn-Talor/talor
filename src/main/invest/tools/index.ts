@@ -1,4 +1,4 @@
-// src/main/invest/tools/index.ts —— 业务层: invest 工具入口(compute 6 + card 6)
+// src/main/invest/tools/index.ts —— 业务层: invest 工具入口(11 compute_* + 8 card)
 //
 // 被 feature.init 注册进全局 toolRegistry(R4 接线)。compute=薄包纯函数,card=薄包 CardRepo(写=apply)。
 // 允许依赖: ./compute-tools / ./card-tools / ../store / ../../tools/types
@@ -12,7 +12,7 @@ import { createCardTools } from './card-tools'
 export { createComputeTools } from './compute-tools'
 export { createCardTools } from './card-tools'
 
-/** 全部 invest 工具 = 6 compute_* + 6 card 工具。 */
+/** 全部 invest 工具 = 11 compute_* + 8 card 工具。 */
 export function createInvestTools(deps: {
   store: CardRepo
   resolveRootSession?: (sid: string) => string
