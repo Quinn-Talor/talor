@@ -363,6 +363,7 @@ describe('下钻(默认折叠,点开)', () => {
     expect(has('存货')).toBe(true)
     expect(has(/周转61天/)).toBe(true)
     expect(has(/恶化/)).toBe(true)
+    expect(has(/@2026-0/)).toBe(true) // 每个事实项显数据最新时点(as_of)
   })
 
   it('逻辑:claim + 恒等式阶梯 + 重算(命门审计)', async () => {
@@ -372,6 +373,8 @@ describe('下钻(默认折叠,点开)', () => {
     expect(has(/政策让电车多卖/)).toBe(true) // 大白话 claim
     expect(has(/成本护城河/)).toBe(true) // 命门 logic_anchor(审计)
     expect(has(/行业销量/)).toBe(true) // 恒等式阶梯渲染
+    expect(has(/容量 2826万辆/)).toBe(true) // 具体数值代入(非黑盒)
+    expect(has(/元 × PE中枢/)).toBe(true) // 上一中间量(EPS)显式代入 V 计算(链路可验)
     expect(has(/本期校准/)).toBe(true) // 重算驱动事实(v1→v2)
   })
 

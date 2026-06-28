@@ -521,6 +521,12 @@ function FactRow({ k, fact }: { k: string; fact: Fact }) {
             {fact.role === '先行' ? '先行·验证主力' : fact.role}
           </span>
         )}
+        <span
+          className={`text-[11px] text-neutral-400 ${fact.role ? '' : 'ml-auto'}`}
+          title="数据时点(最新观测 as_of)"
+        >
+          @{obs.as_of}
+        </span>
         <span className="text-[11px] text-neutral-300">{obs.tier ?? obs.source}</span>
       </div>
       {s && (
@@ -657,24 +663,30 @@ function Ladder({
   trace,
   rc,
   assumps,
+  facts,
 }: {
   trace: ValuationTrace
   rc: Recompute
   assumps: ValuationAssumption[]
+  facts: Facts
 }) {
   const byKey = new Map(assumps.map((a) => [a.key, a]))
-  // 左栏:参数(名+值);变动参数显 旧→新。
-  const leftText = (s: ValuationTrace['steps'][number]): string => {
-    const parts = s.inputs.map((k) => {
-      const a = byKey.get(k)
-      if (!a) return k
-      const u = a.unit ?? ''
-      const old = rc.paramPrior[k]
-      return old != null ? `${a.label} ${old}→${a.base}${u}` : `${a.label} ${a.base}${u}`
-    })
-    if (s.inputs.length >= 2) return parts.join(' × ')
+  // 推算后的参数当前值(命门 delta/factor → 解析成代入引擎的绝对数;显真实代入值,非原始增量)
+  const resolved = new Map(resolveTraceAssumptions(assumps, facts).map((r) => [r.key, r]))
+  const paramVal = (k: string): string => {
+    const a = byKey.get(k)
+    const r = resolved.get(k)
+    const u = a?.unit ?? ''
+    return `${a?.label ?? k} ${r?.base ?? a?.base ?? '?'}${u}`
+  }
+  // 左侧算式 = 具体运算数(不要黑盒):首步多参相乘;后续「上一中间量 op 参数」,每步代入真实数值逐环可验。
+  const lhs = (s: ValuationTrace['steps'][number], i: number): string => {
+    if (s.inputs.length >= 2) return s.inputs.map(paramVal).join(' × ')
     const op = s.expr.trim().startsWith('÷') ? '÷' : '×'
-    return `${op} ${parts[0] ?? s.expr}`
+    const prev = trace.steps[i - 1]
+    const prevTxt = prev ? `${prev.base}${prev.unit ?? ''}` : ''
+    if (s.inputs.length === 1) return `${prevTxt} ${op} ${paramVal(s.inputs[0])}`.trim()
+    return prevTxt ? `${prevTxt} ${s.expr}` : s.expr // 0 参数(中间量相加减,如 dcf 企业价值)
   }
   return (
     <div className="overflow-hidden rounded border border-neutral-200 dark:border-neutral-700">
@@ -691,12 +703,13 @@ function Ladder({
             } ${changed ? 'bg-amber-50 dark:bg-amber-950/30' : ''}`}
           >
             <span className={changed ? 'text-amber-700 dark:text-amber-300' : 'text-neutral-500'}>
-              {leftText(s)}
+              {lhs(s, i)}
               {paramChanged && <span className="ml-1">⚠</span>}
             </span>
             <span
-              className={`whitespace-nowrap text-right ${changed ? 'text-amber-700 dark:text-amber-300' : ''}`}
+              className={`whitespace-nowrap text-right ${changed ? 'text-amber-700 dark:text-amber-300' : 'text-neutral-600 dark:text-neutral-300'}`}
             >
+              <span className="text-neutral-400">= </span>
               {s.out}{' '}
               {changed && old != null ? (
                 <>
@@ -744,7 +757,7 @@ function ThesisDrill({ bundle }: { bundle: CardBundle }) {
 
       {/* 恒等式阶梯(参数→中间量→V)+ 重算合一;缺参数/配模式未实现 → 回退显存量 V */}
       {vt?.ok && vt.steps.length > 0 ? (
-        <Ladder trace={vt} rc={rc} assumps={v.assumptions} />
+        <Ladder trace={vt} rc={rc} assumps={v.assumptions} facts={bundle.facts} />
       ) : (
         <div className="rounded bg-neutral-50 px-2 py-1.5 text-xs dark:bg-neutral-800/60">
           价值 V ¥{v.V.base}（熊{v.V.bear}/牛{v.V.bull}）
