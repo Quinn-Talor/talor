@@ -99,6 +99,10 @@ export function dualLines(bundle: CardBundle | null): {
   if (!cur) return { lines: [], realizedPct: null }
   const cp = latestCheckpoint(bundle)
   const byKey = new Map((cp?.checks ?? []).map((c) => [c.assumption, c]))
+  // 估 = 推算后的未来值(命门 proj 解析成绝对数 + 单位),与 实(最新对账)同量纲可比 —— 不显原始增量
+  const resolved = new Map(
+    resolveTraceAssumptions(cur.valuation.assumptions, bundle?.facts).map((r) => [r.key, r]),
+  )
   const lines: DualLine[] = coreAssumptions(cur).map((a) => {
     const chk = byKey.get(a.key)
     let conv: DualLine['conv']
@@ -110,10 +114,13 @@ export function dualLines(bundle: CardBundle | null): {
             ? '持有'
             : '背离'
     }
+    const r = resolved.get(a.key)
+    const projected =
+      r && Number.isFinite(Number(r.base)) ? `${r.base}${a.unit ?? ''}` : projBase(a)
     return {
       metric: a.label ?? a.key,
       high: true,
-      projected: projBase(a),
+      projected,
       actual: chk ? String(chk.actual) : undefined,
       conv,
     }

@@ -5,6 +5,7 @@ import {
   latestValidity,
   healthEmoji,
   gateEmoji,
+  dualLines,
 } from './summarizeHealth'
 import type { CardBundle, Checkpoint, GateState } from '@shared/types/invest'
 
@@ -68,6 +69,60 @@ describe('summarizeHealth', () => {
     const b = bundle([cp({ at: '2026-01' }), cp({ at: '2026-04', validity: '校准' })])
     expect(latestCheckpoint(b)?.at).toBe('2026-04')
     expect(latestValidity(b)).toBe('校准')
+  })
+})
+
+describe('dualLines — 估(预测值)显推算后的未来值', () => {
+  it('proj delta 命门:估 = 锚+增量(14.5%)+ 单位,不是原始增量(0.5)', () => {
+    const b: CardBundle = {
+      ...bundle([
+        cp({
+          checks: [{ assumption: 'co_share', predicted: '14.5%', actual: '14%', outcome: '容差' }],
+        }),
+      ]),
+      facts: {
+        co_share: {
+          level: 'company',
+          label: '份额',
+          unit: '%',
+          series: [{ value: '14%', as_of: '2026-07', source: '乘联会' }],
+        },
+      },
+      thesis: {
+        current: 1,
+        versions: [
+          {
+            v: 1,
+            at: '2026-03',
+            scope: '建立',
+            claim: 'c',
+            profit_type: '成长',
+            valuation: {
+              method: 'pe',
+              assumptions: [
+                {
+                  key: 'co_share',
+                  label: '份额',
+                  unit: '%',
+                  proj_mode: 'delta',
+                  bear: -0.5,
+                  base: 0.5,
+                  bull: 1.5,
+                  from_fact: 'co_share@2026-07',
+                  verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' }],
+                  logic_anchor: '成本护城河',
+                },
+              ],
+              V: { bear: 1, base: 2, bull: 3 },
+              margin_of_safety: { required: 0.25 },
+            },
+          },
+        ],
+      },
+    }
+    const { lines } = dualLines(b)
+    expect(lines[0].projected).toBe('14.5%') // 锚 14 + delta 0.5,带单位(非 0.5)
+    expect(lines[0].actual).toBe('14%')
   })
 })
 
