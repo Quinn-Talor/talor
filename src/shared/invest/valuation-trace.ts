@@ -277,6 +277,11 @@ function latestFactValue(facts: Facts | undefined, key: string): number {
   return toNum(series[series.length - 1]?.value)
 }
 
+/** 某估值参数的锚 = from_fact 指向指标的最新事实数值(UI 展示推算链用);无 → NaN。 */
+export function anchorValue(facts: Facts | undefined, fromFact: string | undefined): number {
+  return latestFactValue(facts, factKeyOf(fromFact))
+}
+
 /**
  * 把 thesis 的 assumptions 解析成引擎吃的绝对未来值 TraceAssumption(价值链:逻辑→最新事实→推算)。
  *   · 命门 core = !!logic_anchor(支持逻辑的指标)。

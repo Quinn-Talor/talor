@@ -12,6 +12,7 @@ import type { ChatMessage } from '../types/chat'
 import type {
   CardBundle,
   Fact,
+  Facts,
   FactObservation,
   ValuationAssumption,
   VRange,
@@ -33,7 +34,11 @@ import {
   type Health,
   type Recompute,
 } from './summarizeHealth'
-import type { ValuationTrace } from '@shared/invest/valuation-trace'
+import {
+  anchorValue,
+  resolveTraceAssumptions,
+  type ValuationTrace,
+} from '@shared/invest/valuation-trace'
 
 // ============ Inline chip ============
 interface CardRef {
@@ -582,14 +587,22 @@ function FactsDrill({ facts }: { facts: CardBundle['facts'] }) {
 }
 
 // ============ 下钻 · 逻辑·估值(价值传导:assumptions 参数表 + 恒等式 + V + 版本史)============
-function AssumptionRow({ a }: { a: ValuationAssumption }) {
+function AssumptionRow({ a, facts }: { a: ValuationAssumption; facts: Facts }) {
   const core = !!a.logic_anchor
+  const unit = a.unit ?? ''
+  const proj = !!a.proj_mode && a.proj_mode !== 'absolute'
+  const future = resolveTraceAssumptions([a], facts)[0]
+  const anchor = proj ? anchorValue(facts, a.from_fact) : NaN
+  const broken = proj && !Number.isFinite(anchor)
+  const op = a.proj_mode === 'delta' ? '+' : '×'
   return (
     <li
       className={
-        core
-          ? 'rounded border-l-2 border-blue-400 bg-neutral-50 p-1.5 dark:border-blue-500 dark:bg-neutral-800/40'
-          : 'rounded border border-neutral-200 p-1.5 dark:border-neutral-700'
+        broken
+          ? 'rounded border-l-2 border-red-400 bg-red-50 p-1.5 dark:border-red-500 dark:bg-red-950/30'
+          : core
+            ? 'rounded border-l-2 border-blue-400 bg-neutral-50 p-1.5 dark:border-blue-500 dark:bg-neutral-800/40'
+            : 'rounded border border-neutral-200 p-1.5 dark:border-neutral-700'
       }
     >
       <div className="text-xs font-medium">
@@ -599,15 +612,36 @@ function AssumptionRow({ a }: { a: ValuationAssumption }) {
         {core && <span className="ml-1 text-[10px] text-blue-500">命门</span>}
       </div>
       <div className="mt-0.5 space-y-0.5 text-[11px] text-neutral-500">
-        <div>
-          预估 熊{a.bear} / 中{a.base} / 牛{a.bull}
-        </div>
-        <div>
-          立足 {a.from_fact ?? '—'}
-          {a.verify && a.verify.length > 0 && (
-            <span> · 验证 {a.verify.map((v) => `${v.fact}(${v.role ?? v.at})`).join(' · ')}</span>
-          )}
-        </div>
+        {/* 计算过程:锚(最新事实) → 推测 → 未来三档(proj);或直取(absolute);断环标红 */}
+        {proj ? (
+          broken ? (
+            <div className="font-medium text-red-500">
+              ⚠ 估值链断:锚缺失({a.from_fact ?? '未挂事实'} 无最新事实,无法推算)
+            </div>
+          ) : (
+            <div>
+              锚{' '}
+              <b className="text-neutral-700 dark:text-neutral-200">
+                {anchor}
+                {unit}
+              </b>
+              （{a.from_fact}·最新){` ${op} `}熊{a.bear}/中{a.base}/牛{a.bull} → 未来{' '}
+              <b className="text-neutral-700 dark:text-neutral-200">
+                {future.bear}/{future.base}/{future.bull}
+                {unit}
+              </b>
+            </div>
+          )
+        ) : (
+          <div>
+            预估 熊{a.bear}/中{a.base}/牛{a.bull}
+            {unit}
+            <span className="text-neutral-400">（{a.from_fact ?? '—'}·直取)</span>
+          </div>
+        )}
+        {a.verify && a.verify.length > 0 && (
+          <div>验证 {a.verify.map((v) => `${v.fact}(${v.role ?? v.at})`).join(' · ')}</div>
+        )}
         {a.falsify && (
           <div>
             证伪 <span className="text-red-500">{a.falsify}</span>
@@ -728,7 +762,7 @@ function ThesisDrill({ bundle }: { bundle: CardBundle }) {
       {/* 命门审计:逐参数 立足→验证→证伪→市场隐含 */}
       <ul className="space-y-1.5">
         {cores.map((a, i) => (
-          <AssumptionRow key={i} a={a} />
+          <AssumptionRow key={i} a={a} facts={bundle.facts} />
         ))}
       </ul>
 

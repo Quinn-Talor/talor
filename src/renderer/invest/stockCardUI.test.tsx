@@ -375,6 +375,65 @@ describe('下钻(默认折叠,点开)', () => {
     expect(has(/本期校准/)).toBe(true) // 重算驱动事实(v1→v2)
   })
 
+  it('逻辑:命门显示 锚→推算→未来(计算过程)+ 断环标红', async () => {
+    // co_share:proj delta,锚=facts 最新 14% → 未来 14.5%;ghost:锚缺失 → 估值链断
+    const projBundle: CardBundle = {
+      ...bundle,
+      thesis: {
+        current: 1,
+        versions: [
+          {
+            ...bundle.thesis!.versions[0],
+            valuation: {
+              method: 'pe',
+              assumptions: [
+                {
+                  key: 'co_share',
+                  label: '公司份额',
+                  unit: '%',
+                  proj_mode: 'delta',
+                  bear: -0.5,
+                  base: 0.5,
+                  bull: 1.5,
+                  from_fact: 'co_share@2026-07',
+                  verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' as const }],
+                  logic_anchor: '成本护城河',
+                  falsify: '<13%',
+                },
+                {
+                  key: 'ghost',
+                  label: '幽灵参数',
+                  unit: '%',
+                  proj_mode: 'delta',
+                  bear: 1,
+                  base: 2,
+                  bull: 3,
+                  from_fact: 'nonexist@2026',
+                  verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' as const }],
+                  logic_anchor: '断环测试',
+                  falsify: 'x',
+                },
+              ],
+              V: { bear: 1, base: 2, bull: 3 },
+              margin_of_safety: { required: 0.25 },
+            },
+          },
+        ],
+      },
+      timeline: [],
+    }
+    ;(
+      window as unknown as { talorAPI: { artifact: { read: () => Promise<CardBundle> } } }
+    ).talorAPI = { artifact: { read: vi.fn().mockResolvedValue(projBundle) } }
+    render(<Panel id="002594-x" />)
+    await screen.findByText(/盯逻辑/)
+    fireEvent.click(screen.getByRole('button', { name: /逻辑/ }))
+    expect(has(/锚/)).toBe(true) // 锚(最新事实)
+    expect(has(/未来/)).toBe(true) // 推算出的未来值
+    expect(has(/14\.5/)).toBe(true) // 锚 14 + delta 0.5 = 14.5
+    expect(has(/估值链断/)).toBe(true) // ghost 锚缺失标红
+  })
+
   it('时间线:整合轴(校准台阶 v1→v2 + 决策基于v1 + 复盘跑赢)', async () => {
     render(<Panel id="002594-x" />)
     await screen.findByText(/盯逻辑/)
