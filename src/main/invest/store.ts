@@ -32,6 +32,7 @@ import type {
   ReviewEvent,
   TimelineEvent,
 } from '../../shared/types/invest'
+import { computeValuationTrace, resolveTraceAssumptions } from '../../shared/invest/valuation-trace'
 
 export class CardValidationError extends Error {
   constructor(
@@ -343,7 +344,15 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     if (!hasCore) {
       throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(带 logic_anchor 的参数)')
     }
-    if (!snap.valuation?.V) {
+    // 不变量③:价值由引擎算 —— 参数齐(恒等式可解)就冻结引擎 V,覆盖手填(杜绝拍脑袋数);
+    // 算不出(缺叶子参数)→ 退回"须有存量 V"兜底(不臆造)。
+    const trace = computeValuationTrace(
+      snap.valuation.method,
+      resolveTraceAssumptions(snap.valuation.assumptions, facts),
+    )
+    if (trace.ok && trace.V) {
+      snap.valuation.V = trace.V // 冻结:引擎算出的出身值(历史不回溯)
+    } else if (!snap.valuation?.V) {
       throw new CardValidationError('VALUATION_NO_VALUE', '估值缺 V(价值由 compute 算后填入)')
     }
     if (snap.valuation.margin_of_safety?.required == null) {
@@ -378,6 +387,16 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         'CHECKPOINT_NO_VERSION',
         `复查 against_v=${cp.against_v} 不存在(须锚已有逻辑版本,不回溯)`,
       )
+    }
+    // 不变量③:复查重估 V 由引擎算(against_v 版假设 × 当前最新事实)→ 冻结入档(时光机历史不漂移)
+    const against = thesis.versions.find((v) => v.v === cp.against_v)!
+    const cpFacts = JSON.parse(row.facts) as Facts
+    const cpTrace = computeValuationTrace(
+      against.valuation.method,
+      resolveTraceAssumptions(against.valuation.assumptions, cpFacts),
+    )
+    if (cpTrace.ok && cpTrace.V && cp.value_now) {
+      cp.value_now.V = cpTrace.V // 冻结:此刻引擎重估值,入档后不回流
     }
     this.append(id, '复查', cp, cp.at)
     return this.read(id)!

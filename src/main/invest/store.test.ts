@@ -254,6 +254,62 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     expect(r2.thesis?.current).toBe(2)
   })
 
+  it('addThesisVersion 冻结引擎 V:参数齐 → 覆盖手填(不变量③ 价值由 compute 算)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    const ff = 'ev_pen@2026-03' // facts() 含 ev_pen / co_share
+    const full = [
+      {
+        key: 'ev_pen',
+        label: '渗透',
+        unit: '%',
+        bear: 45,
+        base: 50,
+        bull: 55,
+        from_fact: ff,
+        verify: [{ fact: 'ev_pen', at: 'annual' }],
+        logic_anchor: '政策',
+        falsify: '<45%',
+      },
+      {
+        key: 'mkt_capacity',
+        label: '容量',
+        unit: '万辆',
+        bear: 2826,
+        base: 2826,
+        bull: 2826,
+        from_fact: ff,
+      },
+      {
+        key: 'co_share',
+        label: '份额',
+        unit: '%',
+        bear: 13.5,
+        base: 14.5,
+        bull: 15.5,
+        from_fact: 'co_share@2025-12',
+        verify: [{ fact: 'co_share', at: 'q' }],
+        logic_anchor: '成本',
+        falsify: '<13%',
+      },
+      {
+        key: 'asp',
+        label: '单价',
+        unit: '万元',
+        bear: 16.5,
+        base: 16.5,
+        bull: 16.5,
+        from_fact: ff,
+      },
+      { key: 'net_margin', label: '净利率', unit: '%', bear: 9, base: 9, bull: 9, from_fact: ff },
+      { key: 'shares', label: '股本', unit: '亿股', bear: 29, base: 29, bull: 29, from_fact: ff },
+      { key: 'pe_central', label: 'PE', unit: 'x', bear: 25, base: 25, bull: 25, from_fact: ff },
+    ]
+    // snapWith 手填 V {210,290,380};参数齐 → 引擎算出 262(0.5×2826×.145×16.5×.09÷29×25)覆盖之
+    const r = repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapWith(full) })
+    expect(r.thesis!.versions[0].valuation.V.base).toBe(262)
+  })
+
   it.each([
     ['VALUATION_NO_ASSUMPTIONS', snapWith([])],
     ['ASSUMPTION_NO_FROMFACT', snapWith([assumption({ from_fact: '' })])],
