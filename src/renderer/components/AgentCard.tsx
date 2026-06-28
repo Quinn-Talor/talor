@@ -5,6 +5,8 @@ export interface AgentCardData {
   version: string
   status: 'disabled' | 'ready' | 'dependency_missing' | 'running'
   avatar?: string
+  /** true = 内置 Feature agent(只读:不可编辑/删除/启用,随 Feature 提供)。 */
+  readonly?: boolean
 }
 
 interface AgentCardProps {
@@ -52,6 +54,11 @@ export function AgentCard({
             <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${badge.cls}`}>
               {badge.label}
             </span>
+            {agent.readonly && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-500">
+                内置
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2">{agent.description}</p>
           <p className="text-[11px] text-gray-400 mt-0.5">v{agent.version}</p>
@@ -106,12 +113,14 @@ export function AgentCard({
             导出
           </button>
         )}
-        <button
-          onClick={() => onDelete(agent.id)}
-          className="text-[11px] px-2 py-1 rounded-md text-red-500 hover:bg-red-50 transition-colors"
-        >
-          删除
-        </button>
+        {!agent.readonly && (
+          <button
+            onClick={() => onDelete(agent.id)}
+            className="text-[11px] px-2 py-1 rounded-md text-red-500 hover:bg-red-50 transition-colors"
+          >
+            删除
+          </button>
+        )}
       </div>
     </div>
   )

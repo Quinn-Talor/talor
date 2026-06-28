@@ -19,6 +19,7 @@ import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { streamRegistry } from '../chat/stream-registry'
 import { getDefaultProvider } from '../chat/provider-selector'
 import type { AgentProfile } from '@shared/types/agent'
+import { buildAgentList } from './agent-list'
 import { serializeS1History } from '../agent/draft-extractor'
 import { recommendMode } from '../agent/crystallizer-heuristics'
 import { v4 as uuidv4 } from 'uuid'
@@ -108,34 +109,42 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
   }
 
   ipcMain.handle('agents:list', () => {
-    // 仅业务 agent 出现在用户列表里。__chat__ 是默认主对话（不需 picker）；
-    // __crystallizer__ 是沉淀引导（专用按钮触发，不进列表）。
+    // 业务 agent 列表 = 用户池(磁盘 loader,可编辑)+ feature agent(内存注册,只读)。
+    // __chat__ 默认主对话、__crystallizer__ 沉淀引导,均不进此列表。
     const loader = agentManager.getLoader()
-    if (!loader) return []
-    return loader.getAll().map((entry) => ({
-      id: entry.profile.id,
-      name: entry.profile.name,
-      description: entry.profile.description,
-      status: entry.status,
-      lastUsedAt: entry.lastUsedAt,
-      dirPath: entry.dirPath,
-    }))
+    return buildAgentList(loader?.getAll() ?? [], agentManager.getFeatureAgentProfiles())
   })
 
   ipcMain.handle('agents:get', (_event, id: string) => {
     const loader = agentManager.getLoader()
-    if (!loader) return null
-    const entry = loader.getById(id)
-    if (!entry) return null
-    return {
-      id: entry.profile.id,
-      name: entry.profile.name,
-      description: entry.profile.description,
-      status: entry.status,
-      lastUsedAt: entry.lastUsedAt,
-      dirPath: entry.dirPath,
-      profile: entry.profile,
+    const entry = loader?.getById(id)
+    if (entry) {
+      return {
+        id: entry.profile.id,
+        name: entry.profile.name,
+        description: entry.profile.description,
+        status: entry.status,
+        lastUsedAt: entry.lastUsedAt,
+        dirPath: entry.dirPath,
+        profile: entry.profile,
+        readonly: false,
+      }
     }
+    // feature agent:内存注册无 loader 条目 → 只读返回(供预览/详情)。
+    const fp = agentManager.getFeatureAgentProfiles().find((p) => p.id === id)
+    if (fp) {
+      return {
+        id: fp.id,
+        name: fp.name,
+        description: fp.description,
+        status: 'ready',
+        lastUsedAt: undefined,
+        dirPath: null,
+        profile: fp,
+        readonly: true,
+      }
+    }
+    return null
   })
 
   ipcMain.handle('agents:create-session', (_event, raw: { agent_id: string }) => {
@@ -174,7 +183,13 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const loader = agentManager.getLoader()
     if (!loader) throw new Error('AgentLoader not initialized')
     const entry = loader.getById(id)
-    if (!entry) throw new Error(`Agent not found: ${id}`)
+    if (!entry) {
+      // feature agent 在 init 已内存注册 + 工具作用域生效 → enable 是 no-op。
+      if (agentManager.getFeatureAgentProfiles().some((p) => p.id === id)) {
+        return { passed: true, steps: [] }
+      }
+      throw new Error(`Agent not found: ${id}`)
+    }
 
     // 引用化:skill / mcp 都从平台 registry 按 profile name 列表过滤
     const platformSkills = agentManager.getPlatformSkillRegistry()
@@ -182,10 +197,11 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       ? platformSkills.filterByNames(entry.profile.skills ?? [])
       : SkillRegistry.fromPlatformDir(null)
     const mcpRegistry = agentManager.getMcpRegistry()
-    const filteredMcp =
-      mcpRegistry && (entry.profile.mcpServers ?? []).length > 0
+    const filteredMcp = !mcpRegistry
+      ? null
+      : (entry.profile.mcpServers ?? []).length > 0
         ? mcpRegistry.filterByServerNames(entry.profile.mcpServers!)
-        : null
+        : mcpRegistry // omit = 全给(与 builtin / agent-manager 一致)
 
     agentManager.registerBusinessAgent(id, {
       profile: entry.profile,
@@ -203,7 +219,13 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const loader = agentManager.getLoader()
     if (!loader) throw new Error('AgentLoader not initialized')
     const entry = loader.getById(id)
-    if (!entry) throw new Error(`Agent not found: ${id}`)
+    if (!entry) {
+      // feature agent 只读:不可删除(应在设置中关闭对应 Feature)。
+      if (agentManager.getFeatureAgentProfiles().some((p) => p.id === id)) {
+        throw new Error('内置 Feature agent 只读,不可删除(请在设置中关闭对应 Feature)')
+      }
+      throw new Error(`Agent not found: ${id}`)
+    }
 
     agentManager.unregisterBusinessAgent(id)
     rmSync(entry.dirPath, { recursive: true, force: true })
@@ -587,10 +609,11 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
             ? platformSkills.filterByNames(newEntry.profile.skills ?? [])
             : SkillRegistry.fromPlatformDir(null)
           const mcpRegistry = agentManager.getMcpRegistry()
-          const filteredMcp =
-            mcpRegistry && (newEntry.profile.mcpServers ?? []).length > 0
+          const filteredMcp = !mcpRegistry
+            ? null
+            : (newEntry.profile.mcpServers ?? []).length > 0
               ? mcpRegistry.filterByServerNames(newEntry.profile.mcpServers!)
-              : null
+              : mcpRegistry // omit = 全给(与 builtin / agent-manager 一致)
           agentManager.registerBusinessAgent(profile.id, {
             profile: newEntry.profile,
             source: newEntry.dirPath,

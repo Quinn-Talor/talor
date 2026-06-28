@@ -356,6 +356,12 @@ const talorAPI = {
       >
     }): Promise<string[] | null> => ipcRenderer.invoke('file:openDialog', options),
   },
+
+  // 业务对象只读:平台通用 artifact:read,按 type 路由到对应 Feature 读口(写经工具,读经此)。
+  artifact: {
+    read: (type: string, id: string): Promise<unknown> =>
+      ipcRenderer.invoke('artifact:read', { type, id }),
+  },
 }
 
 contextBridge.exposeInMainWorld('talorAPI', talorAPI)
