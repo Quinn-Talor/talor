@@ -95,12 +95,12 @@ const thesis = {
       claim: '政策让电车多卖,比亚迪成本低抢份额 → 赚钱', profit_type: '成长',
       valuation: { method: 'pe', method_reason: '成长股→PE,非周期不套PB-ROE',
         assumptions: peAssumps(16, '连2季<14%'),
-        V: { bear: 200, base: 289, bull: 406 }, margin_of_safety: { required: 0.25, anchor: 'base', required_basis: 'V区间宽+命门high未验+成长股→25%' } } },
+        V: { bear: 244, base: 289, bull: 338 }, margin_of_safety: { required: 0.25, anchor: 'base', required_basis: 'V区间宽+命门未验+成长股→25%' } } },
     { v: 2, at: '2026-07-31', scope: '校准',
       claim: '政策仍催电车,但份额被价格战侵蚀降速 → 仍赚但少', profit_type: '成长',
       valuation: { method: 'pe',
         assumptions: peAssumps(14.5, '连2季<13%'),
-        V: { bear: 180, base: 262, bull: 370 }, margin_of_safety: { required: 0.25, anchor: 'base' } },
+        V: { bear: 220, base: 262, bull: 308 }, margin_of_safety: { required: 0.25, anchor: 'base' } },
       ref_checkpoint: 'cp-0731' },
   ],
   current: 2,
@@ -122,28 +122,28 @@ db.prepare(
 const cp1 = {
   type: '复查', at: '2026-04-30', against_v: 1,
   validity: '持有', conviction: 'mid',
-  checks: [{ metric: 'co_share', predicted_value: '16%', actual_value: '15.5%', actual_as_of: '2026-03',
+  checks: [{ metric: 'co_share', predicted_value: 16, actual_value: '15.5%', actual_as_of: '2026-03',
     deviation: { 数值: '-0.5pp', 变化: '小幅' }, outcome: '容差',
     attribution: { cause: '季节性,Q2恢复', type: '外生' } }],
-  value_now: { V: { bear: 210, base: 265, bull: 350 }, price: 195, realized_pct: 0.2,
-    margin_of_safety: { to_bear: '-7%', vs_required: '门槛25%·达标', at_buy_point: true, buy_trigger: 199 } },
+  value_now: { V: { bear: 244, base: 289, bull: 338 }, price: 195, realized_pct: 0.2,
+    margin_of_safety: { to_bear: '-20%', vs_required: '门槛25%·达标', at_buy_point: true, buy_trigger: 217 } },
   gate: { state: '通行', reason: [] }, spawned_v: null,
-  signal: { verdict: '买', reason: '回调至安全边际达标(195≤买点199),命门holding·挡噪声' },
+  signal: { verdict: '买', reason: '回调至安全边际达标(195≤买点217),命门holding·挡噪声' },
 }
-const dec = { type: '决策', at: '2026-05-15', trade: '建', price: 195, weight: 0.05, based_v: 1, reason: '边际达标(195≤买点199),双命门holding' }
+const dec = { type: '决策', at: '2026-05-15', trade: '建', price: 195, weight: 0.05, based_v: 1, reason: '边际达标(195≤买点217),双命门holding' }
 // 双向验证:渗透率兑现(强化)+ 份额偏离(校准)→ validity=校准
 const cp2 = {
   type: '复查', at: '2026-07-31', against_v: 1,
   validity: '校准', conviction: 'mid',
   checks: [
-    { metric: 'ev_pen', predicted_value: '50%', actual_value: '51%', actual_as_of: '2026-06',
+    { metric: 'ev_pen', predicted_value: 50, actual_value: '51%', actual_as_of: '2026-06',
       deviation: { 数值: '+1pp', 变化: '兑现' }, outcome: '兑现' },
-    { metric: 'co_share', predicted_value: '16%', actual_value: '14%', actual_as_of: '2026-07',
+    { metric: 'co_share', predicted_value: 16, actual_value: '14%', actual_as_of: '2026-07',
       deviation: { 数值: '-2pp', 结构: '以量补价失效', 变化: '连2季减速' }, outcome: '偏离',
       attribution: { cause: '价格战侵蚀份额,非季节性', type: '参数错' } },
   ],
-  value_now: { V: { bear: 180, base: 262, bull: 370 }, price: 248, realized_pct: 0.3,
-    margin_of_safety: { to_bear: '+38%', vs_required: '门槛25%·不足', at_buy_point: false, buy_trigger: 135 } },
+  value_now: { V: { bear: 244, base: 289, bull: 338 }, price: 248, realized_pct: 0.3,
+    margin_of_safety: { to_bear: '+2%', vs_required: '门槛25%·不足', at_buy_point: false, buy_trigger: 217 } },
   gate: { state: '通行', reason: [] }, spawned_v: 2,
   signal: { verdict: '等', reason: '渗透率兑现但份额连2季偏(参数错)→校准v2;价格回升,边际不足→不加' },
 }
