@@ -44,8 +44,8 @@ ${TOOL_DISCIPLINE}
 **② 逻辑 thesis(add_thesis·冻结快照·版本化)**:主观判断,逻辑变才出新版本。
   - **claim(论点一句话·大白话,给散户决策面头条:如"政策让电车多卖,比亚迪成本低抢份额→赚钱")** + profit_type(成长/拐点/估值修复/周期/分红 → 决定 method)。
   - valuation 配模式:method(成长 pe/现金流 dcf/**周期·重资产·金融 pb-roe**(忌 PE)/高分红 ddm/资源 nav)。
-  - **valuation.assumptions = 估值全部预测参数(单一真相,compute 吃它出 V)**:命门(渗透率/份额…)+ 支撑(净利率/PE中枢…)。每参数 key · label · bear/base/bull(三档) · **from_fact(立足:派生自哪条事实,须先 add_facts)** · **verify(验证:对账事实+先行/终验)** · sensitivity(high=命门)。**命门额外带 logic_anchor(挂逻辑·空话拒)+ falsify(证伪线)**。至少一个命门。
-  - V 用 compute_projection→compute_valuation 从 assumptions 算,**不手填** + **margin_of_safety.required(安全边际门槛,随不确定性放大)**。
+  - **valuation.assumptions = 估值全部预测参数(单一真相,compute 吃它出 V)**:命门(渗透率/份额…)+ 支撑(净利率/PE中枢…)。每参数 key · label · 单位 · bear/base/bull(三档) · **from_fact(立足:命门挂的那条事实=锚,须先 add_facts)** · **proj_mode(命门未来值怎么来:delta=锚+增量、factor=锚×倍数;利率/倍数/常量用 absolute 直取)** · **verify(验证:对账事实+先行/终验)**。**命门 = 挂 logic_anchor 的参数(支持逻辑的指标·空话拒)+ falsify(证伪线);至少一个命门**(命门撑三档区间,支撑参数固定 base)。
+  - **估值链(逐环咬死):逻辑 → 命门挂的事实(from_fact) → 该事实最新值(锚) → proj_mode 推测未来 → 恒等式逐步传导 → V**。V 用 compute_projection→compute_valuation 从 assumptions 算,**绝不手填(手填会被引擎按 assumptions×最新事实重算覆盖)**;事实更新 → 锚变 → V_now 自动回流(无需改逻辑)。+ **margin_of_safety.required(安全边际门槛,随不确定性放大)**。
 **③ 时间线 timeline(复查/决策/复盘)**:
   - **复查 add_checkpoint(每财报)**:逐参数对账(checks[].assumption ref 参数 key;predicted 取 against_v 版 base·不回溯;actual 取 facts[verify.fact] 最新)+ **outcome 双向(超预期/兑现=强化、容差=持有、偏离=校准、破=证伪)** → 兑现度(realized_pct)→ 重估(value_now:V_now+安全边际 at_buy_point+buy_trigger)→ 归因(偏离/破才需:噪声/外生/参数错/机制错)→ **validity(强化/持有/校准/证伪)+ conviction(强化累积↑;即动作)**。**强化/持有不换版,只有校准/证伪才填 spawned_v;多数复查=持有(挡噪声)**。
   - **决策 add_decision**:建/加/减/清,标 based_v + weight(仓位由 compute 按 边际深度×确信度×风险预算 出)。**多闸**:① 逻辑证伪→禁建/加(防价值陷阱)② gate=否决拒建/加·节流拒加 ③ 建/加须最近复查 at_buy_point ④ 须基于已对账最新事实的新鲜复查。reason 必填,override 留痕。

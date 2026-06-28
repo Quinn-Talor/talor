@@ -85,7 +85,7 @@ const VerifyHookZ = z.object({
   at: z.string().describe('验收时点/频率:monthly/quarterly/annual/日期'),
   role: z.enum(['先行', '终验']).optional(),
 })
-// 估值预测参数(吸收原 Driver):每参数双向挂事实;命门=high 带 logic_anchor/falsify
+// 估值预测参数(吸收原 Driver):每参数双向挂事实;命门 = 挂 logic_anchor 的参数,带 falsify;命门未来值 proj_mode 推自锚
 const ValuationAssumptionZ = z.object({
   key: z.string().describe('参数键(可复用 fact key,或估值专用如 pe_central)'),
   label: z.string(),
@@ -102,7 +102,10 @@ const ValuationAssumptionZ = z.object({
     .optional()
     .describe('立足:派生自 facts key@as_of(锚=该指标最新;须已 add_facts)'),
   verify: z.array(VerifyHookZ).optional().describe('验证:对账事实(命门必填,先行+终验)'),
-  sensitivity: z.enum(['high', 'mid', 'low']).optional().describe('high=命门'),
+  sensitivity: z
+    .enum(['high', 'mid', 'low'])
+    .optional()
+    .describe('@deprecated 命门改由 logic_anchor 派生;勿再用作命门标志'),
   logic_anchor: z.string().optional().describe('命门:挂哪条逻辑(空话拒)'),
   falsify: z.string().optional().describe('命门:证伪线'),
   market_implied: z.string().optional().describe('现价反推的市场隐含(预期差=base vs 此)'),
@@ -317,8 +320,8 @@ export function createCardTools(
     ),
     writeTool(
       'add_thesis',
-      '加逻辑版本(冻结快照·建立/校准/重写)。valuation.assumptions = 全部估值预测参数(命门+支撑):每参数 key/label/三档(bear/base/bull)+ from_fact(立足事实,须已 add_facts)+ verify(验证事实,先行+终验);命门(sensitivity=high)额外带 logic_anchor + falsify。' +
-        'valuation 配模式(pe/dcf/pb-roe/ddm/nav)+ V(compute 从 assumptions 算)+ 安全边际门槛。逻辑变才出新版本,基础事实须先在场。',
+      '加逻辑版本(冻结快照·建立/校准/重写)。valuation.assumptions = 全部估值预测参数(命门+支撑):每参数 key/label/单位/三档(bear/base/bull)+ from_fact(立足事实=锚,须已 add_facts)+ proj_mode(命门 delta/factor 推自锚·支撑 absolute)+ verify(验证事实,先行+终验);命门 = 挂 logic_anchor 的参数 + falsify。' +
+        'valuation 配模式(pe/dcf/pb-roe/ddm/nav)+ V(引擎按 assumptions×最新事实算定·手填会被覆盖)+ 安全边际门槛。逻辑变才出新版本,基础事实须先在场。',
       z.object({ card_id: z.string(), snapshot: ThesisSnapshotZ }),
       (id, i) => ({
         kind: 'addThesisVersion',
