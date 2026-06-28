@@ -32,6 +32,7 @@ import { initChatDb, closeChatDb, getDb, pruneTraces } from './db/index'
 import { traceRecorder } from './observe/trace-recorder'
 import { installFeatures } from './features/install'
 import { ArtifactReaderRegistry } from './features/artifact-readers'
+import { investFeatureMain } from './invest/feature'
 import { mcpServerRepo } from './repos/mcp-server-repo'
 import { AgentManager } from './agent/agent-manager'
 import { BuiltinToolRegistry } from './agent/builtin-registry'
@@ -242,15 +243,14 @@ app.whenReady().then(() => {
   })
   log.info('[Main] Agent system initialized')
 
-  // Feature 融合:平台拥有注册。组合根登记各业务 Feature —— 当前为空(平台框架就绪,
-  // 业务 feature 后续在此数组加一项即可接入,平台核心零改动)。
+  // Feature 融合:平台拥有注册。组合根是唯一认识具体业务(invest)的地方;平台核心对业务无感知。
   // 须在 agentManager.init 之后:用户池 agent 已就位,feature 同 id 时跳过(fork-override)。
   const artifactReaders = new ArtifactReaderRegistry()
   ipcMain.handle('artifact:read', (_e, arg: { type: string; id: string }) =>
     artifactReaders.read(arg.type, arg.id),
   )
   installFeatures(
-    [],
+    [investFeatureMain],
     { db: getDb() },
     {
       registerAgent: (fa) => agentManager.registerFeatureAgent(fa.profile, fa.tools ?? []),

@@ -1,5 +1,30 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { toolResultPartsToBlocks, buildStreamSignal, buildStreamTimeout } from './stream-utils'
+import {
+  toolResultPartsToBlocks,
+  buildStreamSignal,
+  buildStreamTimeout,
+  extractOutputText,
+} from './stream-utils'
+
+describe('extractOutputText', () => {
+  it('普通对象 → JSON(不退化成 "[object Object]";否则 agent 拿不到 create_card 的 id)', () => {
+    const bundle = { id: '002594-20260613-ab12', type: 'stock_card', head: { code: '002594' } }
+    const text = extractOutputText(bundle)
+    expect(text).not.toContain('[object Object]')
+    expect(JSON.parse(text).id).toBe('002594-20260613-ab12')
+  })
+  it('数组 → JSON', () => {
+    expect(extractOutputText([{ flag: 'a', hit: false }])).toBe('[{"flag":"a","hit":false}]')
+  })
+  it('字符串原样;null/undefined → 空串', () => {
+    expect(extractOutputText('hi')).toBe('hi')
+    expect(extractOutputText(null)).toBe('')
+    expect(extractOutputText(undefined)).toBe('')
+  })
+  it('{value} 包装仍按 value 提取', () => {
+    expect(extractOutputText({ type: 'text', value: 'content' })).toBe('content')
+  })
+})
 
 describe('toolResultPartsToBlocks', () => {
   it('sets isError=false for successful tool result and stores raw (no guide in DB)', () => {

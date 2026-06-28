@@ -55,6 +55,15 @@ export function extractOutputText(output: unknown): string {
     const v = (output as { value: unknown }).value
     return typeof v === 'string' ? v : JSON.stringify(v)
   }
+  // 普通对象/数组 → JSON。绝不 String(obj):那会退化成 "[object Object]",
+  // 丢失结构(如 create_card 返回的 CardBundle.id → agent 拿不到卡 UUID → 后续 append_* 找不到卡)。
+  if (typeof output === 'object') {
+    try {
+      return JSON.stringify(output)
+    } catch {
+      return String(output) // 循环引用等极端情况兜底
+    }
+  }
   return String(output)
 }
 

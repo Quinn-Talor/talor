@@ -14,6 +14,25 @@ import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolDispatch } from '../../components/tool-calls/ToolDispatch'
 import { TraceChip } from '../../components/trace/TraceChip'
 import { TracePanel } from '../../components/trace/TracePanel'
+import { openArtifact } from '../../artifacts/openArtifact'
+
+// 卡 chip:从 card 工具(精简返回 {card_id,code,name,...})的结果解析卡引用,在对话里冒出可点 chip。
+// 真实建卡只写 DB,无 stock_card 块 → 这里补上 UI 入口(点击 → ArtifactDrawer 开案卷)。
+const CARD_TOOLS = new Set(['create_card', 'append_snapshot', 'append_decision', 'append_review'])
+function cardRefFromResult(
+  toolName: string,
+  output: string,
+): { id: string; code?: string; name?: string } | null {
+  if (!CARD_TOOLS.has(toolName)) return null
+  try {
+    const m = output.match(/\{[\s\S]*\}/)
+    if (!m) return null
+    const o = JSON.parse(m[0]) as { card_id?: string; code?: string; name?: string }
+    return typeof o.card_id === 'string' ? { id: o.card_id, code: o.code, name: o.name } : null
+  } catch {
+    return null
+  }
+}
 // ToolConfirmDialog 和 PermissionDialog 已下线到 PermissionsPopover 内嵌渲染,
 // UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
 // 但 Chat 页面不再消费它们。
@@ -317,6 +336,12 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               .join('')
               .trim()
             const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r]))
+            // 解析本步 card 工具结果 → 卡 chip(去重 by id)
+            const cardRefs = new Map<string, { id: string; code?: string; name?: string }>()
+            for (const r of toolResults) {
+              const ref = cardRefFromResult(r.toolName, r.output)
+              if (ref) cardRefs.set(ref.id, ref)
+            }
             acc.push(
               <div key={msg.id} className="pl-[32px] mb-1">
                 {textContent && (
@@ -333,6 +358,24 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     durations={toolDurations}
                   />
                 ))}
+                {cardRefs.size > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {[...cardRefs.values()].map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => openArtifact({ type: 'stock_card', id: r.id })}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+                        title="打开案卷"
+                      >
+                        <span>🗂️</span>
+                        <span className="font-medium">
+                          {r.code ? `${r.code} ${r.name ?? ''}` : r.id}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>,
             )
             return acc
