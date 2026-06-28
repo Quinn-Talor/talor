@@ -82,6 +82,84 @@ describe('computeValuationTrace — pe 恒等式阶梯', () => {
   })
 })
 
+describe('computeValuationTrace — step 声明式折叠(方法无关)', () => {
+  // eps×pe 模型:两命门入式(EPS年值 起始 → ×PE中枢 = V);net_margin 是定性命门(无 step → 不入式)
+  const STEP_EPS: TraceAssumption[] = [
+    {
+      key: 'eps_year1',
+      bear: 3.2,
+      base: 3.76,
+      bull: 4.5,
+      unit: '元',
+      core: true,
+      step: { order: 1, out: 'EPS年值' },
+    },
+    {
+      key: 'pe_central',
+      bear: 15,
+      base: 20,
+      bull: 25,
+      unit: 'x',
+      core: true,
+      step: { order: 2, op: '×', out: 'V' },
+    },
+    // 定性命门:有 logic 但不量化入式 → core 但无 step,折叠时跳过
+    { key: 'net_margin', bear: 3.5, base: 4, bull: 5, unit: '%', core: true },
+  ]
+
+  it('有 step → 按 order 折叠逐步 trace + V 三档(method=pe,EPS×PE 简化链)', () => {
+    const r = computeValuationTrace('pe', STEP_EPS)
+    expect(r.ok).toBe(true)
+    expect(r.method).toBe('pe') // 透传真实标签(EPS×PE 就是 PE 估值)
+    // 无 step 的 net_margin 不入式;入式两步 EPS年值 → V
+    expect(r.steps.map((s) => s.out)).toEqual(['EPS年值', 'V'])
+    const base = (out: string) => r.steps.find((s) => s.out === out)!.base
+    expect(base('EPS年值')).toBe(3.76) // 起始(锚直取)
+    expect(r.V?.base).toBeCloseTo(75.2) // 3.76 × 20
+    // 命门撑区间:熊 3.2×15=48 / 牛 4.5×25=112.5
+    expect(r.V!.bear).toBeCloseTo(48)
+    expect(r.V!.bull).toBeCloseTo(112.5)
+    // 每步标 inputs → 重算可定位"哪个参数变了"
+    expect(r.steps.find((s) => s.out === 'EPS年值')!.inputs).toEqual(['eps_year1'])
+    expect(r.steps.find((s) => s.out === 'V')!.inputs).toEqual(['pe_central'])
+  })
+
+  it('方法无关:折叠由 step 存在触发、非 method 名(同链在任意 method 标签下都折叠)', () => {
+    // 即便标签是 pb-roe,只要声明了 step 就走折叠(不走 pb-roe 内置公式)→ 结果与标签无关
+    const r = computeValuationTrace('pb-roe', STEP_EPS)
+    expect(r.ok).toBe(true)
+    expect(r.method).toBe('pb-roe') // 透传
+    expect(r.steps.map((s) => s.out)).toEqual(['EPS年值', 'V'])
+    expect(r.V?.base).toBeCloseTo(75.2)
+  })
+
+  it('缺值(锚未解析为有限数)→ ok:false + missing 列出(不臆造)', () => {
+    const r = computeValuationTrace('pe', [
+      {
+        key: 'eps_year1',
+        bear: NaN,
+        base: NaN,
+        bull: NaN,
+        unit: '元',
+        core: true,
+        step: { order: 1, out: 'EPS年值' },
+      },
+      {
+        key: 'pe_central',
+        bear: 15,
+        base: 20,
+        bull: 25,
+        unit: 'x',
+        core: true,
+        step: { order: 2, op: '×', out: 'V' },
+      },
+    ])
+    expect(r.ok).toBe(false)
+    expect(r.V).toBeNull()
+    expect(r.missing).toContain('eps_year1')
+  })
+})
+
 describe('computeValuationTrace — 其余配模式', () => {
   it('pb-roe:合理PB=(ROE−g)/(COE−g) × BVPS', () => {
     const r = computeValuationTrace('pb-roe', [

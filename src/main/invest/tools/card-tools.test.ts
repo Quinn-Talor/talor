@@ -49,11 +49,13 @@ const snapshot: ThesisSnapshot = {
       {
         key: 'co_share',
         label: '份额',
+        unit: '%',
         anchor: { fact: 'co_share', as_of: '2025-12' },
-        forecast: { mode: 'absolute', bear: 15, base: 16, bull: 17 },
+        forecast: { mode: 'delta', bear: -1, base: 0, bull: 1 }, // 命门基于事实推导(锚 16% ± 增量)
         verify: [{ fact: 'co_share', at: 'quarterly' }],
         logic: '护城河',
         falsify_if: '<14%',
+        step: { order: 1, out: 'V' }, // 声明 step → 可算(灭黑盒)
       },
     ],
     V: { bear: 210, base: 290, bull: 380 },

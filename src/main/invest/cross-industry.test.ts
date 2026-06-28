@@ -170,29 +170,37 @@ const FIXTURES: IndustryFixture[] = [
   },
 ]
 
-const snapshot = (f: IndustryFixture): ThesisSnapshot => ({
-  v: 1,
-  at: '2026-03-31',
-  scope: '建立',
-  claim: `${f.name}(${f.industry})逻辑`,
-  profit_type: f.profit,
-  valuation: {
-    method: f.method,
-    assumptions: [
-      {
-        key: f.driver.basisKey,
-        label: f.driver.metric,
-        anchor: { fact: f.driver.basisKey },
-        forecast: { mode: 'absolute', bear: 1, base: 2, bull: 3 },
-        verify: [{ fact: f.driver.basisKey, at: 'quarterly', role: '终验' }],
-        logic: f.driver.anchor,
-        falsify_if: '逻辑红线',
-      },
-    ],
-    V: { bear: 80, base: 100, bull: 120 },
-    margin_of_safety: { required: 0.2, anchor: 'bear' },
-  },
-})
+const snapshot = (f: IndustryFixture): ThesisSnapshot => {
+  // 命门基于事实推导:factor 挂行业 basis 事实(单位/基线取自该事实 → 过 Guard 2a/2b);
+  // 声明 step → 引擎折叠出 V(灭黑盒:各 method 都须可算)。
+  const basis = f.facts[f.driver.basisKey]!
+  const basisAsOf = basis.series[basis.series.length - 1].as_of
+  return {
+    v: 1,
+    at: '2026-03-31',
+    scope: '建立',
+    claim: `${f.name}(${f.industry})逻辑`,
+    profit_type: f.profit,
+    valuation: {
+      method: f.method,
+      assumptions: [
+        {
+          key: f.driver.basisKey,
+          label: f.driver.metric,
+          unit: basis.unit, // 同锚事实单位(Guard 2b)
+          anchor: { fact: f.driver.basisKey, as_of: basisAsOf },
+          forecast: { mode: 'factor', bear: 0.9, base: 1.0, bull: 1.1 }, // 锚 × 倍数(基于事实)
+          verify: [{ fact: f.driver.basisKey, at: 'quarterly', role: '终验' }],
+          logic: f.driver.anchor,
+          falsify_if: '逻辑红线',
+          step: { order: 1, out: 'V' },
+        },
+      ],
+      V: { bear: 80, base: 100, bull: 120 },
+      margin_of_safety: { required: 0.2, anchor: 'bear' },
+    },
+  }
+}
 
 const checkpoint = (against_v = 1, basisKey = 'x'): Checkpoint => ({
   type: '复查',

@@ -316,6 +316,14 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         throw new CardValidationError('FORECAST_NO_MODE', `参数「${name}」无 forecast.mode`)
       }
       const isCore = !!(a.logic && a.logic.trim())
+      // Guard 2a(命门基于事实):命门是"前值经逻辑估算预期"的叶子输入,必须 delta/factor(锚事实值推导);
+      //   禁 absolute(凭空给数)。绝对常量(WACC/终值增长等技术输入)只能作支撑(去掉 logic)。方法无关。
+      if (isCore && f.mode === 'absolute') {
+        throw new CardValidationError(
+          'CORE_FORECAST_NOT_DERIVED',
+          `命门「${name}」用了 absolute(凭空给数)。命门预估须基于锚事实推导(delta=锚+增量 / factor=锚×倍数);纯常量请作支撑(去掉 logic)。`,
+        )
+      }
       // 不变量⑦:命门 / delta / factor 必立足锚事实(anchor.fact 指向已有 facts)
       const needsAnchor = isCore || f.mode === 'delta' || f.mode === 'factor'
       if (needsAnchor) {
@@ -347,6 +355,16 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
             `参数「${name}」基线 ${a.anchor!.fact}@${asOf} 不在 facts 观测序列`,
           )
         }
+        // Guard 2b(锚同量纲):delta/factor 是"锚事实值经推导",参数与锚必须同口径(单位一致),
+        //   否则推算无意义(如 行业增速% ← 营收亿)。两边单位都须显式且相等。
+        const factUnit = facts[a.anchor!.fact]?.unit ?? undefined
+        const paramUnit = a.unit ?? undefined
+        if (!paramUnit || !factUnit || paramUnit !== factUnit) {
+          throw new CardValidationError(
+            'ANCHOR_UNIT_MISMATCH',
+            `参数「${name}」(单位 ${paramUnit ?? '∅'})与锚事实「${a.anchor!.fact}」(单位 ${factUnit ?? '∅'})量纲不一致 — delta/factor 推算要求同口径(锚应挂同量纲事实)。`,
+          )
+        }
       }
       // 命门 = 挂了 logic 的参数(支持逻辑的指标);命门必有验证(对账事实须在场)。
       if (isCore) {
@@ -367,16 +385,34 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     if (!hasCore) {
       throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(带 logic 的参数)')
     }
-    // 不变量③:价值由引擎算 —— 参数齐(恒等式可解)就冻结引擎 V,覆盖手填(杜绝拍脑袋数);
-    // 算不出(缺叶子参数)→ 退回"须有存量 V"兜底(不臆造)。
+    // 不变量③′(声明式恒等式·方法无关):一旦逐参数声明了 step,折叠链须收敛到 V ——
+    // order 最大的末步 out 必须为 'V',否则算不出价值(链断在估值)。无 step 的卡(canonical pe 漏斗 /
+    // dcf 等非线性法)由各自 pipeline 保证,不走此校验。
+    const declaredSteps = snap.valuation.assumptions
+      .filter((a) => a.step)
+      .sort((x, y) => x.step!.order - y.step!.order)
+    if (declaredSteps.length > 0) {
+      const last = declaredSteps[declaredSteps.length - 1].step!
+      if (last.out !== 'V') {
+        throw new CardValidationError(
+          'STEP_CHAIN_NOT_V',
+          `声明式恒等式末步(order 最大)须产出 V,当前为「${last.out}」`,
+        )
+      }
+    }
+    // 不变量③(灭黑盒):价值必须由引擎从恒等式算出 —— 参数齐则冻结引擎 V(覆盖手填,杜绝拍脑袋数);
+    // 算不出(键不匹配 pipeline 且无 step / 缺叶子参数)→ 链断,直接拒,不再用手填 V 兜底。
     const trace = computeValuationTrace(
       snap.valuation.method,
       resolveForecast(snap.valuation.assumptions, facts, 'now'),
     )
     if (trace.ok && trace.V) {
       snap.valuation.V = trace.V // 冻结:引擎算出的出身值(历史不回溯)
-    } else if (!snap.valuation?.V) {
-      throw new CardValidationError('VALUATION_NO_VALUE', '估值缺 V(价值由 compute 算后填入)')
+    } else {
+      throw new CardValidationError(
+        'VALUATION_NOT_COMPUTABLE',
+        `估值链算不出 V(method=${snap.valuation.method}${trace.missing?.length ? `;缺/不匹配:${trace.missing.join('、')}` : ''})。请用该 method 标准键,或逐参数声明 step(叶子输入 delta/factor 基于事实,EPS/净利等中间量由公式计算)。`,
+      )
     }
     if (snap.valuation.margin_of_safety?.required == null) {
       throw new CardValidationError(

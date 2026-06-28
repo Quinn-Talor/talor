@@ -101,6 +101,11 @@ const ForecastZ = z.object({
   bull: z.union([z.string(), z.number()]).describe('牛'),
   horizon: z.string().optional().describe('预测兑现时点(如 2026-annual),到此该对账'),
 })
+const ForecastStepZ = z.object({
+  order: z.number().describe('折叠序(1=起始项)'),
+  op: z.enum(['×', '÷', '+', '−']).optional().describe('与累积量的运算(order=1 可省,作起始)'),
+  out: z.string().describe('本步产出的中间量名(末步必须为 V)'),
+})
 const ValuationAssumptionZ = z.object({
   key: z.string().describe('参数键(可复用 fact key,或估值专用如 pe_central)'),
   label: z.string(),
@@ -114,6 +119,9 @@ const ValuationAssumptionZ = z.object({
     .array(VerifyHookZ)
     .optional()
     .describe('先行指标对账(命门必填;终验由 anchor.fact+horizon 隐含)'),
+  step: ForecastStepZ.optional().describe(
+    '恒等式折叠角色(任何 method 适用):有=按 order 入式逐步算 V / 无=仅命门审计或走 method 内置公式',
+  ),
 })
 const ValuationZ = z.object({
   method: z.enum(['pe', 'dcf', 'pb-roe', 'ddm', 'nav']),

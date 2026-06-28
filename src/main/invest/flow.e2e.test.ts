@@ -82,10 +82,11 @@ const SNAPSHOT = {
         label: '公司份额',
         unit: '%',
         anchor: { fact: 'co_share', as_of: '2025-12' },
-        forecast: { mode: 'absolute', bear: 15, base: 16, bull: 17, horizon: '2026-annual' },
+        forecast: { mode: 'delta', bear: -1, base: 0, bull: 1, horizon: '2026-annual' }, // 命门基于事实推导
         verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' }],
         logic: '成本护城河',
         falsify_if: '连2季<14%',
+        step: { order: 1, out: 'V' }, // 声明 step → 可算(灭黑盒);net_margin 留定性支撑
       },
       {
         key: 'net_margin',

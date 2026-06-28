@@ -34,7 +34,8 @@ const assumption = (over: Partial<ValuationAssumption> = {}): ValuationAssumptio
   label: '公司份额',
   unit: '%',
   anchor: { fact: 'co_share', as_of: '2025-12' },
-  forecast: { mode: 'absolute', bear: 15, base: 16, bull: 17, horizon: '2026-annual' },
+  // 命门基于事实推导(delta:锚 16% ± 增量 → 15/16/17);单位与锚事实(co_share %)一致
+  forecast: { mode: 'delta', bear: -1, base: 0, bull: 1, horizon: '2026-annual' },
   verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' }],
   logic: '成本护城河',
   falsify_if: '连2季<14%',
@@ -49,7 +50,8 @@ const snapshot = (over: Partial<ThesisSnapshot> = {}): ThesisSnapshot => ({
   profit_type: '成长',
   valuation: {
     method: 'pe',
-    assumptions: [assumption()],
+    // 极简可算卡(测试用):命门 co_share 声明 step → 引擎折叠出 V(灭黑盒要求可算;V 值不被任何断言依赖)
+    assumptions: [assumption({ step: { order: 1, out: 'V' } })],
     V: { bear: 210, base: 290, bull: 380 },
     margin_of_safety: { required: 0.2, anchor: 'bear' },
   },
@@ -267,7 +269,7 @@ describe('CardRepo (价值链严谨化 schema)', () => {
         key: 'ev_pen',
         label: '渗透',
         anchor: { fact: 'ev_pen', as_of: '2026-03' },
-        forecast: { mode: 'absolute', bear: 45, base: 50, bull: 55 },
+        forecast: { mode: 'delta', bear: 3, base: 8, bull: 13 }, // 命门:锚 42% + 增量 → 45/50/55
         verify: [{ fact: 'ev_pen', at: 'annual' }],
         logic: '政策',
         falsify_if: '<45%',
@@ -282,7 +284,7 @@ describe('CardRepo (价值链严谨化 schema)', () => {
         key: 'co_share',
         label: '份额',
         anchor: { fact: 'co_share', as_of: '2025-12' },
-        forecast: { mode: 'absolute', bear: 13.5, base: 14.5, bull: 15.5 },
+        forecast: { mode: 'delta', bear: -2.5, base: -1.5, bull: -0.5 }, // 命门:锚 16% + 增量 → 13.5/14.5/15.5
         verify: [{ fact: 'co_share', at: 'q' }],
         logic: '成本',
         falsify_if: '<13%',
@@ -579,5 +581,147 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     repo.apply({ kind: 'create', code: 'C', name: 'c', originSessionId: 's2' })
     expect(repo.listBySession('s1')).toHaveLength(2)
     expect(repo.listBySession('s2')).toHaveLength(1)
+  })
+
+  // ===== 声明式恒等式 + 基于事实推导(灭黑盒 / 命门叶子 delta·factor / EPS·净利计算)=====
+  // 基本面链:营收(命门)×净利率(命门)=净利 ÷股本(支撑)=EPS ×PE中枢(命门)=V。
+  // 命门全 delta/factor 基于事实(Guard 2a/2b);EPS/净利是 step 计算中间量(非命门、不滚前值)。
+  const fundFacts = (): Facts =>
+    facts({
+      营收: {
+        level: 'company',
+        label: '营收',
+        unit: '亿',
+        series: [{ value: '6000', as_of: '2025-12', source: '年报', tier: 'T1' }],
+      },
+      净利率: {
+        level: 'company',
+        label: '净利率',
+        unit: '%',
+        series: [{ value: '5', as_of: '2025-12', source: '年报', tier: 'T1' }],
+      },
+      动态PE: {
+        level: 'company',
+        label: '动态PE',
+        unit: '倍',
+        series: [{ value: '25', as_of: '2026-06', source: '交易所', tier: 'T1' }],
+      },
+    })
+  const stepAssumps = (
+    over: { lastStep?: ValuationAssumption['step'] } = {},
+  ): ValuationAssumption[] => [
+    assumption({
+      key: '营收',
+      label: '营收',
+      unit: '亿',
+      anchor: { fact: '营收', as_of: '2025-12' },
+      forecast: { mode: 'factor', bear: 0.95, base: 1.0, bull: 1.05 }, // 锚 6000亿 × 倍数
+      verify: [{ fact: '营收', at: 'annual', role: '终验' }],
+      logic: '行业增速+份额提升',
+      step: { order: 1, out: '营收' },
+    }),
+    assumption({
+      key: '净利率',
+      label: '净利率',
+      unit: '%',
+      anchor: { fact: '净利率', as_of: '2025-12' },
+      forecast: { mode: 'factor', bear: 0.7, base: 0.8, bull: 1.0 }, // 锚 5% × 倍数 → 净利率
+      verify: [{ fact: '净利率', at: 'annual', role: '终验' }],
+      logic: '价格战压毛利、规模对冲',
+      step: { order: 2, op: '×', out: '净利' },
+    }),
+    // 股本:支撑(无 logic)→ absolute 允许;÷ 得 EPS(计算中间量,非命门)
+    {
+      key: '股本',
+      label: '股本',
+      unit: '亿股',
+      forecast: { mode: 'absolute', bear: 30, base: 30, bull: 30 },
+      step: { order: 3, op: '÷', out: 'EPS' },
+    },
+    assumption({
+      key: 'PE中枢',
+      label: 'PE中枢',
+      unit: '倍',
+      anchor: { fact: '动态PE', as_of: '2026-06' },
+      forecast: { mode: 'factor', bear: 0.6, base: 0.8, bull: 1.0 }, // 锚 25 × 倍数 → PE中枢
+      verify: [{ fact: '动态PE', at: 'quarterly', role: '终验' }],
+      logic: '43倍透支回归中枢',
+      step: 'lastStep' in over ? over.lastStep : { order: 4, op: '×', out: 'V' },
+    }),
+  ]
+  const stepSnap = (assumps: ValuationAssumption[]): ThesisSnapshot =>
+    snapshot({
+      valuation: {
+        method: 'pe',
+        assumptions: assumps,
+        V: { bear: 1, base: 1, bull: 1 }, // 手填占位 → 引擎折叠覆盖
+        margin_of_safety: { required: 0.2, anchor: 'bear' },
+      },
+    })
+
+  it('命门叶子 delta/factor 基于事实 + EPS/净利计算 → 折叠冻结 V(营收×净利率÷股本×PE)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: fundFacts() })
+    const r = repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: stepSnap(stepAssumps()) })
+    // V = 6000 × 4% ÷ 30 × 20 = 160(EPS 8.0 是计算中间量,非命门);手填 {1,1,1} 被引擎覆盖
+    expect(r.thesis!.versions[0].valuation.V.base).toBe(160)
+    expect(r.thesis!.versions[0].valuation.V.bear).toBeLessThan(160)
+    expect(r.thesis!.versions[0].valuation.V.bull).toBeGreaterThan(160)
+  })
+
+  it('声明了 step 但末步 out≠V → STEP_CHAIN_NOT_V(恒等式不收敛到 V)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: fundFacts() })
+    expectCode(
+      () =>
+        repo.apply({
+          kind: 'addThesisVersion',
+          id: c.id,
+          snapshot: stepSnap(stepAssumps({ lastStep: { order: 4, op: '×', out: '估值' } })),
+        }),
+      'STEP_CHAIN_NOT_V',
+    )
+  })
+
+  it('命门用 absolute(凭空给数)→ CORE_FORECAST_NOT_DERIVED(须基于事实推导)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    expectCode(
+      () =>
+        repo.apply({
+          kind: 'addThesisVersion',
+          id: c.id,
+          // co_share 命门改 absolute → 拒(命门必须 delta/factor)
+          snapshot: snapWith([
+            assumption({ forecast: { mode: 'absolute', bear: 15, base: 16, bull: 17 } }),
+          ]),
+        }),
+      'CORE_FORECAST_NOT_DERIVED',
+    )
+  })
+
+  it('命门单位 ≠ 锚事实单位 → ANCHOR_UNIT_MISMATCH(量纲不一致)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    expectCode(
+      () =>
+        // co_share(锚事实单位 %)命门标成 元 → 拒
+        repo.apply({
+          kind: 'addThesisVersion',
+          id: c.id,
+          snapshot: snapWith([assumption({ unit: '元' })]),
+        }),
+      'ANCHOR_UNIT_MISMATCH',
+    )
+  })
+
+  it('链算不出(键不匹配 pipeline 且无 step)→ VALUATION_NOT_COMPUTABLE(不手填兜底)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    expectCode(
+      // 单个 co_share 命门、method=pe、无 step → pe pipeline 缺 7 参 → 算不出 → 拒(即便手填了 V)
+      () => repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapWith([assumption()]) }),
+      'VALUATION_NOT_COMPUTABLE',
+    )
   })
 })

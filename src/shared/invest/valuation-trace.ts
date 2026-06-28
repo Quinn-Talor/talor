@@ -9,7 +9,13 @@
 //
 // 允许依赖: ../types/invest(纯类型)   禁止依赖: 任何运行时模块
 
-import type { ValuationMethod, ValuationAssumption, Facts, PredictionAnchor } from '../types/invest'
+import type {
+  ValuationMethod,
+  ValuationAssumption,
+  Facts,
+  PredictionAnchor,
+  ForecastStep,
+} from '../types/invest'
 
 /** 阶梯参数(逐参数三档;%-单位的值按 /100 折算)。 */
 export interface TraceAssumption {
@@ -22,6 +28,8 @@ export interface TraceAssumption {
    *  命门由 logic 派生(派生层传 core=!!logic),引擎只认 core 布尔。
    *  → bear/bull V 只由命门驱动,不被全参数"完美相关"夸大(三档传导严谨化)。 */
   core?: boolean
+  /** 声明式折叠步(派生层从 ValuationAssumption.step 透传;有则该卡走折叠,方法无关)。 */
+  step?: ForecastStep
 }
 
 /** 一步中间量(三档)。 */
@@ -244,12 +252,71 @@ function navPipeline(get: Get, assumptions: TraceAssumption[]): ValuationTrace {
   return { method: 'nav', ok: true, steps, V: bandTriple((b) => round(v(b), 1)) }
 }
 
+/**
+ * 声明式恒等式折叠(方法无关):有 step 的参数按 order 折叠(acc = acc op 预期值),逐步产 TraceStep。
+ * 逻辑→预期(resolveForecast 已解析)→ 此处串成恒等式 → V;每步中间量三档可见,与内置法同口径。
+ * 无 step 的参数 = 定性命门(仅审计,不入式);缺值 → ok:false 不臆造。method 透传(trace.method 反映真实标签)。
+ */
+function stepFoldPipeline(method: ValuationMethod, assumptions: TraceAssumption[]): ValuationTrace {
+  const stepped = assumptions.filter((a) => a.step).sort((a, b) => a.step!.order - b.step!.order)
+  if (stepped.length === 0) return fallback(method, ['无 step 声明(无入式参数)'])
+  const missing = stepped
+    .filter((a) => [a.bear, a.base, a.bull].some((x) => !Number.isFinite(toNum(x))))
+    .map((a) => a.key)
+  if (missing.length) return fallback(method, missing)
+  // 取某参数某档值:命门随档动、非命门固定 base;%-单位 /100(与内置 paramAt 同规则)。
+  const val = (a: TraceAssumption, b: Band): number => {
+    const band: Band = a.core ? b : 'base'
+    const raw = toNum(a[band])
+    return a.unit === '%' ? raw / 100 : raw
+  }
+  // 折叠到第 i 步(含)的累积量。
+  const accAt = (i: number, b: Band): number => {
+    let acc = val(stepped[0], b)
+    for (let k = 1; k <= i; k++) {
+      const op = stepped[k].step!.op ?? '×'
+      const v = val(stepped[k], b)
+      acc = op === '÷' ? acc / v : op === '+' ? acc + v : op === '−' ? acc - v : acc * v
+    }
+    return acc
+  }
+  // 单位:中间量的单位是"累积量"的单位,不是本参数的(净利=营收×净利率 → 亿元,非 %)。
+  // 从种子单位起,× / ÷ 一个比率(%/倍/x)保持单位;× / ÷ 一个聚合量(股本…)→ 单位组合,留空避免错显。
+  // 末步 V 是价格(¥)→ 留空,由 UI 加 ¥ 前缀。
+  const isRatio = (u?: string | null): boolean =>
+    !u || u === '%' || u === '倍' || u === 'x' || u === 'X'
+  const unitAt = (i: number): string => {
+    let u = stepped[0].unit ?? ''
+    for (let k = 1; k <= i; k++) if (!isRatio(stepped[k].unit)) u = ''
+    return u
+  }
+  const steps: TraceStep[] = stepped.map((a, i) =>
+    step(
+      a.step!.out,
+      i === 0 ? '起始' : (a.step!.op ?? '×'),
+      [a.key],
+      a.step!.out === 'V' ? '' : unitAt(i),
+      (b) => round(accAt(i, b), 2),
+    ),
+  )
+  return {
+    method,
+    ok: true,
+    steps,
+    V: bandTriple((b) => round(accAt(stepped.length - 1, b), 2)),
+  }
+}
+
 /** 估值恒等式阶梯:按 method 跑恒等式,逐参数三档传导,吐 trace。缺参数/经济无意义 → ok:false。 */
 export function computeValuationTrace(
   method: ValuationMethod,
   assumptions: TraceAssumption[],
 ): ValuationTrace {
-  const byKey = new Map((assumptions ?? []).map((a) => [a.key, a]))
+  const list = assumptions ?? []
+  // 声明式优先(方法无关):任何 method 只要逐参数声明了 step,就走折叠 —— 逻辑→数据→V 过程清晰。
+  // 没声明 step 的(如 canonical pe 七参漏斗、或 dcf/pb-roe 等非线性法)走该 method 的内置公式。
+  if (list.some((a) => a.step)) return stepFoldPipeline(method, list)
+  const byKey = new Map(list.map((a) => [a.key, a]))
   const get: Get = (key) => byKey.get(key)
   switch (method) {
     case 'pe':
@@ -261,7 +328,7 @@ export function computeValuationTrace(
     case 'ddm':
       return ddmPipeline(get)
     case 'nav':
-      return navPipeline(get, assumptions ?? [])
+      return navPipeline(get, list)
     default:
       return fallback(method, ['(未知配模式)'])
   }
@@ -326,6 +393,7 @@ export function resolveForecast(
         bull: f?.bull ?? NaN,
         unit,
         core,
+        step: a.step,
       }
     }
     const anchor = anchorValue(facts, a.anchor, when)
@@ -334,6 +402,14 @@ export function resolveForecast(
       if (!Number.isFinite(anchor) || !Number.isFinite(v)) return NaN
       return f.mode === 'delta' ? anchor + v : anchor * v
     }
-    return { key: a.key, bear: apply(f.bear), base: apply(f.base), bull: apply(f.bull), unit, core }
+    return {
+      key: a.key,
+      bear: apply(f.bear),
+      base: apply(f.base),
+      bull: apply(f.bull),
+      unit,
+      core,
+      step: a.step,
+    }
   })
 }

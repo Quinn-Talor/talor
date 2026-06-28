@@ -103,6 +103,14 @@ export interface Forecast {
   bull: number | string
   horizon?: string // 预测兑现时点(如 '2026-annual'),到此该对账
 }
+/** 声明式恒等式折叠步(任何 method 适用):该参数在恒等式里的角色与算子。
+ *  有 step → 入式(按 order 折叠:acc = acc op 预期值,每步产中间量,逻辑→数据→V 过程可见);
+ *  无 step → 仅命门审计(定性,不入式),或交由该 method 的内置公式(dcf/pb-roe 等非线性法)。 */
+export interface ForecastStep {
+  order: number // 折叠序(1 = 起始项)
+  op?: '×' | '÷' | '+' | '−' // 与累积量的运算(order=1 可省,作起始)
+  out: string // 本步产出的中间量名(末步通常 'V')
+}
 /**
  * 估值预测参数(吸收原 Driver):逻辑的量化落点 + 估值的输入。
  * 锚(anchor)+ 预测(forecast)双向挂事实;命门 = 挂 logic 的参数,额外带 falsify_if。
@@ -117,6 +125,7 @@ export interface ValuationAssumption {
   falsify_if?: string // 命门:证伪条件(出此=逻辑错)
   market_implied?: string // 现价反推的市场隐含(预期差 = forecast.base vs 此)
   verify?: VerifyHook[] // 先行指标对账(终验由 anchor.fact + forecast.horizon 隐含)
+  step?: ForecastStep // 恒等式折叠里的角色(有=入式逐步算 / 无=仅命门审计或走 method 内置公式)
 }
 /** 逻辑快照(冻结;一次态变=一个 v)。命门 = 挂 logic 的参数。 */
 export interface ThesisSnapshot {
