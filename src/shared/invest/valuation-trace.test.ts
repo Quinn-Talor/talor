@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { computeValuationTrace, METHOD_PARAMS, type TraceAssumption } from './valuation-trace'
 
-// 全 pe 参数集(比亚迪示意:命门三档,常量 flat)
+// 全 pe 参数集(比亚迪示意:命门 high 撑三档,支撑参数固定 base)
 const PE: TraceAssumption[] = [
-  { key: 'ev_pen', bear: 45, base: 50, bull: 55, unit: '%' },
+  { key: 'ev_pen', bear: 45, base: 50, bull: 55, unit: '%', core: true },
   { key: 'mkt_capacity', bear: 2826, base: 2826, bull: 2826, unit: '万辆' },
-  { key: 'co_share', bear: 13.5, base: 14.5, bull: 15.5, unit: '%' },
+  { key: 'co_share', bear: 13.5, base: 14.5, bull: 15.5, unit: '%', core: true },
   { key: 'asp', bear: 16.5, base: 16.5, bull: 16.5, unit: '万元' },
   { key: 'net_margin', bear: 8, base: 9, bull: 10, unit: '%' },
   { key: 'shares', bear: 29, base: 29, bull: 29, unit: '亿股' },
@@ -53,6 +53,27 @@ describe('computeValuationTrace — pe 恒等式阶梯', () => {
     expect(METHOD_PARAMS.pe).toHaveLength(7)
     expect(METHOD_PARAMS.pe).toContain('co_share')
   })
+
+  it('命门-band:仅命门(core)撑区间;非命门(三档不同)全档取 base', () => {
+    const mk = (netMarginCore: boolean): TraceAssumption[] => [
+      { key: 'ev_pen', bear: 50, base: 50, bull: 50, unit: '%' },
+      { key: 'mkt_capacity', bear: 1000, base: 1000, bull: 1000, unit: '万辆' },
+      { key: 'co_share', bear: 10, base: 10, bull: 10, unit: '%' },
+      { key: 'asp', bear: 10, base: 10, bull: 10, unit: '万元' },
+      // net_margin 是唯一三档不同的参数 → 区间是否打开全看它是不是命门
+      { key: 'net_margin', bear: 8, base: 10, bull: 12, unit: '%', core: netMarginCore },
+      { key: 'shares', bear: 10, base: 10, bull: 10, unit: '亿股' },
+      { key: 'pe_central', bear: 20, base: 20, bull: 20, unit: 'x' },
+    ]
+    // 非命门:三档不同也全取 base → V 无区间
+    const off = computeValuationTrace('pe', mk(false))
+    expect(off.V!.bear).toBe(off.V!.base)
+    expect(off.V!.bull).toBe(off.V!.base)
+    // 命门:撑出区间
+    const on = computeValuationTrace('pe', mk(true))
+    expect(on.V!.bear).toBeLessThan(on.V!.base)
+    expect(on.V!.bull).toBeGreaterThan(on.V!.base)
+  })
 })
 
 describe('computeValuationTrace — 其余配模式', () => {
@@ -92,8 +113,8 @@ describe('computeValuationTrace — 其余配模式', () => {
 
   it('dcf:终值法 5 步 + V 三档单调', () => {
     const r = computeValuationTrace('dcf', [
-      { key: 'fcf0', bear: 90, base: 100, bull: 110, unit: '亿' },
-      { key: 'fcf_growth', bear: 12, base: 15, bull: 18, unit: '%' },
+      { key: 'fcf0', bear: 90, base: 100, bull: 110, unit: '亿', core: true },
+      { key: 'fcf_growth', bear: 12, base: 15, bull: 18, unit: '%', core: true },
       { key: 'wacc', bear: 10, base: 10, bull: 10, unit: '%' },
       { key: 'term_growth', bear: 3, base: 3, bull: 3, unit: '%' },
       { key: 'horizon', bear: 5, base: 5, bull: 5, unit: '年' },

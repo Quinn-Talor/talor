@@ -583,7 +583,7 @@ function FactsDrill({ facts }: { facts: CardBundle['facts'] }) {
 
 // ============ 下钻 · 逻辑·估值(价值传导:assumptions 参数表 + 恒等式 + V + 版本史)============
 function AssumptionRow({ a }: { a: ValuationAssumption }) {
-  const core = a.sensitivity === 'high'
+  const core = !!a.logic_anchor
   return (
     <li
       className={
@@ -692,7 +692,7 @@ function ThesisDrill({ bundle }: { bundle: CardBundle }) {
   if (!t || !cur) return <div className="text-[11px] text-neutral-400">尚无逻辑。</div>
   const v = cur.valuation
   const cores = coreAssumptions(cur)
-  const support = v.assumptions.filter((a) => a.sensitivity !== 'high')
+  const support = v.assumptions.filter((a) => !a.logic_anchor)
   const vt = valuationTrace(cur)
   const rc = recompute(bundle)
   return (

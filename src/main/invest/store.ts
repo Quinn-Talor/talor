@@ -294,7 +294,7 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
 
   /**
    * ①③⑦ 逻辑快照:估值参数挂事实(不变量⑦:from_fact 立足)+ 命门挂逻辑/验证(①);价值/区间齐。
-   * 命门 = valuation.assumptions 中 sensitivity==='high'(吸收原 drivers)。
+   * 命门 = 挂 logic_anchor 的参数(支持逻辑的指标;吸收原 drivers)。
    */
   private addThesisVersion(id: string, snap: ThesisSnapshot): CardBundle {
     this.assertCardExists(id)
@@ -323,12 +323,10 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
           `参数「${name}」立足事实「${a.from_fact}」不在 facts(先 addFacts)`,
         )
       }
-      // 不变量①:命门(高敏)必挂逻辑 + 必有验证(对账事实须在场)
-      if (a.sensitivity === 'high') {
+      // 命门 = 挂了 logic_anchor 的参数(支持逻辑的指标);命门必有验证(对账事实须在场)。
+      const isCore = !!(a.logic_anchor && a.logic_anchor.trim())
+      if (isCore) {
         hasCore = true
-        if (!a.logic_anchor || a.logic_anchor.trim() === '') {
-          throw new CardValidationError('CORE_NO_LOGIC', `命门「${name}」无 logic_anchor(空话拒)`)
-        }
         if (!Array.isArray(a.verify) || a.verify.length === 0) {
           throw new CardValidationError('CORE_NO_VERIFY', `命门「${name}」无 verify(验收映射)`)
         }
@@ -343,7 +341,7 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
       }
     }
     if (!hasCore) {
-      throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(sensitivity=high)参数')
+      throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(带 logic_anchor 的参数)')
     }
     if (!snap.valuation?.V) {
       throw new CardValidationError('VALUATION_NO_VALUE', '估值缺 V(价值由 compute 算后填入)')

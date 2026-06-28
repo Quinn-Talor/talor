@@ -258,7 +258,8 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     ['VALUATION_NO_ASSUMPTIONS', snapWith([])],
     ['ASSUMPTION_NO_FROMFACT', snapWith([assumption({ from_fact: '' })])],
     ['FACT_REFERENCED_MISSING', snapWith([assumption({ from_fact: 'nope@2025-12' })])],
-    ['CORE_NO_LOGIC', snapWith([assumption({ logic_anchor: '' })])],
+    // 命门 ≡ 有 logic_anchor:空 logic_anchor 即非命门 → 唯一参数非命门 → NO_CORE_ASSUMPTION
+    ['NO_CORE_ASSUMPTION', snapWith([assumption({ logic_anchor: '' })])],
     ['CORE_NO_VERIFY', snapWith([assumption({ verify: [] })])],
     [
       'NO_CORE_ASSUMPTION',

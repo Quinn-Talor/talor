@@ -3,7 +3,7 @@
 // 案卷 = 决策面(散户层链条 ①逻辑→②估值→③安全边际→④决策)+ 三下钻(专业层)。
 // 本文件把 CardBundle 派生成可渲染结构(UI 只读不算价值,见不变量③):
 //   · latestCheckpoint / summarizeHealth / latestValidity —— 逻辑健康 + 双向验证态 + gate
-//   · currentThesis / coreAssumptions —— 当前逻辑 + 命门(sensitivity=high)
+//   · currentThesis / coreAssumptions —— 当前逻辑 + 命门(有 logic_anchor 的参数)
 //   · dualLines —— ① 双线收敛(命门 估vs实 + 双向 outcome + 兑现度)
 //   · safety —— ③ 安全边际(读 margin_of_safety + buy_trigger)
 //   · redLines —— ④ 红线聚合(命门证伪 ∪ 排雷恶化 ∪ 8红灯)
@@ -70,9 +70,9 @@ export function currentThesis(bundle: CardBundle | null): ThesisSnapshot | null 
   return t.versions.find((v) => v.v === t.current) ?? null
 }
 
-/** 命门 = valuation.assumptions 中 sensitivity==='high'。 */
+/** 命门 = 挂了 logic_anchor 的参数(支持逻辑的指标)。 */
 export function coreAssumptions(snap: ThesisSnapshot | null): ValuationAssumption[] {
-  return (snap?.valuation?.assumptions ?? []).filter((a) => a.sensitivity === 'high')
+  return (snap?.valuation?.assumptions ?? []).filter((a) => !!a.logic_anchor)
 }
 
 /** 参数预估 → 一句话(取 base)。 */
@@ -229,6 +229,7 @@ export function valuationTrace(snap: ThesisSnapshot | null): ValuationTrace | nu
     base: a.base,
     bull: a.bull,
     unit: a.unit ?? undefined,
+    core: !!a.logic_anchor, // 命门(有 logic_anchor)撑区间;非命门固定 base
   }))
   return computeValuationTrace(snap.valuation.method, assumps)
 }

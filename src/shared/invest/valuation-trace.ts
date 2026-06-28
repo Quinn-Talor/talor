@@ -2,7 +2,8 @@
 //
 // 把 thesis 的 assumptions(逐参数三档)按配模式恒等式逐步算成 V,吐每步中间量 trace,
 // 供 UI 渲染"恒等式阶梯"+"事实改参数→沿链重算"(value-chain-rigor §8.3 / §9)。
-//   · 三档传导:bear=全参数熊档、base=中、bull=牛(全悲观~全乐观区间)。
+//   · 三档传导:仅命门(core,即带 logic_anchor 的参数)随档动撑区间,支撑参数固定 base
+//     (区间=命门赌错范围,不被全参数"完美相关"系统性夸大)。
 //   · 五配模式全实现:pe(自上而下)/dcf(终值法)/pb-roe(合理PB)/ddm(戈登)/nav(分部)。
 //   · 缺参数 / 经济上无意义(r≤g)→ ok:false + missing[],不臆造(UI 回退显存量 V)。
 //
@@ -17,6 +18,10 @@ export interface TraceAssumption {
   base: number | string
   bull: number | string
   unit?: string | null
+  /** 命门(core=true)在 bear/bull 间动撑区间;非命门全档取 base。
+   *  命门由 logic_anchor 派生(派生层传 core=!!logic_anchor),引擎只认 core 布尔。
+   *  → bear/bull V 只由命门驱动,不被全参数"完美相关"夸大(三档传导严谨化)。 */
+  core?: boolean
 }
 
 /** 一步中间量(三档)。 */
@@ -65,11 +70,12 @@ const round = (n: number, d = 0): number => {
   return Math.round(n * f) / f
 }
 
-/** 取参数某档值;%-单位 /100。 */
+/** 取参数某档值;%-单位 /100。命门(high)随档动,非命门固定 base(区间只由命门驱动)。 */
 const paramAt = (get: Get, key: string, b: Band): number => {
   const a = get(key)
   if (!a) return NaN
-  const raw = toNum(a[b])
+  const band: Band = a.core ? b : 'base'
+  const raw = toNum(a[band])
   return a.unit === '%' ? raw / 100 : raw
 }
 

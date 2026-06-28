@@ -84,13 +84,13 @@ export interface MarginOfSafety {
 export interface Valuation {
   method: ValuationMethod
   method_reason?: string
-  assumptions: ValuationAssumption[] // ★ 全部估值预测参数(单一真相);命门 = sensitivity==='high'
+  assumptions: ValuationAssumption[] // ★ 全部估值预测参数(单一真相);命门 = 挂 logic_anchor 的参数
   V: VRange
   margin_of_safety: MarginOfSafety
 }
 /**
  * 估值预测参数(吸收原 Driver):逻辑的量化落点 + 估值的输入。
- * 三档预测 + 双向挂事实(立足 from_fact / 验证 verify);命门(sensitivity=high)额外带 logic_anchor/falsify。
+ * 三档预测 + 双向挂事实(立足 from_fact / 验证 verify);命门 = 挂 logic_anchor 的参数,额外带 falsify。
  */
 export interface ValuationAssumption {
   key: string // 参数键(可复用 fact key,如 co_share;或估值专用如 pe_central)
@@ -101,12 +101,12 @@ export interface ValuationAssumption {
   bull: number | string
   from_fact?: string // ← 立足:派生自 facts key@as_of(派生基线)
   verify?: VerifyHook[] // → 验证:对账事实(先行快验+终验)
-  sensitivity?: Sensitivity // high = 命门
+  sensitivity?: Sensitivity // @deprecated 命门改由 logic_anchor 派生;字段保留兼容,不再用作命门标志
   logic_anchor?: string // 命门:挂哪条逻辑(空话拒)
   falsify?: string // 命门:证伪线(出此=逻辑错)
   market_implied?: string // 现价反推的市场隐含(预期差 = base vs 此)
 }
-/** 逻辑快照(冻结;一次态变=一个 v)。命门 = valuation.assumptions 中 sensitivity==='high'。 */
+/** 逻辑快照(冻结;一次态变=一个 v)。命门 = 挂 logic_anchor 的参数。 */
 export interface ThesisSnapshot {
   v: number
   at: string
