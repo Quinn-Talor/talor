@@ -353,8 +353,9 @@ describe('下钻(默认折叠,点开)', () => {
     expect(has(/政策让电车多卖/)).toBe(true) // 大白话 claim
     expect(has(/成本护城河/)).toBe(true) // 命门 logic(审计)
     expect(has(/行业销量/)).toBe(true) // 恒等式阶梯渲染
-    expect(has(/容量 2826万辆/)).toBe(true) // 具体数值代入(非黑盒)
-    expect(has(/元 × PE中枢/)).toBe(true) // 上一中间量(EPS)显式代入 V 计算(链路可验)
+    expect(has(/容量 2826万辆/)).toBe(true) // 具体数值代入(非黑盒,命门/支撑参数代入值)
+    expect(has(/PE中枢 25/)).toBe(true) // V 步代入 PE中枢(链路可验;命门参数蓝)
+    expect(has(/计算/)).toBe(true) // 中间量/结果标「计算」(区别于命门叶子)
     expect(has(/本期校准/)).toBe(true) // 重算驱动事实(v1→v2)
   })
 

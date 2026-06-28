@@ -24,7 +24,8 @@ import {
   latestConviction,
   currentThesis,
   coreAssumptions,
-  dualLines,
+  coreLogicLines,
+  factFreshness,
   safety,
   redLines,
   timelineRows,
@@ -33,6 +34,8 @@ import {
   timelineTrajectory,
   type Health,
   type Recompute,
+  type LogicLine,
+  type FactFreshness,
 } from './summarizeHealth'
 import { anchorValue, resolveForecast, type ValuationTrace } from '@shared/invest/valuation-trace'
 
@@ -288,30 +291,85 @@ function TopBar({ bundle }: { bundle: CardBundle }) {
 }
 
 // ============ ① 双线一行(估 vs 实 + 双向 conv)============
-function DualRow({ line }: { line: ReturnType<typeof dualLines>['lines'][number] }) {
+// B1 逻辑→预期 一行:命门「锚→估+跳变」(+ 实/conv 跟踪);大跳变标黄、断锚标红 —— 逻辑如何落成预期数字,不黑盒。
+function LogicExpectRow({ line }: { line: LogicLine }) {
+  const u = line.unit
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="w-16 shrink-0 text-neutral-500">
-        {line.metric}
-        {line.high && <span className="ml-0.5 text-amber-500">★</span>}
-      </span>
-      <span>
-        估 <b>{line.projected}</b>
-      </span>
-      {line.actual != null && (
-        <>
-          <span className="text-neutral-400">→ 实</span>
-          <b className={line.conv === '背离' ? 'text-amber-600' : 'text-emerald-600'}>
-            {line.actual}
-          </b>
-          {line.conv && (
-            <span className={`ml-auto text-[11px] ${CONV_LINE_CLR[line.conv] ?? ''}`}>
-              {line.conv}
-            </span>
-          )}
-        </>
-      )}
-    </div>
+    <li
+      className={`rounded border-l-2 px-2 py-1 text-[11px] ${
+        line.broken
+          ? 'border-red-400 bg-red-50 dark:border-red-500 dark:bg-red-950/30'
+          : line.bigJump
+            ? 'border-amber-400 bg-amber-50/60 dark:border-amber-500 dark:bg-amber-950/20'
+            : 'border-blue-300 bg-white/50 dark:border-blue-700 dark:bg-neutral-800/30'
+      }`}
+    >
+      <div className="font-medium text-neutral-700 dark:text-neutral-200">
+        <span className="text-amber-500">★ </span>
+        {line.label}
+        {line.logic && (
+          <span className="ml-1 font-normal text-neutral-400">← 逻辑「{line.logic}」</span>
+        )}
+        {line.computedWarn && (
+          <span
+            className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-normal text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+            title="EPS/净利等是计算量,应由 营收×净利率÷股本 算出,不应作命门直接预测"
+          >
+            ⚠应由上游计算
+          </span>
+        )}
+      </div>
+      <div className="mt-0.5 text-neutral-500">
+        {line.broken ? (
+          <span className="font-medium text-red-500">
+            ⚠ 估值链断:锚「{line.anchorFact ?? '未挂事实'}」无最新事实,无法推算
+          </span>
+        ) : (
+          <>
+            {line.anchor != null && (
+              <>
+                锚{' '}
+                <b className="text-neutral-700 dark:text-neutral-200">
+                  {line.anchor}
+                  {u}
+                </b>
+                {line.anchorAsOf && <span className="text-neutral-400">@{line.anchorAsOf}</span>}
+                {/* 推导型(有跳变)用 → ;立足型(absolute,独立设定)用 · 不暗示推导 */}
+                {line.jump != null ? ' → ' : ' · '}
+              </>
+            )}
+            估{' '}
+            <b className="text-neutral-700 dark:text-neutral-200">
+              {line.est ?? '—'}
+              {u}
+            </b>
+            {line.jump != null && (
+              <span
+                className={
+                  line.bigJump ? 'ml-1 font-medium text-amber-600' : 'ml-1 text-neutral-400'
+                }
+              >
+                (跳变 {line.jump > 0 ? '+' : ''}
+                {line.jump}
+                {u}
+                {line.bigJump ? ' ⚠大跳变·需强逻辑' : ''})
+              </span>
+            )}
+            {line.actual != null && (
+              <>
+                <span className="text-neutral-400"> · 实 </span>
+                <b className={line.conv === '背离' ? 'text-amber-600' : 'text-emerald-600'}>
+                  {line.actual}
+                </b>
+                {line.conv && (
+                  <span className={`ml-1 ${CONV_LINE_CLR[line.conv] ?? ''}`}>{line.conv}</span>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </li>
   )
 }
 
@@ -385,7 +443,11 @@ function DecisionSurface({ bundle }: { bundle: CardBundle }) {
   const cp = latestCheckpoint(bundle)
   if (!cur) return <div className="mb-3 text-xs text-neutral-500">尚无逻辑(补全事实后立逻辑)。</div>
   const claim = cur.claim
-  const dl = dualLines(bundle)
+  const logicLines = coreLogicLines(bundle)
+  const realizedPct = cp?.value_now?.realized_pct ?? null
+  // 数据新鲜度:命门立足的事实是否过时 → 卡面软警告(估值立足旧数据,V 可能失真)
+  const fresh = factFreshness(bundle.facts)
+  const staleCores = logicLines.filter((l) => l.anchorFact && fresh[l.anchorFact]?.stale)
   const sv = safety(bundle)
   const rl = redLines(bundle)
   const validity = latestValidity(bundle)
@@ -403,12 +465,12 @@ function DecisionSurface({ bundle }: { bundle: CardBundle }) {
   return (
     <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50/40 p-2.5 dark:border-indigo-900/60 dark:bg-indigo-950/20">
       <div className="mb-1.5 text-[11px] font-medium text-neutral-500">
-        盯逻辑 · 事实 → 逻辑 → 估值 → 决策
+        盯逻辑 · 事实 → 逻辑 → 预期 → 估值 → 决策
       </div>
 
-      {/* ① 逻辑成立?(大白话 + validity + 双线)*/}
+      {/* 逻辑断言 + validity */}
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-[11px] font-medium text-neutral-500">① 逻辑成立?</span>
+        <span className="text-[11px] font-medium text-neutral-500">逻辑</span>
         {validity && (
           <span
             className={`rounded px-2 py-0.5 text-[11px] font-medium ${VALIDITY_CLR[validity] ?? ''}`}
@@ -418,36 +480,54 @@ function DecisionSurface({ bundle }: { bundle: CardBundle }) {
         )}
       </div>
       <div className="mb-2 text-sm text-neutral-800 dark:text-neutral-200">{claim}</div>
-      <div className="space-y-1">
-        {dl.lines.map((l, i) => (
-          <DualRow key={i} line={l} />
-        ))}
-      </div>
+
+      {/* ① 逻辑 → 预期(命门:锚 → 估 + 跳变;大跳变标黄 / 断锚标红 / 实-估跟踪)*/}
+      <div className="mb-1 text-[11px] font-medium text-neutral-500">① 逻辑 → 预期</div>
+      {staleCores.length > 0 && (
+        <div className="mb-1 rounded bg-red-50 px-2 py-1 text-[11px] text-red-600 dark:bg-red-950/30 dark:text-red-300">
+          ⚠ 估值立足的事实已过时(
+          {staleCores.map((l) => `${l.anchorFact}@${fresh[l.anchorFact!]?.asOf}`).join('、')}
+          )— V 可能失真,建议更新数据后重估
+        </div>
+      )}
+      {logicLines.length > 0 ? (
+        <ul className="space-y-1">
+          {logicLines.map((l, i) => (
+            <LogicExpectRow key={i} line={l} />
+          ))}
+        </ul>
+      ) : (
+        <div className="text-[11px] text-neutral-400">无命门(挂 logic 的预期参数)。</div>
+      )}
       <div className="mt-1 text-[11px] text-neutral-500">
-        {dl.realizedPct != null && <>兑现度 {pct(dl.realizedPct)} · </>}
+        {realizedPct != null && <>兑现度 {pct(realizedPct)} · </>}
         {conviction && <>确信度 {CONV_CN[conviction] ?? conviction} · </>}红线未破
       </div>
 
-      {/* ② 估值(校准期显 V 旧→新 + 桥;恒等式详见 逻辑·估值 ladder)*/}
-      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 border-t border-indigo-100 pt-2 text-xs dark:border-indigo-900/40">
-        <span className="text-[11px] font-medium text-neutral-500">② 估值</span>
-        <span>
-          值{' '}
-          {vOld != null ? (
-            <>
-              <s className="text-neutral-400">¥{vOld}</s> → <b>¥{V.base}</b>
-            </>
-          ) : (
-            <b>¥{V.base}</b>
-          )}
-        </span>
-        <span className="text-neutral-400">
-          熊{V.bear} ~ 牛{V.bull} · {cur.valuation.method}
-        </span>
-        {rc.active && rc.changedParams.length > 0 && (
-          <span className="ml-auto text-[11px] text-amber-600">
-            {rc.changedParams[0]}校准 · 见下钻
+      {/* ② 预期 → 估值(恒等式逐步算 V·三档·全程可见;校准期显 旧→新)*/}
+      <div className="mt-2 border-t border-indigo-100 pt-2 dark:border-indigo-900/40">
+        <div className="mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span className="text-[11px] font-medium text-neutral-500">② 预期 → 估值</span>
+          <span className="text-xs">
+            值{' '}
+            {vOld != null ? (
+              <>
+                <s className="text-neutral-400">¥{vOld}</s> → <b>¥{V.base}</b>
+              </>
+            ) : (
+              <b>¥{V.base}</b>
+            )}
           </span>
+          <span className="text-[11px] text-neutral-400">
+            熊{V.bear} ~ 牛{V.bull} · {cur.valuation.method}
+          </span>
+        </div>
+        {vt?.ok ? (
+          <Ladder trace={vt} rc={rc} assumps={cur.valuation.assumptions} facts={bundle.facts} />
+        ) : (
+          <div className="rounded border border-dashed border-neutral-300 px-2 py-1 text-[11px] text-neutral-400 dark:border-neutral-700">
+            恒等式待补参数/配模式 — 暂显存量 V ¥{V.base}({cur.valuation.method})
+          </div>
         )}
       </div>
 
@@ -492,7 +572,7 @@ function DecisionSurface({ bundle }: { bundle: CardBundle }) {
 }
 
 // ============ 下钻 · 事实(三维 · 分层)============
-function FactRow({ k, fact }: { k: string; fact: Fact }) {
+function FactRow({ k, fact, fresh }: { k: string; fact: Fact; fresh?: FactFreshness }) {
   const obs: FactObservation | undefined = fact.series[fact.series.length - 1]
   if (!obs) return null
   const c = obs.change
@@ -518,10 +598,11 @@ function FactRow({ k, fact }: { k: string; fact: Fact }) {
           </span>
         )}
         <span
-          className={`text-[11px] text-neutral-400 ${fact.role ? '' : 'ml-auto'}`}
+          className={`text-[11px] ${fresh?.stale ? 'font-medium text-red-500' : 'text-neutral-400'} ${fact.role ? '' : 'ml-auto'}`}
           title="数据时点(最新观测 as_of)"
         >
           @{obs.as_of}
+          {fresh?.stale && fresh.ageMonths != null ? ` ⚠过时${fresh.ageMonths}月` : ''}
         </span>
         <span className="text-[11px] text-neutral-300">{obs.tier ?? obs.source}</span>
       </div>
@@ -551,6 +632,7 @@ function FactRow({ k, fact }: { k: string; fact: Fact }) {
 function FactsDrill({ facts }: { facts: CardBundle['facts'] }) {
   const entries = Object.entries(facts ?? {})
   if (entries.length === 0) return <div className="text-[11px] text-neutral-400">暂无事实。</div>
+  const fresh = factFreshness(facts) // 数据新鲜度:过时事实 as_of 标红
   const leads = entries.filter(([, f]) => f.role === '先行')
   const rest = entries.filter(([, f]) => f.role !== '先行')
   return (
@@ -562,7 +644,7 @@ function FactsDrill({ facts }: { facts: CardBundle['facts'] }) {
           </div>
           <ul>
             {leads.map(([k, f]) => (
-              <FactRow key={k} k={k} fact={f} />
+              <FactRow key={k} k={k} fact={f} fresh={fresh[k]} />
             ))}
           </ul>
         </div>
@@ -578,7 +660,7 @@ function FactsDrill({ facts }: { facts: CardBundle['facts'] }) {
             </div>
             <ul>
               {fs.map(([k, f]) => (
-                <FactRow key={k} k={k} fact={f} />
+                <FactRow key={k} k={k} fact={f} fresh={fresh[k]} />
               ))}
             </ul>
           </div>
@@ -670,21 +752,51 @@ function Ladder({
   const byKey = new Map(assumps.map((a) => [a.key, a]))
   // 推算后的参数当前值(命门 delta/factor → 解析成代入引擎的绝对数;显真实代入值,非原始增量)
   const resolved = new Map(resolveForecast(assumps, facts, 'now').map((r) => [r.key, r]))
-  const paramVal = (k: string): string => {
+  // 参数节点:命门(挂 logic)蓝、支撑灰;显「label 代入值 单位」(代入真实数,不黑盒)。
+  const paramNode = (k: string): JSX.Element => {
     const a = byKey.get(k)
     const r = resolved.get(k)
     const u = a?.unit ?? ''
-    return `${a?.label ?? k} ${r?.base ?? a?.forecast?.base ?? '?'}${u}`
+    return (
+      <span className={a?.logic ? 'text-blue-600 dark:text-blue-300' : 'text-neutral-500'}>
+        {a?.label ?? k} {r?.base ?? a?.forecast?.base ?? '?'}
+        {u}
+      </span>
+    )
   }
-  // 左侧算式 = 具体运算数(不要黑盒):首步多参相乘;后续「上一中间量 op 参数」,每步代入真实数值逐环可验。
-  const lhs = (s: ValuationTrace['steps'][number], i: number): string => {
-    if (s.inputs.length >= 2) return s.inputs.map(paramVal).join(' × ')
-    const op = s.expr.trim().startsWith('÷') ? '÷' : '×'
+  // expr 前导符识别算子(声明式折叠 expr=算子符;canonical pipeline expr 以算子开头)
+  const opOf = (expr: string): string => {
+    const t = expr.trim()
+    return t.startsWith('÷') ? '÷' : t.startsWith('+') ? '+' : t.startsWith('−') ? '−' : '×'
+  }
+  // 左侧算式 JSX:首步多参相乘;后续「上一中间量 op 参数」。命门参数蓝、每步代入真实数值逐环可验。
+  const lhsNode = (s: ValuationTrace['steps'][number], i: number): JSX.Element => {
     const prev = trace.steps[i - 1]
     const prevTxt = prev ? `${prev.base}${prev.unit ?? ''}` : ''
-    if (s.inputs.length === 1) return `${prevTxt} ${op} ${paramVal(s.inputs[0])}`.trim()
-    return prevTxt ? `${prevTxt} ${s.expr}` : s.expr // 0 参数(中间量相加减,如 dcf 企业价值)
+    if (s.inputs.length >= 2)
+      return (
+        <>
+          {s.inputs.map((k, j) => (
+            <span key={k}>
+              {j > 0 ? ' × ' : ''}
+              {paramNode(k)}
+            </span>
+          ))}
+        </>
+      )
+    if (s.inputs.length === 1)
+      return prev ? (
+        <>
+          {prevTxt} {opOf(s.expr)} {paramNode(s.inputs[0])}
+        </>
+      ) : (
+        <>起始 {paramNode(s.inputs[0])}</>
+      )
+    return <>{prevTxt ? `${prevTxt} ${s.expr}` : s.expr}</>
   }
+  // 出的性质:种子步(单命门参数直取值)= 命门;否则 = 计算(中间量/结果,公式算出)。
+  const outKind = (s: ValuationTrace['steps'][number], i: number): '命门' | '计算' | '起始' =>
+    i === 0 && s.inputs.length === 1 ? (byKey.get(s.inputs[0])?.logic ? '命门' : '起始') : '计算'
   return (
     <div className="overflow-hidden rounded border border-neutral-200 dark:border-neutral-700">
       {trace.steps.map((s, i) => {
@@ -692,6 +804,8 @@ function Ladder({
         const paramChanged = rc.active && s.inputs.some((k) => rc.paramPrior[k] != null)
         const old = rc.priorByOut[s.out]
         const isV = s.out === 'V'
+        const hasBand = s.bear !== s.bull // 有三档区间(命门驱动)→ 显熊/牛
+        const kind = outKind(s, i)
         return (
           <div
             key={i}
@@ -700,7 +814,7 @@ function Ladder({
             } ${changed ? 'bg-amber-50 dark:bg-amber-950/30' : ''}`}
           >
             <span className={changed ? 'text-amber-700 dark:text-amber-300' : 'text-neutral-500'}>
-              {lhs(s, i)}
+              {lhsNode(s, i)}
               {paramChanged && <span className="ml-1">⚠</span>}
             </span>
             <span
@@ -710,22 +824,36 @@ function Ladder({
               {s.out}{' '}
               {changed && old != null ? (
                 <>
-                  <s className="text-neutral-400">{old}</s>→
+                  <s className="text-neutral-400">{isV ? `¥${old}` : old}</s>→
                   <b className={isV ? 'text-xs' : ''}>
+                    {isV ? '¥' : ''}
                     {s.base}
                     {s.unit}
                   </b>
                 </>
               ) : (
                 <b className={isV ? 'text-xs' : ''}>
+                  {isV ? '¥' : ''}
                   {s.base}
                   {s.unit}
                 </b>
               )}
+              {hasBand && (
+                <span className="ml-1 text-[10px] font-normal text-neutral-400">
+                  (熊{s.bear}/牛{s.bull})
+                </span>
+              )}
+              {kind === '命门' && <span className="ml-1 text-[10px] text-blue-500">命门</span>}
+              {kind === '计算' && <span className="ml-1 text-[10px] text-neutral-400">计算</span>}
             </span>
           </div>
         )
       })}
+      <div className="border-t border-neutral-100 px-2 py-1 text-[10px] leading-relaxed text-neutral-400 dark:border-neutral-800">
+        <span className="text-blue-600 dark:text-blue-300">命门</span>(叶子驱动·前值×逻辑·基于事实)→{' '}
+        <span className="text-neutral-500">计算</span>
+        (中间量/结果·公式算出);每步代入真实数值,逐环可验
+      </div>
     </div>
   )
 }
@@ -752,24 +880,17 @@ function ThesisDrill({ bundle }: { bundle: CardBundle }) {
         </div>
       )}
 
-      {/* 恒等式阶梯(参数→中间量→V)+ 重算合一;缺参数/配模式未实现 → 回退显存量 V */}
-      {vt?.ok && vt.steps.length > 0 ? (
-        <Ladder trace={vt} rc={rc} assumps={v.assumptions} facts={bundle.facts} />
-      ) : (
-        <div className="rounded bg-neutral-50 px-2 py-1.5 text-xs dark:bg-neutral-800/60">
-          价值 V ¥{v.V.base}（熊{v.V.bear}/牛{v.V.bull}）
-          {vt && !vt.ok && (
-            <span className="ml-1 text-[11px] text-neutral-400">· 恒等式待补参数/配模式</span>
-          )}
-        </div>
-      )}
+      {/* 恒等式逐步算 V 已铺卡面(决策面 ② 预期→估值);下钻聚焦命门逐参数审计。 */}
+      <div className="text-[11px] text-neutral-400">
+        恒等式逐步算 V → 见卡面「② 预期 → 估值」 · 当前 V ¥{vt?.ok && vt.V ? vt.V.base : v.V.base}
+      </div>
       <div className="text-[11px] text-neutral-400">
         <span className="text-amber-500">★命门</span> {cores.map((a) => a.label).join('·') || '—'} ·
         支撑 {support.map((a) => a.label).join('/') || '—'} · 安全边际门槛{' '}
         {Math.round((v.margin_of_safety.required ?? 0) * 100)}%
       </div>
 
-      {/* 命门审计:逐参数 立足→验证→证伪→市场隐含 */}
+      {/* 命门审计:逐参数 锚→推算→未来 + 验证→证伪→市场隐含(比卡面 B1 更深的逐参数明细)*/}
       <ul className="space-y-1.5">
         {cores.map((a, i) => (
           <AssumptionRow key={i} a={a} facts={bundle.facts} />

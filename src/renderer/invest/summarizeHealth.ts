@@ -24,6 +24,7 @@ import type {
 import {
   computeValuationTrace,
   resolveForecast,
+  anchorValue,
   type ValuationTrace,
 } from '@shared/invest/valuation-trace'
 
@@ -127,6 +128,125 @@ export function dualLines(bundle: CardBundle | null): {
     }
   })
   return { lines, realizedPct: cp?.value_now?.realized_pct ?? null }
+}
+
+// ===== B1 逻辑 → 预期(命门:锚 → 估 + 跳变)=====
+// 把"逻辑如何变成预期数字"摆上台面:每命门 锚(最新观测)→ 估(forecast 解析后) + 跳变(估−锚)。
+// 大跳变 = 预期偏离当前事实很远 → 需强逻辑撑(UI 标黄提示);锚缺失(proj 缺事实)→ 断环标红。
+export interface LogicLine {
+  key: string
+  logic: string // 命门挂的逻辑(为什么这么预期)
+  label: string
+  unit: string
+  anchor: number | null // 锚:最新观测值(预期的事实起点)
+  anchorFact?: string // 锚事实 key
+  anchorAsOf?: string // 锚事实最新观测时点
+  est: number | null // 估:forecast 解析后的 base(代入引擎的预期值)
+  jump: number | null // 跳变 = 估 − 锚(预期相对当前事实移动了多少)
+  jumpRel: number | null // |跳变| / |锚|(相对幅度;判大跳变)
+  bigJump: boolean // 大跳变(相对幅度 > 50%)→ 需强逻辑支撑
+  broken: boolean // 锚缺失(proj 模式无最新事实)→ 估值链断,标红
+  actual?: string // 实:最新复查对账值(有则显跟踪)
+  conv?: '强化' | '持有' | '背离'
+  computedWarn: boolean // 命门名像"计算型聚合量"(EPS/净利润)→ 应由上游 营收×净利率÷股本 算出,不应直接预测(软警告)
+}
+
+/** 计算型聚合量(应由上游计算得出,不应作命门直接预测/滚前值)。营收/净利率是合法叶子,不在内。 */
+const COMPUTED_METRIC_RE = /eps|每股收益|净利润|归母净利/i
+
+/** 锚事实最新观测时点(append-only 取末元素)。 */
+function latestAsOf(facts: Facts | undefined, key: string | undefined): string | undefined {
+  const series = key ? facts?.[key]?.series : undefined
+  return series && series.length > 0 ? series[series.length - 1].as_of : undefined
+}
+
+export function coreLogicLines(bundle: CardBundle | null): LogicLine[] {
+  const cur = currentThesis(bundle)
+  if (!cur) return []
+  const facts = bundle?.facts
+  const cp = latestCheckpoint(bundle)
+  const byMetric = new Map((cp?.checks ?? []).map((c) => [c.metric, c]))
+  const resolved = new Map(
+    resolveForecast(cur.valuation.assumptions, facts, 'now').map((r) => [r.key, r]),
+  )
+  return coreAssumptions(cur).map((a) => {
+    const unit = a.unit ?? ''
+    const isProj = a.forecast?.mode !== 'absolute'
+    const anchorRaw = anchorValue(facts, a.anchor, 'now')
+    const anchor = Number.isFinite(anchorRaw) ? anchorRaw : null
+    const r = resolved.get(a.key)
+    const estRaw = r ? Number(r.base) : NaN
+    const est = Number.isFinite(estRaw) ? estRaw : null
+    // 跳变(估−锚)仅 delta/factor 有意义:est 由锚推导(同一量,跳变=预测对锚的移动)。
+    // absolute:est 独立设定、锚仅作"立足事实"(可能异量)→ 不算跳变,免"估3% − 锚1502亿"式无意义减法。
+    const derived = a.forecast?.mode === 'delta' || a.forecast?.mode === 'factor'
+    const jump = derived && est != null && anchor != null ? round2(est - anchor) : null
+    const jumpRel = jump != null && anchor !== 0 && anchor != null ? Math.abs(jump / anchor) : null
+    const chk = byMetric.get(a.key)
+    const conv: LogicLine['conv'] = chk
+      ? chk.outcome === '兑现' || chk.outcome === '超预期'
+        ? '强化'
+        : chk.outcome === '容差'
+          ? '持有'
+          : '背离'
+      : undefined
+    return {
+      key: a.key,
+      logic: a.logic ?? '',
+      label: a.label ?? a.key,
+      unit,
+      anchor,
+      anchorFact: a.anchor?.fact,
+      anchorAsOf: latestAsOf(facts, a.anchor?.fact),
+      est,
+      jump,
+      jumpRel,
+      bigJump: jumpRel != null && jumpRel > 0.5,
+      broken: isProj && anchor == null, // 推算型缺锚 = 链断;absolute 型可无锚(直取)
+      actual: chk ? String(chk.actual_value) : undefined,
+      conv,
+      computedWarn: COMPUTED_METRIC_RE.test(a.key) || COMPUTED_METRIC_RE.test(a.label ?? ''),
+    }
+  })
+}
+
+// ===== 数据新鲜度(事实 as_of 相对卡内最新事实的月龄;不依赖时钟 → 可测)=====
+export interface FactFreshness {
+  asOf?: string // 该事实最新观测时点
+  ageMonths: number | null // 卡内最新事实 − 本事实 的月数差
+  stale: boolean // 月龄超阈值(默认 18 月)→ 过时
+}
+const STALE_MONTHS = 18
+
+/** as_of('YYYY-MM-DD' / 'YYYY-MM' / 'YYYY')→ 绝对月数(年×12+月);无法解析→null。 */
+function asOfMonths(s?: string): number | null {
+  if (!s) return null
+  const m = /^(\d{4})(?:-(\d{1,2}))?/.exec(s)
+  return m ? Number(m[1]) * 12 + (m[2] ? Number(m[2]) - 1 : 0) : null
+}
+
+/** 每条事实的新鲜度:月龄 = 卡内最新事实时点 − 本事实最新时点;超阈值标 stale。 */
+export function factFreshness(facts: Facts | undefined): Record<string, FactFreshness> {
+  const entries = Object.entries(facts ?? {})
+  const latest: Record<string, string | undefined> = {}
+  let newest = -Infinity
+  for (const [k, f] of entries) {
+    const s = f.series?.[f.series.length - 1]?.as_of
+    latest[k] = s
+    const m = asOfMonths(s)
+    if (m != null && m > newest) newest = m
+  }
+  const out: Record<string, FactFreshness> = {}
+  for (const [k] of entries) {
+    const m = asOfMonths(latest[k])
+    const ageMonths = m != null && newest > -Infinity ? newest - m : null
+    out[k] = { asOf: latest[k], ageMonths, stale: ageMonths != null && ageMonths > STALE_MONTHS }
+  }
+  return out
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
 }
 
 // ===== ③ 安全边际(只读 margin_of_safety + buy_trigger)=====
