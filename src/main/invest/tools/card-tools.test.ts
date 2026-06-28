@@ -49,14 +49,11 @@ const snapshot: ThesisSnapshot = {
       {
         key: 'co_share',
         label: '份额',
-        base: 16,
-        bear: 15,
-        bull: 17,
-        from_fact: 'co_share@2025-12',
+        anchor: { fact: 'co_share', as_of: '2025-12' },
+        forecast: { mode: 'absolute', bear: 15, base: 16, bull: 17 },
         verify: [{ fact: 'co_share', at: 'quarterly' }],
-        sensitivity: 'high',
-        logic_anchor: '护城河',
-        falsify: '<14%',
+        logic: '护城河',
+        falsify_if: '<14%',
       },
     ],
     V: { bear: 210, base: 290, bull: 380 },
@@ -126,7 +123,7 @@ describe('card-tools (新)', () => {
         ...snapshot,
         valuation: {
           ...snapshot.valuation,
-          assumptions: [{ ...snapshot.valuation.assumptions[0], from_fact: 'nope@2025-12' }],
+          assumptions: [{ ...snapshot.valuation.assumptions[0], anchor: { fact: 'nope' } }],
         },
       },
     })

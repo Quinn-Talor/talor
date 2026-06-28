@@ -85,30 +85,35 @@ const VerifyHookZ = z.object({
   at: z.string().describe('验收时点/频率:monthly/quarterly/annual/日期'),
   role: z.enum(['先行', '终验']).optional(),
 })
-// 估值预测参数(吸收原 Driver):每参数双向挂事实;命门 = 挂 logic_anchor 的参数,带 falsify;命门未来值 proj_mode 推自锚
+// 估值预测参数(吸收原 Driver):锚(anchor)+ 预测(forecast)双向挂事实;命门 = 挂 logic 的参数,带 falsify_if
+const PredictionAnchorZ = z.object({
+  fact: z.string().describe('锚定哪条事实(facts key)'),
+  as_of: z.string().optional().describe('基线时点(delta/factor 必填;absolute 可省)'),
+})
+const ForecastZ = z.object({
+  mode: z
+    .enum(['delta', 'factor', 'absolute'])
+    .describe('怎么推:delta(锚+量)/factor(锚×倍数)/absolute(直接设定)'),
+  bear: z
+    .union([z.string(), z.number()])
+    .describe('熊档推测量(delta:增量 / factor:倍数 / absolute:绝对值)'),
+  base: z.union([z.string(), z.number()]).describe('中性'),
+  bull: z.union([z.string(), z.number()]).describe('牛'),
+  horizon: z.string().optional().describe('预测兑现时点(如 2026-annual),到此该对账'),
+})
 const ValuationAssumptionZ = z.object({
   key: z.string().describe('参数键(可复用 fact key,或估值专用如 pe_central)'),
   label: z.string(),
   unit: z.string().optional(),
-  bear: z.union([z.string(), z.number()]).describe('熊(proj_mode≠absolute 时为相对锚的推测)'),
-  base: z.union([z.string(), z.number()]).describe('中性'),
-  bull: z.union([z.string(), z.number()]).describe('牛'),
-  proj_mode: z
-    .enum(['delta', 'factor', 'absolute'])
+  anchor: PredictionAnchorZ.optional().describe('锚:预测起点(命门/delta/factor 必有;纯常量可省)'),
+  forecast: ForecastZ.describe('预测:三档推测量 + 怎么推 + 兑现时点'),
+  logic: z.string().optional().describe('命门:挂哪条逻辑(空话拒);命门 ⟺ 有 logic'),
+  falsify_if: z.string().optional().describe('命门:证伪条件(出此=逻辑错)'),
+  market_implied: z.string().optional().describe('现价反推的市场隐含(预期差=forecast.base vs 此)'),
+  verify: z
+    .array(VerifyHookZ)
     .optional()
-    .describe('推测方式:未来=锚(from_fact最新)应用 delta(锚+值)/factor(锚×值);默认 absolute 直取'),
-  from_fact: z
-    .string()
-    .optional()
-    .describe('立足:派生自 facts key@as_of(锚=该指标最新;须已 add_facts)'),
-  verify: z.array(VerifyHookZ).optional().describe('验证:对账事实(命门必填,先行+终验)'),
-  sensitivity: z
-    .enum(['high', 'mid', 'low'])
-    .optional()
-    .describe('@deprecated 命门改由 logic_anchor 派生;勿再用作命门标志'),
-  logic_anchor: z.string().optional().describe('命门:挂哪条逻辑(空话拒)'),
-  falsify: z.string().optional().describe('命门:证伪线'),
-  market_implied: z.string().optional().describe('现价反推的市场隐含(预期差=base vs 此)'),
+    .describe('先行指标对账(命门必填;终验由 anchor.fact+horizon 隐含)'),
 })
 const ValuationZ = z.object({
   method: z.enum(['pe', 'dcf', 'pb-roe', 'ddm', 'nav']),
@@ -135,10 +140,13 @@ const ThesisSnapshotZ = z.object({
 
 // ③ 时间线
 const AssumptionCheckZ = z.object({
-  assumption: z.string().describe('ref valuation.assumptions[].key'),
-  predicted: z.union([z.string(), z.number()]).describe('取自 against_v 版该参数 base(不回溯)'),
-  actual: z.union([z.string(), z.number()]).describe('取自 facts[verify.fact] 最新'),
-  actual_fact: z.string().optional().describe('ref key@as_of'),
+  metric: z.string().describe('ref valuation.assumptions[].key'),
+  predicted_value: z
+    .union([z.string(), z.number()])
+    .describe('预测绝对值(系统按基线锚+forecast 算定冻结;agent 可省)')
+    .optional(),
+  actual_value: z.union([z.string(), z.number()]).describe('到期实际:取自 facts[anchor.fact] 最新'),
+  actual_as_of: z.string().optional().describe('实际取自哪个时点'),
   deviation: z
     .object({
       数值: z.string().optional(),
@@ -320,7 +328,7 @@ export function createCardTools(
     ),
     writeTool(
       'add_thesis',
-      '加逻辑版本(冻结快照·建立/校准/重写)。valuation.assumptions = 全部估值预测参数(命门+支撑):每参数 key/label/单位/三档(bear/base/bull)+ from_fact(立足事实=锚,须已 add_facts)+ proj_mode(命门 delta/factor 推自锚·支撑 absolute)+ verify(验证事实,先行+终验);命门 = 挂 logic_anchor 的参数 + falsify。' +
+      '加逻辑版本(冻结快照·建立/校准/重写)。valuation.assumptions = 全部估值预测参数(命门+支撑):每参数 key/label/单位 + anchor{fact,as_of}(锚:立足事实@基线时点,须已 add_facts)+ forecast{mode,bear/base/bull,horizon}(预测:命门 delta/factor 推自锚·支撑 absolute)+ verify(先行对账);命门 = 挂 logic 的参数 + falsify_if。' +
         'valuation 配模式(pe/dcf/pb-roe/ddm/nav)+ V(引擎按 assumptions×最新事实算定·手填会被覆盖)+ 安全边际门槛。逻辑变才出新版本,基础事实须先在场。',
       z.object({ card_id: z.string(), snapshot: ThesisSnapshotZ }),
       (id, i) => ({

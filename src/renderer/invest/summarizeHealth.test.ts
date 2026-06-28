@@ -77,7 +77,9 @@ describe('dualLines — 估(预测值)显推算后的未来值', () => {
     const b: CardBundle = {
       ...bundle([
         cp({
-          checks: [{ assumption: 'co_share', predicted: '14.5%', actual: '14%', outcome: '容差' }],
+          checks: [
+            { metric: 'co_share', predicted_value: '14.5%', actual_value: '14%', outcome: '容差' },
+          ],
         }),
       ]),
       facts: {
@@ -104,13 +106,16 @@ describe('dualLines — 估(预测值)显推算后的未来值', () => {
                   key: 'co_share',
                   label: '份额',
                   unit: '%',
-                  proj_mode: 'delta',
-                  bear: -0.5,
-                  base: 0.5,
-                  bull: 1.5,
-                  from_fact: 'co_share@2026-07',
+                  anchor: { fact: 'co_share', as_of: '2026-07' },
+                  forecast: {
+                    mode: 'delta',
+                    bear: -0.5,
+                    base: 0.5,
+                    bull: 1.5,
+                    horizon: '2026-annual',
+                  },
                   verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' }],
-                  logic_anchor: '成本护城河',
+                  logic: '成本护城河',
                 },
               ],
               V: { bear: 1, base: 2, bull: 3 },

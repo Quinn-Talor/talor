@@ -2,14 +2,14 @@
 //
 // 把 thesis 的 assumptions(逐参数三档)按配模式恒等式逐步算成 V,吐每步中间量 trace,
 // 供 UI 渲染"恒等式阶梯"+"事实改参数→沿链重算"(value-chain-rigor §8.3 / §9)。
-//   · 三档传导:仅命门(core,即带 logic_anchor 的参数)随档动撑区间,支撑参数固定 base
+//   · 三档传导:仅命门(core,即带 logic 的参数)随档动撑区间,支撑参数固定 base
 //     (区间=命门赌错范围,不被全参数"完美相关"系统性夸大)。
 //   · 五配模式全实现:pe(自上而下)/dcf(终值法)/pb-roe(合理PB)/ddm(戈登)/nav(分部)。
 //   · 缺参数 / 经济上无意义(r≤g)→ ok:false + missing[],不臆造(UI 回退显存量 V)。
 //
 // 允许依赖: ../types/invest(纯类型)   禁止依赖: 任何运行时模块
 
-import type { ValuationMethod, ValuationAssumption, Facts } from '../types/invest'
+import type { ValuationMethod, ValuationAssumption, Facts, PredictionAnchor } from '../types/invest'
 
 /** 阶梯参数(逐参数三档;%-单位的值按 /100 折算)。 */
 export interface TraceAssumption {
@@ -19,7 +19,7 @@ export interface TraceAssumption {
   bull: number | string
   unit?: string | null
   /** 命门(core=true)在 bear/bull 间动撑区间;非命门全档取 base。
-   *  命门由 logic_anchor 派生(派生层传 core=!!logic_anchor),引擎只认 core 布尔。
+   *  命门由 logic 派生(派生层传 core=!!logic),引擎只认 core 布尔。
    *  → bear/bull V 只由命门驱动,不被全参数"完美相关"夸大(三档传导严谨化)。 */
   core?: boolean
 }
@@ -267,45 +267,73 @@ export function computeValuationTrace(
   }
 }
 
-/** facts ref "key@as_of" → key。 */
-const factKeyOf = (ref: string | undefined): string => (ref ?? '').split('@')[0]
-
 /** facts[key] 最新观测数值(append-only,取末元素);无 → NaN。 */
-function latestFactValue(facts: Facts | undefined, key: string): number {
-  const series = facts?.[key]?.series
+function latestFactValue(facts: Facts | undefined, key: string | undefined): number {
+  const series = key ? facts?.[key]?.series : undefined
   if (!series || series.length === 0) return NaN
   return toNum(series[series.length - 1]?.value)
 }
 
-/** 某估值参数的锚 = from_fact 指向指标的最新事实数值(UI 展示推算链用);无 → NaN。 */
-export function anchorValue(facts: Facts | undefined, fromFact: string | undefined): number {
-  return latestFactValue(facts, factKeyOf(fromFact))
+/** facts[key] 在指定时点 as_of 的观测数值(基线锚);未给 as_of 或未命中 → 退回最新;无 → NaN。 */
+function factValueAt(
+  facts: Facts | undefined,
+  key: string | undefined,
+  asOf: string | undefined,
+): number {
+  const series = key ? facts?.[key]?.series : undefined
+  if (!series || series.length === 0) return NaN
+  if (asOf) {
+    const hit = series.find((o) => o.as_of === asOf)
+    if (hit) return toNum(hit.value)
+  }
+  return toNum(series[series.length - 1]?.value)
+}
+
+/** 锚取值:when='now' 取最新观测(现值回流)、when='baseline' 取 anchor.as_of 那条(复盘对照·冻结);无 → NaN。 */
+export function anchorValue(
+  facts: Facts | undefined,
+  anchor: PredictionAnchor | undefined,
+  when: 'now' | 'baseline' = 'now',
+): number {
+  if (!anchor) return NaN
+  return when === 'baseline'
+    ? factValueAt(facts, anchor.fact, anchor.as_of)
+    : latestFactValue(facts, anchor.fact)
 }
 
 /**
- * 把 thesis 的 assumptions 解析成引擎吃的绝对未来值 TraceAssumption(价值链:逻辑→最新事实→推算)。
- *   · 命门 core = !!logic_anchor(支持逻辑的指标)。
- *   · proj_mode delta/factor:未来值 = 锚(from_fact 指标的最新事实)应用推测(delta=锚+值 / factor=锚×值);
+ * 把 thesis 的 assumptions 解析成引擎吃的绝对未来值 TraceAssumption(价值链:逻辑→事实锚→推算)。
+ *   · 命门 core = !!logic(支持逻辑的指标)。
+ *   · forecast.mode delta/factor:未来值 = 锚应用推测(delta=锚+量 / factor=锚×倍数);
  *     缺锚 → NaN(引擎 missingOf 捕获 → ok:false,不臆造)。
- *   · absolute(默认):bear/base/bull 直取(技术输入 / 利率 / 倍数 / 常量)。
- * 事实更新 → 锚变 → 未来值与 V 自动重算(只要重新调本函数)。
+ *   · absolute:forecast.bear/base/bull 直取(技术输入 / 利率 / 倍数 / 常量)。
+ *   · 双锚:when='now' 锚取最新事实(V_now 活算回流);when='baseline' 锚取 anchor.as_of(复盘对照·冻结)。
  */
-export function resolveTraceAssumptions(
+export function resolveForecast(
   assumptions: ValuationAssumption[],
   facts: Facts | undefined,
+  when: 'now' | 'baseline' = 'now',
 ): TraceAssumption[] {
   return (assumptions ?? []).map((a) => {
-    const core = !!a.logic_anchor
+    const core = !!a.logic
     const unit = a.unit ?? undefined
-    if ((a.proj_mode ?? 'absolute') === 'absolute') {
-      return { key: a.key, bear: a.bear, base: a.base, bull: a.bull, unit, core }
+    const f = a.forecast
+    if (!f || f.mode === 'absolute') {
+      return {
+        key: a.key,
+        bear: f?.bear ?? NaN,
+        base: f?.base ?? NaN,
+        bull: f?.bull ?? NaN,
+        unit,
+        core,
+      }
     }
-    const anchor = latestFactValue(facts, factKeyOf(a.from_fact))
+    const anchor = anchorValue(facts, a.anchor, when)
     const apply = (band: number | string): number => {
       const v = toNum(band)
       if (!Number.isFinite(anchor) || !Number.isFinite(v)) return NaN
-      return a.proj_mode === 'delta' ? anchor + v : anchor * v
+      return f.mode === 'delta' ? anchor + v : anchor * v
     }
-    return { key: a.key, bear: apply(a.bear), base: apply(a.base), bull: apply(a.bull), unit, core }
+    return { key: a.key, bear: apply(f.bear), base: apply(f.base), bull: apply(f.bull), unit, core }
   })
 }

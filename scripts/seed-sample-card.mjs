@@ -63,30 +63,30 @@ const facts = {
 }
 
 // ② 逻辑:冻结快照·版本化(v1 建立 → v2 校准);claim = 大白话一句话(散户决策面头条)
-// valuation.assumptions = 全部估值预测参数(命门 = 挂 logic_anchor 的参数,带 falsify;每参数双向挂事实 from_fact/verify)
-// 命门(渗透率/份额):proj_mode delta —— 未来 = 锚(该指标最新事实) + 三档增量;事实更新 → 锚变 → V 自动重算
-const SHARE_NOW = 14 // co_share 最新事实(@2026-07);命门 delta 推测自此锚
+// valuation.assumptions = 全部估值预测参数(命门 = 挂 logic 的参数,带 falsify_if;锚 anchor + 预测 forecast)
+// 命门(渗透率/份额):forecast.mode=delta —— 未来 = 锚(该指标基线/最新) + 三档增量;事实更新 → 锚变 → V 自动重算
+const SHARE_NOW = 14 // co_share 基线锚(@2026-07);命门 delta 推测自此
 const aShare = (base, falsify) => ({
   key: 'co_share', label: '公司份额', unit: '%',
-  proj_mode: 'delta', // 未来份额 = 锚(14%) + 增量;事实降 → 自动下修
-  bear: base - 1 - SHARE_NOW, base: base - SHARE_NOW, bull: base + 1 - SHARE_NOW,
-  from_fact: 'co_share@2026-07', verify: [{ fact: 'monthly_sales', at: 'monthly', role: '先行' }, { fact: 'co_share', at: 'quarterly', role: '终验' }],
-  logic_anchor: '成本护城河', falsify, market_implied: '16%',
+  anchor: { fact: 'co_share', as_of: '2026-07' },
+  forecast: { mode: 'delta', bear: base - 1 - SHARE_NOW, base: base - SHARE_NOW, bull: base + 1 - SHARE_NOW, horizon: '2026-annual' },
+  verify: [{ fact: 'monthly_sales', at: 'monthly', role: '先行' }, { fact: 'co_share', at: 'quarterly', role: '终验' }],
+  logic: '成本护城河', falsify_if: falsify, market_implied: '16%',
 })
-const PEN_NOW = 42 // ev_pen 最新事实(@2026-06);命门 delta 推测自此锚
+const PEN_NOW = 42 // ev_pen 基线锚(@2026-06)
 const aPen = {
   key: 'ev_pen', label: '行业渗透率', unit: '%',
-  proj_mode: 'delta', // 未来渗透率 = 锚(42%) + 增量
-  bear: 45 - PEN_NOW, base: 50 - PEN_NOW, bull: 55 - PEN_NOW,
-  from_fact: 'ev_pen@2026-06', verify: [{ fact: 'ev_pen', at: 'annual', role: '终验' }],
-  logic_anchor: '政策驱动消费', falsify: '年报<45%', market_implied: '48%',
+  anchor: { fact: 'ev_pen', as_of: '2026-06' },
+  forecast: { mode: 'delta', bear: 45 - PEN_NOW, base: 50 - PEN_NOW, bull: 55 - PEN_NOW, horizon: '2026-annual' },
+  verify: [{ fact: 'ev_pen', at: 'annual', role: '终验' }],
+  logic: '政策驱动消费', falsify_if: '年报<45%', market_implied: '48%',
 }
-// 支撑 / 常量(pe 恒等式叶子参数;seed 直插 DB,from_fact 仅示意)
-const aCap = { key: 'mkt_capacity', label: '行业容量', unit: '万辆', bear: 2826, base: 2826, bull: 2826, from_fact: 'ev_pen@2025-12', sensitivity: 'low' }
-const aAsp = { key: 'asp', label: '单价', unit: '万元', bear: 16.5, base: 16.5, bull: 16.5, from_fact: 'rev_yoy@2026-06', sensitivity: 'mid' }
-const aMargin = { key: 'net_margin', label: '净利率', unit: '%', bear: 8, base: 9, bull: 10, from_fact: 'rev_yoy@2026-06', sensitivity: 'mid' }
-const aShares = { key: 'shares', label: '股本', unit: '亿股', bear: 29, base: 29, bull: 29, from_fact: 'rev_yoy@2026-06', sensitivity: 'low' }
-const aPe = { key: 'pe_central', label: 'PE中枢', unit: 'x', bear: 23, base: 25, bull: 27, from_fact: '行业估值分位@2026-06', sensitivity: 'low' }
+// 支撑 / 常量(pe 恒等式叶子参数;absolute 直取,无锚)
+const aCap = { key: 'mkt_capacity', label: '行业容量', unit: '万辆', forecast: { mode: 'absolute', bear: 2826, base: 2826, bull: 2826 } }
+const aAsp = { key: 'asp', label: '单价', unit: '万元', forecast: { mode: 'absolute', bear: 16.5, base: 16.5, bull: 16.5 } }
+const aMargin = { key: 'net_margin', label: '净利率', unit: '%', forecast: { mode: 'absolute', bear: 8, base: 9, bull: 10 } }
+const aShares = { key: 'shares', label: '股本', unit: '亿股', forecast: { mode: 'absolute', bear: 29, base: 29, bull: 29 } }
+const aPe = { key: 'pe_central', label: 'PE中枢', unit: 'x', forecast: { mode: 'absolute', bear: 23, base: 25, bull: 27 } }
 // pe 恒等式全参数集(7):渗透率×容量→份额→单价→净利率→股本→PE → V
 const peAssumps = (shareBase, falsify) => [aPen, aCap, aShare(shareBase, falsify), aAsp, aMargin, aShares, aPe]
 const thesis = {
@@ -122,7 +122,7 @@ db.prepare(
 const cp1 = {
   type: '复查', at: '2026-04-30', against_v: 1,
   validity: '持有', conviction: 'mid',
-  checks: [{ assumption: 'co_share', predicted: '16%', actual: '15.5%', actual_fact: 'co_share@2026-03',
+  checks: [{ metric: 'co_share', predicted_value: '16%', actual_value: '15.5%', actual_as_of: '2026-03',
     deviation: { 数值: '-0.5pp', 变化: '小幅' }, outcome: '容差',
     attribution: { cause: '季节性,Q2恢复', type: '外生' } }],
   value_now: { V: { bear: 210, base: 265, bull: 350 }, price: 195, realized_pct: 0.2,
@@ -136,9 +136,9 @@ const cp2 = {
   type: '复查', at: '2026-07-31', against_v: 1,
   validity: '校准', conviction: 'mid',
   checks: [
-    { assumption: 'ev_pen', predicted: '50%', actual: '51%', actual_fact: 'ev_pen@2026-06',
+    { metric: 'ev_pen', predicted_value: '50%', actual_value: '51%', actual_as_of: '2026-06',
       deviation: { 数值: '+1pp', 变化: '兑现' }, outcome: '兑现' },
-    { assumption: 'co_share', predicted: '16%', actual: '14%', actual_fact: 'co_share@2026-07',
+    { metric: 'co_share', predicted_value: '16%', actual_value: '14%', actual_as_of: '2026-07',
       deviation: { 数值: '-2pp', 结构: '以量补价失效', 变化: '连2季减速' }, outcome: '偏离',
       attribution: { cause: '价格战侵蚀份额,非季节性', type: '参数错' } },
   ],

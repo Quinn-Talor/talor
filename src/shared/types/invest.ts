@@ -59,10 +59,9 @@ export type Facts = Record<string, Fact>
 // ============ ② 逻辑 thesis(冻结快照·版本化)============
 export type ProfitType = '成长' | '拐点' | '估值修复' | '周期' | '分红'
 export type ValuationMethod = 'pe' | 'dcf' | 'pb-roe' | 'ddm' | 'nav'
-/** 推测方式:命门未来值 = 锚(from_fact 最新事实)应用推测。
- *  delta=锚+值(同单位,如份额 +0.5pp);factor=锚×值(倍数);absolute=直取(默认;利率/倍数/常量)。 */
-export type ProjMode = 'delta' | 'factor' | 'absolute'
-export type Sensitivity = 'high' | 'mid' | 'low'
+/** 预测方式:命门未来值 = 锚(anchor 指向的事实)应用推测。
+ *  delta=锚+值(同单位,如份额 +0.5pp);factor=锚×值(倍数);absolute=直取(利率/倍数/常量)。 */
+export type ForecastMode = 'delta' | 'factor' | 'absolute'
 export type ChangeScope = '建立' | '校准' | '重写'
 
 /** 价值区间(compute 从 assumptions 传导出)。 */
@@ -87,37 +86,46 @@ export interface MarginOfSafety {
 export interface Valuation {
   method: ValuationMethod
   method_reason?: string
-  assumptions: ValuationAssumption[] // ★ 全部估值预测参数(单一真相);命门 = 挂 logic_anchor 的参数
+  assumptions: ValuationAssumption[] // ★ 全部估值预测参数(单一真相);命门 = 挂 logic 的参数
   V: VRange
   margin_of_safety: MarginOfSafety
 }
+/** 锚:预测的起点(立论时定;facts append-only 保证基线观测不变)。 */
+export interface PredictionAnchor {
+  fact: string // 锚定哪条事实(facts key)
+  as_of?: string // 基线时点(取该事实哪个观测;delta/factor 必填,absolute 可省)
+}
+/** 预测:从锚推一段时间到 horizon(三档推测量 + 怎么推 + 何时验)。 */
+export interface Forecast {
+  mode: ForecastMode // 怎么推:delta=锚+量 / factor=锚×倍数 / absolute=直接设定
+  bear: number | string // 三档推测量(delta:增量 / factor:倍数 / absolute:绝对值)
+  base: number | string
+  bull: number | string
+  horizon?: string // 预测兑现时点(如 '2026-annual'),到此该对账
+}
 /**
  * 估值预测参数(吸收原 Driver):逻辑的量化落点 + 估值的输入。
- * 三档预测 + 双向挂事实(立足 from_fact / 验证 verify);命门 = 挂 logic_anchor 的参数,额外带 falsify。
+ * 锚(anchor)+ 预测(forecast)双向挂事实;命门 = 挂 logic 的参数,额外带 falsify_if。
  */
 export interface ValuationAssumption {
   key: string // 参数键(可复用 fact key,如 co_share;或估值专用如 pe_central)
   label: string
   unit?: string | null
-  bear: number | string // 三档预测;proj_mode≠absolute 时为"相对锚的推测"(delta/factor)
-  base: number | string
-  bull: number | string
-  proj_mode?: ProjMode // 推测方式:未来值=锚(from_fact 最新)应用推测;默认 absolute(直取)
-  from_fact?: string // ← 立足:派生自 facts key@as_of(锚=该指标最新观测)
-  verify?: VerifyHook[] // → 验证:对账事实(先行快验+终验)
-  sensitivity?: Sensitivity // @deprecated 命门改由 logic_anchor 派生;字段保留兼容,不再用作命门标志
-  logic_anchor?: string // 命门:挂哪条逻辑(空话拒)
-  falsify?: string // 命门:证伪线(出此=逻辑错)
-  market_implied?: string // 现价反推的市场隐含(预期差 = base vs 此)
+  anchor?: PredictionAnchor // 锚:预测起点(命门必有;纯常量支撑可省)
+  forecast: Forecast // 预测:三档推测量 + 怎么推 + 兑现时点
+  logic?: string // 命门:挂哪条逻辑(空话拒);命门 ⟺ 有 logic
+  falsify_if?: string // 命门:证伪条件(出此=逻辑错)
+  market_implied?: string // 现价反推的市场隐含(预期差 = forecast.base vs 此)
+  verify?: VerifyHook[] // 先行指标对账(终验由 anchor.fact + forecast.horizon 隐含)
 }
-/** 逻辑快照(冻结;一次态变=一个 v)。命门 = 挂 logic_anchor 的参数。 */
+/** 逻辑快照(冻结;一次态变=一个 v)。命门 = 挂 logic 的参数。 */
 export interface ThesisSnapshot {
   v: number
   at: string
   scope: ChangeScope
   claim: string // 论点一句话(大白话,散户决策面头条)
   profit_type: ProfitType // 赚什么钱 → 决定 method
-  valuation: Valuation // 含 assumptions(吸收原 drivers;命门=高敏)
+  valuation: Valuation // 含 assumptions(吸收原 drivers;命门 = 挂 logic 的参数)
   ref_checkpoint?: string // 若由某次复查触发(校准/重写)
 }
 /** 逻辑跟踪:冻结快照序列 + 当前版指针。 */
@@ -135,12 +143,12 @@ export type Validity = '强化' | '持有' | '校准' | '证伪' // ★ 双向�
 export type Conviction = 'high' | 'mid' | 'low' // ★ 确信度(强化累积↑/偏离↓)→ 喂仓位
 export type CheckOutcome = '超预期' | '兑现' | '容差' | '偏离' | '破' // ★ 逐参数双向:兑现/超预期=强化、偏离=校准、破=证伪
 
-/** 一个估值参数的对账(三维;predicted 取自 against_v 出身快照·不回溯,actual 取自 facts[verify.fact] 最新)。 */
+/** 一个估值参数的对账(predicted_value = 基线锚+推测·系统算定不回溯,actual_value = facts[anchor.fact] 到期最新)。 */
 export interface AssumptionCheck {
-  assumption: string // ref valuation.assumptions[].key
-  predicted: string | number // ← against_v 版该参数 base(验证用·不回溯)
-  actual: string | number // ← facts[verify.fact] 最新(同一事实)
-  actual_fact?: string // ref key@as_of
+  metric: string // ref valuation.assumptions[].key
+  predicted_value?: string | number // ← 基线锚(anchor.as_of)应用 forecast 的绝对预测值(系统 add_checkpoint 算定·冻结)
+  actual_value: string | number // ← facts[anchor.fact] 到期最新(同一指标)
+  actual_as_of?: string // 实际取自哪个时点
   deviation?: { 数值?: string; 结构?: string; 变化?: string }
   outcome: CheckOutcome // ★ 双向(含容差判定):超预期/兑现/容差=未破、偏离=校准、破=证伪
   attribution?: { cause: string; type: AttributionType } // 偏离/破 才需归因

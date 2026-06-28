@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeValuationTrace,
-  resolveTraceAssumptions,
+  resolveForecast,
   METHOD_PARAMS,
   type TraceAssumption,
 } from './valuation-trace'
@@ -154,37 +154,40 @@ describe('computeValuationTrace — 其余配模式', () => {
   })
 })
 
-describe('resolveTraceAssumptions — 锚(最新事实)→ 推算未来', () => {
+describe('resolveForecast — 锚 → 推算未来(双锚 now/baseline)', () => {
   const facts: Facts = {
     co_share: {
       level: 'company',
       label: '份额',
       series: [
-        { value: '16%', as_of: '2025-12', source: 'x' },
-        { value: '14%', as_of: '2026-07', source: 'x' }, // 最新 = 14(锚)
+        { value: '16%', as_of: '2025-12', source: 'x' }, // 基线(@2025-12)= 16
+        { value: '14%', as_of: '2026-07', source: 'x' }, // 最新 = 14
       ],
     },
   }
   const A = (o: Partial<ValuationAssumption>): ValuationAssumption => ({
     key: 'co_share',
     label: '份额',
-    bear: 0,
-    base: 0,
-    bull: 0,
+    forecast: { mode: 'absolute', bear: 0, base: 0, bull: 0 },
     ...o,
   })
 
-  it('absolute(默认):三档直取;命门由 logic_anchor 派生', () => {
-    const [r] = resolveTraceAssumptions(
-      [A({ bear: 13, base: 14, bull: 15, logic_anchor: '逻辑' })],
+  it('absolute:三档直取;命门由 logic 派生', () => {
+    const [r] = resolveForecast(
+      [A({ forecast: { mode: 'absolute', bear: 13, base: 14, bull: 15 }, logic: '逻辑' })],
       facts,
     )
     expect(r).toMatchObject({ bear: 13, base: 14, bull: 15, core: true })
   })
 
-  it('delta:未来 = 锚(最新 14) + 三档增量;非命门(无 logic_anchor)', () => {
-    const [r] = resolveTraceAssumptions(
-      [A({ proj_mode: 'delta', from_fact: 'co_share@2026-07', bear: -0.5, base: 0.5, bull: 1.5 })],
+  it('delta:未来 = 锚(最新 14) + 三档增量;非命门(无 logic)', () => {
+    const [r] = resolveForecast(
+      [
+        A({
+          anchor: { fact: 'co_share', as_of: '2026-07' },
+          forecast: { mode: 'delta', bear: -0.5, base: 0.5, bull: 1.5 },
+        }),
+      ],
       facts,
     )
     expect(r.bear).toBe(13.5)
@@ -194,23 +197,46 @@ describe('resolveTraceAssumptions — 锚(最新事实)→ 推算未来', () => 
   })
 
   it('factor:未来 = 锚 × 倍数', () => {
-    const [r] = resolveTraceAssumptions(
-      [A({ proj_mode: 'factor', from_fact: 'co_share', bear: 1, base: 1.1, bull: 1.2 })],
+    const [r] = resolveForecast(
+      [
+        A({
+          anchor: { fact: 'co_share' },
+          forecast: { mode: 'factor', bear: 1, base: 1.1, bull: 1.2 },
+        }),
+      ],
       facts,
     )
     expect(r.base).toBeCloseTo(15.4) // 14 × 1.1
   })
 
   it('proj 缺锚 → NaN(引擎 missingOf 捕获·不臆造)', () => {
-    const [r] = resolveTraceAssumptions(
-      [A({ key: 'ghost', proj_mode: 'delta', from_fact: 'nonexist', bear: 1, base: 2, bull: 3 })],
+    const [r] = resolveForecast(
+      [
+        A({
+          key: 'ghost',
+          anchor: { fact: 'nonexist' },
+          forecast: { mode: 'delta', bear: 1, base: 2, bull: 3 },
+        }),
+      ],
       facts,
     )
     expect(Number.isNaN(r.base as number)).toBe(true)
   })
 
-  it('事实更新 → 锚变 → 未来自动重算(同 assumptions·不同 facts)', () => {
-    const a = A({ proj_mode: 'delta', from_fact: 'co_share', bear: -0.5, base: 0.5, bull: 1.5 })
+  it('双锚:now 取最新锚、baseline 取 anchor.as_of 基线锚', () => {
+    const a = A({
+      anchor: { fact: 'co_share', as_of: '2025-12' },
+      forecast: { mode: 'delta', bear: -0.5, base: 0.5, bull: 1.5 },
+    })
+    expect(resolveForecast([a], facts, 'now')[0].base).toBe(14.5) // 最新锚 14 + 0.5
+    expect(resolveForecast([a], facts, 'baseline')[0].base).toBe(16.5) // 基线锚 16(@2025-12) + 0.5
+  })
+
+  it('事实更新 → 最新锚变 → now 自动重算', () => {
+    const a = A({
+      anchor: { fact: 'co_share', as_of: '2026-07' },
+      forecast: { mode: 'delta', bear: -0.5, base: 0.5, bull: 1.5 },
+    })
     const newer: Facts = {
       co_share: {
         level: 'company',
@@ -218,7 +244,7 @@ describe('resolveTraceAssumptions — 锚(最新事实)→ 推算未来', () => 
         series: [{ value: '13%', as_of: '2026-09', source: 'x' }],
       },
     }
-    expect(resolveTraceAssumptions([a], facts)[0].base).toBe(14.5) // 锚 14
-    expect(resolveTraceAssumptions([a], newer)[0].base).toBe(13.5) // 锚 13 → 自动重算
+    expect(resolveForecast([a], facts, 'now')[0].base).toBe(14.5) // 锚 14
+    expect(resolveForecast([a], newer, 'now')[0].base).toBe(13.5) // 锚 13 → 自动重算
   })
 })

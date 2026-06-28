@@ -28,19 +28,16 @@ const facts = (over: Facts = {}): Facts => ({
   ...over,
 })
 
-// 命门估值参数(sensitivity=high:带 logic_anchor/falsify;每参数挂事实 from_fact/verify)
+// 命门估值参数(挂 logic/falsify_if;锚 anchor + 预测 forecast;先行 verify)
 const assumption = (over: Partial<ValuationAssumption> = {}): ValuationAssumption => ({
   key: 'co_share',
   label: '公司份额',
   unit: '%',
-  bear: 15,
-  base: 16,
-  bull: 17,
-  from_fact: 'co_share@2025-12',
+  anchor: { fact: 'co_share', as_of: '2025-12' },
+  forecast: { mode: 'absolute', bear: 15, base: 16, bull: 17, horizon: '2026-annual' },
   verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' }],
-  sensitivity: 'high',
-  logic_anchor: '成本护城河',
-  falsify: '连2季<14%',
+  logic: '成本护城河',
+  falsify_if: '连2季<14%',
   ...over,
 })
 
@@ -78,9 +75,9 @@ const checkpoint = (over: Partial<Checkpoint> = {}): Checkpoint => ({
   conviction: 'mid',
   checks: [
     {
-      assumption: 'co_share',
-      predicted: '16%',
-      actual: '15%',
+      metric: 'co_share',
+      predicted_value: '16%',
+      actual_value: '15%',
       outcome: '容差',
     },
   ],
@@ -236,7 +233,7 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     )
   })
 
-  // ①③⑦ 逻辑:命门挂逻辑/验证 + 每参数挂事实(from_fact)、估值齐
+  // ①③⑦ 逻辑:命门挂逻辑/验证 + 每参数挂事实(anchor)、估值齐
   it('addThesis: 合法落库 + versions/current', () => {
     const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
     repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
@@ -257,53 +254,62 @@ describe('CardRepo (价值链严谨化 schema)', () => {
   it('addThesisVersion 冻结引擎 V:参数齐 → 覆盖手填(不变量③ 价值由 compute 算)', () => {
     const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
     repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
-    const ff = 'ev_pen@2026-03' // facts() 含 ev_pen / co_share
-    const full = [
-      {
+    // facts() 含 ev_pen(@2026-03)/ co_share(@2025-12);命门挂锚,支撑 absolute 无锚
+    const af = (o: Partial<ValuationAssumption>): ValuationAssumption => ({
+      key: 'x',
+      label: 'x',
+      unit: '%',
+      forecast: { mode: 'absolute', bear: 0, base: 0, bull: 0 },
+      ...o,
+    })
+    const full: ValuationAssumption[] = [
+      af({
         key: 'ev_pen',
         label: '渗透',
-        unit: '%',
-        bear: 45,
-        base: 50,
-        bull: 55,
-        from_fact: ff,
+        anchor: { fact: 'ev_pen', as_of: '2026-03' },
+        forecast: { mode: 'absolute', bear: 45, base: 50, bull: 55 },
         verify: [{ fact: 'ev_pen', at: 'annual' }],
-        logic_anchor: '政策',
-        falsify: '<45%',
-      },
-      {
+        logic: '政策',
+        falsify_if: '<45%',
+      }),
+      af({
         key: 'mkt_capacity',
         label: '容量',
         unit: '万辆',
-        bear: 2826,
-        base: 2826,
-        bull: 2826,
-        from_fact: ff,
-      },
-      {
+        forecast: { mode: 'absolute', bear: 2826, base: 2826, bull: 2826 },
+      }),
+      af({
         key: 'co_share',
         label: '份额',
-        unit: '%',
-        bear: 13.5,
-        base: 14.5,
-        bull: 15.5,
-        from_fact: 'co_share@2025-12',
+        anchor: { fact: 'co_share', as_of: '2025-12' },
+        forecast: { mode: 'absolute', bear: 13.5, base: 14.5, bull: 15.5 },
         verify: [{ fact: 'co_share', at: 'q' }],
-        logic_anchor: '成本',
-        falsify: '<13%',
-      },
-      {
+        logic: '成本',
+        falsify_if: '<13%',
+      }),
+      af({
         key: 'asp',
         label: '单价',
         unit: '万元',
-        bear: 16.5,
-        base: 16.5,
-        bull: 16.5,
-        from_fact: ff,
-      },
-      { key: 'net_margin', label: '净利率', unit: '%', bear: 9, base: 9, bull: 9, from_fact: ff },
-      { key: 'shares', label: '股本', unit: '亿股', bear: 29, base: 29, bull: 29, from_fact: ff },
-      { key: 'pe_central', label: 'PE', unit: 'x', bear: 25, base: 25, bull: 25, from_fact: ff },
+        forecast: { mode: 'absolute', bear: 16.5, base: 16.5, bull: 16.5 },
+      }),
+      af({
+        key: 'net_margin',
+        label: '净利率',
+        forecast: { mode: 'absolute', bear: 9, base: 9, bull: 9 },
+      }),
+      af({
+        key: 'shares',
+        label: '股本',
+        unit: '亿股',
+        forecast: { mode: 'absolute', bear: 29, base: 29, bull: 29 },
+      }),
+      af({
+        key: 'pe_central',
+        label: 'PE',
+        unit: 'x',
+        forecast: { mode: 'absolute', bear: 25, base: 25, bull: 25 },
+      }),
     ]
     // snapWith 手填 V {210,290,380};参数齐 → 引擎算出 262(0.5×2826×.145×16.5×.09÷29×25)覆盖之
     const r = repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapWith(full) })
@@ -312,21 +318,33 @@ describe('CardRepo (价值链严谨化 schema)', () => {
 
   it.each([
     ['VALUATION_NO_ASSUMPTIONS', snapWith([])],
-    ['ASSUMPTION_NO_FROMFACT', snapWith([assumption({ from_fact: '' })])],
-    ['FACT_REFERENCED_MISSING', snapWith([assumption({ from_fact: 'nope@2025-12' })])],
-    // 命门 ≡ 有 logic_anchor:空 logic_anchor 即非命门 → 唯一参数非命门 → NO_CORE_ASSUMPTION
-    ['NO_CORE_ASSUMPTION', snapWith([assumption({ logic_anchor: '' })])],
+    ['ASSUMPTION_NO_ANCHOR', snapWith([assumption({ anchor: undefined })])],
+    ['FACT_REFERENCED_MISSING', snapWith([assumption({ anchor: { fact: 'nope' } })])],
+    // delta/factor 须基线时点 + 该观测在场(对照复盘不漂的起点)
+    [
+      'ANCHOR_NO_ASOF',
+      snapWith([
+        assumption({
+          anchor: { fact: 'co_share' },
+          forecast: { mode: 'delta', bear: 1, base: 2, bull: 3 },
+        }),
+      ]),
+    ],
+    [
+      'ANCHOR_ASOF_MISSING',
+      snapWith([
+        assumption({
+          anchor: { fact: 'co_share', as_of: '1999-01' },
+          forecast: { mode: 'delta', bear: 1, base: 2, bull: 3 },
+        }),
+      ]),
+    ],
+    // 命门 ≡ 有 logic:空 logic 即非命门 → 唯一参数非命门 → NO_CORE_ASSUMPTION
+    ['NO_CORE_ASSUMPTION', snapWith([assumption({ logic: '' })])],
     ['CORE_NO_VERIFY', snapWith([assumption({ verify: [] })])],
     [
       'NO_CORE_ASSUMPTION',
-      snapWith([
-        assumption({
-          key: 'net_margin',
-          sensitivity: 'mid',
-          logic_anchor: undefined,
-          falsify: undefined,
-        }),
-      ]),
+      snapWith([assumption({ key: 'net_margin', logic: undefined, falsify_if: undefined })]),
     ],
   ])('addThesis 不变量①⑦: %s → 拒', (code, snap) => {
     const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })

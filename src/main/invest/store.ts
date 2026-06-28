@@ -4,7 +4,7 @@
 //   stock_cards:卡头 + eligibility/facts/thesis JSON 列(facts append、thesis 加版本=可变聚合,JSON 最简)。
 //   card_timeline:复查/决策/复盘 事件(append-only)。
 // 六不变量(写经 apply 强制):
-//   ① 驱动挂逻辑(logic_anchor)+ 立足(basis ref 事实,不空)
+//   ① 驱动挂逻辑(logic)+ 立足(anchor ref 事实,不空)
 //   ② 事实带源(白名单)+ 时点,只增不改(append 观测)
 //   ③ 价值由 compute 算(V/区间由工具传入,store 不手算)
 //   ④ 复查锚出身版本(against_v 存在)不回溯
@@ -32,7 +32,7 @@ import type {
   ReviewEvent,
   TimelineEvent,
 } from '../../shared/types/invest'
-import { computeValuationTrace, resolveTraceAssumptions } from '../../shared/invest/valuation-trace'
+import { computeValuationTrace, resolveForecast } from '../../shared/invest/valuation-trace'
 
 export class CardValidationError extends Error {
   constructor(
@@ -294,8 +294,8 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
   }
 
   /**
-   * ①③⑦ 逻辑快照:估值参数挂事实(不变量⑦:from_fact 立足)+ 命门挂逻辑/验证(①);价值/区间齐。
-   * 命门 = 挂 logic_anchor 的参数(支持逻辑的指标;吸收原 drivers)。
+   * ①③⑦ 逻辑快照:估值参数挂事实(不变量⑦:anchor 立足)+ 命门挂逻辑/验证(①);价值/区间齐。
+   * 命门 = 挂 logic 的参数(支持逻辑的指标;吸收原 drivers)。
    */
   private addThesisVersion(id: string, snap: ThesisSnapshot): CardBundle {
     this.assertCardExists(id)
@@ -311,21 +311,44 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     let hasCore = false
     for (const a of assumptions) {
       const name = a.label ?? a.key
-      // 不变量⑦:每参数必立足事实(from_fact 指向已有 facts)
-      if (!a.from_fact || a.from_fact.trim() === '') {
-        throw new CardValidationError(
-          'ASSUMPTION_NO_FROMFACT',
-          `参数「${name}」无 from_fact(预测须立足事实)`,
-        )
+      const f = a.forecast
+      if (!f || (f.mode !== 'delta' && f.mode !== 'factor' && f.mode !== 'absolute')) {
+        throw new CardValidationError('FORECAST_NO_MODE', `参数「${name}」无 forecast.mode`)
       }
-      if (!factKeys.has(factRefKey(a.from_fact))) {
-        throw new CardValidationError(
-          'FACT_REFERENCED_MISSING',
-          `参数「${name}」立足事实「${a.from_fact}」不在 facts(先 addFacts)`,
-        )
+      const isCore = !!(a.logic && a.logic.trim())
+      // 不变量⑦:命门 / delta / factor 必立足锚事实(anchor.fact 指向已有 facts)
+      const needsAnchor = isCore || f.mode === 'delta' || f.mode === 'factor'
+      if (needsAnchor) {
+        if (!a.anchor?.fact || a.anchor.fact.trim() === '') {
+          throw new CardValidationError(
+            'ASSUMPTION_NO_ANCHOR',
+            `参数「${name}」无 anchor.fact(预测须立足事实)`,
+          )
+        }
+        if (!factKeys.has(a.anchor.fact)) {
+          throw new CardValidationError(
+            'FACT_REFERENCED_MISSING',
+            `参数「${name}」锚事实「${a.anchor.fact}」不在 facts(先 addFacts)`,
+          )
+        }
       }
-      // 命门 = 挂了 logic_anchor 的参数(支持逻辑的指标);命门必有验证(对账事实须在场)。
-      const isCore = !!(a.logic_anchor && a.logic_anchor.trim())
+      // delta/factor 须有基线时点,且该观测在序列中(对照复盘不漂的起点)
+      if (f.mode === 'delta' || f.mode === 'factor') {
+        const asOf = a.anchor?.as_of
+        if (!asOf || asOf.trim() === '') {
+          throw new CardValidationError(
+            'ANCHOR_NO_ASOF',
+            `参数「${name}」forecast=${f.mode} 须 anchor.as_of(基线时点)`,
+          )
+        }
+        if (!(facts[a.anchor!.fact]?.series ?? []).some((o) => o.as_of === asOf)) {
+          throw new CardValidationError(
+            'ANCHOR_ASOF_MISSING',
+            `参数「${name}」基线 ${a.anchor!.fact}@${asOf} 不在 facts 观测序列`,
+          )
+        }
+      }
+      // 命门 = 挂了 logic 的参数(支持逻辑的指标);命门必有验证(对账事实须在场)。
       if (isCore) {
         hasCore = true
         if (!Array.isArray(a.verify) || a.verify.length === 0) {
@@ -342,13 +365,13 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
       }
     }
     if (!hasCore) {
-      throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(带 logic_anchor 的参数)')
+      throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(带 logic 的参数)')
     }
     // 不变量③:价值由引擎算 —— 参数齐(恒等式可解)就冻结引擎 V,覆盖手填(杜绝拍脑袋数);
     // 算不出(缺叶子参数)→ 退回"须有存量 V"兜底(不臆造)。
     const trace = computeValuationTrace(
       snap.valuation.method,
-      resolveTraceAssumptions(snap.valuation.assumptions, facts),
+      resolveForecast(snap.valuation.assumptions, facts, 'now'),
     )
     if (trace.ok && trace.V) {
       snap.valuation.V = trace.V // 冻结:引擎算出的出身值(历史不回溯)
@@ -393,10 +416,18 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     const cpFacts = JSON.parse(row.facts) as Facts
     const cpTrace = computeValuationTrace(
       against.valuation.method,
-      resolveTraceAssumptions(against.valuation.assumptions, cpFacts),
+      resolveForecast(against.valuation.assumptions, cpFacts, 'now'),
     )
     if (cpTrace.ok && cpTrace.V && cp.value_now) {
       cp.value_now.V = cpTrace.V // 冻结:此刻引擎重估值,入档后不回流
+    }
+    // 对照复盘:每条对账的预测绝对值 = 基线锚(anchor.as_of)应用 forecast,系统算定冻结(不让 agent 填增量)
+    const baseline = new Map(
+      resolveForecast(against.valuation.assumptions, cpFacts, 'baseline').map((r) => [r.key, r]),
+    )
+    for (const chk of cp.checks ?? []) {
+      const r = baseline.get(chk.metric)
+      if (r && Number.isFinite(Number(r.base))) chk.predicted_value = r.base
     }
     this.append(id, '复查', cp, cp.at)
     return this.read(id)!

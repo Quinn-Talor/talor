@@ -13,78 +13,58 @@ const aPen = {
   key: 'ev_pen',
   label: '行业渗透率',
   unit: '%',
-  bear: 45,
-  base: 50,
-  bull: 55,
-  from_fact: 'ev_pen@2025-12',
+  anchor: { fact: 'ev_pen', as_of: '2026-06' },
+  forecast: { mode: 'absolute' as const, bear: 45, base: 50, bull: 55, horizon: '2026-annual' },
   verify: [{ fact: 'ev_pen', at: 'annual', role: '终验' as const }],
-  sensitivity: 'high' as const,
-  logic_anchor: '政策驱动消费',
-  falsify: '年报<45%',
+  logic: '政策驱动消费',
+  falsify_if: '年报<45%',
 }
 const aShare = (base: number, falsify: string) => ({
   key: 'co_share',
   label: '公司份额',
   unit: '%',
-  bear: base - 1,
-  base,
-  bull: base + 1,
-  from_fact: 'co_share@2025-12',
+  anchor: { fact: 'co_share', as_of: '2026-07' },
+  forecast: {
+    mode: 'absolute' as const,
+    bear: base - 1,
+    base,
+    bull: base + 1,
+    horizon: '2026-annual',
+  },
   verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' as const }],
-  sensitivity: 'high' as const,
-  logic_anchor: '成本护城河',
-  falsify,
+  logic: '成本护城河',
+  falsify_if: falsify,
 })
 const aMargin = {
   key: 'net_margin',
   label: '净利率',
   unit: '%',
-  bear: 8,
-  base: 9,
-  bull: 10,
-  from_fact: 'rev_yoy@2026-06',
-  sensitivity: 'mid' as const,
+  forecast: { mode: 'absolute' as const, bear: 8, base: 9, bull: 10 },
 }
 // pe 恒等式支撑/常量(让 ladder 真渲染)
 const aCap = {
   key: 'mkt_capacity',
   label: '行业容量',
   unit: '万辆',
-  bear: 2826,
-  base: 2826,
-  bull: 2826,
-  from_fact: 'ev_pen@2025-12',
-  sensitivity: 'low' as const,
+  forecast: { mode: 'absolute' as const, bear: 2826, base: 2826, bull: 2826 },
 }
 const aAsp = {
   key: 'asp',
   label: '单价',
   unit: '万元',
-  bear: 16.5,
-  base: 16.5,
-  bull: 16.5,
-  from_fact: 'rev_yoy@2026-06',
-  sensitivity: 'low' as const,
+  forecast: { mode: 'absolute' as const, bear: 16.5, base: 16.5, bull: 16.5 },
 }
 const aShares = {
   key: 'shares',
   label: '股本',
   unit: '亿股',
-  bear: 29,
-  base: 29,
-  bull: 29,
-  from_fact: 'rev_yoy@2026-06',
-  sensitivity: 'low' as const,
+  forecast: { mode: 'absolute' as const, bear: 29, base: 29, bull: 29 },
 }
 const aPe = {
   key: 'pe_central',
   label: 'PE中枢',
   unit: 'x',
-  bear: 23,
-  base: 25,
-  bull: 27,
-  from_fact: '行业估值分位@2026-06',
-  sensitivity: 'low' as const,
+  forecast: { mode: 'absolute' as const, bear: 23, base: 25, bull: 27 },
 }
 
 const bundle: CardBundle = {
@@ -207,9 +187,9 @@ const bundle: CardBundle = {
       conviction: 'mid',
       checks: [
         {
-          assumption: 'co_share',
-          predicted: '16%',
-          actual: '15.5%',
+          metric: 'co_share',
+          predicted_value: '16%',
+          actual_value: '15.5%',
           outcome: '容差',
           attribution: { cause: '季节性', type: '外生' },
         },
@@ -246,17 +226,17 @@ const bundle: CardBundle = {
       conviction: 'mid',
       checks: [
         {
-          assumption: 'co_share',
-          predicted: '16%',
-          actual: '14%',
+          metric: 'co_share',
+          predicted_value: '16%',
+          actual_value: '14%',
           outcome: '偏离',
           deviation: { 变化: '连2季减速' },
           attribution: { cause: '价格战', type: '参数错' },
         },
         {
-          assumption: 'ev_pen',
-          predicted: '50%',
-          actual: '51%',
+          metric: 'ev_pen',
+          predicted_value: '50%',
+          actual_value: '51%',
           outcome: '兑现',
         },
       ],
@@ -371,7 +351,7 @@ describe('下钻(默认折叠,点开)', () => {
     await screen.findByText(/盯逻辑/)
     fireEvent.click(screen.getByRole('button', { name: /逻辑/ }))
     expect(has(/政策让电车多卖/)).toBe(true) // 大白话 claim
-    expect(has(/成本护城河/)).toBe(true) // 命门 logic_anchor(审计)
+    expect(has(/成本护城河/)).toBe(true) // 命门 logic(审计)
     expect(has(/行业销量/)).toBe(true) // 恒等式阶梯渲染
     expect(has(/容量 2826万辆/)).toBe(true) // 具体数值代入(非黑盒)
     expect(has(/元 × PE中枢/)).toBe(true) // 上一中间量(EPS)显式代入 V 计算(链路可验)
@@ -394,27 +374,27 @@ describe('下钻(默认折叠,点开)', () => {
                   key: 'co_share',
                   label: '公司份额',
                   unit: '%',
-                  proj_mode: 'delta',
-                  bear: -0.5,
-                  base: 0.5,
-                  bull: 1.5,
-                  from_fact: 'co_share@2026-07',
+                  anchor: { fact: 'co_share', as_of: '2026-07' },
+                  forecast: {
+                    mode: 'delta' as const,
+                    bear: -0.5,
+                    base: 0.5,
+                    bull: 1.5,
+                    horizon: '2026-annual',
+                  },
                   verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' as const }],
-                  logic_anchor: '成本护城河',
-                  falsify: '<13%',
+                  logic: '成本护城河',
+                  falsify_if: '<13%',
                 },
                 {
                   key: 'ghost',
                   label: '幽灵参数',
                   unit: '%',
-                  proj_mode: 'delta',
-                  bear: 1,
-                  base: 2,
-                  bull: 3,
-                  from_fact: 'nonexist@2026',
+                  anchor: { fact: 'nonexist' },
+                  forecast: { mode: 'delta' as const, bear: 1, base: 2, bull: 3 },
                   verify: [{ fact: 'co_share', at: 'quarterly', role: '终验' as const }],
-                  logic_anchor: '断环测试',
-                  falsify: 'x',
+                  logic: '断环测试',
+                  falsify_if: 'x',
                 },
               ],
               V: { bear: 1, base: 2, bull: 3 },

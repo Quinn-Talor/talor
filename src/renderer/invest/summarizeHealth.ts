@@ -3,7 +3,7 @@
 // 案卷 = 决策面(散户层链条 ①逻辑→②估值→③安全边际→④决策)+ 三下钻(专业层)。
 // 本文件把 CardBundle 派生成可渲染结构(UI 只读不算价值,见不变量③):
 //   · latestCheckpoint / summarizeHealth / latestValidity —— 逻辑健康 + 双向验证态 + gate
-//   · currentThesis / coreAssumptions —— 当前逻辑 + 命门(有 logic_anchor 的参数)
+//   · currentThesis / coreAssumptions —— 当前逻辑 + 命门(有 logic 的参数)
 //   · dualLines —— ① 双线收敛(命门 估vs实 + 双向 outcome + 兑现度)
 //   · safety —— ③ 安全边际(读 margin_of_safety + buy_trigger)
 //   · redLines —— ④ 红线聚合(命门证伪 ∪ 排雷恶化 ∪ 8红灯)
@@ -23,7 +23,7 @@ import type {
 } from '@shared/types/invest'
 import {
   computeValuationTrace,
-  resolveTraceAssumptions,
+  resolveForecast,
   type ValuationTrace,
 } from '@shared/invest/valuation-trace'
 
@@ -71,14 +71,15 @@ export function currentThesis(bundle: CardBundle | null): ThesisSnapshot | null 
   return t.versions.find((v) => v.v === t.current) ?? null
 }
 
-/** 命门 = 挂了 logic_anchor 的参数(支持逻辑的指标)。 */
+/** 命门 = 挂了 logic 的参数(支持逻辑的指标)。 */
 export function coreAssumptions(snap: ThesisSnapshot | null): ValuationAssumption[] {
-  return (snap?.valuation?.assumptions ?? []).filter((a) => !!a.logic_anchor)
+  return (snap?.valuation?.assumptions ?? []).filter((a) => !!a.logic)
 }
 
-/** 参数预估 → 一句话(取 base)。 */
+/** 参数推测量 → 一句话(取 forecast.base)。 */
 export function projBase(a: ValuationAssumption): string {
-  return a.base != null ? String(a.base) : a.bear != null ? `${a.bear}~${a.bull ?? ''}` : '—'
+  const f = a.forecast
+  return f?.base != null ? String(f.base) : f?.bear != null ? `${f.bear}~${f.bull ?? ''}` : '—'
 }
 
 // ===== ① 双线收敛(命门 估vs实 + 双向 outcome)=====
@@ -98,10 +99,10 @@ export function dualLines(bundle: CardBundle | null): {
   const cur = currentThesis(bundle)
   if (!cur) return { lines: [], realizedPct: null }
   const cp = latestCheckpoint(bundle)
-  const byKey = new Map((cp?.checks ?? []).map((c) => [c.assumption, c]))
-  // 估 = 推算后的未来值(命门 proj 解析成绝对数 + 单位),与 实(最新对账)同量纲可比 —— 不显原始增量
+  const byKey = new Map((cp?.checks ?? []).map((c) => [c.metric, c]))
+  // 估 = 推算后的未来值(命门 forecast 解析成绝对数 + 单位),与 实(最新对账)同量纲可比 —— 不显原始增量
   const resolved = new Map(
-    resolveTraceAssumptions(cur.valuation.assumptions, bundle?.facts).map((r) => [r.key, r]),
+    resolveForecast(cur.valuation.assumptions, bundle?.facts, 'now').map((r) => [r.key, r]),
   )
   const lines: DualLine[] = coreAssumptions(cur).map((a) => {
     const chk = byKey.get(a.key)
@@ -121,7 +122,7 @@ export function dualLines(bundle: CardBundle | null): {
       metric: a.label ?? a.key,
       high: true,
       projected,
-      actual: chk ? String(chk.actual) : undefined,
+      actual: chk ? String(chk.actual_value) : undefined,
       conv,
     }
   })
@@ -154,7 +155,7 @@ export function safety(bundle: CardBundle | null): SafetyView | null {
 export function redLines(bundle: CardBundle | null): string[] {
   const out: string[] = []
   for (const a of coreAssumptions(currentThesis(bundle))) {
-    if (a.falsify) out.push(a.falsify)
+    if (a.falsify_if) out.push(a.falsify_if)
   }
   for (const f of Object.values(bundle?.facts ?? {})) {
     if (f.role !== '排雷') continue
@@ -231,8 +232,8 @@ export function timelineRows(bundle: CardBundle | null): TimelineRow[] {
 /** 当前/给定逻辑版本的估值 trace(参数→中间量→V);无 valuation → null。 */
 export function valuationTrace(snap: ThesisSnapshot | null, facts?: Facts): ValuationTrace | null {
   if (!snap?.valuation) return null
-  // 锚(最新事实)→ 推算未来 → 恒等式(命门撑区间·非命门固定 base);proj_mode 缺锚 → 引擎判缺不臆造。
-  const assumps = resolveTraceAssumptions(snap.valuation.assumptions, facts)
+  // 锚(最新事实)→ 推算未来 → 恒等式(命门撑区间·非命门固定 base);forecast 缺锚 → 引擎判缺不臆造。
+  const assumps = resolveForecast(snap.valuation.assumptions, facts, 'now')
   return computeValuationTrace(snap.valuation.method, assumps)
 }
 
@@ -278,8 +279,8 @@ export function recompute(bundle: CardBundle | null): Recompute {
   const changedParams = cur.valuation.assumptions
     .filter((a) => {
       const pa = priorA.get(a.key)
-      if (pa && String(pa.base) !== String(a.base)) {
-        paramPrior[a.key] = pa.base
+      if (pa && String(pa.forecast.base) !== String(a.forecast.base)) {
+        paramPrior[a.key] = pa.forecast.base
         return true
       }
       return false
@@ -294,7 +295,7 @@ export function recompute(bundle: CardBundle | null): Recompute {
   const brk = trig?.checks.find((c) => c.outcome === '偏离' || c.outcome === '破')
   if (brk) {
     drivingFact =
-      `${brk.actual_fact ?? brk.assumption} 实${brk.actual}` +
+      `${brk.actual_as_of ?? brk.metric} 实${brk.actual_value}` +
       (brk.attribution ? ` · ${brk.attribution.type}` : '')
   }
   return { active: changed.length > 0, priorByOut, changed, changedParams, paramPrior, drivingFact }

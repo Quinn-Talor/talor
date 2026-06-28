@@ -34,11 +34,7 @@ import {
   type Health,
   type Recompute,
 } from './summarizeHealth'
-import {
-  anchorValue,
-  resolveTraceAssumptions,
-  type ValuationTrace,
-} from '@shared/invest/valuation-trace'
+import { anchorValue, resolveForecast, type ValuationTrace } from '@shared/invest/valuation-trace'
 
 // ============ Inline chip ============
 interface CardRef {
@@ -594,13 +590,14 @@ function FactsDrill({ facts }: { facts: CardBundle['facts'] }) {
 
 // ============ 下钻 · 逻辑·估值(价值传导:assumptions 参数表 + 恒等式 + V + 版本史)============
 function AssumptionRow({ a, facts }: { a: ValuationAssumption; facts: Facts }) {
-  const core = !!a.logic_anchor
+  const core = !!a.logic
   const unit = a.unit ?? ''
-  const proj = !!a.proj_mode && a.proj_mode !== 'absolute'
-  const future = resolveTraceAssumptions([a], facts)[0]
-  const anchor = proj ? anchorValue(facts, a.from_fact) : NaN
+  const f = a.forecast
+  const proj = f.mode !== 'absolute'
+  const future = resolveForecast([a], facts, 'now')[0]
+  const anchor = proj ? anchorValue(facts, a.anchor, 'now') : NaN
   const broken = proj && !Number.isFinite(anchor)
-  const op = a.proj_mode === 'delta' ? '+' : '×'
+  const op = f.mode === 'delta' ? '+' : '×'
   return (
     <li
       className={
@@ -614,7 +611,7 @@ function AssumptionRow({ a, facts }: { a: ValuationAssumption; facts: Facts }) {
       <div className="text-xs font-medium">
         {core && <span className="text-amber-500">★ </span>}
         {a.label}
-        {a.logic_anchor && <span className="text-neutral-400"> ← {a.logic_anchor}</span>}
+        {a.logic && <span className="text-neutral-400"> ← {a.logic}</span>}
         {core && <span className="ml-1 text-[10px] text-blue-500">命门</span>}
       </div>
       <div className="mt-0.5 space-y-0.5 text-[11px] text-neutral-500">
@@ -622,7 +619,7 @@ function AssumptionRow({ a, facts }: { a: ValuationAssumption; facts: Facts }) {
         {proj ? (
           broken ? (
             <div className="font-medium text-red-500">
-              ⚠ 估值链断:锚缺失({a.from_fact ?? '未挂事实'} 无最新事实,无法推算)
+              ⚠ 估值链断:锚缺失({a.anchor?.fact ?? '未挂事实'} 无最新事实,无法推算)
             </div>
           ) : (
             <div>
@@ -631,7 +628,7 @@ function AssumptionRow({ a, facts }: { a: ValuationAssumption; facts: Facts }) {
                 {anchor}
                 {unit}
               </b>
-              （{a.from_fact}·最新){` ${op} `}熊{a.bear}/中{a.base}/牛{a.bull} → 未来{' '}
+              （{a.anchor?.fact}·最新){` ${op} `}熊{f.bear}/中{f.base}/牛{f.bull} → 未来{' '}
               <b className="text-neutral-700 dark:text-neutral-200">
                 {future.bear}/{future.base}/{future.bull}
                 {unit}
@@ -640,17 +637,17 @@ function AssumptionRow({ a, facts }: { a: ValuationAssumption; facts: Facts }) {
           )
         ) : (
           <div>
-            预估 熊{a.bear}/中{a.base}/牛{a.bull}
+            预估 熊{f.bear}/中{f.base}/牛{f.bull}
             {unit}
-            <span className="text-neutral-400">（{a.from_fact ?? '—'}·直取)</span>
+            <span className="text-neutral-400">（{a.anchor?.fact ?? '—'}·直取)</span>
           </div>
         )}
         {a.verify && a.verify.length > 0 && (
           <div>验证 {a.verify.map((v) => `${v.fact}(${v.role ?? v.at})`).join(' · ')}</div>
         )}
-        {a.falsify && (
+        {a.falsify_if && (
           <div>
-            证伪 <span className="text-red-500">{a.falsify}</span>
+            证伪 <span className="text-red-500">{a.falsify_if}</span>
           </div>
         )}
         {a.market_implied && <div>市场隐含 {a.market_implied}(预期差对照)</div>}
@@ -672,12 +669,12 @@ function Ladder({
 }) {
   const byKey = new Map(assumps.map((a) => [a.key, a]))
   // 推算后的参数当前值(命门 delta/factor → 解析成代入引擎的绝对数;显真实代入值,非原始增量)
-  const resolved = new Map(resolveTraceAssumptions(assumps, facts).map((r) => [r.key, r]))
+  const resolved = new Map(resolveForecast(assumps, facts, 'now').map((r) => [r.key, r]))
   const paramVal = (k: string): string => {
     const a = byKey.get(k)
     const r = resolved.get(k)
     const u = a?.unit ?? ''
-    return `${a?.label ?? k} ${r?.base ?? a?.base ?? '?'}${u}`
+    return `${a?.label ?? k} ${r?.base ?? a?.forecast?.base ?? '?'}${u}`
   }
   // 左侧算式 = 具体运算数(不要黑盒):首步多参相乘;后续「上一中间量 op 参数」,每步代入真实数值逐环可验。
   const lhs = (s: ValuationTrace['steps'][number], i: number): string => {
@@ -739,7 +736,7 @@ function ThesisDrill({ bundle }: { bundle: CardBundle }) {
   if (!t || !cur) return <div className="text-[11px] text-neutral-400">尚无逻辑。</div>
   const v = cur.valuation
   const cores = coreAssumptions(cur)
-  const support = v.assumptions.filter((a) => !a.logic_anchor)
+  const support = v.assumptions.filter((a) => !a.logic)
   const vt = valuationTrace(cur, bundle.facts) // 下钻阶梯:从最新事实活算
   const rc = recompute(bundle)
   return (
@@ -879,7 +876,8 @@ function TimelineDrill({ bundle }: { bundle: CardBundle }) {
                   <>
                     {cp.checks.map((c, j) => (
                       <div key={j} className="text-neutral-700 dark:text-neutral-200">
-                        {c.assumption} 估{String(c.predicted)} → 实{String(c.actual)}
+                        {c.metric} 估{c.predicted_value != null ? String(c.predicted_value) : '—'} →
+                        实{String(c.actual_value)}
                         {c.deviation?.变化 && (
                           <span className="text-neutral-400"> · {c.deviation.变化}</span>
                         )}
