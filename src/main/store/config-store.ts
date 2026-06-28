@@ -43,6 +43,8 @@ interface AppConfig {
   default_recent_ratio?: number
   default_summary_ratio?: number
   max_react_steps?: number
+  /** 默认通过模式:运行时执行工具不弹 confirm 授权(危险操作仍由工具内 path-guard/黑名单硬拦)。默认 true。 */
+  auto_approve_tools?: boolean
   delegation?: DelegationConfig
   trace?: TraceConfig
 }
@@ -123,6 +125,7 @@ const DEFAULT_CONFIG: AppConfig = {
   default_context_limit: 1_000_000,
   default_recent_ratio: 0.05,
   default_summary_ratio: 0.05,
+  auto_approve_tools: true,
   delegation: DEFAULT_DELEGATION_CONFIG,
   trace: { ...DEFAULT_TRACE_CONFIG },
 }

@@ -27,6 +27,7 @@ import type { ToolConfirmPort } from '../ipc/tool-confirm'
 import { RiskGate } from './risk-gate'
 import { sessionApprovalMemory } from './session-approval-memory'
 import { sideEffectLedger } from '../repos/side-effect-ledger'
+import { ConfigStore } from '../store/config-store'
 import type { TalorBlock } from '@shared/talor-blocks/talor-block-schema'
 import { currentParent, withParent } from '../observe/trace-context'
 import { NOOP_OBSERVATION, traceRecorder } from '../observe/trace-recorder'
@@ -80,7 +81,11 @@ export async function buildTools(opts: {
   const schemas = opts.toolSchemas ?? agent.toolRegistry.listTools()
   if (schemas.length === 0 && !workspace.trim()) return undefined
 
-  const riskGate = opts.riskGate ?? new RiskGate(sessionApprovalMemory, sideEffectLedger)
+  // 默认通过模式(auto_approve_tools,默认 true):运行时执行工具不弹 confirm 授权。
+  const autoApprove =
+    (ConfigStore.getInstance().get('auto_approve_tools') as boolean | undefined) ?? true
+  const riskGate =
+    opts.riskGate ?? new RiskGate(sessionApprovalMemory, sideEffectLedger, autoApprove)
 
   const ctx: ToolExecuteContext = {
     sessionId,

@@ -3,6 +3,7 @@
 // 拦截工具调用 → 判断是否高危 → 弹 confirmTool 让用户决定。
 //
 // 评估优先级:
+//   0. autoApprove(默认通过模式)→ 跳过 confirm 直接放行(危险操作仍靠工具内 path-guard/黑名单硬拦 + ledger 审计)
 //   1. 静态 riskLevel='HIGH' (builtin bash/write/edit) → 系统生成 summary + 必须 confirm
 //   2. SessionApprovalMemory 命中 (基于 input 派生 patternKey) → 自动通过
 //   3. 代码通用 regex 扫 input 兜底 → confirm (DROP/INSERT/rm -rf/sudo 等关键字)
@@ -146,6 +147,8 @@ export class RiskGate {
   constructor(
     private readonly memory: SessionApprovalMemory,
     private readonly ledger: SideEffectLedger,
+    /** 默认通过模式:跳过 confirm 弹窗(仍走输入诊断 block + 工具内 path-guard/黑名单硬拦 + ledger 审计)。 */
+    private readonly autoApprove: boolean = false,
   ) {}
 
   /**
@@ -234,6 +237,21 @@ export class RiskGate {
     // auto-low → 直通, 不记账
     if (!risk.needsApproval) {
       return { action: 'pass', via: risk.via }
+    }
+
+    // 默认通过模式:本需 confirm 的(high-static / fallback)直接放行 —— 不弹窗,仍记账(审计
+    // user_decision='auto')。危险操作由工具内 path-guard / bash 黑名单硬拦兜底,不靠此 confirm。
+    if (this.autoApprove) {
+      const autoSummary = risk.via === 'high-static' ? `Run ${tool.name}` : risk.summary
+      this.recordLedger(
+        tool.name,
+        ctx,
+        risk.via as 'fallback' | 'high-static' | 'memory',
+        autoSummary,
+        input,
+        'auto',
+      )
+      return { action: 'pass', via: risk.via, summary: autoSummary }
     }
 
     // 需要 confirm:high-static / fallback 共用此分支

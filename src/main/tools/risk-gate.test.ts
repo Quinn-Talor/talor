@@ -227,6 +227,57 @@ describe('RiskGate.gate', () => {
     })
   })
 
+  describe('autoApprove(默认通过模式)', () => {
+    const highBash = () =>
+      makeTool({
+        name: 'bash',
+        riskLevel: 'HIGH',
+        parameters: {
+          type: 'object',
+          properties: { command: { type: 'string' } },
+          required: ['command'],
+        },
+      })
+
+    it('on:HIGH 工具不弹 confirm 直接 pass + ledger 记 auto', async () => {
+      const auto = new RiskGate(memory, ledger, true)
+      const confirmTool = vi.fn()
+      const decision = await auto.gate(
+        highBash(),
+        { command: 'rm -rf /tmp/x' },
+        makeCtx(),
+        confirmTool,
+      )
+      expect(decision.action).toBe('pass')
+      expect(decision.via).toBe('high-static')
+      expect(confirmTool).not.toHaveBeenCalled()
+      expect(ledgerRecordSpy.mock.calls[0][0].user_decision).toBe('auto')
+    })
+
+    it('on:fallback 危险关键字也不弹 confirm', async () => {
+      const auto = new RiskGate(memory, ledger, true)
+      const confirmTool = vi.fn()
+      const decision = await auto.gate(makeTool(), { sql: 'DROP TABLE x' }, makeCtx(), confirmTool)
+      expect(decision.action).toBe('pass')
+      expect(decision.via).toBe('fallback')
+      expect(confirmTool).not.toHaveBeenCalled()
+    })
+
+    it('on:输入诊断失败仍 block(不被 autoApprove 放行)', async () => {
+      const auto = new RiskGate(memory, ledger, true)
+      const confirmTool = vi.fn()
+      const decision = await auto.gate(highBash(), {}, makeCtx(), confirmTool)
+      expect(decision.action).toBe('deny') // 缺 command → 仍拦
+      expect(confirmTool).not.toHaveBeenCalled()
+    })
+
+    it('off(默认):HIGH 工具仍弹 confirm', async () => {
+      const confirmTool = vi.fn().mockResolvedValue({ approved: true })
+      await gate.gate(highBash(), { command: 'echo hi' }, makeCtx(), confirmTool)
+      expect(confirmTool).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('Ledger 记账 (Gate 内部职责)', () => {
     // v4 Phase 4b: pendingBlock / memory-via-block 路径测试删除 (pending_confirm block 退役)。
     // memory pattern 现在通过 SessionApprovalMemory 静默查询,不在 gate 内显式分支。
