@@ -757,6 +757,72 @@
   margin-left: 6px;
   font-family: var(--iv-mono);
 }
+/* 助手气泡内的 markdown(Prose):接管 Talor 全局 .prose-talor 的配色 + 尺度,
+   贴合 invest 视觉 token(--ink/--accent/--border)且收窄到聊天气泡尺寸(而非文档尺寸)。 */
+.invest-surface .bub .prose-talor {
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.invest-surface .bub .prose-talor h1,
+.invest-surface .bub .prose-talor h2,
+.invest-surface .bub .prose-talor h3,
+.invest-surface .bub .prose-talor strong {
+  color: var(--ink);
+}
+.invest-surface .bub .prose-talor h1 {
+  font-size: 15px;
+  margin: 10px 0 5px;
+}
+.invest-surface .bub .prose-talor h2 {
+  font-size: 13.5px;
+  margin: 10px 0 4px;
+  padding-bottom: 4px;
+  border-bottom-color: var(--border);
+}
+.invest-surface .bub .prose-talor h3 {
+  font-size: 12.5px;
+  margin: 8px 0 3px;
+}
+.invest-surface .bub .prose-talor h4 {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.invest-surface .bub .prose-talor p {
+  margin: 0 0 7px;
+}
+.invest-surface .bub .prose-talor ul,
+.invest-surface .bub .prose-talor ol {
+  margin: 4px 0 7px;
+  padding-left: 18px;
+}
+.invest-surface .bub .prose-talor ol > li::marker {
+  color: var(--ink-3);
+}
+.invest-surface .bub .prose-talor ul > li::before {
+  background: var(--ink-3);
+}
+.invest-surface .bub .prose-talor blockquote {
+  border-left-color: var(--border-2);
+  color: var(--ink-2);
+}
+.invest-surface .bub .prose-talor hr {
+  border-top-color: var(--border);
+  margin: 12px 0;
+}
+.invest-surface .bub .prose-talor a {
+  color: var(--accent);
+  border-bottom-color: var(--border-2);
+}
+.invest-surface .bub .prose-talor th {
+  color: var(--ink-3);
+  border-bottom-color: var(--border);
+}
+.invest-surface .bub .prose-talor td {
+  color: var(--ink);
+  border-bottom-color: var(--border-2);
+}
 .invest-surface .composer {
   border-top: 1px solid var(--border);
   padding: 9px 11px;

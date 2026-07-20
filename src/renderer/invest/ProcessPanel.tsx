@@ -7,7 +7,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../types/chat'
+import { decodeMessageContent } from '../types/chat'
 import { useChatStore } from '../store/chatStore'
+import { Prose } from '../components/markdown/Prose'
 
 export function ProcessPanel({
   sessionId,
@@ -82,12 +84,18 @@ export function ProcessPanel({
         )}
         {msgs?.map((m) => {
           const you = m.role === 'user'
+          // content 是「JSON block 串」(如 [{"type":"text","text":"# …"}]),须先解码成纯文本
+          // (顺带丢掉 tool_use/tool_result 块);助手文本走 Prose 渲 markdown,用户文本保留原样
+          // (pre-wrap,不做 markdown 解释)。不解码 → 面板直吐原始 JSON,即之前的"渲染很奇怪"。
+          const text = decodeMessageContent(m.content)
+            .map((p) => (p.type === 'text' ? p.content : ''))
+            .join('')
           return (
             <div className={'turn' + (you ? ' you' : '')} key={m.id}>
               <div className={'av ' + (you ? 'you' : 'ai')}>{you ? '你' : 'AI'}</div>
               <div className="bub">
                 {m.created_at && <span className="tt">{m.created_at.slice(0, 10)}</span>}
-                {m.content}
+                {you ? text : <Prose source={text} />}
               </div>
             </div>
           )
@@ -96,7 +104,7 @@ export function ProcessPanel({
           <div className="turn">
             <div className="av ai">AI</div>
             <div className="bub">
-              {liveText}
+              {liveText && <Prose source={liveText} />}
               {liveTools.map((t, i) => (
                 <div key={i} style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 3 }}>
                   · 调用 {t.name} {t.status === 'done' ? '✓' : t.status === 'error' ? '✗' : '…'}
