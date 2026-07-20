@@ -30,10 +30,11 @@ const sample: CardSummary[] = [
   },
 ]
 
-function stubAPI(list: CardSummary[]) {
+function stubAPI(list: CardSummary[], read = vi.fn().mockResolvedValue(null)) {
   ;(window as unknown as { talorAPI: unknown }).talorAPI = {
-    artifact: { list: vi.fn().mockResolvedValue(list), read: vi.fn() },
+    artifact: { list: vi.fn().mockResolvedValue(list), read },
   }
+  return read
 }
 
 afterEach(() => {
@@ -70,12 +71,13 @@ describe('InvestWorkspace(投研工作台)', () => {
     expect(screen.getByText(/候选与在研 · 2/)).toBeTruthy()
   })
 
-  it('U2: 默认选中首卡,点行切换活论文', async () => {
-    stubAPI(sample)
+  it('U2: 默认选首卡,点行切换选中(活论文据此取该卡)', async () => {
+    const read = vi.fn().mockResolvedValue(null)
+    stubAPI(sample, read)
     render(<InvestWorkspace onBack={() => {}} />)
-    // 默认选中第一张(茅台)→ 活论文占位提及茅台
-    expect(await screen.findByText(/已选「贵州茅台」/)).toBeTruthy()
+    // 默认选首卡(茅台)→ 活论文 ActivePaper 取 c1
+    await waitFor(() => expect(read).toHaveBeenCalledWith('stock_card', 'c1'))
     fireEvent.click(screen.getByText('比亚迪'))
-    await waitFor(() => expect(screen.getByText(/已选「比亚迪」/)).toBeTruthy())
+    await waitFor(() => expect(read).toHaveBeenCalledWith('stock_card', 'c2'))
   })
 })

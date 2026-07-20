@@ -7,6 +7,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { CardSummary, CardStatus, Validity } from '@shared/types/invest'
+import { ActivePaper } from './ActivePaper'
 
 /** 研究台 bespoke 调色板(自包含,不受平台明暗主题影响)。 */
 const DESK: CSSProperties = {
@@ -97,8 +98,8 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
         </Zone>
 
         <Zone title="活论文" hint="时光机 · 传导链 · 事实">
-          {selected ? (
-            <Empty>已选「{selected.name}」—— U3 将在此渲染活论文(时光机 / 传导链 / 事实)</Empty>
+          {selectedId ? (
+            <ActivePaper cardId={selectedId} />
           ) : (
             <Empty>选一个标的，展开它的活论文</Empty>
           )}
