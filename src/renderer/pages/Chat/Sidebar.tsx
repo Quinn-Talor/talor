@@ -23,6 +23,7 @@ export interface SidebarProps {
   onCommitRename: (id: string, title: string) => void
   onCancelRename: () => void
   onOpenSettings: () => void
+  onOpenInvest: () => void
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -115,6 +116,15 @@ export function Sidebar(props: SidebarProps) {
         )}
       </div>
 
+      {/* 投研工作台入口 — sibling above 设置(平台顶级 surface,B-ii 专属视觉) */}
+      <button
+        className="flex items-center gap-[9px] px-2 py-[7px] mx-2 rounded-md cursor-pointer text-mute hover:bg-line-2 hover:text-text transition-colors text-[12.5px] text-left w-[calc(100%-16px)]"
+        onClick={props.onOpenInvest}
+      >
+        <ChartIcon />
+        <span className="flex-1">投研工作台</span>
+      </button>
+
       {/* Settings — sibling of sb-list (NOT inside it). Spec §6.3:
           flex:1 on the list above pushes this to the very bottom.
           No border-top — visual is "last list item", structure is sibling. */}
@@ -174,6 +184,23 @@ function GearIcon() {
     >
       <circle cx="12" cy="12" r="3" />
       <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
+function ChartIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    >
+      <path d="M3 3v18h18" />
+      <path d="M7 14l3-4 3 3 4-6" />
     </svg>
   )
 }

@@ -84,9 +84,10 @@ const BUILTIN_TOOLS = [
 
 interface ChatPageProps {
   onOpenSettings: () => void
+  onOpenInvest: () => void
 }
 
-export function ChatPage({ onOpenSettings }: ChatPageProps) {
+export function ChatPage({ onOpenSettings, onOpenInvest }: ChatPageProps) {
   const {
     sessions,
     currentSessionId,
@@ -854,6 +855,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         onCommitRename={handleRenameSession}
         onCancelRename={() => setRenamingSessionId(null)}
         onOpenSettings={onOpenSettings}
+        onOpenInvest={onOpenInvest}
       />
 
       {/* Chat area — main panel (canvas bg, no gradient) */}
