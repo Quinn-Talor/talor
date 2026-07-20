@@ -33,6 +33,7 @@ import type {
   TimelineEvent,
 } from '../../shared/types/invest'
 import { computeValuationTrace, resolveForecast } from '../../shared/invest/valuation-trace'
+import { buyTriggerPrice } from './compute'
 
 export class CardValidationError extends Error {
   constructor(
@@ -457,6 +458,17 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     if (cpTrace.ok && cpTrace.V && cp.value_now) {
       cp.value_now.V = cpTrace.V // 冻结:此刻引擎重估值,入档后不回流
     }
+    // 不变量⑥:买点价由 compute(buyTriggerPrice)算,覆盖手填 —— 价值 compute 算,不让 agent 拍
+    if (cp.value_now) {
+      const mos = against.valuation.margin_of_safety
+      const bt = buyTriggerPrice({
+        bear: cp.value_now.V.bear,
+        base: cp.value_now.V.base,
+        required: mos.required,
+        anchor: mos.anchor === 'base' ? 'base' : 'bear',
+      })
+      if (bt.trigger != null) cp.value_now.margin_of_safety.buy_trigger = bt.trigger
+    }
     // 对照复盘:每条对账的预测绝对值 = 基线锚(anchor.as_of)应用 forecast,系统算定冻结(不让 agent 填增量)
     const baseline = new Map(
       resolveForecast(against.valuation.assumptions, cpFacts, 'baseline').map((r) => [r.key, r]),
@@ -518,8 +530,33 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     return this.read(id)!
   }
 
+  /** ⑩ 复盘守规矩:verdict 须与 卫星 vs 宽基 对账一致;ref_v 若给须锚已有逻辑版本。 */
   private addReview(id: string, review: ReviewEvent): CardBundle {
     this.assertCardExists(id)
+    // verdict 不能自说自话:跑赢 ⟺ 卫星>宽基;跑输 ⟺ 卫星<宽基
+    const b = review.vs_benchmark
+    if (b) {
+      if (
+        (b.verdict === '跑赢' && !(b.satellite > b.index)) ||
+        (b.verdict === '跑输' && !(b.satellite < b.index))
+      ) {
+        throw new CardValidationError(
+          'REVIEW_VERDICT_MISMATCH',
+          `复盘 verdict=${b.verdict} 与 卫星${b.satellite} vs 宽基${b.index} 不符`,
+        )
+      }
+    }
+    // ref_v 若给,须锚已有逻辑版本(不虚构回溯)
+    if (review.ref_v != null) {
+      const row = this.getRow(id)!
+      const thesis = row.thesis ? (JSON.parse(row.thesis) as Thesis) : null
+      if (!thesis || !thesis.versions.some((v) => v.v === review.ref_v)) {
+        throw new CardValidationError(
+          'REVIEW_REF_VERSION_MISSING',
+          `复盘 ref_v=${review.ref_v} 不存在(须锚已有逻辑版本)`,
+        )
+      }
+    }
     this.append(id, '复盘', review, review.at)
     return this.read(id)!
   }

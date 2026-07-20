@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { CardRepo, createCardTables, CardValidationError } from './store'
+import { buyTriggerPrice } from './compute'
 import type {
   Eligibility,
   Facts,
@@ -94,6 +95,15 @@ const checkpoint = (over: Partial<Checkpoint> = {}): Checkpoint => ({
   ...over,
 })
 
+const review = (over: Partial<ReviewEvent> = {}): ReviewEvent => ({
+  type: '复盘',
+  at: '2026-06-30',
+  vs_benchmark: { satellite: 15, index: 10, verdict: '跑赢' },
+  lesson: 'l',
+  ref_v: 1,
+  ...over,
+})
+
 const elig = (over: Partial<Eligibility> = {}): Eligibility => ({
   red_flags: 0,
   source_positive: true,
@@ -184,6 +194,60 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
     const r = repo.apply({ kind: 'setEligibility', id: c.id, eligibility: elig({ pass: false }) })
     expect(r.eligibility?.pass).toBe(false)
+  })
+
+  // L3:买点价由 compute 算(不变量⑥ —— 价值 compute 算,不手填)
+  it('addCheckpoint: buy_trigger 由 buyTriggerPrice 系统算(覆盖手填)', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapshot() })
+    const cp = checkpoint()
+    cp.value_now.margin_of_safety.buy_trigger = 99999 // 手填假值,应被系统算覆盖
+    const r = repo.apply({ kind: 'addCheckpoint', id: c.id, checkpoint: cp })
+    const saved = r.timeline.find((e) => e.type === '复查') as Checkpoint
+    const v = saved.value_now.V
+    const expected = buyTriggerPrice({
+      bear: v.bear,
+      base: v.base,
+      required: 0.2,
+      anchor: 'bear',
+    }).trigger
+    expect(saved.value_now.margin_of_safety.buy_trigger).toBe(expected)
+    expect(saved.value_now.margin_of_safety.buy_trigger).not.toBe(99999)
+  })
+
+  // L2:复盘守规矩(verdict 一致 + ref_v 真版本)
+  it('addReview: verdict 与 卫星/宽基 不符 → REVIEW_VERDICT_MISMATCH', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapshot() })
+    expectCode(
+      () =>
+        repo.apply({
+          kind: 'addReview',
+          id: c.id,
+          review: review({ vs_benchmark: { satellite: 5, index: 10, verdict: '跑赢' } }),
+        }),
+      'REVIEW_VERDICT_MISMATCH',
+    )
+  })
+
+  it('addReview: ref_v 不存在 → REVIEW_REF_VERSION_MISSING', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapshot() })
+    expectCode(
+      () => repo.apply({ kind: 'addReview', id: c.id, review: review({ ref_v: 99 }) }),
+      'REVIEW_REF_VERSION_MISSING',
+    )
+  })
+
+  it('addReview: 一致 verdict + 有效 ref_v → 落库', () => {
+    const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: c.id, facts: facts() })
+    repo.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snapshot() })
+    const r = repo.apply({ kind: 'addReview', id: c.id, review: review() })
+    expect(r.timeline.some((e) => e.type === '复盘')).toBe(true)
   })
 
   // ② 事实:白名单 + as_of + 只增不改
