@@ -829,3 +829,167 @@
   color: var(--ink-3);
   padding: 20px;
 }
+
+/* ═══ 美化 v2:时光机脊线 / 传导链竖脊 / 事实可折叠三维 ═══ */
+
+/* 时光机:节点串在脊线上,走过段着色(取代裸滑杆观感) */
+.invest-surface .tltrack {
+  position: relative;
+  padding: 6px 6px 2px;
+}
+.invest-surface .tlline {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  height: 2px;
+  background: var(--border);
+}
+.invest-surface .tlline-fill {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.35;
+}
+.invest-surface .tltrack .tlnodes {
+  position: relative;
+}
+
+/* 传导链:左竖脊 + 编号站点(替代盒中盒) */
+.invest-surface .chainflow {
+  position: relative;
+  padding-left: 26px;
+  margin: 10px 0 4px;
+}
+.invest-surface .chainflow::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--border);
+}
+.invest-surface .cstation {
+  position: relative;
+  margin-bottom: 14px;
+}
+.invest-surface .cstation:last-child {
+  margin-bottom: 0;
+}
+.invest-surface .cnode {
+  position: absolute;
+  left: -24px;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.invest-surface .cnode.good {
+  border-color: var(--good);
+  color: var(--good);
+}
+.invest-surface .cnode.solid {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.invest-surface .cstation .cstep-h {
+  margin: 0 0 5px;
+}
+.invest-surface .ltag {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* 事实:可折叠三维行 */
+.invest-surface .facts-toggle {
+  font-size: 11px;
+  color: var(--accent);
+  border: 0.5px solid var(--border-2);
+  border-radius: 6px;
+  padding: 3px 9px;
+  background: var(--surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.invest-surface .facts-toggle:hover {
+  border-color: var(--accent);
+}
+.invest-surface .fcard {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 7px;
+  overflow: hidden;
+}
+.invest-surface .fhead {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  padding: 8px 11px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  color: var(--ink);
+}
+.invest-surface .fhead .fchev {
+  font-size: 13px;
+  color: var(--ink-3);
+  align-self: center;
+}
+.invest-surface .fhead .flb {
+  color: var(--ink-2);
+  min-width: 62px;
+}
+.invest-surface .fhead .fva {
+  font-weight: 500;
+  font-family: var(--iv-mono);
+  font-size: 13px;
+}
+.invest-surface .fbody {
+  background: var(--surface-2);
+  border-top: 0.5px dashed var(--border);
+  padding: 9px 11px 10px 30px;
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 7px 10px;
+  align-items: start;
+}
+.invest-surface .fdim-l {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-weight: 500;
+  padding-top: 2px;
+}
+.invest-surface .fdim-c {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.invest-surface .fdim-c b {
+  color: var(--ink);
+}
+.invest-surface .fdim-c .mono {
+  font-family: var(--iv-mono);
+}
+.invest-surface .fspark {
+  vertical-align: -4px;
+  margin: 0 6px;
+}

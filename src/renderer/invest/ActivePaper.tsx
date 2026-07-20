@@ -135,38 +135,36 @@ function TimeMachine(props: {
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
         </svg>
-        时间线 · 时光机 —— 脊梁=逻辑版本，节点=事件；拖动/点击回看那时的论文
+        时间线 · 时光机 —— 脊梁=逻辑版本，节点=事件；点击节点回看那时的论文
       </div>
       <div className="traj">
         <b>逻辑</b> {valSeq} · <b>版本</b> v1→v{maxV} · <b>仓位</b> {pos}
       </div>
-      {chrono.length > 1 && (
-        <input
-          type="range"
-          className="tlslider"
-          min={0}
-          max={chrono.length - 1}
-          step={1}
-          value={idx}
-          onChange={(e) => onPick(Number(e.target.value))}
-        />
-      )}
-      <div className="tlnodes">
-        {chrono.map((r, i) => (
-          <button
-            key={`${r.at}-${r.kind}-${i}`}
-            className={'tltk' + (i === idx ? ' on' : '')}
-            onClick={() => onPick(i)}
-          >
-            <span className={'nd ' + nodeClass(r)} />
-            <span className="tllab">
-              {r.kind}
-              {r.isStep && r.version > 1 && <span className="verbadge">v{r.version}</span>}
-              <br />
-              <span className="dd">{r.at.slice(5, 10) || r.at}</span>
-            </span>
-          </button>
-        ))}
+      <div className="tltrack">
+        <div className="tlline" />
+        {chrono.length > 1 && (
+          <div
+            className="tlline-fill"
+            style={{ width: `calc((100% - 12px) * ${idx / (chrono.length - 1)})` }}
+          />
+        )}
+        <div className="tlnodes">
+          {chrono.map((r, i) => (
+            <button
+              key={`${r.at}-${r.kind}-${i}`}
+              className={'tltk' + (i === idx ? ' on' : '')}
+              onClick={() => onPick(i)}
+            >
+              <span className={'nd ' + nodeClass(r)} />
+              <span className="tllab">
+                {r.kind}
+                {r.isStep && r.version > 1 && <span className="verbadge">v{r.version}</span>}
+                <br />
+                <span className="dd">{r.at.slice(5, 10) || r.at}</span>
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -242,118 +240,154 @@ function CardBody(props: {
       <EventDetail node={node} />
 
       {cur && (
-        <div className="chain">
-          <div className="chain-bc">逻辑（当前 v{cur.v}）· 事实 → 逻辑 → 预期 → 估值 → 决策</div>
-
-          {/* ① 逻辑 → 预期 */}
-          <div className="cstep-h">
-            ① 逻辑 → 预期
-            {cp?.conviction && <span className="r">确信 {cp.conviction}</span>}
+        <>
+          <div className="facts-h">
+            <span className="e">传导链 · 事实 → 逻辑 → 预期 → 估值 → 决策（当前 v{cur.v}）</span>
           </div>
-          {logic.length === 0 && <div className="ler">（当前版本无挂逻辑的命门）</div>}
-          {logic.map((l) => {
-            const cls = l.broken ? 'ler bad' : l.bigJump ? 'ler warn' : 'ler'
-            const status = l.broken ? '链断·缺锚' : l.bigJump ? '大跳变·需强逻辑' : (l.conv ?? '')
-            return (
-              <div className={cls} key={l.key}>
-                <div>
-                  ★ {l.label} ← 逻辑「{l.logic}」
-                  {status && (
-                    <span
-                      style={{
-                        color: l.broken ? 'var(--bad)' : l.bigJump ? 'var(--warn)' : 'var(--ink-2)',
-                        fontWeight: 600,
-                        marginLeft: 4,
-                      }}
-                    >
-                      {status}
-                    </span>
-                  )}
-                </div>
-                <div className="flow">
-                  锚{' '}
-                  <b>
-                    {l.anchor ?? '—'}
-                    {l.unit}
-                  </b>
-                  {l.anchorAsOf ? `@${l.anchorAsOf}` : ''} → 估{' '}
-                  <b>
-                    {l.est ?? '—'}
-                    {l.unit}
-                  </b>
-                  {l.actual != null && (
-                    <>
-                      {' '}
-                      · 实测{' '}
-                      <b style={{ color: l.conv === '背离' ? 'var(--warn)' : 'var(--ink-2)' }}>
-                        {l.actual}
-                      </b>
-                    </>
-                  )}
-                </div>
+          <div className="chainflow">
+            {/* ① 逻辑 → 预期 */}
+            <div className="cstation">
+              <span className="cnode">1</span>
+              <div className="cstep-h">
+                逻辑 → 预期
+                {cp?.conviction && <span className="r">确信 {cp.conviction}</span>}
               </div>
-            )
-          })}
-
-          {/* ② 预期 → 估值 */}
-          <div className="cstep-h">
-            ② 预期 → 估值
-            {V && (
-              <span className="r n">
-                值 {V.base} · 熊{V.bear}~牛{V.bull} · {cur.valuation.method}
-              </span>
-            )}
-          </div>
-          <Ladder
-            trace={trace}
-            coreKeys={cores.map((c) => c.key)}
-            frozenV={V}
-            fallback={vFallback}
-          />
-
-          {/* 拨(what-if) */}
-          {live && cores.length > 0 && Number.isFinite(num(cores[0].forecast.base)) ? (
-            <WhatIf
-              core={cores[0]}
-              snap={cur!}
-              facts={view.facts}
-              dial={dial}
-              onDial={onDial}
-              price={sv?.price}
-            />
-          ) : (
-            <div className="frozen">
-              {live ? '此命门非数值·拨不可用' : '历史值已冻结 — 拨/重算只在「现在」可用'}
+              {logic.length === 0 && <div className="ler">（当前版本无挂逻辑的命门）</div>}
+              {logic.map((l) => {
+                const cls = l.broken ? 'ler bad' : l.bigJump ? 'ler warn' : 'ler'
+                const status = l.broken
+                  ? '链断·缺锚'
+                  : l.bigJump
+                    ? '大跳变·需强逻辑'
+                    : (l.conv ?? '')
+                return (
+                  <div className={cls} key={l.key}>
+                    <div>
+                      ★ {l.label} ← 逻辑「{l.logic}」
+                      {status && (
+                        <span
+                          style={{
+                            color: l.broken
+                              ? 'var(--bad)'
+                              : l.bigJump
+                                ? 'var(--warn)'
+                                : 'var(--ink-2)',
+                            fontWeight: 600,
+                            marginLeft: 4,
+                          }}
+                        >
+                          {status}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flow">
+                      锚{' '}
+                      <b>
+                        {l.anchor ?? '—'}
+                        {l.unit}
+                      </b>
+                      {l.anchorAsOf ? `@${l.anchorAsOf}` : ''} → 估{' '}
+                      <b>
+                        {l.est ?? '—'}
+                        {l.unit}
+                      </b>
+                      {l.actual != null && (
+                        <>
+                          {' '}
+                          · 实测{' '}
+                          <b style={{ color: l.conv === '背离' ? 'var(--warn)' : 'var(--ink-2)' }}>
+                            {l.actual}
+                          </b>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          )}
 
-          {/* ③ 安全边际 */}
-          {sv && V && sv.price != null && sv.buyTrigger != null && (
-            <SafetyRuler
-              price={sv.price}
-              buy={sv.buyTrigger}
-              vbear={V.bear}
-              vbase={V.base}
-              atBuy={sv.atBuyPoint}
-            />
-          )}
+            {/* ② 预期 → 估值 */}
+            <div className="cstation">
+              <span className="cnode">2</span>
+              <div className="cstep-h">
+                预期 → 估值
+                {V && (
+                  <span className="r n">
+                    值 {V.base} · 熊{V.bear}~牛{V.bull} · {cur.valuation.method}
+                  </span>
+                )}
+              </div>
+              <Ladder
+                trace={trace}
+                coreKeys={cores.map((c) => c.key)}
+                frozenV={V}
+                fallback={vFallback}
+              />
+              {live && cores.length > 0 && Number.isFinite(num(cores[0].forecast.base)) ? (
+                <WhatIf
+                  core={cores[0]}
+                  snap={cur}
+                  facts={view.facts}
+                  dial={dial}
+                  onDial={onDial}
+                  price={sv?.price}
+                />
+              ) : (
+                <div className="frozen">
+                  {live ? '此命门非数值·拨不可用' : '历史值已冻结 — 拨/重算只在「现在」可用'}
+                </div>
+              )}
+            </div>
 
-          {/* ④ 决策 */}
-          <div className="cdec">
-            ④ 决策{' '}
-            <span
-              className="vd"
-              style={{ color: cp?.signal?.verdict === '买' ? 'var(--good)' : 'var(--ink-2)' }}
-            >
-              {decision?.trade ?? cp?.signal?.verdict ?? '—'}
-            </span>{' '}
-            · 仓位 {traj.position != null ? `${Math.round(traj.position * 100)}%` : '0%'} ·{' '}
-            <span className="mut">非荐股</span>
+            {/* ③ 安全边际 */}
+            {sv && V && sv.price != null && sv.buyTrigger != null && (
+              <div className="cstation">
+                <span className="cnode good">3</span>
+                <div className="cstep-h">安全边际 · 现价 vs 估值</div>
+                <SafetyRuler
+                  price={sv.price}
+                  buy={sv.buyTrigger}
+                  vbear={V.bear}
+                  vbase={V.base}
+                  atBuy={sv.atBuyPoint}
+                />
+              </div>
+            )}
+
+            {/* ④ 决策 */}
+            <div className="cstation">
+              <span className="cnode solid">4</span>
+              <div className="cstep-h">决策</div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  flexWrap: 'wrap',
+                  fontSize: 11.5,
+                }}
+              >
+                <span
+                  style={{
+                    background:
+                      cp?.signal?.verdict === '买' ? 'var(--good-soft)' : 'var(--surface-2)',
+                    color: cp?.signal?.verdict === '买' ? 'var(--good)' : 'var(--ink-2)',
+                    fontWeight: 500,
+                    padding: '2px 9px',
+                    borderRadius: 6,
+                  }}
+                >
+                  {decision?.trade ? `${decision.trade}仓` : (cp?.signal?.verdict ?? '—')}
+                  {traj.position != null ? ` · ${Math.round(traj.position * 100)}%` : ''}
+                </span>
+                <span className="mut">非荐股</span>
+              </div>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
-      <FactsPanel view={view} asOf={node.at} />
+      <FactsPanel key={view.id} view={view} asOf={node.at} />
 
       <div className="guard">
         每处带源 · code-verified · 逻辑按事件版本化冻结 · <b>card(任一时刻)可由时间线重建</b>
@@ -554,7 +588,6 @@ function SafetyRuler(props: {
   const x = (v: number) => (((v - lo) / rng) * 100).toFixed(1)
   return (
     <div className="safety">
-      <div className="eyebrow">③ 安全边际 · 现价 vs 估值</div>
       <div className="sruler">
         <div className="strack" />
         <div className="szone" style={{ width: x(buy) + '%' }} />
@@ -589,43 +622,130 @@ function SafetyRuler(props: {
   )
 }
 
-// ═══ 三维事实 ═════════════════════════════════════════════════
+// ═══ 三维事实(可折叠:数据 · 趋势 · 结构)═══════════════════════
 const ARROW: Record<string, string> = { up: '↑', down: '↓', flat: '→' }
+const MOMENTUM_ZH: Record<string, string> = {
+  accelerating: '加速',
+  decelerating: '减速',
+  reversing: '反转',
+  flat: '走平',
+}
+const QUALITY: Record<string, { zh: string; color: string }> = {
+  healthy: { zh: '健康', color: 'var(--good)' },
+  mixed: { zh: '混合', color: 'var(--warn)' },
+  deteriorating: { zh: '恶化', color: 'var(--bad)' },
+}
+
+/** 数值序列 → 迷你 sparkline(≥2 个可解析数值才画;末值≥首值绿、否则红)。 */
+function Sparkline({ series }: { series: FactObservation[] }) {
+  const vals = series.map((p) => num(p.value)).filter((n) => Number.isFinite(n))
+  if (vals.length < 2) return null
+  const min = Math.min(...vals)
+  const max = Math.max(...vals)
+  const rng = max - min || 1
+  const w = 64
+  const h = 18
+  const pts = vals
+    .map(
+      (v, i) =>
+        `${((i / (vals.length - 1)) * (w - 4) + 2).toFixed(1)},${(h - 2 - ((v - min) / rng) * (h - 4)).toFixed(1)}`,
+    )
+    .join(' ')
+  const color = vals[vals.length - 1] >= vals[0] ? 'var(--good)' : 'var(--bad)'
+  return (
+    <svg className="fspark" width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 function FactsPanel({ view, asOf }: { view: CardBundle; asOf: string }) {
   const facts = view.facts
   const fresh = useMemo(() => factFreshness(facts), [facts])
   const entries = Object.entries(facts)
-  const lead = entries.filter(([, f]) => f.role === '先行')
-  const comp = entries.filter(([, f]) => f.role !== '先行' && f.level === 'company')
-  const ind = entries.filter(([, f]) => f.level === 'industry')
-  const mac = entries.filter(([, f]) => f.level === 'macro')
+  const leadKeys = entries.filter(([, f]) => f.role === '先行').map(([k]) => k)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(leadKeys)) // 先行默认展开
 
-  const group = (title: string, n2: boolean, list: [string, Fact][]) =>
-    list.length > 0 && (
-      <div key={title}>
-        <div className={'fgrp' + (n2 ? ' n2' : '')}>{title}</div>
-        {list.map(([k, f]) => (
-          <FactRow key={k} f={f} stale={fresh[k]?.stale ?? false} />
-        ))}
-      </div>
-    )
+  const allKeys = entries.map(([k]) => k)
+  const allOpen = allKeys.length > 0 && allKeys.every((k) => expanded.has(k))
+  const toggle = (k: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+
+  const groups: [string, boolean, [string, Fact][]][] = [
+    ['先行 · 验证主力', false, entries.filter(([, f]) => f.role === '先行')],
+    ['公司', true, entries.filter(([, f]) => f.role !== '先行' && f.level === 'company')],
+    ['行业', true, entries.filter(([, f]) => f.level === 'industry')],
+    ['宏观', true, entries.filter(([, f]) => f.level === 'macro')],
+  ]
 
   return (
     <>
-      <div className="facts-h">
-        <span className="e">事实 · 全部带源（as_of ≤ {asOf.slice(0, 10)}）· 三维 + 变化趋势</span>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          margin: '14px 0 6px',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 10,
+            letterSpacing: '.06em',
+            textTransform: 'uppercase',
+            color: 'var(--ink-3)',
+            fontWeight: 600,
+          }}
+        >
+          事实 · 全部带源（as_of ≤ {asOf.slice(0, 10)}）· 数据 · 趋势 · 结构
+        </span>
+        {entries.length > 0 && (
+          <button
+            className="facts-toggle"
+            onClick={() => setExpanded(allOpen ? new Set() : new Set(allKeys))}
+          >
+            {allOpen ? '收起全部' : '展开全部'}
+          </button>
+        )}
       </div>
       {entries.length === 0 && <div className="frozen">此时点尚无事实</div>}
-      {group('先行 · 验证主力', false, lead)}
-      {group('公司', true, comp)}
-      {group('行业', true, ind)}
-      {group('宏观', true, mac)}
+      {groups.map(
+        ([title, n2, list]) =>
+          list.length > 0 && (
+            <div key={title}>
+              <div className={'fgrp' + (n2 ? ' n2' : '')}>{title}</div>
+              {list.map(([k, f]) => (
+                <FactRow
+                  key={k}
+                  f={f}
+                  stale={fresh[k]?.stale ?? false}
+                  open={expanded.has(k)}
+                  onToggle={() => toggle(k)}
+                />
+              ))}
+            </div>
+          ),
+      )}
     </>
   )
 }
 
-function FactRow({ f, stale }: { f: Fact; stale: boolean }) {
+function FactRow({
+  f,
+  stale,
+  open,
+  onToggle,
+}: {
+  f: Fact
+  stale: boolean
+  open: boolean
+  onToggle: () => void
+}) {
   const last: FactObservation | undefined = f.series[f.series.length - 1]
   const ch = last?.change
   const st = last?.structure
@@ -635,36 +755,96 @@ function FactRow({ f, stale }: { f: Fact; stale: boolean }) {
     ) : f.role === '排雷' ? (
       <span className="rpill rp-mine">排雷</span>
     ) : null
+  const sources = Array.from(new Set(f.series.map((p) => p.source))).join(' · ')
+  const hasTrend = !!(
+    ch?.trend ||
+    ch?.trend_note ||
+    ch?.yoy ||
+    ch?.momentum ||
+    ch?.percentile != null ||
+    ch?.turnover_trend
+  )
+  const q = st?.quality ? QUALITY[st.quality] : null
+
   return (
-    <div className="frow">
-      <div className="l1">
-        <span className="lb">{f.label}</span>
-        {/* 事实值本身已是自描述字符串(如 "19%"/"¥2700"/"2600万"),不再叠加 unit(避免 "19%%") */}
-        <span className="va">{last?.value}</span>
+    <div className="fcard">
+      <button className="fhead" onClick={onToggle} aria-expanded={open}>
+        <span className="fchev">{open ? '▾' : '▸'}</span>
+        <span className="flb">{f.label}</span>
+        <span className="fva">{last?.value}</span>
         {ch?.trend && <span className={'arw ' + ch.trend}>{ARROW[ch.trend]}</span>}
         {ch?.trend_note && <span className="tnote">{ch.trend_note}</span>}
-        {ch?.yoy && <span className="tnote">{ch.yoy}</span>}
-        {rp}
+        {rp && <span style={{ marginLeft: 'auto' }}>{rp}</span>}
         <span className="fas" style={{ marginLeft: rp ? 6 : 'auto' }}>
           @{last?.as_of}
           {last?.tier ? ` · ${last.tier}` : ''}
           {stale ? ' · 过时' : ''}
         </span>
-      </div>
-      {st?.note && (
-        <div className="fstruct">
-          结构 {st.note}
-          {st.components?.map((c, i) => (
-            <span
-              key={i}
-              className={
-                'spill ' +
-                (c.signal === 'good' ? 'sp-good' : c.signal === 'bad' ? 'sp-bad' : 'sp-n')
-              }
-            >
-              {c.name}
+      </button>
+      {open && (
+        <div className="fbody">
+          <span className="fdim-l">数据</span>
+          <div className="fdim-c">
+            <span className="mono">{f.series.map((p) => p.value).join(' → ')}</span>
+            <Sparkline series={f.series} />
+            <span style={{ color: 'var(--ink-3)', fontSize: 11 }}>
+              源 {sources} · {f.series.length} 期
             </span>
-          ))}
+          </div>
+          {hasTrend && (
+            <>
+              <span className="fdim-l">趋势</span>
+              <div className="fdim-c">
+                {ch?.trend && <span className={'arw ' + ch.trend}>{ARROW[ch.trend]} </span>}
+                {ch?.trend_note ?? ch?.yoy ?? ''}
+                {ch?.momentum && (
+                  <>
+                    {' '}
+                    · 动能 <b>{MOMENTUM_ZH[ch.momentum] ?? ch.momentum}</b>
+                  </>
+                )}
+                {ch?.percentile != null && (
+                  <>
+                    {' '}
+                    · 历史分位 <b>{ch.percentile}%</b>
+                  </>
+                )}
+                {ch?.turnover_trend && (
+                  <>
+                    {' '}
+                    · 周转 <b>{ch.turnover_trend}</b>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+          {st?.note && (
+            <>
+              <span className="fdim-l">结构</span>
+              <div className="fdim-c">
+                {st.note}
+                {q && (
+                  <>
+                    {' '}
+                    · 质量 <b style={{ color: q.color }}>{q.zh}</b>
+                  </>
+                )}
+                {st.components?.map((c, i) => (
+                  <span
+                    key={i}
+                    className={
+                      'spill ' +
+                      (c.signal === 'good' ? 'sp-good' : c.signal === 'bad' ? 'sp-bad' : 'sp-n')
+                    }
+                    style={{ marginLeft: 4 }}
+                  >
+                    {c.name}
+                    {c.value ? ` ${c.value}` : ''}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

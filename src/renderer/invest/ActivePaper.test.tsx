@@ -2,8 +2,10 @@
 // 活论文(demo 版):时光机 + 传导链(ler + 恒等式 ladder)+ 事实 + 时光机回拨。
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor, configure } from '@testing-library/react'
 import { ActivePaper } from './ActivePaper'
+
+configure({ asyncUtilTimeout: 3000 }) // 全量并行下抗初始异步加载抖动
 import type { CardBundle } from '@shared/types/invest'
 
 const V1 = '政策驱动·护城河建立'
@@ -53,6 +55,12 @@ const full: CardBundle = {
           change: { trend: 'up', trend_note: '14→16' },
         },
       ],
+    },
+    rev: {
+      level: 'company',
+      label: '营收',
+      unit: '亿',
+      series: [{ value: '6800亿', as_of: '2026-03', source: '年报' }],
     },
   },
   thesis: {
@@ -137,7 +145,8 @@ describe('ActivePaper(活论文 · demo 版)', () => {
     stubRead(full)
     const { container } = render(<ActivePaper cardId="c-byd" />)
     await waitFor(() => expect(container.querySelector('.tlwrap')).toBeTruthy())
-    expect(container.querySelector('.chain')).toBeTruthy()
+    expect(container.querySelector('.chainflow')).toBeTruthy() // 竖直因果链
+    expect(container.querySelectorAll('.cstation').length).toBeGreaterThanOrEqual(3) // 站点
     expect(container.querySelector('.ler')).toBeTruthy() // 逻辑→预期
     expect(container.querySelector('.ladder')).toBeTruthy() // 恒等式阶梯
     expect(container.querySelectorAll('.tltk').length).toBeGreaterThanOrEqual(3) // 建立+2复查节点
@@ -156,6 +165,20 @@ describe('ActivePaper(活论文 · demo 版)', () => {
     const txt = container.textContent ?? ''
     expect(txt).toContain('历史·只读·已冻结')
     expect(txt).toContain(V1)
+  })
+
+  it('事实三维可折叠:先行默认展开,展开全部铺开其余', async () => {
+    stubRead(full)
+    const { container, getByText } = render(<ActivePaper cardId="c-byd" />)
+    await waitFor(() => expect(container.querySelector('.fcard')).toBeTruthy())
+    // 先行(份额)默认展开 → 1 个三维体,含"数据/趋势"维标签
+    expect(container.querySelectorAll('.fbody').length).toBe(1)
+    const txt = container.textContent ?? ''
+    expect(txt).toContain('数据')
+    expect(txt).toContain('趋势')
+    // 展开全部 → 两条事实(份额 + 营收)都铺开
+    fireEvent.click(getByText('展开全部'))
+    await waitFor(() => expect(container.querySelectorAll('.fbody').length).toBe(2))
   })
 
   it('bundle 缺失 → 载入态,不崩', async () => {

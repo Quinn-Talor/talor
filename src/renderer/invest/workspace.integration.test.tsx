@@ -8,8 +8,10 @@
 //   → 点历史节点 → 传导链回拨到旧版本(reconstruct 全栈打通)。
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor, configure } from '@testing-library/react'
 import { InvestWorkspace } from './InvestWorkspace'
+
+configure({ asyncUtilTimeout: 3000 }) // 全量并行下抗初始异步加载抖动
 import type { CardBundle, CardSummary } from '@shared/types/invest'
 import type { ChatMessage } from '../types/chat'
 
