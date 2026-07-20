@@ -76,10 +76,11 @@ const CARD_WRITE_TOOLS = [
  */
 function deniedWriteTools(agentId: string): ReadonlySet<string> {
   switch (agentId) {
-    // 域 specialist:只做分析,fan-out 结构化输出交主 agent 落卡,自身零写权限
+    // 域 specialist + 空方·证伪官:只做分析/证伪,fan-out 交主 agent,自身零写权限(读/检索/compute 全保留)
     case 'stock-specialist':
     case 'industry-research':
     case 'macro-research':
+    case 'short-thesis':
       return new Set(CARD_WRITE_TOOLS)
     // 复盘:只读历史 + 唯一写口 add_review(spec §6.3 复盘=只读历史)
     case 'review-analyst':
@@ -106,7 +107,7 @@ export const investFeatureMain: TalorFeatureMain = {
     log.info('[invest] feature initialized — card tables ready')
   },
 
-  // ② agent:5 agent,工具按角色收窄真相库写权限(受限盒子):主 23 / 域 specialist 16 / 复盘 17。
+  // ② agent:6 agent,工具按角色收窄真相库写权限(受限盒子):主 24 / 域 specialist·空方 17 / 复盘 18。
   //    create_card 经 rootSessionId 把 origin 上溯到根会话(S3)。
   agents(): FeatureAgent[] {
     if (!investStore) throw new Error('[invest] agents() called before init()')
