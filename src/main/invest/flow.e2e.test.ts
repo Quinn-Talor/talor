@@ -98,6 +98,16 @@ const SNAPSHOT = {
     V: { bear: 210, base: 290, bull: 380 },
     margin_of_safety: { required: 0.25, anchor: 'bear', required_basis: '区间宽' },
   },
+  challenge: {
+    output: {
+      target: 'thesis',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
 }
 const CHECKPOINT = {
   type: '复查',
@@ -123,8 +133,18 @@ const CHECKPOINT = {
     margin_of_safety: { to_bear: '+4%', vs_required: '达标', at_buy_point: true },
   },
   gate: { state: '通行', reason: [] },
-  spawned_v: null,
+  spawned_v: 2, // validity=校准 → 须出新版本(CALIBRATE_NO_SPAWN)
   signal: { verdict: '买', reason: '边际达标' },
+  challenge: {
+    output: {
+      target: 'checkpoint',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
 }
 
 describe('invest 建卡闭环 e2e(新)', () => {

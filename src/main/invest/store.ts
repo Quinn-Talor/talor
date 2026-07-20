@@ -223,6 +223,43 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
     }
   }
 
+  /** 回程边:跨同 code 的所有卡,取其复盘 lesson/attribution(供下一轮建卡复用)。 */
+  priorLessons(code: string): {
+    code: string
+    card_id: string
+    ref_v?: number
+    lesson?: string
+    attribution?: ReviewEvent['attribution']
+    at: string
+  }[] {
+    const target = normalizeCode(code)
+    const out: {
+      code: string
+      card_id: string
+      ref_v?: number
+      lesson?: string
+      attribution?: ReviewEvent['attribution']
+      at: string
+    }[] = []
+    for (const s of this.listAll()) {
+      if (normalizeCode(s.code) !== target) continue
+      const b = this.read(s.id)
+      for (const e of b?.timeline ?? []) {
+        if (e.type !== '复盘') continue
+        const r = e as ReviewEvent
+        out.push({
+          code: s.code,
+          card_id: s.id,
+          ref_v: r.ref_v,
+          lesson: r.lesson,
+          attribution: r.attribution,
+          at: r.at,
+        })
+      }
+    }
+    return out
+  }
+
   /** 池子:所有卡的摘要(当前逻辑一句话 + 最新有效性),最近更新在前。供工作台左栏。 */
   listAll(): CardSummary[] {
     const rows = this.db
@@ -325,6 +362,12 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
    */
   private addThesisVersion(id: string, snap: ThesisSnapshot): CardBundle {
     this.assertCardExists(id)
+    if (!snap.challenge?.output || !snap.challenge?.adjudication?.verdict) {
+      throw new CardValidationError(
+        'THESIS_NO_CHALLENGE',
+        '立论须先过空方:add_thesis 缺 challenge(空方证伪 + PM 裁决)。委托 short-thesis 挑战草案后再落卡。',
+      )
+    }
     const facts = JSON.parse(this.getRow(id)!.facts) as Facts
     const factKeys = new Set(Object.keys(facts))
     const assumptions = snap.valuation?.assumptions
@@ -398,6 +441,23 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         if (!Array.isArray(a.verify) || a.verify.length === 0) {
           throw new CardValidationError('CORE_NO_VERIFY', `命门「${name}」无 verify(验收映射)`)
         }
+        // 命门锚可信硬闸:显式低级来源(T3/compute)不得作命门锚,除非同点另有 T1 或 T2×≥2 源交叉;
+        // 未标级 → 已过 addFacts 白名单,按可信 grandfather(不阻断存量/未标级数据)。
+        const anchorSeries = facts[a.anchor!.fact]?.series ?? []
+        const anchorObs = a.anchor?.as_of
+          ? anchorSeries.filter((o) => o.as_of === a.anchor!.as_of)
+          : anchorSeries
+        const tiers = anchorObs.map((o) => o.tier)
+        const srcCount = new Set(anchorObs.map((o) => o.source)).size
+        const hasT1 = tiers.includes('T1')
+        const t2crossed = tiers.includes('T2') && srcCount >= 2
+        const anyLow = tiers.includes('T3') || tiers.includes('compute')
+        if (anyLow && !hasT1 && !t2crossed) {
+          throw new CardValidationError(
+            'ANCHOR_UNTRUSTED',
+            `命门「${name}」锚事实「${a.anchor!.fact}@${a.anchor?.as_of ?? '*'}」不可信:显式低级来源(T3/compute)不得作命门锚,需 T1 或 T2×≥2 源交叉。`,
+          )
+        }
       }
       for (const vh of a.verify ?? []) {
         if (!factKeys.has(factRefKey(vh.fact))) {
@@ -465,12 +525,34 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
   /** ④ 复查锚出身版本(against_v 存在)不回溯。 */
   private addCheckpoint(id: string, cp: Checkpoint): CardBundle {
     this.assertCardExists(id)
+    if (!cp.challenge?.output || !cp.challenge?.adjudication?.verdict) {
+      throw new CardValidationError(
+        'CHECKPOINT_NO_CHALLENGE',
+        '复查裁定须先过空方:add_checkpoint 缺 challenge(空方证伪 + PM 裁决)。',
+      )
+    }
     const row = this.getRow(id)!
     const thesis = row.thesis ? (JSON.parse(row.thesis) as Thesis) : null
     if (!thesis || !thesis.versions.some((v) => v.v === cp.against_v)) {
       throw new CardValidationError(
         'CHECKPOINT_NO_VERSION',
         `复查 against_v=${cp.against_v} 不存在(须锚已有逻辑版本,不回溯)`,
+      )
+    }
+    // 薄守卫:裁定须推进循环状态,且与 checks 结论自洽
+    if ((cp.validity === '校准' || cp.validity === '证伪') && cp.spawned_v == null) {
+      throw new CardValidationError(
+        'CALIBRATE_NO_SPAWN',
+        `validity=${cp.validity} 须出新版本(spawned_v 非空):校准/证伪意味着逻辑变了。`,
+      )
+    }
+    if (
+      (cp.checks ?? []).some((c) => c.outcome === '破') &&
+      (cp.validity === '持有' || cp.validity === '强化')
+    ) {
+      throw new CardValidationError(
+        'OUTCOME_VALIDITY_MISMATCH',
+        `有对账 outcome=破 却判 validity=${cp.validity}:破=证伪,不能持有/强化。`,
       )
     }
     // 不变量③:复查重估 V 由引擎算(against_v 版假设 × 当前最新事实)→ 冻结入档(时光机历史不漂移)
@@ -558,6 +640,12 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
   /** ⑩ 复盘守规矩:verdict 须与 卫星 vs 宽基 对账一致;ref_v 若给须锚已有逻辑版本。 */
   private addReview(id: string, review: ReviewEvent): CardBundle {
     this.assertCardExists(id)
+    if (review.ref_v == null) {
+      throw new CardValidationError(
+        'REVIEW_NO_REF_VERSION',
+        '复盘须挂逻辑版本 ref_v(复盘的是哪一版论点);无 ref_v 无法回溯兑现。',
+      )
+    }
     // verdict 不能自说自话:跑赢 ⟺ 卫星>宽基;跑输 ⟺ 卫星<宽基
     const b = review.vs_benchmark
     if (b) {

@@ -61,6 +61,16 @@ const snapshot = (): ThesisSnapshot => ({
     V: { bear: 210, base: 290, bull: 380 },
     margin_of_safety: { required: 0.2, anchor: 'bear' },
   },
+  challenge: {
+    output: {
+      target: 'thesis',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
 })
 const checkpoint = (): Checkpoint => ({
   type: '复查',
@@ -77,6 +87,16 @@ const checkpoint = (): Checkpoint => ({
   gate: { state: '通行' },
   spawned_v: null,
   signal: { verdict: '等', reason: 'r' },
+  challenge: {
+    output: {
+      target: 'checkpoint',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
 })
 const decision = (): DecisionEvent => ({
   type: '决策',

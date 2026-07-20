@@ -61,6 +61,16 @@ const snapshot: ThesisSnapshot = {
     V: { bear: 210, base: 290, bull: 380 },
     margin_of_safety: { required: 0.2 },
   },
+  challenge: {
+    output: {
+      target: 'thesis',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
 }
 
 describe('card-tools (新)', () => {
@@ -70,7 +80,7 @@ describe('card-tools (新)', () => {
     ;({ store, byName } = tools())
   })
 
-  it('返回 9 个工具,名称齐全', () => {
+  it('返回 10 个工具,名称齐全', () => {
     expect(Object.keys(byName).sort()).toEqual(
       [
         'create_card',
@@ -82,6 +92,7 @@ describe('card-tools (新)', () => {
         'add_decision',
         'add_review',
         'get_timeline',
+        'get_prior_lessons',
       ].sort(),
     )
   })

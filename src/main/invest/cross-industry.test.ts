@@ -199,6 +199,16 @@ const snapshot = (f: IndustryFixture): ThesisSnapshot => {
       V: { bear: 80, base: 100, bull: 120 },
       margin_of_safety: { required: 0.2, anchor: 'bear' },
     },
+    challenge: {
+      output: {
+        target: 'thesis',
+        weakest_assumption: f.driver.basisKey,
+        refutation: 'r',
+        suggested_verdict: '维持',
+        severity: 'mid',
+      },
+      adjudication: { verdict: 'reject', note: 'n' },
+    },
   }
 }
 
@@ -217,6 +227,16 @@ const checkpoint = (against_v = 1, basisKey = 'x'): Checkpoint => ({
   gate: { state: '通行' },
   spawned_v: null,
   signal: { verdict: '买', reason: '边际达标' },
+  challenge: {
+    output: {
+      target: 'checkpoint',
+      weakest_assumption: basisKey,
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
 })
 
 describe('跨行业验证(新 schema + 配模式)', () => {

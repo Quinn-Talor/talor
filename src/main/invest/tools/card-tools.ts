@@ -286,7 +286,7 @@ function def<S extends z.ZodTypeAny>(
   }
 }
 
-/** 工厂:返回 9 个 card 工具(注入 store)。resolveRootSession:S3 把 ctx.sessionId 上溯根会话作 origin。 */
+/** 工厂:返回 10 个 card 工具(注入 store)。resolveRootSession:S3 把 ctx.sessionId 上溯根会话作 origin。 */
 export function createCardTools(
   store: CardRepo,
   resolveRootSession: (sid: string) => string = (s) => s,
@@ -404,6 +404,12 @@ export function createCardTools(
           if (!id) return NOT_FOUND(i.card_id)
           return store.read(id)!.timeline
         }),
+    ),
+    def(
+      'get_prior_lessons',
+      '读同一股票代码历史卡的复盘教训(回程边:建卡/立论前先看上轮教训)。入参 code=股票代码。',
+      z.object({ code: z.string().describe('股票代码') }),
+      (i) => run(() => store.priorLessons(i.code)),
     ),
   ]
 }

@@ -56,6 +56,16 @@ const snapshot = (over: Partial<ThesisSnapshot> = {}): ThesisSnapshot => ({
     V: { bear: 210, base: 290, bull: 380 },
     margin_of_safety: { required: 0.2, anchor: 'bear' },
   },
+  challenge: {
+    output: {
+      target: 'thesis',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
   ...over,
 })
 
@@ -92,6 +102,16 @@ const checkpoint = (over: Partial<Checkpoint> = {}): Checkpoint => ({
   gate: { state: '通行' },
   spawned_v: null,
   signal: { verdict: '等', reason: 'r' },
+  challenge: {
+    output: {
+      target: 'checkpoint',
+      weakest_assumption: 'co_share',
+      refutation: 'r',
+      suggested_verdict: '维持',
+      severity: 'mid',
+    },
+    adjudication: { verdict: 'reject', note: 'n' },
+  },
   ...over,
 })
 
@@ -533,6 +553,7 @@ describe('CardRepo (价值链严谨化 schema)', () => {
       id: c.id,
       checkpoint: checkpoint({
         validity: '证伪',
+        spawned_v: 2, // 证伪 → 须出新版本(CALIBRATE_NO_SPAWN);此处仅为过闸,断言在下游决策
         value_now: {
           V: { bear: 210, base: 265, bull: 350 },
           margin_of_safety: { at_buy_point: true },
@@ -654,6 +675,7 @@ describe('CardRepo (价值链严谨化 schema)', () => {
       at: 'x',
       vs_benchmark: { satellite: 0.18, index: 0.12, verdict: '跑赢' },
       lesson: 'l',
+      ref_v: 1,
     }
     const r = repo.apply({ kind: 'addReview', id: c.id, review })
     expect(r.timeline).toHaveLength(2) // 复查 + 复盘
