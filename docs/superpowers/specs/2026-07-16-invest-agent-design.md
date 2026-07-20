@@ -5,7 +5,7 @@
 > **关联**：Talor invest feature（`src/main/invest/` + `src/renderer/invest/`），承接分支 `feature/investment-agent`
 > **文档定位**：设计 spec（做什么 / 为什么 / 架构怎么定），不含逐任务实施步骤 —— 由 implementation plan 承接。
 > **可点原型**：完整流程 demo 已产出并逐项验证（三区 + 时光机回放 + 传导链拨即重算 + 事实趋势 + 报问拨挑 + 深浅色）。
-> **修订**：v1.1（2026-07-16）—— 回填时间轴忠实投影（§5.2）；更正 §8.2（读真实 schema：`thesis.versions` 已版本化 → 时光机零 schema 改动）；§11 增 护城河可证伪(MVP)/因果传导(v-next)。承接 v1.0（系统整理·预期差/资格赛/受限盒子）、v0.3（交互三区·时光机·对齐旧 Talor DecisionSurface + FactRow）。
+> **修订**：v1.2（2026-07-16）—— **基线变更（B-ii）**：invest 工作台采用 demo 的三区布局 + **专属视觉身份**，作为**新的平台顶层 surface**；§9.2 原列 v-next 的平台改造**提前进 MVP**，「平台不动 / 骑现有壳」作废。demo artifact 升为**视觉 + 交互参照规格**。承接 v1.1（时间轴忠实投影·§8.2 时光机零 schema 改动）、v1.0、v0.3。
 
 ---
 
@@ -13,9 +13,9 @@
 
 - **是什么**：AI-native 投研伙伴，替散户做他做不到的严谨脑力活（读遍权威源、建因果、算估值、持续盯、对账复盘），把「好生意 × 合理价 × 耐心」这个散户唯一能赢的游戏变得可执行。
 - **核心理念与 Talor 一致**：目标驱动、代码强制硬约束、prompt 软引导。
-- **只改两层**：① 交互（三区 + 活论文上中下 + 时光机）② 执行（真相库写入闸门 + 按 agent 收窄工具，**不换 ReAct 引擎**）。领域模型 / card schema / 方法论 / 已落地硬关**保留**。
+- **改动两层**：① **交互（重建为三区工作台 + 投研专属视觉，新平台 surface）** ② 执行（真相库写入闸门 + 按 agent 收窄工具，**不换 ReAct 引擎**）。领域模型 / card schema / 方法论 / 已落地硬关**保留**。
 - **执行第一原则**：**AI 拿主意 / 代码守规矩** —— 守真相库闸门 + 守工具边界，**不接管流程**。
-- **架构一句话**：平台不动；invest 内 = 交互重做（骑 artifact Inline/Panel）+ card-repo 写入 Zod 闸门 + 按 agent 收窄工具 + 几个验证型工具 + 逻辑显式版本化。复用约八成。
+- **架构一句话**：**执行层复用 Talor（不换 ReAct + 闸门/工具/agent 复用），UI 层重建** —— invest 新增一个**三区工作台顶层 surface + 投研专属视觉**（需动平台：App.tsx surface + feature-page 机制）。执行层复用高，**UI 层是本次主要建设**。
 
 ---
 
@@ -71,12 +71,12 @@
 
 ### 3.2 本次改动的两层
 
-1. **交互（重做）**：三区（池子 / 活论文 / 分析过程）+ 活论文上中下（时光机 / 传导链 / 事实）+ 报问拨挑。
+1. **交互（重建为专属工作台）**：**新增三区工作台顶层 surface**（池子 / 活论文 / 分析过程）+ 活论文上中下（时光机 / 传导链 / 事实）+ 报问拨挑；**采用 demo 的布局与专属视觉身份**（demo = 参照规格）。**此处要动平台**（App.tsx 顶层 surface + feature-page 注册）。
 2. **执行（不换引擎，加约束）**：① 真相库写入闸门（Zod + 硬关 + 冻结）② 按 agent 收窄工具白名单。
 
 ### 3.3 明确不做
 
-不造代码编排 DAG、不换执行引擎、不强制 reasoning turn 输出 schema、不做 invest-only 核心 chrome。理由：纪律的安全在写入闸门已保证；DAG 只增僵硬不增安全、逆 Talor 纹理；要扩就扩成通用能力。
+不造代码编排 DAG、不换执行引擎（ReAct）、不强制 reasoning turn 输出 schema。理由：纪律的安全在写入闸门已保证；DAG 只增僵硬不增安全、逆 Talor 纹理。**注**：原「不做 invest-only chrome」随 B-ii 作废 —— invest 工作台是专属 surface + 专属视觉；但**承载它的平台机制（顶层 surface 注册 = feature-page）应做成通用**，只是 invest 的页面内容/视觉是专属的。
 
 ---
 
@@ -255,7 +255,8 @@
 ### 9.2 平台演进路线（全通用能力，非 invest-only）
 
 - **now（feature 内，零/轻）**：artifact Inline 富块词典（传导链/时光机/事实）、对话、元素级问拨挑、信任标记、侧栏投研分组。
-- **v-next（通用小改核心）**：① document-primary 主 surface（中栏活论文当主视图，抽屉→可 pin 常驻）② 常驻分析对话面板 ③ `artifact:changed` 推送（活文档 live）④ 时间轴增强：事实观测双轨（先行指标 as_of 密集流）+ "此版逻辑立足哪批事实"对齐标注。
+- **MVP（B-ii 提前）**：① 三区工作台顶层 surface（feature-page 机制，通用）② 池子 rail ③ 活论文中栏 + 时光机 ④ 分析过程对话集成。—— 原列为 v-next 的平台改造（document-primary surface / 常驻对话）因选 B-ii 提前进 MVP。
+- **v-next（仍延后）**：`artifact:changed` 推送（活文档 live 自动刷）· 时间轴双轨事实流 + "此版逻辑立足哪批事实"标注 · F 拨 what-if · D-预警 专用工具 · 后台自动盯 · 跨股 dashboard。
 - **v2（通用中改核心）**：`registerPage`（feature 贡献顶层 surface，承载跨股待办 dashboard）、`artifact:list` 聚合读口。
 
 ### 9.3 时光机对写入的要求
@@ -270,7 +271,7 @@
 
 建立（域 fan-out + 落卡闸门）→ 活论文（时光机 + 传导链 + 事实 + 拨）→ 对账（手动触发）→ 复盘（单次归因）。观察台 = 池子（session 侧栏投研分组）+ 手动"该复查"入口。
 
-> **MVP 载体骑现有壳**：活论文的全部内容（时光机/传导链/事实/拨）用 **artifact Panel（feature React）** 渲染即可实现（✅ now）；对话走 chat、池子走 session 侧栏。**"中栏主 surface + 常驻对话"的三列并排布局是 v-next 的平台增强（§9.2）** —— demo 展示的是目标形态，MVP 先骑现有壳交付相同内容。
+> **MVP 载体 = 专属三区工作台（B-ii）**：新增 invest 顶层 surface（三区：池子 / 活论文 / 分析过程），采用 demo 的布局 + **投研专属视觉**（demo = 视觉/交互参照规格）。**不再骑现有 drawer 壳** —— 这是本次主要建设，含平台 surface 改动。执行层（闸门/工具/agent）复用不变。F 拨 what-if 与 D-预警 专用工具仍留 v-next。
 
 ### 10.2 明确推迟
 
