@@ -8,6 +8,8 @@ import {
   dualLines,
   coreLogicLines,
   factFreshness,
+  reconstructCardAt,
+  currentThesis,
 } from './summarizeHealth'
 import type {
   CardBundle,
@@ -314,5 +316,81 @@ describe('emoji', () => {
     expect(gateEmoji('否决' as GateState)).toBe('🔴')
     expect(gateEmoji('节流' as GateState)).toBe('🟠')
     expect(gateEmoji(null)).toBe('⚪')
+  })
+})
+
+describe('reconstructCardAt — 时光机切片(历史冻结·现在可拨)', () => {
+  // 建卡 v1@2026-03 → 复查@2026-04 → 决策@2026-05 → 出 v2@2026-06 → 复查@2026-07
+  const full: CardBundle = {
+    ...bundle([
+      cp({ at: '2026-04-30', against_v: 1 }),
+      { type: '决策', at: '2026-05-10', trade: '建', reason: 'r', based_v: 1 },
+      cp({ at: '2026-07-31', against_v: 2, spawned_v: null }),
+    ]),
+    facts: {
+      co_share: {
+        level: 'company',
+        label: '份额',
+        unit: '%',
+        series: [
+          { value: '14%', as_of: '2026-03', source: 's' },
+          { value: '16%', as_of: '2026-07', source: 's' },
+        ],
+      },
+    },
+    thesis: {
+      current: 2,
+      versions: [
+        {
+          v: 1,
+          at: '2026-03',
+          scope: '建立',
+          claim: 'v1',
+          profit_type: '成长',
+          valuation: {
+            method: 'pe',
+            assumptions: [],
+            V: { bear: 1, base: 2, bull: 3 },
+            margin_of_safety: { required: 0.2 },
+          },
+        },
+        {
+          v: 2,
+          at: '2026-06',
+          scope: '校准',
+          claim: 'v2',
+          profit_type: '成长',
+          valuation: {
+            method: 'pe',
+            assumptions: [],
+            V: { bear: 2, base: 3, bull: 4 },
+            margin_of_safety: { required: 0.2 },
+          },
+        },
+      ],
+    },
+  }
+
+  it('切到决策时点 2026-05-10:事实/逻辑版本/时间线都截到 ≤T,current=v1(v2 尚未出)', () => {
+    // T 取时间线节点的真实时戳(用户点节点触发);月粒度事实/版本靠前缀比较正确纳入
+    const t = reconstructCardAt(full, '2026-05-10')
+    expect(t.facts.co_share.series.map((p) => p.as_of)).toEqual(['2026-03']) // 丢 2026-07
+    expect(t.thesis?.versions.map((v) => v.v)).toEqual([1]) // v2@2026-06 未纳入
+    expect(currentThesis(t)?.v).toBe(1) // current 拨回 v1
+    expect(t.timeline.map((e) => e.at)).toEqual(['2026-04-30', '2026-05-10']) // 丢 2026-07 复查
+  })
+
+  it('切到 2026-02(建卡前):无逻辑 + 无事实 + 空时间线', () => {
+    const t = reconstructCardAt(full, '2026-02')
+    expect(t.thesis).toBeNull()
+    expect(t.facts.co_share).toBeUndefined()
+    expect(t.timeline).toEqual([])
+  })
+
+  it('切到现在(2026-12):等价全量,current=v2', () => {
+    const t = reconstructCardAt(full, '2026-12')
+    expect(t.thesis?.versions).toHaveLength(2)
+    expect(currentThesis(t)?.v).toBe(2)
+    expect(t.timeline).toHaveLength(3)
   })
 })

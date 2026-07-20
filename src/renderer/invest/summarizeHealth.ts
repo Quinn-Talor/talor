@@ -347,6 +347,27 @@ export function timelineRows(bundle: CardBundle | null): TimelineRow[] {
   return rows
 }
 
+// ===== 时光机:重建 card(T) —— 把 bundle 切到时点 T,派生函数原样复用 =====
+// 历史冻结只读、现在可拨:as_of/at ≤ T 的事实/逻辑版本/时间线才纳入;current 逻辑 = ≤T 最新版。
+// 切完的 bundle 喂给上面任何派生(coreLogicLines / valuationTrace / safety / …)即得 T 时刻视图。
+export function reconstructCardAt(bundle: CardBundle, t: string): CardBundle {
+  // 事实:每 key 的 series 只留 as_of ≤ T(空则丢弃该 key)
+  const facts: Facts = {}
+  for (const [k, f] of Object.entries(bundle.facts)) {
+    const series = f.series.filter((p) => p.as_of <= t)
+    if (series.length > 0) facts[k] = { ...f, series }
+  }
+  // 逻辑:只留 at ≤ T 的版本;current 指向 ≤T 最新版。T 早于建卡 → 无逻辑
+  let thesis = bundle.thesis
+  if (thesis) {
+    const versions = thesis.versions.filter((v) => v.at <= t)
+    thesis = versions.length > 0 ? { ...thesis, versions, current: versionAt(versions, t) } : null
+  }
+  // 时间线:只留 at ≤ T
+  const timeline = bundle.timeline.filter((e) => e.at <= t)
+  return { ...bundle, facts, thesis, timeline }
+}
+
 // ===== 估值恒等式阶梯 + 重算(value-chain-rigor §8.3 / §9)=====
 
 /** 当前/给定逻辑版本的估值 trace(参数→中间量→V);无 valuation → null。 */
