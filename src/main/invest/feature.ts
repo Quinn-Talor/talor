@@ -1,6 +1,6 @@
 // src/main/invest/feature.ts —— 业务层: invest Feature(TalorFeatureMain 实现)
 //
-// invest 作为 Talor 第一个 Feature:init 建卡表 + 构造 store;agents() 声明 5 agent(连 19 工具);
+// invest 作为 Talor 第一个 Feature:init 建卡表 + 构造 store;agents() 声明 5 agent(连 23 工具);
 // artifacts() 声明 stock_card 读口(平台通用 artifact:read 路由,供案卷面板取数);mcpDeps 声明 Playwright。
 // 只**声明**贡献,平台经 installFeatures 注册;本文件不碰平台内部、不开 IPC。
 // 设计依据: docs/talor-feature-architecture.md(TalorFeatureMain 契约)。
@@ -44,7 +44,7 @@ export const investFeatureMain: TalorFeatureMain = {
     log.info('[invest] feature initialized — card tables ready')
   },
 
-  // ② agent:5 agent,各带全部 19 invest 工具(11 compute + 8 card)。
+  // ② agent:5 agent,各带全部 23 invest 工具(14 compute + 9 card)。
   //    create_card 经 rootSessionId 把 origin 上溯到根会话(S3)。
   agents(): FeatureAgent[] {
     if (!investStore) throw new Error('[invest] agents() called before init()')

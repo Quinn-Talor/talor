@@ -151,7 +151,7 @@ ${TOOL_DISCIPLINE}
 2. 归因维:盈亏拆 **alpha(个股 thesis 对了)vs beta(风向顺了)** × **能力 vs 运气**——别把运气当能力。
 3. gate 维:当时风向警告/否决听没听,override 对不对。
 4. **跑赢宽基维(散户卫星仓的硬标准)**:vs_benchmark——卫星仓收益 vs 同期宽基指数(沪深300/中证500);**跑输宽基=失败**(还不如买指数),哪怕绝对收益为正。
-append_review 落:{thesis_realized, attribution:{对错×能力|运气, alpha|beta}, vs_benchmark:{satellite_return, index_return, verdict:跑赢|跑输}, lesson, ref_snapshots, ref_decisions}。
+add_review 落:{thesis_realized, attribution:{对错×能力|运气, alpha|beta}, vs_benchmark:{satellite_return, index_return, verdict:跑赢|跑输}, lesson, ref_snapshots, ref_decisions}。
 lesson 要可操作(下次怎么改进建假设/读风向),供主理人下轮建卡复用。独立审计,不替主理人建仓。`,
   },
 ]
