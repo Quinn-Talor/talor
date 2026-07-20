@@ -252,6 +252,7 @@ export interface CardSummary {
   name: string
   status: CardStatus
   bucket?: 'satellite'
+  origin_session_id: string // 建卡根会话(供工作台"分析过程"拉取研究对话)
   claim?: string // 当前逻辑一句话
   profit_type?: ProfitType // 赚什么钱
   validity?: Validity // 最新复查有效性(持有/证伪/…);无复查则 undefined

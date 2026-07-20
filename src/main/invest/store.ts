@@ -238,6 +238,7 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         name: r.name,
         status: r.status,
         bucket: (r.bucket as 'satellite') ?? undefined,
+        origin_session_id: r.origin_session_id,
         claim: cur?.claim,
         profit_type: cur?.profit_type,
         validity: cp?.validity,

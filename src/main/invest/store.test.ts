@@ -212,6 +212,7 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     expect(byCode.get('600519')?.claim).toBe('护城河')
     expect(byCode.get('600519')?.validity).toBe('持有')
     expect(byCode.get('600519')?.profit_type).toBe('成长')
+    expect(byCode.get('600519')?.origin_session_id).toBe('s') // 供"分析过程"拉会话
     expect(byCode.get('000001')?.claim).toBeUndefined()
     expect(byCode.get('000001')?.validity).toBeUndefined()
   })

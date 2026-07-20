@@ -13,6 +13,7 @@ const sample: CardSummary[] = [
     code: '600519',
     name: '贵州茅台',
     status: 'held',
+    origin_session_id: 's1',
     claim: '高端白酒护城河',
     profit_type: '成长',
     validity: '持有',
@@ -23,6 +24,7 @@ const sample: CardSummary[] = [
     code: '002594',
     name: '比亚迪',
     status: 'watching',
+    origin_session_id: 's2',
     claim: '成本护城河抢份额',
     profit_type: '成长',
     validity: '证伪',
@@ -33,6 +35,7 @@ const sample: CardSummary[] = [
 function stubAPI(list: CardSummary[], read = vi.fn().mockResolvedValue(null)) {
   ;(window as unknown as { talorAPI: unknown }).talorAPI = {
     artifact: { list: vi.fn().mockResolvedValue(list), read },
+    session: { getMessages: vi.fn().mockResolvedValue([]) },
   }
   return read
 }

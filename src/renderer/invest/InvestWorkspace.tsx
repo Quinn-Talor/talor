@@ -8,6 +8,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { CardSummary, CardStatus, Validity } from '@shared/types/invest'
 import { ActivePaper } from './ActivePaper'
+import { ProcessPanel } from './ProcessPanel'
 
 /** 研究台 bespoke 调色板(自包含,不受平台明暗主题影响)。 */
 const DESK: CSSProperties = {
@@ -107,7 +108,7 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
 
         <Zone title="分析过程" hint="报 · 问 · 拨 · 挑" side last>
           {selected ? (
-            <Empty>「{selected.name}」的研究对话将在此呈现(U4)</Empty>
+            <ProcessPanel sessionId={selected.origin_session_id} />
           ) : (
             <Empty>与研究 agent 的对话过程将出现在这里</Empty>
           )}
