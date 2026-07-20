@@ -85,6 +85,19 @@ const VerifyHookZ = z.object({
   at: z.string().describe('验收时点/频率:monthly/quarterly/annual/日期'),
   role: z.enum(['先行', '终验']).optional(),
 })
+// 空方证伪 + PM 裁决(落 thesis/checkpoint,供审计与 UI 红蓝对抗)。add_thesis/add_checkpoint 硬校验必填。
+const ShortThesisChallengeZ = z.object({
+  target: z.enum(['thesis', 'checkpoint']),
+  weakest_assumption: z.string(),
+  refutation: z.string(),
+  counter_evidence: z.array(z.object({ fact: z.string(), as_of: z.string() })).optional(),
+  suggested_verdict: z.enum(['证伪', '校准', '维持']),
+  severity: z.enum(['high', 'mid', 'low']),
+})
+const ThesisChallengeZ = z.object({
+  output: ShortThesisChallengeZ,
+  adjudication: z.object({ verdict: z.enum(['accept', 'reject', 'revise']), note: z.string() }),
+})
 // 估值预测参数(吸收原 Driver):锚(anchor)+ 预测(forecast)双向挂事实;命门 = 挂 logic 的参数,带 falsify_if
 const PredictionAnchorZ = z.object({
   fact: z.string().describe('锚定哪条事实(facts key)'),
@@ -144,6 +157,7 @@ const ThesisSnapshotZ = z.object({
   profit_type: z.enum(['成长', '拐点', '估值修复', '周期', '分红']),
   valuation: ValuationZ,
   ref_checkpoint: z.string().optional(),
+  challenge: ThesisChallengeZ.optional().describe('立论前空方证伪 + PM 裁决(store 硬校验必填)'),
 })
 
 // ③ 时间线
@@ -197,6 +211,7 @@ const CheckpointZ = z.object({
   }),
   spawned_v: z.number().nullable(),
   signal: z.object({ verdict: z.enum(['买', '等', '弃', '减']), reason: z.string() }),
+  challenge: ThesisChallengeZ.optional().describe('复查裁定前空方证伪 + PM 裁决(store 硬校验必填)'),
 })
 const DecisionEventZ = z.object({
   type: z.literal('决策'),
@@ -216,8 +231,21 @@ const ReviewEventZ = z.object({
     index: z.number(),
     verdict: z.enum(['跑赢', '跑输']),
   }),
+  thesis_realized: z
+    .array(z.object({ assumption: z.string(), outcome: z.enum(['兑现', '未兑现', '证伪']) }))
+    .optional()
+    .describe('逐命门兑现度'),
+  attribution: z
+    .object({
+      correctness: z.enum(['对', '错']),
+      luck_skill: z.enum(['能力', '运气']),
+      alpha_beta: z.enum(['alpha', 'beta']),
+    })
+    .optional()
+    .describe('四象限归因'),
   lesson: z.string().optional(),
   ref_v: z.number().optional(),
+  ref_decisions: z.array(z.string()).optional(),
 })
 
 const GoodBusinessZ = z.object({

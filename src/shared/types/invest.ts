@@ -136,6 +136,21 @@ export interface ThesisSnapshot {
   profit_type: ProfitType // 赚什么钱 → 决定 method
   valuation: Valuation // 含 assumptions(吸收原 drivers;命门 = 挂 logic 的参数)
   ref_checkpoint?: string // 若由某次复查触发(校准/重写)
+  challenge?: ThesisChallenge // 立论前空方证伪 + PM 裁决(add_thesis 硬校验必填)
+}
+/** 空方·证伪官对一份草案的独立证伪结论(read-only 产出,不落判断)。 */
+export interface ShortThesisChallenge {
+  target: 'thesis' | 'checkpoint'
+  weakest_assumption: string // 指向某命门 key
+  refutation: string // 证伪论据
+  counter_evidence?: { fact: string; as_of: string }[]
+  suggested_verdict: '证伪' | '校准' | '维持'
+  severity: 'high' | 'mid' | 'low'
+}
+/** 空方挑战 + PM 裁决(落在 thesis 版本 / checkpoint 上,供审计与 UI 红蓝对抗)。 */
+export interface ThesisChallenge {
+  output: ShortThesisChallenge
+  adjudication: { verdict: 'accept' | 'reject' | 'revise'; note: string }
 }
 /** 逻辑跟踪:冻结快照序列 + 当前版指针。 */
 export interface Thesis {
@@ -192,6 +207,7 @@ export interface Checkpoint {
   gate: Gate
   spawned_v: number | null // 仅校准/证伪 → 新版本(null=逻辑没动)
   signal: { verdict: Verdict; reason: string }
+  challenge?: ThesisChallenge // 复查裁定前空方证伪 + PM 裁决(add_checkpoint 硬校验必填)
 }
 /** 决策(实际动作;gate + 安全边际双闸)。 */
 export interface DecisionEvent {
@@ -204,13 +220,20 @@ export interface DecisionEvent {
   based_v?: number // 决策依据的逻辑版本(缺省→由决策时点取当时 thesis.current 推导)
   override?: boolean // 逆 gate/边际,留痕
 }
-/** 复盘(平仓/周期):跑赢宽基 + 教训。 */
+/** 复盘(平仓/周期):跑赢宽基 + 兑现度 + 归因 + 教训(回流下一轮)。 */
 export interface ReviewEvent {
   type: '复盘'
   at: string
   vs_benchmark: { satellite: number; index: number; verdict: '跑赢' | '跑输' }
+  thesis_realized?: { assumption: string; outcome: '兑现' | '未兑现' | '证伪' }[]
+  attribution?: {
+    correctness: '对' | '错'
+    luck_skill: '能力' | '运气'
+    alpha_beta: 'alpha' | 'beta'
+  }
   lesson?: string
-  ref_v?: number
+  ref_v?: number // Task 5 起 store 对新写强制必填
+  ref_decisions?: string[]
 }
 export type TimelineEvent = Checkpoint | DecisionEvent | ReviewEvent
 export type TimelineEventType = TimelineEvent['type']
