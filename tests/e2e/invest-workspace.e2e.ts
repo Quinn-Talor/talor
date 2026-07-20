@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process'
 
 let app: ElectronApplication
 let page: Page
+let mainLog = '' // 收集主进程 stdout(electron-log),用于断言 IPC 到达主进程
 
 const CARD_ID = 'e2e-byd'
 const SESSION = 'e2e-sess'
@@ -164,6 +165,9 @@ test.beforeAll(async () => {
     env: { ...process.env, HOME: tmpHome, TALOR_HOME: tmpHome, NODE_ENV: 'production' },
     timeout: 45_000,
   })
+  const proc = app.process()
+  proc.stdout?.on('data', (d: Buffer) => (mainLog += String(d)))
+  proc.stderr?.on('data', (d: Buffer) => (mainLog += String(d)))
   page = await app.firstWindow()
   await page.waitForLoadState('domcontentloaded')
 })
@@ -191,4 +195,17 @@ test('真 IPC+SQLite:池子→活论文→时光机拨动→分析过程 全链'
 
   // 分析过程:session:getMessages 真 IPC(未 seed 消息 → 空态,证明 IPC 往返)
   await expect(page.locator('.convo')).toContainText('暂无研究对话')
+})
+
+test('composer 可对话(修 "无法对话"):输入启用 + 回车发送(chat:send 真 IPC)不崩', async () => {
+  const composer = page.locator('.composer input')
+  await expect(composer).toBeEnabled() // 不再是死 UI
+  await composer.fill('你是空方，分析比亚迪，更新卡片')
+  await expect(composer).toHaveValue('你是空方，分析比亚迪，更新卡片')
+  await composer.press('Enter')
+  // send() 触发 → 输入清空;chat:send 走真 IPC → 主进程接收(隔离环境无 provider,轮次跑不完,
+  // 但 renderer→IPC→main 全链由主进程日志证实)。app 不崩、对话区仍在。
+  await expect(composer).toHaveValue('')
+  await expect(page.locator('.convo')).toBeVisible()
+  await expect.poll(() => mainLog, { timeout: 15_000 }).toContain('[chat:send] session: e2e-sess')
 })

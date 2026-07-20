@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, configure } from '@testing-library/react'
 import { ProcessPanel } from './ProcessPanel'
+import { useChatStore } from '../store/chatStore'
 import type { ChatMessage } from '../types/chat'
 
 configure({ asyncUtilTimeout: 3000 })
@@ -30,6 +31,8 @@ function stubAPI(list: ChatMessage[], send = vi.fn().mockResolvedValue({ message
 afterEach(() => {
   cleanup()
   delete (window as unknown as { talorAPI?: unknown }).talorAPI
+  useChatStore.getState().setStreamState('idle')
+  useChatStore.getState().setError(null)
 })
 
 describe('ProcessPanel(分析过程:自渲染会话 + 可对话)', () => {
@@ -54,6 +57,14 @@ describe('ProcessPanel(分析过程:自渲染会话 + 可对话)', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(send).toHaveBeenCalledWith({ session_id: 's1', content: '你是空方，分析比亚迪' })
     await waitFor(() => expect(input.value).toBe(''))
+  })
+
+  it('研究轮出错 → 展示错误行(不静默)', async () => {
+    stubAPI([])
+    useChatStore.getState().setError({ code: 'X', message: '模型不可用' })
+    useChatStore.getState().setStreamState('error')
+    const { container } = render(<ProcessPanel sessionId="s1" stockName="比亚迪" />)
+    await waitFor(() => expect(container.textContent ?? '').toContain('研究出错:模型不可用'))
   })
 
   it('拨/挑 chip → 预填输入框(不直接发送)', async () => {

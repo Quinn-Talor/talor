@@ -23,6 +23,7 @@ export function ProcessPanel({
   const inputRef = useRef<HTMLInputElement>(null)
   const streamState = useChatStore((s) => s.streamState)
   const streamItems = useChatStore((s) => s.streamItems)
+  const chatError = useChatStore((s) => s.error)
   const streaming = streamState === 'streaming'
 
   useEffect(() => {
@@ -102,6 +103,14 @@ export function ProcessPanel({
                 </div>
               ))}
               <span style={{ color: 'var(--accent)' }}>▋</span>
+            </div>
+          </div>
+        )}
+        {streamState === 'error' && chatError && (
+          <div className="turn">
+            <div className="av ai">AI</div>
+            <div className="bub" style={{ color: 'var(--bad)' }}>
+              研究出错:{chatError.message || chatError.code} · 可重发
             </div>
           </div>
         )}
