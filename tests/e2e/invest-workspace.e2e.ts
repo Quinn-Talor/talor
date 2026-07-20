@@ -177,19 +177,18 @@ test('真 IPC+SQLite:池子→活论文→时光机拨动→分析过程 全链'
   await page.getByText('投研工作台').first().click()
 
   // 池子:artifact:list 真 IPC → SQLite 读回 seed 卡
-  await expect(page.getByText('比亚迪')).toBeVisible()
-  await expect(page.getByText('002594')).toBeVisible()
+  await expect(page.locator('.pool')).toContainText('比亚迪')
+  await expect(page.locator('.pool')).toContainText('002594')
 
-  // 活论文:自动选首卡 → artifact:read 真 IPC → 传导链现在态=最新逻辑 v2
-  await expect(page.getByText('v2 · 成长')).toBeVisible()
-  // 事实区命门事实(exact 避开传导链的"公司份额")
-  await expect(page.getByText('份额', { exact: true })).toBeVisible()
+  // 活论文:自动选首卡 → artifact:read 真 IPC → 传导链恒等式 ladder + 现在态 concl=最新逻辑 v2
+  await expect(page.locator('.ladder')).toBeVisible()
+  await expect(page.locator('.concl')).toContainText(V2_CLAIM)
 
-  // 时光机拨动:点建立节点 → reconstruct 回拨 v1(真数据全栈重建)
-  await page.getByText('建立', { exact: true }).click()
-  await expect(page.getByText('历史 · 冻结只读')).toBeVisible()
-  await expect(page.getByText(V1_CLAIM)).toBeVisible()
+  // 时光机拨动:点首节点(建立)→ reconstruct 回拨 v1(真数据全栈重建)+ 冻结 banner
+  await page.locator('.tltk').first().click()
+  await expect(page.locator('.tmbanner')).toBeVisible()
+  await expect(page.locator('.concl')).toContainText(V1_CLAIM)
 
   // 分析过程:session:getMessages 真 IPC(未 seed 消息 → 空态,证明 IPC 往返)
-  await expect(page.getByText('此标的暂无研究对话')).toBeVisible()
+  await expect(page.locator('.convo')).toContainText('暂无研究对话')
 })

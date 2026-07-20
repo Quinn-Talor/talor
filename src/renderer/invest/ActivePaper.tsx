@@ -1,45 +1,59 @@
-// src/renderer/invest/ActivePaper.tsx —— 活论文中栏(时光机 · 传导链 · 事实)
+// src/renderer/invest/ActivePaper.tsx —— 画布:时光机(tlwrap)+ 活论文(canvas-scroll)
 //
-// U3b:消费 summarizeHealth 派生 + reconstructCardAt(U3a)。上中下:
-//   上 时光机 —— 时间线节点轨(点节点 → 切到该 T,历史冻结只读)
-//   中 传导链 —— 事实 → 逻辑 → 预期 → 估值 → 决策(对齐 DecisionSurface 链条)
-//   下 事实 —— 命门/排雷事实 + 新鲜度
-// 视觉走 desk bespoke tokens(var(--desk-*) 从 InvestWorkspace 根 cascade,无需重定义)。
+// 对齐 demo:时间线滑杆 + 分型节点(脊梁=逻辑版本);卡内 maintain / tmbanner / 结论 /
+// 事件详情(evd+对账表)/ 传导链(逻辑→预期 ler · 预期→估值 恒等式 ladder · 安全边际 ruler ·
+// 决策)/ 三维事实 / guard。全部消费 summarizeHealth 派生 + reconstructCardAt(时光机)。
+// V 现算失败(trace.ok=false)→ 回退冻结 V(修 0.2 缺陷)。拨(what-if)前端纯函数重算。
 
 import { useEffect, useMemo, useState } from 'react'
-import type { CardBundle, Checkpoint, DecisionEvent } from '@shared/types/invest'
+import type {
+  CardBundle,
+  Checkpoint,
+  DecisionEvent,
+  ThesisSnapshot,
+  Fact,
+  FactObservation,
+} from '@shared/types/invest'
 import {
   reconstructCardAt,
   timelineRows,
   coreLogicLines,
-  valuationTrace,
+  coreAssumptions,
   currentThesis,
+  valuationTrace,
   safety,
+  latestCheckpoint,
+  timelineTrajectory,
   factFreshness,
   type TimelineRow,
-  type LogicLine,
 } from './summarizeHealth'
 
-const KIND_GLYPH: Record<TimelineRow['kind'], string> = {
-  建立: '◆',
-  复查: '●',
-  决策: '▲',
-  复盘: '◇',
+function nodeClass(r: TimelineRow): string {
+  if (r.kind === '建立') return 'n-build'
+  if (r.kind === '决策') return 'n-dec'
+  if (r.kind === '复查') {
+    if (r.isStep) return 'n-ver' // 出新版
+    const v = (r.event as Checkpoint | undefined)?.validity
+    if (v === '证伪' || v === '校准') return 'n-warn' // 异动未换版
+    return 'n-hold'
+  }
+  return 'n-hold'
 }
-const VALIDITY_COLOR: Record<string, string> = {
-  强化: '#3fb950',
-  持有: '#3fb950',
-  校准: '#d29922',
-  证伪: '#f85149',
+
+const num = (v: unknown): number => {
+  const n = parseFloat(String(v).replace(/[^0-9.-]/g, ''))
+  return Number.isFinite(n) ? n : NaN
 }
 
 export function ActivePaper({ cardId }: { cardId: string }) {
   const [bundle, setBundle] = useState<CardBundle | null>(null)
-  const [pickedAt, setPickedAt] = useState<string | null>(null) // null = 现在(最新)
+  const [cur, setCur] = useState<number | null>(null) // chronological index; null → 现在(末节点)
+  const [dial, setDial] = useState<number | null>(null) // 拨:命门 forecast.base 覆盖
 
   useEffect(() => {
     let alive = true
-    setPickedAt(null)
+    setCur(null)
+    setDial(null)
     ;(async () => {
       try {
         const b = (await window.talorAPI.artifact.read('stock_card', cardId)) as CardBundle | null
@@ -53,323 +67,608 @@ export function ActivePaper({ cardId }: { cardId: string }) {
     }
   }, [cardId])
 
-  const rows = useMemo(() => timelineRows(bundle), [bundle])
-  const nowAt = rows[0]?.at ?? null // timelineRows 逆序,首行=最新
-  const isNow = pickedAt == null
-  const effectiveAt = pickedAt ?? nowAt // 仅供时光机高亮"现在"节点
-  // 现在 = 全量 bundle(含最新逻辑版,可能晚于最后一个时间线节点);点历史节点才切片(冻结只读)
+  const chrono = useMemo(() => [...timelineRows(bundle)].reverse(), [bundle]) // 旧→新
+  const lastIdx = chrono.length - 1
+  const idx = cur ?? lastIdx
+  const live = idx >= lastIdx
+  const node = chrono[idx]
   const view = useMemo(
-    () => (pickedAt && bundle ? reconstructCardAt(bundle, pickedAt) : bundle),
-    [bundle, pickedAt],
+    () => (bundle && node && !live ? reconstructCardAt(bundle, node.at) : bundle),
+    [bundle, node, live],
   )
 
-  if (!bundle) {
-    return <Muted>载入案卷…</Muted>
-  }
+  if (!bundle)
+    return (
+      <main className="canvas">
+        <div className="iv-empty">载入案卷…</div>
+      </main>
+    )
+
+  const cardEl = view // reconstructed-or-full
 
   return (
-    <div className="flex flex-col gap-4 h-full">
-      <TimeMachine rows={rows} effectiveAt={effectiveAt} isNow={isNow} onPick={setPickedAt} />
-      <Chain view={view} frozen={!isNow} at={effectiveAt} />
-      <FactsPanel view={view} />
+    <main className="canvas">
+      <TimeMachine
+        chrono={chrono}
+        idx={idx}
+        onPick={(i) => {
+          setCur(i)
+          setDial(null)
+        }}
+        bundle={bundle}
+      />
+      <div className="canvas-scroll">
+        {cardEl && node && (
+          <CardBody
+            view={cardEl}
+            node={node}
+            live={live}
+            dial={dial}
+            onDial={setDial}
+            onBackToNow={() => {
+              setCur(null)
+              setDial(null)
+            }}
+          />
+        )}
+      </div>
+    </main>
+  )
+}
+
+// ═══ 时光机 ═══════════════════════════════════════════════════
+function TimeMachine(props: {
+  chrono: TimelineRow[]
+  idx: number
+  onPick: (i: number) => void
+  bundle: CardBundle
+}) {
+  const { chrono, idx, onPick, bundle } = props
+  const traj = timelineTrajectory(bundle)
+  const valSeq = traj.validitySeq.length ? traj.validitySeq.join('→') : '—'
+  const maxV = Math.max(1, ...chrono.map((r) => r.version))
+  const pos = traj.position != null ? `${Math.round(traj.position * 100)}%` : '0%'
+  return (
+    <div className="tlwrap">
+      <div className="h">
+        <svg className="iv-ico" viewBox="0 0 24 24" style={{ width: 12, height: 12 }}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+        时间线 · 时光机 —— 脊梁=逻辑版本，节点=事件；拖动/点击回看那时的论文
+      </div>
+      <div className="traj">
+        <b>逻辑</b> {valSeq} · <b>版本</b> v1→v{maxV} · <b>仓位</b> {pos}
+      </div>
+      {chrono.length > 1 && (
+        <input
+          type="range"
+          className="tlslider"
+          min={0}
+          max={chrono.length - 1}
+          step={1}
+          value={idx}
+          onChange={(e) => onPick(Number(e.target.value))}
+        />
+      )}
+      <div className="tlnodes">
+        {chrono.map((r, i) => (
+          <button
+            key={`${r.at}-${r.kind}-${i}`}
+            className={'tltk' + (i === idx ? ' on' : '')}
+            onClick={() => onPick(i)}
+          >
+            <span className={'nd ' + nodeClass(r)} />
+            <span className="tllab">
+              {r.kind}
+              {r.isStep && r.version > 1 && <span className="verbadge">v{r.version}</span>}
+              <br />
+              <span className="dd">{r.at.slice(5, 10) || r.at}</span>
+            </span>
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
 
-// ═══ 上:时光机 ═══════════════════════════════════════════════
-function TimeMachine(props: {
-  rows: TimelineRow[]
-  effectiveAt: string | null
-  isNow: boolean
-  onPick: (at: string | null) => void
+// ═══ 卡体 ═════════════════════════════════════════════════════
+function CardBody(props: {
+  view: CardBundle
+  node: TimelineRow
+  live: boolean
+  dial: number | null
+  onDial: (v: number | null) => void
+  onBackToNow: () => void
 }) {
-  const { rows, effectiveAt, isNow, onPick } = props
-  // 时间序(旧→新)展示,现在在最右
-  const chrono = [...rows].reverse()
-  return (
-    <Section title="时光机" badge={isNow ? undefined : '历史 · 冻结只读'}>
-      <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
-        {chrono.map((r, i) => {
-          const active = r.at === effectiveAt
-          const validity =
-            r.kind === '复查' ? (r.event as Checkpoint | undefined)?.validity : undefined
-          const color = validity ? VALIDITY_COLOR[validity] : 'var(--desk-mute)'
-          return (
-            <button
-              key={`${r.at}-${r.kind}-${i}`}
-              onClick={() => onPick(i === chrono.length - 1 ? null : r.at)}
-              className="shrink-0 rounded-md px-2 py-1.5 text-left transition-colors"
-              style={{
-                minWidth: 78,
-                background: active ? 'var(--desk-bg)' : 'transparent',
-                border: `1px solid ${active ? 'var(--desk-accent)' : 'var(--desk-line)'}`,
-              }}
-              title={`${r.kind} · v${r.version}${validity ? ' · ' + validity : ''}`}
-            >
-              <div className="flex items-center gap-1">
-                <span style={{ color, fontSize: 9 }}>{KIND_GLYPH[r.kind]}</span>
-                <span className="text-[10px]" style={{ color: 'var(--desk-subtle)' }}>
-                  v{r.version}
-                </span>
-              </div>
-              <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--desk-ink)' }}>
-                {r.kind}
-              </div>
-              <div className="text-[9.5px] font-mono" style={{ color: 'var(--desk-subtle)' }}>
-                {r.at.slice(0, 10)}
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </Section>
-  )
-}
-
-// ═══ 中:传导链(事实→逻辑→预期→估值→决策)═════════════════════
-function Chain(props: { view: CardBundle | null; frozen: boolean; at: string | null }) {
-  const { view } = props
+  const { view, node, live, dial, onDial, onBackToNow } = props
   const cur = currentThesis(view)
-  const logic = useMemo(() => coreLogicLines(view), [view])
-  const trace = useMemo(() => (cur ? valuationTrace(cur, view?.facts) : null), [cur, view])
+  const cores = coreAssumptions(cur)
+  const logic = coreLogicLines(view)
+  const trace = useMemo(() => (cur ? valuationTrace(cur, view.facts) : null), [cur, view])
   const sv = safety(view)
+  const cp = latestCheckpoint(view)
+  const traj = timelineTrajectory(view)
+
+  // V:现算优先,失败回退冻结(修 0.2 缺陷)
+  const V = trace?.ok && trace.V ? trace.V : (cur?.valuation.V ?? null)
+  const vFallback = !(trace?.ok && trace.V) && !!cur?.valuation.V
+
   const decision = useMemo(() => {
-    for (let i = (view?.timeline.length ?? 0) - 1; i >= 0; i--) {
-      const e = view!.timeline[i]
+    for (let i = view.timeline.length - 1; i >= 0; i--) {
+      const e = view.timeline[i]
       if (e.type === '决策') return e as DecisionEvent
     }
     return null
   }, [view])
 
-  if (!cur) {
-    return (
-      <Section title="传导链">
-        <Muted>此时点尚无逻辑版本(建卡前 / 首版未立)</Muted>
-      </Section>
-    )
-  }
+  const concl = cur?.claim ?? '（此时点尚无逻辑版本）'
+  const action =
+    node.kind === '决策'
+      ? ((node.event as DecisionEvent | undefined)?.reason ?? '')
+      : node.kind === '复查'
+        ? ((node.event as Checkpoint | undefined)?.signal?.reason ?? '')
+        : '建立首版逻辑'
 
   return (
-    <Section title="传导链" badge={`v${cur.v} · ${cur.profit_type}`}>
-      <div className="flex flex-col gap-2.5">
-        <div className="text-[12px] leading-snug" style={{ color: 'var(--desk-ink)' }}>
-          {cur.claim}
-        </div>
-
-        {/* 逻辑 → 预期(命门:锚→估 + 跳变;对账态) */}
-        {logic.length > 0 && (
-          <ChainStep label="逻辑 → 预期">
-            <div className="flex flex-col gap-1.5">
-              {logic.map((l) => (
-                <LogicRow key={l.key} l={l} />
-              ))}
-            </div>
-          </ChainStep>
-        )}
-
-        {/* 预期 → 估值(V 三情景) */}
-        {trace?.ok && trace.V && (
-          <ChainStep label="预期 → 估值">
-            <div className="flex items-center gap-3 text-[12px]">
-              <VChip label="熊" v={trace.V.bear} />
-              <VChip label="中" v={trace.V.base} strong />
-              <VChip label="牛" v={trace.V.bull} />
-              <span className="text-[10.5px]" style={{ color: 'var(--desk-subtle)' }}>
-                {cur.valuation.method.toUpperCase()}
-              </span>
-            </div>
-          </ChainStep>
-        )}
-
-        {/* 估值 → 决策(安全边际买点) */}
-        {sv && (
-          <ChainStep label="估值 → 决策">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px]">
-              {sv.price != null && (
-                <span style={{ color: 'var(--desk-mute)' }}>
-                  现价 <b style={{ color: 'var(--desk-ink)' }}>{sv.price}</b>
-                </span>
-              )}
-              {sv.buyTrigger != null && (
-                <span style={{ color: 'var(--desk-mute)' }}>
-                  买点 ≤ <b style={{ color: 'var(--desk-ink)' }}>{round1(sv.buyTrigger)}</b>
-                </span>
-              )}
-              <span
-                className="px-1.5 py-0.5 rounded text-[10.5px] font-medium"
-                style={
-                  sv.atBuyPoint
-                    ? { background: '#3fb9501f', color: '#3fb950' }
-                    : { background: '#8b98a91f', color: 'var(--desk-mute)' }
-                }
-              >
-                {sv.atBuyPoint ? '进安全边际' : '未到买点'}
-              </span>
-            </div>
-          </ChainStep>
-        )}
-
-        {/* 决策落点 */}
-        {decision && (
-          <ChainStep label="决策">
-            <div className="text-[11.5px]" style={{ color: 'var(--desk-ink)' }}>
-              <b>{decision.trade}</b>
-              {decision.weight != null ? ` · 仓位 ${decision.weight}` : ''}
-              <span className="ml-1.5" style={{ color: 'var(--desk-subtle)' }}>
-                {decision.reason}
-              </span>
-            </div>
-          </ChainStep>
-        )}
+    <>
+      <div className="maintain">
+        <span className="d" />
+        AI 持续维护 · 在盯 {cores.length} 个命门
       </div>
-    </Section>
-  )
-}
 
-function LogicRow({ l }: { l: LogicLine }) {
-  const color = l.broken ? '#f85149' : l.bigJump ? '#d29922' : 'var(--desk-mute)'
-  return (
-    <div
-      className="rounded-md px-2 py-1.5"
-      style={{ background: 'var(--desk-bg)', border: '1px solid var(--desk-line)' }}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11.5px] font-medium" style={{ color: 'var(--desk-ink)' }}>
-          {l.label}
-        </span>
-        <span className="text-[10.5px] font-mono" style={{ color }}>
-          {l.anchor ?? '—'}
-          {l.unit} → {l.est ?? '—'}
-          {l.unit}
-          {l.jump != null ? ` (${l.jump > 0 ? '+' : ''}${l.jump})` : ''}
-        </span>
-      </div>
-      <div className="text-[10.5px] mt-0.5" style={{ color: 'var(--desk-subtle)' }}>
-        {l.logic}
-        {l.broken && ' · 锚缺失·链断'}
-        {l.bigJump && !l.broken && ' · 大跳变·需强逻辑'}
-        {l.actual != null && (
-          <span style={{ color: l.conv === '背离' ? '#f85149' : 'var(--desk-mute)' }}>
-            {' '}
-            · 实 {l.actual}
-            {l.conv ? `(${l.conv})` : ''}
+      {!live && (
+        <div className="tmbanner">
+          <svg className="iv-ico" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+          <span>
+            时光机：你在看{' '}
+            <b>
+              {node.kind} · {node.at.slice(0, 10)}
+            </b>
+            （历史·只读·已冻结）
           </span>
-        )}
-      </div>
-    </div>
-  )
-}
+          <button className="back" onClick={onBackToNow}>
+            回到现在
+          </button>
+        </div>
+      )}
 
-// ═══ 下:事实 ═════════════════════════════════════════════════
-function FactsPanel({ view }: { view: CardBundle | null }) {
-  const facts = view?.facts ?? {}
-  const fresh = useMemo(() => factFreshness(facts), [facts])
-  const keys = Object.keys(facts)
-  return (
-    <Section title="事实" badge={`${keys.length}`}>
-      {keys.length === 0 ? (
-        <Muted>此时点尚无事实</Muted>
-      ) : (
-        <div className="flex flex-col gap-1">
-          {keys.map((k) => {
-            const f = facts[k]
-            const last = f.series[f.series.length - 1]
-            const ff = fresh[k]
+      <div className="concl">{concl}</div>
+      <div className="action">{action}</div>
+
+      <EventDetail node={node} />
+
+      {cur && (
+        <div className="chain">
+          <div className="chain-bc">逻辑（当前 v{cur.v}）· 事实 → 逻辑 → 预期 → 估值 → 决策</div>
+
+          {/* ① 逻辑 → 预期 */}
+          <div className="cstep-h">
+            ① 逻辑 → 预期
+            {cp?.conviction && <span className="r">确信 {cp.conviction}</span>}
+          </div>
+          {logic.length === 0 && <div className="ler">（当前版本无挂逻辑的命门）</div>}
+          {logic.map((l) => {
+            const cls = l.broken ? 'ler bad' : l.bigJump ? 'ler warn' : 'ler'
+            const status = l.broken ? '链断·缺锚' : l.bigJump ? '大跳变·需强逻辑' : (l.conv ?? '')
             return (
-              <div key={k} className="flex items-center justify-between gap-2 text-[11px]">
-                <span style={{ color: 'var(--desk-mute)' }}>
-                  {f.label}
-                  {f.role === '排雷' && (
-                    <span className="ml-1" style={{ color: 'var(--desk-subtle)' }}>
-                      排雷
-                    </span>
-                  )}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <b className="font-mono" style={{ color: 'var(--desk-ink)' }}>
-                    {last?.value}
-                  </b>
-                  <span className="font-mono text-[9.5px]" style={{ color: 'var(--desk-subtle)' }}>
-                    {last?.as_of}
-                  </span>
-                  {ff?.stale && (
+              <div className={cls} key={l.key}>
+                <div>
+                  ★ {l.label} ← 逻辑「{l.logic}」
+                  {status && (
                     <span
-                      className="px-1 rounded text-[9px]"
-                      style={{ background: '#d299221f', color: '#d29922' }}
+                      style={{
+                        color: l.broken ? 'var(--bad)' : l.bigJump ? 'var(--warn)' : 'var(--ink-2)',
+                        fontWeight: 600,
+                        marginLeft: 4,
+                      }}
                     >
-                      过时
+                      {status}
                     </span>
                   )}
-                </span>
+                </div>
+                <div className="flow">
+                  锚{' '}
+                  <b>
+                    {l.anchor ?? '—'}
+                    {l.unit}
+                  </b>
+                  {l.anchorAsOf ? `@${l.anchorAsOf}` : ''} → 估{' '}
+                  <b>
+                    {l.est ?? '—'}
+                    {l.unit}
+                  </b>
+                  {l.actual != null && (
+                    <>
+                      {' '}
+                      · 实测{' '}
+                      <b style={{ color: l.conv === '背离' ? 'var(--warn)' : 'var(--ink-2)' }}>
+                        {l.actual}
+                      </b>
+                    </>
+                  )}
+                </div>
               </div>
             )
           })}
+
+          {/* ② 预期 → 估值 */}
+          <div className="cstep-h">
+            ② 预期 → 估值
+            {V && (
+              <span className="r n">
+                值 {V.base} · 熊{V.bear}~牛{V.bull} · {cur.valuation.method}
+              </span>
+            )}
+          </div>
+          <Ladder
+            trace={trace}
+            coreKeys={cores.map((c) => c.key)}
+            frozenV={V}
+            fallback={vFallback}
+          />
+
+          {/* 拨(what-if) */}
+          {live && cores.length > 0 && Number.isFinite(num(cores[0].forecast.base)) ? (
+            <WhatIf
+              core={cores[0]}
+              snap={cur!}
+              facts={view.facts}
+              dial={dial}
+              onDial={onDial}
+              price={sv?.price}
+            />
+          ) : (
+            <div className="frozen">
+              {live ? '此命门非数值·拨不可用' : '历史值已冻结 — 拨/重算只在「现在」可用'}
+            </div>
+          )}
+
+          {/* ③ 安全边际 */}
+          {sv && V && sv.price != null && sv.buyTrigger != null && (
+            <SafetyRuler
+              price={sv.price}
+              buy={sv.buyTrigger}
+              vbear={V.bear}
+              vbase={V.base}
+              atBuy={sv.atBuyPoint}
+            />
+          )}
+
+          {/* ④ 决策 */}
+          <div className="cdec">
+            ④ 决策{' '}
+            <span
+              className="vd"
+              style={{ color: cp?.signal?.verdict === '买' ? 'var(--good)' : 'var(--ink-2)' }}
+            >
+              {decision?.trade ?? cp?.signal?.verdict ?? '—'}
+            </span>{' '}
+            · 仓位 {traj.position != null ? `${Math.round(traj.position * 100)}%` : '0%'} ·{' '}
+            <span className="mut">非荐股</span>
+          </div>
         </div>
       )}
-    </Section>
+
+      <FactsPanel view={view} asOf={node.at} />
+
+      <div className="guard">
+        每处带源 · code-verified · 逻辑按事件版本化冻结 · <b>card(任一时刻)可由时间线重建</b>
+      </div>
+    </>
   )
 }
 
-// ═══ 通用小件 ════════════════════════════════════════════════
-function Section(props: { title: string; badge?: string; children: React.ReactNode }) {
+// ═══ 事件详情 ═════════════════════════════════════════════════
+function EventDetail({ node }: { node: TimelineRow }) {
+  const glyph = nodeClass(node)
+  let title = node.kind
+  let body = ''
+  let checks: Checkpoint['checks'] = []
+  if (node.kind === '建立') {
+    title = `建立 · 版本 v${node.version}`
+    body = node.genesis?.claim ?? '立首版逻辑与支点。'
+  } else if (node.kind === '复查') {
+    const e = node.event as Checkpoint | undefined
+    title = `复查 · ${e?.validity ?? ''}`
+    body = e?.signal?.reason ?? ''
+    checks = e?.checks ?? []
+  } else if (node.kind === '决策') {
+    const e = node.event as DecisionEvent | undefined
+    title = '决策'
+    body = `${e?.trade ?? ''} · ${e?.reason ?? ''}`
+  } else {
+    title = '复盘'
+  }
   return (
-    <section
-      className="rounded-lg p-3"
-      style={{ background: 'var(--desk-panel)', border: '1px solid var(--desk-line)' }}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-[12px] font-semibold" style={{ color: 'var(--desk-ink)' }}>
-          {props.title}
-        </span>
-        {props.badge && (
-          <span className="text-[10px]" style={{ color: 'var(--desk-subtle)' }}>
-            {props.badge}
+    <div className="evd">
+      <div className="et">
+        <span className={'glyph ' + glyph} />
+        这一刻发生了什么：{title}
+      </div>
+      {body}
+      {checks.length > 0 && (
+        <table className="evtable">
+          <tbody>
+            <tr>
+              <th>指标</th>
+              <th>预测(冻结)</th>
+              <th>实际</th>
+              <th>结论</th>
+            </tr>
+            {checks.map((c, i) => {
+              const oc =
+                c.outcome === '破' ? 'oc-bad' : c.outcome === '偏离' ? 'oc-warn' : 'oc-good'
+              return (
+                <tr key={i}>
+                  <td>{c.metric}</td>
+                  <td>{c.predicted_value ?? '—'}</td>
+                  <td>{c.actual_value}</td>
+                  <td className={oc}>{c.outcome}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+// ═══ 恒等式 Ladder ════════════════════════════════════════════
+function Ladder(props: {
+  trace: ReturnType<typeof valuationTrace>
+  coreKeys: string[]
+  frozenV: { bear: number; base: number; bull: number } | null
+  fallback: boolean
+}) {
+  const { trace, coreKeys, frozenV, fallback } = props
+  if (fallback || !trace?.ok || trace.steps.length === 0) {
+    return (
+      <div className="ladder">
+        <div className="lrow">
+          <span className="lhs">恒等式现算缺参数 / 经济无意义</span>
+          <span className="rhs">
+            {frozenV ? (
+              <>
+                V <b>{frozenV.base}</b>
+                <span className="ltag">存量</span>
+              </>
+            ) : (
+              '—'
+            )}
           </span>
-        )}
+        </div>
+        <div className="lfoot">回退显冻结 V(卡内快照);现算需完整命门链</div>
       </div>
-      {props.children}
-    </section>
-  )
-}
-
-function ChainStep({ label, children }: { label: string; children: React.ReactNode }) {
+    )
+  }
   return (
-    <div className="flex gap-2.5">
-      <div className="shrink-0 text-[10px] pt-0.5 w-[68px]" style={{ color: 'var(--desk-subtle)' }}>
-        {label}
-      </div>
-      <div className="flex-1 min-w-0">{children}</div>
+    <div className="ladder">
+      {trace.steps.map((s, i) => {
+        const isCore = s.inputs.some((k) => coreKeys.includes(k))
+        return (
+          <div className="lrow" key={i}>
+            <span className="lhs">
+              <span className={'p' + (isCore ? ' core' : '')}>{s.out}</span> {s.expr}
+            </span>
+            <span className="rhs">
+              ={' '}
+              <b>
+                {s.base}
+                {s.unit ?? ''}
+              </b>
+              <span className="ltag">计算</span>
+            </span>
+          </div>
+        )
+      })}
+      <div className="lfoot">命门(叶子·前值×逻辑)→ 计算(公式算出)；每步代入真实数值，逐环可验</div>
     </div>
   )
 }
 
-function VChip({ label, v, strong }: { label: string; v: number; strong?: boolean }) {
+// ═══ 拨(what-if)══════════════════════════════════════════════
+function WhatIf(props: {
+  core: ThesisSnapshot['valuation']['assumptions'][number]
+  snap: ThesisSnapshot
+  facts: CardBundle['facts']
+  dial: number | null
+  onDial: (v: number) => void
+  price?: number
+}) {
+  const { core, snap, facts, dial, onDial, price } = props
+  const base = num(core.forecast.base)
+  const cur = dial ?? base
+  const span = Math.max(Math.abs(base) || 1, 1)
+  const min = Math.round((base - span) * 10) / 10
+  const max = Math.round((base + span) * 10) / 10
+
+  const recomputed = useMemo(() => {
+    const clone: ThesisSnapshot = {
+      ...snap,
+      valuation: {
+        ...snap.valuation,
+        assumptions: snap.valuation.assumptions.map((a) =>
+          a.key === core.key ? { ...a, forecast: { ...a.forecast, base: cur } } : a,
+        ),
+      },
+    }
+    return valuationTrace(clone, facts)
+  }, [snap, core.key, cur, facts])
+
+  const v = recomputed?.ok && recomputed.V ? recomputed.V.base : null
   return (
-    <span className="flex items-baseline gap-1">
-      <span className="text-[9.5px]" style={{ color: 'var(--desk-subtle)' }}>
-        {label}
-      </span>
-      <b
-        className="font-mono"
-        style={{
-          color: strong ? 'var(--desk-accent)' : 'var(--desk-ink)',
-          fontSize: strong ? 13 : 12,
-        }}
-      >
-        {round1(v)}
-      </b>
-    </span>
+    <>
+      <div className="whatif">
+        <span style={{ fontSize: 10, color: 'var(--ink-2)' }}>拨 {core.label ?? core.key}</span>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={(max - min) / 40 || 0.1}
+          value={cur}
+          onChange={(e) => onDial(Number(e.target.value))}
+        />
+        <span className="n" style={{ fontWeight: 700, color: 'var(--accent)' }}>
+          {cur}
+          {core.unit ?? ''}
+        </span>
+        <span className="lbl">数据变→链路重算</span>
+      </div>
+      {v != null && (
+        <div
+          style={{
+            fontSize: 10,
+            marginTop: 5,
+            color: price != null && v < price ? 'var(--bad)' : 'var(--good)',
+          }}
+        >
+          V {v}
+          {price != null
+            ? v < price
+              ? ` < 现价 ${price} — 此假设下无安全边际`
+              : ` · 对现价 ${price} 有边际`
+            : ''}
+        </div>
+      )}
+    </>
   )
 }
 
-function Muted({ children }: { children: React.ReactNode }) {
+// ═══ 安全边际 ruler ═══════════════════════════════════════════
+function SafetyRuler(props: {
+  price: number
+  buy: number
+  vbear: number
+  vbase: number
+  atBuy: boolean
+}) {
+  const { price, buy, vbear, vbase, atBuy } = props
+  const lo = Math.min(vbear, price, buy) * 0.95
+  const hi = vbase * 1.08
+  const rng = hi - lo || 1
+  const x = (v: number) => (((v - lo) / rng) * 100).toFixed(1)
   return (
-    <div className="text-[11.5px] py-4 text-center" style={{ color: 'var(--desk-subtle)' }}>
-      {children}
+    <div className="safety">
+      <div className="eyebrow">③ 安全边际 · 现价 vs 估值</div>
+      <div className="sruler">
+        <div className="strack" />
+        <div className="szone" style={{ width: x(buy) + '%' }} />
+        <div className="smk" style={{ left: x(vbear) + '%' }}>
+          <div className="bar" style={{ background: 'var(--ink-3)' }} />
+          <div className="lb mut">熊{vbear}</div>
+        </div>
+        <div className="smk" style={{ left: x(vbase) + '%' }}>
+          <div className="bar" style={{ background: 'var(--accent)' }} />
+          <div className="lb" style={{ color: 'var(--accent)' }}>
+            中{vbase}
+          </div>
+        </div>
+        <div className="smk" style={{ left: x(buy) + '%' }}>
+          <div className="bar" style={{ background: 'var(--good)' }} />
+          <div className="lb" style={{ color: 'var(--good)' }}>
+            买{Math.round(buy * 10) / 10}
+          </div>
+        </div>
+        <div className="smk" style={{ left: x(price) + '%' }}>
+          <div className="bar" style={{ background: 'var(--ink)' }} />
+          <div className="lb" style={{ color: 'var(--ink)' }}>
+            现{price}
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 10.5, marginTop: 2, color: atBuy ? 'var(--good)' : 'var(--ink-2)' }}>
+        现价 {price} {atBuy ? '≤' : '>'} 买点 {Math.round(buy * 10) / 10} —{' '}
+        {atBuy ? '已到买点' : '未到买点，等回调'}
+      </div>
     </div>
   )
 }
 
-function round1(n: number): number {
-  return Math.round(n * 10) / 10
+// ═══ 三维事实 ═════════════════════════════════════════════════
+const ARROW: Record<string, string> = { up: '↑', down: '↓', flat: '→' }
+
+function FactsPanel({ view, asOf }: { view: CardBundle; asOf: string }) {
+  const facts = view.facts
+  const fresh = useMemo(() => factFreshness(facts), [facts])
+  const entries = Object.entries(facts)
+  const lead = entries.filter(([, f]) => f.role === '先行')
+  const comp = entries.filter(([, f]) => f.role !== '先行' && f.level === 'company')
+  const ind = entries.filter(([, f]) => f.level === 'industry')
+  const mac = entries.filter(([, f]) => f.level === 'macro')
+
+  const group = (title: string, n2: boolean, list: [string, Fact][]) =>
+    list.length > 0 && (
+      <div key={title}>
+        <div className={'fgrp' + (n2 ? ' n2' : '')}>{title}</div>
+        {list.map(([k, f]) => (
+          <FactRow key={k} f={f} stale={fresh[k]?.stale ?? false} />
+        ))}
+      </div>
+    )
+
+  return (
+    <>
+      <div className="facts-h">
+        <span className="e">事实 · 全部带源（as_of ≤ {asOf.slice(0, 10)}）· 三维 + 变化趋势</span>
+      </div>
+      {entries.length === 0 && <div className="frozen">此时点尚无事实</div>}
+      {group('先行 · 验证主力', false, lead)}
+      {group('公司', true, comp)}
+      {group('行业', true, ind)}
+      {group('宏观', true, mac)}
+    </>
+  )
+}
+
+function FactRow({ f, stale }: { f: Fact; stale: boolean }) {
+  const last: FactObservation | undefined = f.series[f.series.length - 1]
+  const ch = last?.change
+  const st = last?.structure
+  const rp =
+    f.role === '先行' ? (
+      <span className="rpill rp-lead">先行·验证主力</span>
+    ) : f.role === '排雷' ? (
+      <span className="rpill rp-mine">排雷</span>
+    ) : null
+  return (
+    <div className="frow">
+      <div className="l1">
+        <span className="lb">{f.label}</span>
+        <span className="va">
+          {last?.value}
+          {f.unit ?? ''}
+        </span>
+        {ch?.trend && <span className={'arw ' + ch.trend}>{ARROW[ch.trend]}</span>}
+        {ch?.trend_note && <span className="tnote">{ch.trend_note}</span>}
+        {ch?.yoy && <span className="tnote">{ch.yoy}</span>}
+        {rp}
+        <span className="fas" style={{ marginLeft: rp ? 6 : 'auto' }}>
+          @{last?.as_of}
+          {last?.tier ? ` · ${last.tier}` : ''}
+          {stale ? ' · 过时' : ''}
+        </span>
+      </div>
+      {st?.note && (
+        <div className="fstruct">
+          结构 {st.note}
+          {st.components?.map((c, i) => (
+            <span
+              key={i}
+              className={
+                'spill ' +
+                (c.signal === 'good' ? 'sp-good' : c.signal === 'bad' ? 'sp-bad' : 'sp-n')
+              }
+            >
+              {c.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

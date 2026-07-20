@@ -8,7 +8,7 @@
 //   → 点历史节点 → 传导链回拨到旧版本(reconstruct 全栈打通)。
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { InvestWorkspace } from './InvestWorkspace'
 import type { CardBundle, CardSummary } from '@shared/types/invest'
 import type { ChatMessage } from '../types/chat'
@@ -147,31 +147,30 @@ afterEach(() => {
 describe('工作台端到端(池子 → 选卡 → 活论文时光机 + 分析过程)', () => {
   it('三区 wired 一次跑通:选卡后活论文与对话同时就位', async () => {
     const { read, getMessages } = wireAPI()
-    render(<InvestWorkspace onBack={vi.fn()} />)
+    const { container } = render(<InvestWorkspace onBack={vi.fn()} />)
 
     // 池子渲染真实卡
-    expect(await screen.findByText('比亚迪')).toBeTruthy()
+    await waitFor(() => expect(container.textContent ?? '').toContain('比亚迪'))
 
     // 自动选首卡 → 活论文取该卡 bundle、分析过程取该卡会话
     await waitFor(() => expect(read).toHaveBeenCalledWith('stock_card', CARD_ID))
     await waitFor(() => expect(getMessages).toHaveBeenCalledWith(SESSION))
 
-    // 活论文·传导链:现在态 = 最新逻辑 v2(badge 唯一标识当前版)
-    expect(await screen.findByText('v2 · 成长')).toBeTruthy()
-    // 当前逻辑一句话同时出现在池子与传导链(两处都反映 current=v2 → 数据打通)
-    expect(screen.getAllByText(V2_CLAIM).length).toBeGreaterThanOrEqual(2)
-    // 活论文·事实:命门事实呈现
-    expect(screen.getByText('份额')).toBeTruthy()
-    // 分析过程:研究对话呈现(复用 MessageBubble)
-    expect(screen.getByText('份额加速兑现，上调预期')).toBeTruthy()
+    // 活论文·传导链恒等式 ladder 就位 + 现在态 concl = 最新逻辑 v2
+    await waitFor(() => expect(container.querySelector('.ladder')).toBeTruthy())
+    const txt = () => container.textContent ?? ''
+    expect(txt()).toContain(V2_CLAIM)
+    expect(txt()).toContain('份额') // 事实
+    // 分析过程:研究对话呈现(desk 气泡)
+    expect(txt()).toContain('份额加速兑现，上调预期')
   })
 
   it('时光机回拨:点建立节点 → 传导链切到旧版本 v1(reconstruct 全栈)', async () => {
     wireAPI()
-    render(<InvestWorkspace onBack={vi.fn()} />)
-    await screen.findByText('v2 · 成长') // 等 ActivePaper 加载完(badge 唯一,保证时光机已渲染)
-    fireEvent.click(screen.getByText('建立')) // 时光机建立节点(v1@2026-03)
-    await waitFor(() => expect(screen.getByText(V1_CLAIM)).toBeTruthy())
-    expect(screen.getByText('历史 · 冻结只读')).toBeTruthy()
+    const { container } = render(<InvestWorkspace onBack={vi.fn()} />)
+    await waitFor(() => expect(container.textContent ?? '').toContain(V2_CLAIM)) // 现在=v2
+    fireEvent.click(container.querySelectorAll('.tltk')[0]) // 时光机首节点=建立(v1@2026-03)
+    await waitFor(() => expect(container.textContent ?? '').toContain(V1_CLAIM))
+    expect(container.textContent ?? '').toContain('历史·只读·已冻结')
   })
 })

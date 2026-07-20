@@ -1,0 +1,831 @@
+/* src/renderer/invest/invest.css —— 投研工作台专属设计系统(移植 demo,全局 scope 在 .invest-surface)
+ * B-ii:invest 自带一套 token(--ground/--surface/--ink/--accent/…),light-first + 暗色适配,
+ * 与 Talor 全局 token 隔离(同名变量在此子树内覆盖,不外泄)。所有组件类都以 .invest-surface 前缀 scope。 */
+
+.invest-surface {
+  --ground: #f7f8fa;
+  --surface: #fff;
+  --surface-2: #eef1f5;
+  --ink: #171d29;
+  --ink-2: #5a6577;
+  --ink-3: #8b95a6;
+  --accent: #2f6bed;
+  --accent-soft: #e7effd;
+  --good: #1a8f5c;
+  --good-soft: #e3f5ec;
+  --warn: #b7791f;
+  --warn-soft: #fbf1dc;
+  --bad: #c0392b;
+  --bad-soft: #fbe9e7;
+  --border: #e2e6ec;
+  --border-2: #cdd4de;
+  --sepia: #f4efe6;
+  --iv-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+  color: var(--ink);
+  overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  .invest-surface {
+    --ground: #0e1116;
+    --surface: #171b22;
+    --surface-2: #1f242d;
+    --ink: #e8ebf0;
+    --ink-2: #a2acbd;
+    --ink-3: #6b7688;
+    --accent: #5b8cff;
+    --accent-soft: #182338;
+    --good: #3ecf8e;
+    --good-soft: #12291f;
+    --warn: #e0a63a;
+    --warn-soft: #2a2114;
+    --bad: #f0715e;
+    --bad-soft: #2c1815;
+    --border: #262c36;
+    --border-2: #333b47;
+    --sepia: #241f17;
+  }
+}
+
+.invest-surface .n {
+  font-family: var(--iv-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.invest-surface .mut {
+  color: var(--ink-3);
+}
+.invest-surface .iv-ico {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* header */
+.invest-surface .iv-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.invest-surface .iv-title {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.invest-surface .iv-title b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.invest-surface .iv-back {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.invest-surface .iv-back:hover {
+  border-color: var(--border-2);
+}
+
+/* body: pool | canvas | convo */
+.invest-surface .iv-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.invest-surface .pool {
+  flex: 0 0 168px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 12px 8px;
+}
+.invest-surface .pool h4 {
+  margin: 0 0 9px 2px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.invest-surface .thumb {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: var(--surface-2);
+  border-radius: 9px;
+  padding: 8px 9px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  display: block;
+}
+.invest-surface .thumb:hover {
+  border-color: var(--border-2);
+}
+.invest-surface .thumb.active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.invest-surface .thumb .tn {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.invest-surface .thumb .tcode {
+  font-family: var(--iv-mono);
+  font-size: 9.5px;
+  color: var(--ink-3);
+}
+.invest-surface .thumb .tc {
+  font-size: 10px;
+  color: var(--ink-2);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.invest-surface .sdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  margin-left: auto;
+}
+
+.invest-surface .canvas {
+  flex: 1.5;
+  overflow: hidden;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+}
+.invest-surface .tlwrap {
+  padding: 10px 16px 11px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: none;
+}
+.invest-surface .tlwrap .h {
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.invest-surface .traj {
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.invest-surface .traj b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.invest-surface .tlslider {
+  width: 100%;
+  margin: 0 0 2px;
+  accent-color: var(--accent);
+  height: 4px;
+}
+.invest-surface .tlnodes {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+.invest-surface .tltk {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  padding: 0;
+}
+.invest-surface .nd {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.invest-surface .n-build {
+  background: var(--surface);
+  border: 2px solid var(--border-2);
+}
+.invest-surface .n-ver {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.invest-surface .n-hold {
+  background: var(--ink-3);
+}
+.invest-surface .n-warn {
+  background: var(--surface);
+  border: 2px solid var(--warn);
+}
+.invest-surface .n-dec {
+  background: var(--accent);
+  border-radius: 2px;
+}
+.invest-surface .tltk.on .nd {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.invest-surface .tllab {
+  font-size: 9.5px;
+  color: var(--ink-3);
+  text-align: center;
+  line-height: 1.15;
+}
+.invest-surface .tltk.on .tllab {
+  color: var(--ink);
+  font-weight: 600;
+}
+.invest-surface .tllab .dd {
+  font-family: var(--iv-mono);
+  font-size: 8px;
+}
+.invest-surface .verbadge {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+  margin-left: 2px;
+}
+
+.invest-surface .canvas-scroll {
+  overflow-y: auto;
+  padding: 13px 16px;
+  flex: 1;
+}
+.invest-surface .maintain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--accent);
+  margin-bottom: 9px;
+}
+.invest-surface .maintain .d {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.invest-surface .tmbanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--sepia);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  padding: 7px 11px;
+  margin-bottom: 9px;
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+.invest-surface .tmbanner b {
+  color: var(--ink);
+}
+.invest-surface .tmbanner .back {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--accent);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  padding: 3px 9px;
+  cursor: pointer;
+  background: var(--surface);
+}
+.invest-surface .concl {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.invest-surface .action {
+  font-size: 11px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+.invest-surface .evd {
+  background: var(--surface-2);
+  border-radius: 9px;
+  padding: 9px 11px;
+  margin: 11px 0;
+  font-size: 11px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.invest-surface .evd .et {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.invest-surface .evd .glyph {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.invest-surface .evtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-top: 6px;
+}
+.invest-surface .evtable th {
+  text-align: left;
+  color: var(--ink-3);
+  font-weight: 600;
+  padding: 0 6px 3px;
+}
+.invest-surface .evtable td {
+  padding: 4px 6px;
+  border-top: 1px dashed var(--border);
+  font-family: var(--iv-mono);
+}
+.invest-surface .evtable td:first-child {
+  font-family: inherit;
+  color: var(--ink-2);
+}
+.invest-surface .oc-good {
+  color: var(--good);
+}
+.invest-surface .oc-warn {
+  color: var(--warn);
+}
+.invest-surface .oc-bad {
+  color: var(--bad);
+}
+
+.invest-surface .chain {
+  border: 1px solid var(--accent-soft);
+  border-radius: 11px;
+  padding: 11px 12px;
+  margin: 12px 0;
+}
+.invest-surface .chain-bc {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  margin-bottom: 9px;
+}
+.invest-surface .cstep-h {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin: 8px 0 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.invest-surface .cstep-h .r {
+  margin-left: auto;
+  font-weight: 400;
+}
+.invest-surface .ler {
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0 7px 7px 0;
+  padding: 6px 9px;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.invest-surface .ler.warn {
+  border-left-color: var(--warn);
+}
+.invest-surface .ler.bad {
+  border-left-color: var(--bad);
+}
+.invest-surface .ler .flow {
+  color: var(--ink-2);
+  margin-top: 3px;
+}
+.invest-surface .ler .flow b {
+  color: var(--ink);
+}
+.invest-surface .ladder {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+  margin-top: 2px;
+}
+.invest-surface .lrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 9px;
+  border-bottom: 1px dashed var(--border);
+  font-size: 11px;
+}
+.invest-surface .lrow:last-child {
+  border-bottom: 0;
+}
+.invest-surface .lrow .lhs {
+  color: var(--ink-2);
+}
+.invest-surface .lrow .lhs .p {
+  color: var(--ink-3);
+}
+.invest-surface .lrow .lhs .p.core {
+  color: var(--accent);
+  font-weight: 600;
+}
+.invest-surface .lrow .rhs {
+  font-family: var(--iv-mono);
+  white-space: nowrap;
+}
+.invest-surface .lrow .rhs b {
+  color: var(--ink);
+}
+.invest-surface .ltag {
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 5px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.invest-surface .lfoot {
+  font-size: 9px;
+  color: var(--ink-3);
+  padding: 5px 9px;
+  background: var(--surface-2);
+}
+.invest-surface .safety {
+  margin-top: 9px;
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.invest-surface .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.invest-surface .sruler {
+  position: relative;
+  height: 34px;
+  margin: 6px 2px 0;
+}
+.invest-surface .strack {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+.invest-surface .szone {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--good);
+  opacity: 0.4;
+}
+.invest-surface .smk {
+  position: absolute;
+  top: 9px;
+  transform: translateX(-50%);
+  text-align: center;
+}
+.invest-surface .smk .bar {
+  width: 2px;
+  height: 18px;
+  margin: 0 auto;
+}
+.invest-surface .smk .lb {
+  font-size: 8.5px;
+  margin-top: 1px;
+  white-space: nowrap;
+}
+.invest-surface .cdec {
+  border-top: 1px solid var(--accent-soft);
+  margin-top: 9px;
+  padding-top: 8px;
+  font-size: 11.5px;
+}
+.invest-surface .cdec .vd {
+  font-weight: 700;
+}
+.invest-surface .whatif {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--surface);
+  border: 1px dashed var(--border-2);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.invest-surface .whatif input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 4px;
+}
+.invest-surface .whatif .lbl {
+  font-size: 8.5px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.invest-surface .frozen {
+  font-size: 8.5px;
+  color: var(--ink-3);
+  font-style: italic;
+  margin-top: 5px;
+}
+
+.invest-surface .facts-h {
+  margin: 14px 0 6px;
+}
+.invest-surface .facts-h .e {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.invest-surface .fgrp {
+  font-size: 9.5px;
+  color: var(--accent);
+  font-weight: 600;
+  margin: 9px 0 4px;
+}
+.invest-surface .fgrp.n2 {
+  color: var(--ink-3);
+}
+.invest-surface .frow {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.invest-surface .frow:last-child {
+  border-bottom: 0;
+}
+.invest-surface .frow .l1 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.invest-surface .frow .lb {
+  color: var(--ink-2);
+  min-width: 64px;
+}
+.invest-surface .frow .va {
+  font-weight: 700;
+  color: var(--ink);
+  font-family: var(--iv-mono);
+}
+.invest-surface .arw {
+  font-weight: 700;
+}
+.invest-surface .arw.up {
+  color: var(--good);
+}
+.invest-surface .arw.down {
+  color: var(--bad);
+}
+.invest-surface .arw.flat {
+  color: var(--ink-3);
+}
+.invest-surface .tnote {
+  color: var(--ink-2);
+}
+.invest-surface .rpill {
+  font-size: 8.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+  margin-left: auto;
+}
+.invest-surface .rp-lead {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.invest-surface .rp-mine {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.invest-surface .fas {
+  font-size: 9px;
+  color: var(--ink-3);
+  font-family: var(--iv-mono);
+}
+.invest-surface .fstruct {
+  font-size: 10px;
+  color: var(--ink-2);
+  padding-left: 70px;
+  margin-top: 3px;
+}
+.invest-surface .spill {
+  font-size: 8.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.invest-surface .sp-good {
+  background: var(--good-soft);
+  color: var(--good);
+}
+.invest-surface .sp-bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+.invest-surface .sp-n {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+.invest-surface .guard {
+  font-size: 9.5px;
+  color: var(--ink-3);
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+  line-height: 1.5;
+}
+
+/* convo */
+.invest-surface .convo {
+  flex: 0 0 320px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  min-height: 0;
+}
+.invest-surface .convo-h {
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.invest-surface .convo-h .t {
+  font-size: 12px;
+  font-weight: 600;
+}
+.invest-surface .convo-h .s {
+  font-size: 9.5px;
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+.invest-surface .thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 13px;
+}
+.invest-surface .turn {
+  display: flex;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.invest-surface .turn .av {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+.invest-surface .av.ai {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.invest-surface .av.you {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.invest-surface .bub {
+  flex: 1;
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--surface-2);
+  border-radius: 10px;
+  border-top-left-radius: 3px;
+  padding: 8px 10px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.invest-surface .turn.you {
+  flex-direction: row-reverse;
+}
+.invest-surface .turn.you .bub {
+  background: var(--accent-soft);
+  border-top-left-radius: 10px;
+  border-top-right-radius: 3px;
+}
+.invest-surface .bub .tt {
+  font-size: 8.5px;
+  color: var(--ink-3);
+  float: right;
+  margin-left: 6px;
+  font-family: var(--iv-mono);
+}
+.invest-surface .composer {
+  border-top: 1px solid var(--border);
+  padding: 9px 11px;
+  flex: none;
+}
+.invest-surface .cin {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface-2);
+  border-radius: 9px;
+  padding: 7px 10px;
+}
+.invest-surface .cin input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: 11px;
+  color: var(--ink);
+}
+.invest-surface .cin input::placeholder {
+  color: var(--ink-3);
+}
+.invest-surface .cchips {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+}
+.invest-surface .cchip {
+  font-size: 10px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border-2);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.invest-surface .cchip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* legend */
+.invest-surface .legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  flex: none;
+}
+.invest-surface .legend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.invest-surface .iv-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 20px;
+}

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// U4:分析过程自渲染会话。mock session.getMessages,断言复用 MessageBubble 渲染消息 + 空态。
+// 分析过程自渲染会话(demo .turn/.bub)。mock session.getMessages,断言渲染消息 + 空态 + composer。
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
@@ -31,14 +31,14 @@ afterEach(() => {
 describe('ProcessPanel(分析过程:自渲染研究会话)', () => {
   it('渲染会话消息(复用 MessageBubble)', async () => {
     stubMessages(msgs)
-    render(<ProcessPanel sessionId="s1" />)
+    render(<ProcessPanel sessionId="s1" stockName="比亚迪" />)
     expect(await screen.findByText('帮我研究比亚迪')).toBeTruthy()
     expect(screen.getByText('先看行业渗透率与份额')).toBeTruthy()
   })
 
   it('空会话 → 提示,不崩', async () => {
     stubMessages([])
-    render(<ProcessPanel sessionId="s1" />)
+    render(<ProcessPanel sessionId="s1" stockName="比亚迪" />)
     expect(await screen.findByText('此标的暂无研究对话')).toBeTruthy()
   })
 })
