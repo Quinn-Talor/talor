@@ -220,7 +220,12 @@ export type TimelineEventType = TimelineEvent['type']
 export type BizGrade = '优' | '良' | '平庸' | '不过'
 export interface GoodBusiness {
   quality_gate: 'pass' | 'fail' // 质量门结论(收现/FCF/扣非/商誉;数值在 facts)
-  moat: { type: string; durability: '长' | '中' | '短' | '无' } // 护城河判断;durability → 喂估值久期
+  moat: {
+    type: string
+    durability: '长' | '中' | '短' | '无' // durability → 喂估值久期
+    falsify_if?: string // 护城河何以被侵蚀(可证伪;§11.4 —— 护城河可持续性是最关键判断)
+    verify?: VerifyHook[] // 护城河先行指标(如成本/份额监测)
+  } // 护城河判断
   grade: BizGrade // 优/良/平庸/不过 → 调 margin_of_safety.required
 }
 export interface Eligibility {

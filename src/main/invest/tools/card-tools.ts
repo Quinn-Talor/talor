@@ -225,6 +225,8 @@ const GoodBusinessZ = z.object({
   moat: z.object({
     type: z.string().describe('护城河类型(品牌/转换成本/网络/成本/资源/无)'),
     durability: z.enum(['长', '中', '短', '无']).describe('久期 → 喂估值久期假设'),
+    falsify_if: z.string().optional().describe('护城河何以被侵蚀(可证伪)'),
+    verify: z.array(VerifyHookZ).optional().describe('护城河先行指标'),
   }),
   grade: z.enum(['优', '良', '平庸', '不过']).describe('好生意分档 → 调安全边际门槛'),
 })

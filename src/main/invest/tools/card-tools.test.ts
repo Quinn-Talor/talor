@@ -100,6 +100,32 @@ describe('card-tools (新)', () => {
     expect(r.versions).toBe(1)
   })
 
+  it('set_eligibility: moat 可证伪(falsify_if/verify)round-trips', async () => {
+    const c = (await call(byName.create_card, { code: '1', name: 'x' })) as Summary
+    await call(byName.set_eligibility, {
+      card_id: c.card_id,
+      eligibility: {
+        red_flags: 0,
+        source_positive: true,
+        in_circle: true,
+        pass: true,
+        good_business: {
+          quality_gate: 'pass',
+          moat: {
+            type: '成本',
+            durability: '长',
+            falsify_if: '单位成本被同业追平',
+            verify: [{ fact: 'gross_margin', at: 'quarterly' }],
+          },
+          grade: '优',
+        },
+      },
+    })
+    const gb = store.read(c.card_id)?.eligibility?.good_business
+    expect(gb?.moat.falsify_if).toBe('单位成本被同业追平')
+    expect(gb?.moat.verify?.[0]?.fact).toBe('gross_margin')
+  })
+
   it('add_facts 非白名单源 → FACT_SOURCE_UNTRUSTED 信封(不上抛)', async () => {
     const c = (await call(byName.create_card, { code: '1', name: 'x' })) as Summary
     const bad = await call(byName.add_facts, {
