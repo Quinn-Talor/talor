@@ -45,6 +45,11 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Playwright E2E output
+test-results/
+playwright-report/
+.playwright/
+
 # Temporary / scratch
 vibe/*
 !vibe/project/

@@ -37,6 +37,7 @@
     "prebuild": "npm run rebuild:electron",
     "test": "npm run rebuild:node && (vitest run; rc=$?; npm run rebuild:electron; exit $rc)",
     "test:watch": "npm run rebuild:node && vitest",
+    "test:e2e": "npm run rebuild:electron && electron-vite build && playwright test",
     "prepare": "husky"
   },
   "dependencies": {
@@ -64,6 +65,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/mime-types": "^3.0.1",

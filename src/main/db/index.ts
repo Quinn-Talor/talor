@@ -257,7 +257,9 @@ export function getDb(): Database.Database {
 export function initChatDb(): Database.Database {
   if (db) return db
 
-  const dir = join(app.getPath('home'), '.talor')
+  // TALOR_HOME 覆盖(仅供 E2E 隔离,不碰真 ~/.talor;未设则用真实 home)。
+  const home = process.env.TALOR_HOME ?? app.getPath('home')
+  const dir = join(home, '.talor')
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true })
   }
