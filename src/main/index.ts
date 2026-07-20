@@ -32,7 +32,7 @@ import { initChatDb, closeChatDb, getDb, pruneTraces } from './db/index'
 import { traceRecorder } from './observe/trace-recorder'
 import { installFeatures } from './features/install'
 import { ArtifactReaderRegistry } from './features/artifact-readers'
-import { investFeatureMain } from './invest/feature'
+import { investFeatureMain, ensureCardSession } from './invest/feature'
 import { mcpServerRepo } from './repos/mcp-server-repo'
 import { AgentManager } from './agent/agent-manager'
 import { BuiltinToolRegistry } from './agent/builtin-registry'
@@ -250,6 +250,16 @@ app.whenReady().then(() => {
     artifactReaders.read(arg.type, arg.id),
   )
   ipcMain.handle('artifact:list', (_e, arg: { type: string }) => artifactReaders.list(arg.type))
+  // 投研:确保卡片研究会话存在(修悬空 origin_session 导致的 chat 外键失败);默认 provider 注入
+  ipcMain.handle('invest:ensure-session', (_e, cardId: string) => {
+    let providerId = ''
+    try {
+      providerId = getDefaultProvider().id
+    } catch {
+      providerId = ''
+    }
+    return ensureCardSession(cardId, providerId)
+  })
   installFeatures(
     [investFeatureMain],
     { db: getDb() },

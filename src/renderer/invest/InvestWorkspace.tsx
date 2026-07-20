@@ -54,6 +54,16 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
   const selected = cards.find((c) => c.id === selectedId) ?? null
   const activeSession = selected?.origin_session_id ?? null
 
+  // 选卡即确保其研究会话存在(修悬空 origin_session → 发消息违反 chat 外键;同 id 重建 + 绑研究 agent)
+  useEffect(() => {
+    if (!selectedId) return
+    try {
+      void window.talorAPI.invest.ensureSession(selectedId)
+    } catch {
+      /* 测试/无桥:忽略 */
+    }
+  }, [selectedId])
+
   // A2:把平台流式引擎挂到选中卡的根会话(chat 页此时未挂载 → 单会话 chatStore 无并发)
   useStreamingMessage(activeSession)
 

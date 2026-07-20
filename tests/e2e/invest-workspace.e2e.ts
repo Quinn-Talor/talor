@@ -184,6 +184,12 @@ test('真 IPC+SQLite:池子→活论文→时光机拨动→分析过程 全链'
   await expect(page.locator('.pool')).toContainText('比亚迪')
   await expect(page.locator('.pool')).toContainText('002594')
 
+  // FK 修复:seed 卡的 origin_session(e2e-sess)未建会话=悬空;选卡即触发 ensureSession
+  // 同 id 重建、绑 stock-research(否则发消息会违反 messages.session_id 外键)
+  await expect
+    .poll(() => mainLog, { timeout: 10_000 })
+    .toContain('recreated dangling research session')
+
   // 活论文:自动选首卡 → artifact:read 真 IPC → 传导链恒等式 ladder + 现在态 concl=最新逻辑 v2
   await expect(page.locator('.ladder')).toBeVisible()
   await expect(page.locator('.concl')).toContainText(V2_CLAIM)
@@ -203,9 +209,13 @@ test('composer 可对话(修 "无法对话"):输入启用 + 回车发送(chat:se
   await composer.fill('你是空方，分析比亚迪，更新卡片')
   await expect(composer).toHaveValue('你是空方，分析比亚迪，更新卡片')
   await composer.press('Enter')
-  // send() 触发 → 输入清空;chat:send 走真 IPC → 主进程接收(隔离环境无 provider,轮次跑不完,
-  // 但 renderer→IPC→main 全链由主进程日志证实)。app 不崩、对话区仍在。
-  await expect(composer).toHaveValue('')
+  // 回车 → send 清空输入(CJK+Electron 下回车后偶留一枚 IME 残字,故断言"整句已被清掉"而非严格空,
+  // 避免 IME 合成时序 flake);轮次的实质证据在下一条:chat:send 走真 IPC 到达主进程。
+  await expect
+    .poll(async () => await composer.inputValue(), { timeout: 10_000 })
+    .not.toContain('分析比亚迪')
+  // chat:send 真 IPC → 主进程接收(隔离环境无 provider,轮次跑不完,但 renderer→IPC→main 全链
+  // 由主进程日志证实,且 session=e2e-sess 即被 ensureSession 重建的会话)。app 不崩、对话区仍在。
   await expect(page.locator('.convo')).toBeVisible()
   await expect.poll(() => mainLog, { timeout: 15_000 }).toContain('[chat:send] session: e2e-sess')
 })

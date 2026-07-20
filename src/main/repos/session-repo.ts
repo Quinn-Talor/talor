@@ -148,6 +148,8 @@ export const sessionRepo = {
   },
 
   create(params: {
+    /** 显式 id(重建悬空会话时复用原 id;不传则生成新 uuid)。 */
+    id?: string
     title: string
     provider_id: string
     model_id?: string
@@ -158,7 +160,7 @@ export const sessionRepo = {
     status?: SessionStatus
   }): ChatSession {
     const db = getDb()
-    const id = uuidv4()
+    const id = params.id ?? uuidv4()
     const now = new Date().toISOString()
     const agentId = params.agent_id ?? '__chat__'
     // 顶层 session 默认 'completed'（不参与状态机），子 session 由调用方显式传 'running'。

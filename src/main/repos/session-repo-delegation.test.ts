@@ -108,6 +108,24 @@ describe('sessionRepo TASK-1 delegation extensions', () => {
         }),
       ).toThrow()
     })
+
+    // 显式 id:invest ensureCardSession 用它以 origin_session_id 重建悬空会话,
+    // 使卡片引用保持有效(否则发消息违反 messages.session_id 外键)。
+    it('(trigger) honors explicit id when provided', () => {
+      const s = sessionRepo.create({
+        id: 'fixed-origin-sess',
+        title: '投研 · 比亚迪',
+        provider_id: 'p1',
+        agent_id: 'stock-research',
+      })
+      expect(s.id).toBe('fixed-origin-sess')
+      expect(sessionRepo.getById('fixed-origin-sess')?.agent_id).toBe('stock-research')
+    })
+
+    it('(no-trigger) generates a uuid when id omitted', () => {
+      const s = sessionRepo.create({ title: 'auto id', provider_id: 'p1' })
+      expect(s.id).toMatch(/^[0-9a-f-]{36}$/)
+    })
   })
 
   describe('listDelegatedAgents() (TASK-3: AC-027/028)', () => {

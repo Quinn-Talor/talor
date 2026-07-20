@@ -34,6 +34,28 @@ export function getInvestStore(): CardRepo | null {
   return investStore
 }
 
+/**
+ * 确保卡片有可用研究会话。卡的 origin_session 可能已被 schema 升级 drop / 用户删会话
+ * 而卡仍在(悬空引用)→ 发消息会违反 messages.session_id 外键。此处若该会话不存在,就用
+ * **同一 id** 重建、绑 stock-research agent(带建卡工具),使 card 引用保持有效、对话/发送同 id、
+ * "更新卡片"可用。返回有效 session id;卡不存在返 null。providerId 由组合根注入(feature 不依赖 providers)。
+ */
+export function ensureCardSession(cardId: string, providerId: string): string | null {
+  const card = investStore?.read(cardId)
+  if (!card) return null
+  const sid = card.head.origin_session_id
+  if (sessionRepo.getById(sid)) return sid
+  sessionRepo.create({
+    id: sid,
+    title: `投研 · ${card.head.name}`,
+    provider_id: providerId,
+    agent_id: 'stock-research',
+    status: 'completed',
+  })
+  log.info('[invest] recreated dangling research session', sid, 'for card', cardId)
+  return sid
+}
+
 type InvestTool = ReturnType<typeof createInvestTools>[number]
 
 /** 真相库写工具(会改 CardBundle 落盘)。读/检索/compute 不在此列,全员保留。 */

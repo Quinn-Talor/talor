@@ -389,6 +389,12 @@ const talorAPI = {
     toolDurations: (sessionId: string): Promise<ToolDurationsResult> =>
       ipcRenderer.invoke('trace:tool-durations', { session_id: sessionId }),
   },
+
+  // 投研专属:确保卡片研究会话存在(修悬空 origin_session 的外键失败)
+  invest: {
+    ensureSession: (cardId: string): Promise<string | null> =>
+      ipcRenderer.invoke('invest:ensure-session', cardId),
+  },
 }
 
 contextBridge.exposeInMainWorld('talorAPI', talorAPI)

@@ -255,6 +255,9 @@ declare global {
         createScore: (input: ScoreCreateInput) => Promise<ScoreCreateResult>
         toolDurations: (sessionId: string) => Promise<ToolDurationsResult>
       }
+      invest: {
+        ensureSession: (cardId: string) => Promise<string | null>
+      }
     }
   }
 }
