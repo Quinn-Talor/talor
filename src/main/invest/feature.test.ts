@@ -25,7 +25,7 @@ describe('investFeatureMain (TalorFeatureMain 契约)', () => {
     expect(store.read(b.id)?.head.code).toBe('1')
   })
 
-  it('agents(): 返回 5 个 FeatureAgent,每个带全部 23 invest 工具', () => {
+  it('agents(): 5 个 FeatureAgent,工具按角色收窄真相库写权限(受限盒子)', () => {
     freshInit()
     const agents = investFeatureMain.agents?.() ?? []
     expect(agents.map((a) => a.profile.id)).toEqual(
@@ -37,10 +37,39 @@ describe('investFeatureMain (TalorFeatureMain 契约)', () => {
         'review-analyst',
       ]),
     )
-    expect(agents[0].tools).toHaveLength(23)
-    expect(agents[0].tools?.map((t) => t.name)).toEqual(
-      expect.arrayContaining(['create_card', 'compute_macro_clock', 'add_thesis']),
-    )
+    const byId = (id: string) => agents.find((a) => a.profile.id === id)!
+    const names = (id: string) => byId(id).tools?.map((t) => t.name) ?? []
+    const WRITE = [
+      'create_card',
+      'set_eligibility',
+      'add_facts',
+      'add_thesis',
+      'add_checkpoint',
+      'add_decision',
+      'add_review',
+    ]
+
+    // 主 agent:全 23 —— 建立/落卡/决策/复盘全授权
+    expect(byId('stock-research').tools).toHaveLength(23)
+    expect(names('stock-research')).toEqual(expect.arrayContaining(WRITE))
+
+    // 域 specialist:调不到任何真相库写工具(spec 验收「域 specialist 调不到建卡工具」);
+    // compute + 读卡保留(自发现不受影响)
+    for (const id of ['stock-specialist', 'industry-research', 'macro-research']) {
+      expect(byId(id).tools).toHaveLength(16)
+      const n = names(id)
+      for (const w of WRITE) expect(n).not.toContain(w)
+      expect(n).toEqual(expect.arrayContaining(['get_card', 'get_timeline', 'compute_macro_clock']))
+    }
+
+    // 复盘:只读历史 + 唯一写口 add_review;调不到建卡/决策
+    expect(byId('review-analyst').tools).toHaveLength(17)
+    const rv = names('review-analyst')
+    expect(rv).toContain('add_review')
+    expect(rv).toEqual(expect.arrayContaining(['get_card', 'get_timeline']))
+    expect(rv).not.toContain('create_card')
+    expect(rv).not.toContain('add_decision')
+    expect(rv).not.toContain('add_thesis')
   })
 
   it('artifacts(): 声明 stock_card 读口,read(id) 取 CardBundle', () => {
