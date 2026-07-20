@@ -11,7 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, fireEvent, waitFor, configure } from '@testing-library/react'
 import { InvestWorkspace } from './InvestWorkspace'
 
-configure({ asyncUtilTimeout: 3000 }) // 全量并行下抗初始异步加载抖动
+configure({ asyncUtilTimeout: 5000 }) // 全量并行下抗初始异步加载抖动
 import type { CardBundle, CardSummary } from '@shared/types/invest'
 import type { ChatMessage } from '../types/chat'
 
@@ -170,7 +170,8 @@ describe('工作台端到端(池子 → 选卡 → 活论文时光机 + 分析�
   it('时光机回拨:点建立节点 → 传导链切到旧版本 v1(reconstruct 全栈)', async () => {
     wireAPI()
     const { container } = render(<InvestWorkspace onBack={vi.fn()} />)
-    await waitFor(() => expect(container.textContent ?? '').toContain(V2_CLAIM)) // 现在=v2
+    // 等活论文时光机就位(.tltk 出现)——不能用 V2_CLAIM 当门:池子摘要里也有它,会早于活论文加载
+    await waitFor(() => expect(container.querySelectorAll('.tltk').length).toBeGreaterThan(0))
     fireEvent.click(container.querySelectorAll('.tltk')[0]) // 时光机首节点=建立(v1@2026-03)
     await waitFor(() => expect(container.textContent ?? '').toContain(V1_CLAIM))
     expect(container.textContent ?? '').toContain('历史·只读·已冻结')

@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, cleanup, fireEvent, waitFor, configure } from '@testing-library/react'
 import { ActivePaper } from './ActivePaper'
 
-configure({ asyncUtilTimeout: 3000 }) // 全量并行下抗初始异步加载抖动
+configure({ asyncUtilTimeout: 5000 }) // 全量并行下抗初始异步加载抖动
 import type { CardBundle } from '@shared/types/invest'
 
 const V1 = '政策驱动·护城河建立'

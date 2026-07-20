@@ -45,11 +45,12 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : NaN
 }
 
-export function ActivePaper({ cardId }: { cardId: string }) {
+export function ActivePaper({ cardId, refreshTick }: { cardId: string; refreshTick?: number }) {
   const [bundle, setBundle] = useState<CardBundle | null>(null)
   const [cur, setCur] = useState<number | null>(null) // chronological index; null → 现在(末节点)
   const [dial, setDial] = useState<number | null>(null) // 拨:命门 forecast.base 覆盖
 
+  // cardId 变 → 重置到现在;refreshTick 变(agent 更新卡)→ 重取并回到现在(展示最新)
   useEffect(() => {
     let alive = true
     setCur(null)
@@ -65,7 +66,7 @@ export function ActivePaper({ cardId }: { cardId: string }) {
     return () => {
       alive = false
     }
-  }, [cardId])
+  }, [cardId, refreshTick])
 
   const chrono = useMemo(() => [...timelineRows(bundle)].reverse(), [bundle]) // 旧→新
   const lastIdx = chrono.length - 1

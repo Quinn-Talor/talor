@@ -8,6 +8,9 @@ import { useEffect, useState } from 'react'
 import type { CardSummary, Validity } from '@shared/types/invest'
 import { ActivePaper } from './ActivePaper'
 import { ProcessPanel } from './ProcessPanel'
+import { useStreamingMessage } from '../hooks/useStreamingMessage'
+import { useChatStore } from '../store/chatStore'
+import { PermissionsPopover } from '../components/PermissionsPopover'
 import './invest.css'
 
 interface InvestWorkspaceProps {
@@ -26,7 +29,9 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
   const [cards, setCards] = useState<CardSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
+  const [tick, setTick] = useState(0) // 落库/建卡 → bump,驱动 池子/活论文/对话 刷新
 
+  // 池子:挂载 + 每次 tick 重取(setSelectedId(prev??) 保留当前选中)
   useEffect(() => {
     let alive = true
     ;(async () => {
@@ -44,9 +49,29 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
     return () => {
       alive = false
     }
-  }, [])
+  }, [tick])
 
   const selected = cards.find((c) => c.id === selectedId) ?? null
+  const activeSession = selected?.origin_session_id ?? null
+
+  // A2:把平台流式引擎挂到选中卡的根会话(chat 页此时未挂载 → 单会话 chatStore 无并发)
+  useStreamingMessage(activeSession)
+
+  // 落库事件:清掉已落库步的流式项(防重影)+ bump tick(刷新三区,反映 agent 更新卡)
+  useEffect(() => {
+    if (!activeSession) return
+    let unsub: (() => void) | undefined
+    try {
+      unsub = window.talorAPI.chat.onMessagePersisted((ev) => {
+        if (ev.session_id !== activeSession) return
+        useChatStore.getState().dropStreamItemsUpToStep(ev.step_index)
+        setTick((t) => t + 1)
+      })
+    } catch {
+      /* 测试/无桥:忽略 */
+    }
+    return () => unsub?.()
+  }, [activeSession])
 
   return (
     <div className="invest-surface">
@@ -55,9 +80,13 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
         <div className="iv-title">
           <b>投研工作台</b> · Research Desk{selected ? ' · ' + selected.name : ''}
         </div>
-        <button className="iv-back" onClick={onBack}>
-          ← 返回对话
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* 工具确认/权限:研究轮触发时在此弹(chat 页此时未挂载,由工作台兜) */}
+          <PermissionsPopover workspacePath="" />
+          <button className="iv-back" onClick={onBack}>
+            ← 返回对话
+          </button>
+        </div>
       </header>
 
       {/* 三区 */}
@@ -91,7 +120,7 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
 
         {/* 画布:时光机 + 活论文 */}
         {selectedId ? (
-          <ActivePaper cardId={selectedId} />
+          <ActivePaper cardId={selectedId} refreshTick={tick} />
         ) : (
           <main className="canvas">
             <div className="iv-empty">选一个标的，展开它的活论文</div>
@@ -100,8 +129,9 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
 
         {/* 分析过程 */}
         <ProcessPanel
-          sessionId={selected?.origin_session_id ?? null}
+          sessionId={activeSession}
           stockName={selected?.name ?? null}
+          refreshTick={tick}
         />
       </div>
 
