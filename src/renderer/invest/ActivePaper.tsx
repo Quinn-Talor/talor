@@ -639,10 +639,8 @@ function FactRow({ f, stale }: { f: Fact; stale: boolean }) {
     <div className="frow">
       <div className="l1">
         <span className="lb">{f.label}</span>
-        <span className="va">
-          {last?.value}
-          {f.unit ?? ''}
-        </span>
+        {/* 事实值本身已是自描述字符串(如 "19%"/"¥2700"/"2600万"),不再叠加 unit(避免 "19%%") */}
+        <span className="va">{last?.value}</span>
         {ch?.trend && <span className={'arw ' + ch.trend}>{ARROW[ch.trend]}</span>}
         {ch?.trend_note && <span className="tnote">{ch.trend_note}</span>}
         {ch?.yoy && <span className="tnote">{ch.yoy}</span>}
