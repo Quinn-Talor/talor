@@ -22,6 +22,7 @@ import type {
   CardBundle,
   CardCmd,
   CardHead,
+  CardSummary,
   CardStatus,
   Eligibility,
   Facts,
@@ -220,6 +221,29 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
       case 'addReview':
         return this.addReview(cmd.id, cmd.review)
     }
+  }
+
+  /** 池子:所有卡的摘要(当前逻辑一句话 + 最新有效性),最近更新在前。供工作台左栏。 */
+  listAll(): CardSummary[] {
+    const rows = this.db
+      .prepare('SELECT * FROM stock_cards ORDER BY updated_at DESC')
+      .all() as CardRow[]
+    return rows.map((r) => {
+      const thesis = r.thesis ? (JSON.parse(r.thesis) as Thesis) : null
+      const cur = thesis?.versions.find((v) => v.v === thesis.current) ?? null
+      const cp = this.latestCheckpoint(r.id)
+      return {
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        status: r.status,
+        bucket: (r.bucket as 'satellite') ?? undefined,
+        claim: cur?.claim,
+        profit_type: cur?.profit_type,
+        validity: cp?.validity,
+        updated_at: r.updated_at,
+      }
+    })
   }
 
   listBySession(sid: string): CardHead[] {

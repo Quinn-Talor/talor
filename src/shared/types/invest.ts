@@ -245,6 +245,18 @@ export interface CardHead {
   created_at: string
   updated_at: string
 }
+/** 池子列表行:比 CardHead 多「当前逻辑一句话 + 最新有效性」,供工作台左栏一眼扫。 */
+export interface CardSummary {
+  id: string
+  code: string
+  name: string
+  status: CardStatus
+  bucket?: 'satellite'
+  claim?: string // 当前逻辑一句话
+  profit_type?: ProfitType // 赚什么钱
+  validity?: Validity // 最新复查有效性(持有/证伪/…);无复查则 undefined
+  updated_at: string
+}
 export interface CardBundle {
   id: string
   type: 'stock_card'

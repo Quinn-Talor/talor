@@ -196,6 +196,26 @@ describe('CardRepo (价值链严谨化 schema)', () => {
     expect(r.eligibility?.pass).toBe(false)
   })
 
+  // U2:池子摘要 —— 带当前逻辑一句话 + 最新有效性
+  it('listAll: 摘要含 claim/validity,建卡有 thesis+复查的卡回填', () => {
+    // 卡 A:全链(建卡→事实→逻辑→复查),有 claim + validity
+    const a = repo.apply({ kind: 'create', code: '600519', name: '茅台', originSessionId: 's' })
+    repo.apply({ kind: 'addFacts', id: a.id, facts: facts() })
+    repo.apply({ kind: 'addThesisVersion', id: a.id, snapshot: snapshot({ claim: '护城河' }) })
+    repo.apply({ kind: 'addCheckpoint', id: a.id, checkpoint: checkpoint({ validity: '持有' }) })
+    // 卡 B:仅建卡,无 thesis / 无复查 → claim/validity 皆 undefined
+    repo.apply({ kind: 'create', code: '000001', name: '平安', originSessionId: 's' })
+
+    const all = repo.listAll()
+    expect(all).toHaveLength(2)
+    const byCode = new Map(all.map((s) => [s.code, s]))
+    expect(byCode.get('600519')?.claim).toBe('护城河')
+    expect(byCode.get('600519')?.validity).toBe('持有')
+    expect(byCode.get('600519')?.profit_type).toBe('成长')
+    expect(byCode.get('000001')?.claim).toBeUndefined()
+    expect(byCode.get('000001')?.validity).toBeUndefined()
+  })
+
   // L3:买点价由 compute 算(不变量⑥ —— 价值 compute 算,不手填)
   it('addCheckpoint: buy_trigger 由 buyTriggerPrice 系统算(覆盖手填)', () => {
     const c = repo.apply({ kind: 'create', code: '1', name: 'x', originSessionId: 's' })

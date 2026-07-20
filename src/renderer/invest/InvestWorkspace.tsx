@@ -1,11 +1,12 @@
 // src/renderer/invest/InvestWorkspace.tsx —— 投研工作台(平台顶级 surface,B-ii 专属视觉)
 //
-// 与 chat/settings 视觉解耦:自带"研究台"深色底 + 三区布局(池子 | 活论文 | 分析过程)。
-// U1: 壳 + 三区骨架 + 空态 + 返回入口。U2 起接真数据(cards:list / 案卷 / 对话)。
-// 视觉走自包含 bespoke tokens(挂在根 style),不依赖 index.css 主题 —— 与 stockCardUI
-// 现有"局部 palette"取向一致,保证深色台面在明/暗主题下都稳定。
+// 三区:池子 | 活论文 | 分析过程。与 chat/settings 视觉解耦,自带"研究台"深色底。
+// U1 壳 → U2 池子接真数据(artifact:list('stock_card') → CardSummary[])+ 选中态上提
+//   (供 U3 活论文 / U4 对话消费)。U3/U4 尚为占位,接选中卡后填。
+// 视觉走自包含 bespoke tokens(挂根 style),不依赖 index.css 主题。
 
-import type { CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
+import type { CardSummary, CardStatus, Validity } from '@shared/types/invest'
 
 /** 研究台 bespoke 调色板(自包含,不受平台明暗主题影响)。 */
 const DESK: CSSProperties = {
@@ -24,6 +25,31 @@ interface InvestWorkspaceProps {
 }
 
 export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
+  const [cards, setCards] = useState<CardSummary[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const list = (await window.talorAPI.artifact.list('stock_card')) as CardSummary[]
+        if (!alive) return
+        setCards(list ?? [])
+        setSelectedId((prev) => prev ?? list?.[0]?.id ?? null)
+      } catch {
+        // 无 preload 桥(浏览器直测 / 测试未 mock)→ 空池,不崩
+      } finally {
+        if (alive) setLoaded(true)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const selected = cards.find((c) => c.id === selectedId) ?? null
+
   return (
     <div
       className="flex flex-col h-full w-full"
@@ -53,17 +79,123 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
 
       {/* 三区:池子 | 活论文 | 分析过程 */}
       <div className="flex-1 grid min-h-0" style={{ gridTemplateColumns: '260px 1fr 380px' }}>
-        <Zone title="池子" hint="候选与在研标的" side>
-          <Empty>暂无标的 —— 建卡后在此归池</Empty>
+        <Zone title="池子" hint={`候选与在研 · ${cards.length}`} side>
+          {cards.length === 0 ? (
+            <Empty>{loaded ? '暂无标的 —— 建卡后在此归池' : '载入中…'}</Empty>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {cards.map((c) => (
+                <PoolRow
+                  key={c.id}
+                  card={c}
+                  active={c.id === selectedId}
+                  onClick={() => setSelectedId(c.id)}
+                />
+              ))}
+            </ul>
+          )}
         </Zone>
+
         <Zone title="活论文" hint="时光机 · 传导链 · 事实">
-          <Empty>选一个标的，展开它的活论文</Empty>
+          {selected ? (
+            <Empty>已选「{selected.name}」—— U3 将在此渲染活论文(时光机 / 传导链 / 事实)</Empty>
+          ) : (
+            <Empty>选一个标的，展开它的活论文</Empty>
+          )}
         </Zone>
+
         <Zone title="分析过程" hint="报 · 问 · 拨 · 挑" side last>
-          <Empty>与研究 agent 的对话过程将出现在这里</Empty>
+          {selected ? (
+            <Empty>「{selected.name}」的研究对话将在此呈现(U4)</Empty>
+          ) : (
+            <Empty>与研究 agent 的对话过程将出现在这里</Empty>
+          )}
         </Zone>
       </div>
     </div>
+  )
+}
+
+/** 池子一行:代码/名 + 状态点 + 当前逻辑一句话 + 赚钱型/有效性。 */
+function PoolRow(props: { card: CardSummary; active: boolean; onClick: () => void }) {
+  const { card, active, onClick } = props
+  return (
+    <li>
+      <button
+        onClick={onClick}
+        className="w-full text-left rounded-lg px-2.5 py-2 transition-colors"
+        style={{
+          background: active ? 'var(--desk-bg)' : 'transparent',
+          border: `1px solid ${active ? 'var(--desk-accent)' : 'var(--desk-line)'}`,
+        }}
+      >
+        <div className="flex items-center gap-1.5">
+          <StatusDot status={card.status} />
+          <span className="font-mono text-[11px]" style={{ color: 'var(--desk-mute)' }}>
+            {card.code}
+          </span>
+          <span className="text-[12.5px] font-medium truncate">{card.name}</span>
+        </div>
+        {card.claim && (
+          <div
+            className="text-[11px] mt-1 leading-snug line-clamp-2"
+            style={{ color: 'var(--desk-mute)' }}
+          >
+            {card.claim}
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 mt-1.5">
+          {card.profit_type && <Chip>{card.profit_type}</Chip>}
+          {card.validity && <ValidityChip validity={card.validity} />}
+        </div>
+      </button>
+    </li>
+  )
+}
+
+const STATUS_COLOR: Record<CardStatus, string> = {
+  watching: '#8b98a9',
+  held: '#3fb950',
+  closed: '#5b6675',
+}
+
+function StatusDot({ status }: { status: CardStatus }) {
+  return (
+    <span
+      className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+      style={{ background: STATUS_COLOR[status] }}
+    />
+  )
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      className="text-[10px] px-1.5 py-0.5 rounded"
+      style={{ background: 'var(--desk-bg)', color: 'var(--desk-subtle)' }}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** 有效性配色:证伪=红,校准=琥珀,强化/持有=绿。 */
+const VALIDITY_COLOR: Record<Validity, string> = {
+  强化: '#3fb950',
+  持有: '#3fb950',
+  校准: '#d29922',
+  证伪: '#f85149',
+}
+
+function ValidityChip({ validity }: { validity: Validity }) {
+  const color = VALIDITY_COLOR[validity]
+  return (
+    <span
+      className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+      style={{ background: `${color}1f`, color }}
+    >
+      {validity}
+    </span>
   )
 }
 

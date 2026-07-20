@@ -249,6 +249,7 @@ app.whenReady().then(() => {
   ipcMain.handle('artifact:read', (_e, arg: { type: string; id: string }) =>
     artifactReaders.read(arg.type, arg.id),
   )
+  ipcMain.handle('artifact:list', (_e, arg: { type: string }) => artifactReaders.list(arg.type))
   installFeatures(
     [investFeatureMain],
     { db: getDb() },

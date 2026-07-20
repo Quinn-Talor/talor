@@ -28,6 +28,8 @@ export interface FeatureAgent {
 export interface FeatureArtifact {
   type: string
   read(id: string): unknown
+  /** 可选:列出该 type 全部对象的摘要(平台通用 artifact:list 路由;供列表 UI 取数)。 */
+  list?(): unknown
 }
 
 /**

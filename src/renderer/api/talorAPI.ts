@@ -246,6 +246,7 @@ declare global {
       }
       artifact: {
         read: (type: string, id: string) => Promise<unknown>
+        list: (type: string) => Promise<unknown[]>
       }
       trace: {
         list: (sessionId: string, limit?: number) => Promise<TraceListResult>

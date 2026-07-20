@@ -95,9 +95,15 @@ export const investFeatureMain: TalorFeatureMain = {
     }))
   },
 
-  // ③ 读口:案卷面板按 id 取 CardBundle(平台通用 artifact:read 路由;写经工具,读经此)。
+  // ③ 读口:案卷按 id 取 CardBundle(artifact:read);池子按 type 列摘要(artifact:list)。写经工具,读经此。
   artifacts(): FeatureArtifact[] {
-    return [{ type: 'stock_card', read: (id: string) => investStore?.read(id) ?? null }]
+    return [
+      {
+        type: 'stock_card',
+        read: (id: string) => investStore?.read(id) ?? null,
+        list: () => investStore?.listAll() ?? [],
+      },
+    ]
   },
 
   mcpDeps: () => [

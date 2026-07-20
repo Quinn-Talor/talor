@@ -373,6 +373,7 @@ const talorAPI = {
   artifact: {
     read: (type: string, id: string): Promise<unknown> =>
       ipcRenderer.invoke('artifact:read', { type, id }),
+    list: (type: string): Promise<unknown[]> => ipcRenderer.invoke('artifact:list', { type }),
   },
 
   // turn trace 检视:列表 / 详情 / 模型输入 blob / 评分 / 历史工具耗时。

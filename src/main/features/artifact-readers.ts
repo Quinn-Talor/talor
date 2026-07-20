@@ -12,16 +12,23 @@ import type { FeatureArtifact } from './types'
 /** 按 type 注册 / 查找业务对象读口。 */
 export class ArtifactReaderRegistry {
   private readonly readers = new Map<string, (id: string) => unknown>()
+  private readonly listers = new Map<string, () => unknown>()
 
   register(artifact: FeatureArtifact): void {
     if (this.readers.has(artifact.type)) {
       throw new Error(`Artifact reader already registered: ${artifact.type}`)
     }
     this.readers.set(artifact.type, artifact.read)
+    if (artifact.list) this.listers.set(artifact.type, artifact.list)
   }
 
   /** 按 type 取数;无对应读口返 null。 */
   read(type: string, id: string): unknown {
     return this.readers.get(type)?.(id) ?? null
+  }
+
+  /** 按 type 列出全部摘要;无对应列口返 []。 */
+  list(type: string): unknown {
+    return this.listers.get(type)?.() ?? []
   }
 }
