@@ -22,7 +22,12 @@ vi.mock('../db/index', () => ({
   },
 }))
 
-import { investFeatureMain, ensureCardSession, getInvestStore } from './feature'
+import {
+  investFeatureMain,
+  ensureCardSession,
+  getInvestStore,
+  startResearchSession,
+} from './feature'
 import { sessionRepo } from '../repos/session-repo'
 import type { CardRepo } from './store'
 
@@ -92,5 +97,11 @@ describe('ensureCardSession(修悬空 origin_session 外键)', () => {
 
   it('(no-trigger) 卡不存在 → 返回 null,不建会话', () => {
     expect(ensureCardSession('no-such-card', 'p1')).toBeNull()
+  })
+
+  it('startResearchSession 建无卡研究会话,绑 stock-research(冷启动入口)', () => {
+    const sid = startResearchSession('p1')
+    expect(sid).toMatch(/^[0-9a-f-]{36}$/)
+    expect(sessionRepo.getById(sid)?.agent_id).toBe('stock-research')
   })
 })

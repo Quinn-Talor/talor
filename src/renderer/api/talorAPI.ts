@@ -257,6 +257,10 @@ declare global {
       }
       invest: {
         ensureSession: (cardId: string) => Promise<string | null>
+        startResearch: () => Promise<string>
+        getPriorLessons: (
+          stockCode: string,
+        ) => Promise<{ ref_v?: number; lesson?: string; at: string }[]>
       }
     }
   }

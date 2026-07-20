@@ -1059,3 +1059,85 @@
   vertical-align: -4px;
   margin: 0 6px;
 }
+
+/* ═══ Phase 3:红蓝对抗 / 流程状态 / 上轮教训 / 无卡入口 ═══ */
+.invest-surface .thumb-new {
+  border: 1px dashed var(--border-2);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 8px;
+}
+.invest-surface .thumb-new.active {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.invest-surface .flowbadge {
+  margin-left: auto;
+  font-size: 8.5px;
+  color: var(--ink-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+.invest-surface .challenge {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 8px 0;
+  font-size: 11.5px;
+}
+.invest-surface .challenge .ch-short {
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+  border-left: 3px solid var(--bad);
+}
+.invest-surface .challenge .ch-pm {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+}
+.invest-surface .challenge .ch-tag {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 5px;
+  margin-bottom: 4px;
+  color: #fff;
+}
+.invest-surface .challenge .ch-tag-bear {
+  background: var(--bad);
+}
+.invest-surface .challenge .ch-tag-pm {
+  background: var(--accent);
+}
+.invest-surface .challenge .ch-body {
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+.invest-surface .challenge .ch-sug {
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+}
+.invest-surface .priorlesson {
+  border: 1px dashed var(--border-2);
+  border-radius: 8px;
+  padding: 6px 9px;
+  margin: 6px 0;
+  font-size: 10.5px;
+  color: var(--ink-2);
+}
+.invest-surface .priorlesson .pl-h {
+  font-weight: 600;
+  color: var(--ink-3);
+  margin-bottom: 3px;
+}
+.invest-surface .priorlesson .pl-at {
+  color: var(--ink-3);
+  margin-left: 6px;
+  font-size: 9px;
+}

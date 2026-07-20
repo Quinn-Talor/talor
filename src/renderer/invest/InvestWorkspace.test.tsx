@@ -59,10 +59,10 @@ describe('InvestWorkspace(投研工作台 · demo 版)', () => {
     expect(txt()).toContain('002594')
   })
 
-  it('空池 → 暂无标的', async () => {
+  it('空池 → 提示从「+ 研究新标的」起步', async () => {
     stubAPI([])
     const { container } = render(<InvestWorkspace onBack={() => {}} />)
-    await waitFor(() => expect(container.textContent ?? '').toContain('暂无标的'))
+    await waitFor(() => expect(container.textContent ?? '').toContain('研究新标的'))
   })
 
   it('点「返回对话」触发 onBack', () => {

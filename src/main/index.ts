@@ -32,7 +32,12 @@ import { initChatDb, closeChatDb, getDb, pruneTraces } from './db/index'
 import { traceRecorder } from './observe/trace-recorder'
 import { installFeatures } from './features/install'
 import { ArtifactReaderRegistry } from './features/artifact-readers'
-import { investFeatureMain, ensureCardSession } from './invest/feature'
+import {
+  investFeatureMain,
+  ensureCardSession,
+  startResearchSession,
+  getInvestStore,
+} from './invest/feature'
 import { mcpServerRepo } from './repos/mcp-server-repo'
 import { AgentManager } from './agent/agent-manager'
 import { BuiltinToolRegistry } from './agent/builtin-registry'
@@ -260,6 +265,21 @@ app.whenReady().then(() => {
     }
     return ensureCardSession(cardId, providerId)
   })
+  // 投研:无卡发起研究(冷启动入口)—— 建绑 stock-research 的新会话
+  ipcMain.handle('invest:start-research', () => {
+    let providerId = ''
+    try {
+      providerId = getDefaultProvider().id
+    } catch {
+      providerId = ''
+    }
+    return startResearchSession(providerId)
+  })
+  // 投研:回程边 —— 取同 code 历史卡的复盘教训
+  ipcMain.handle(
+    'invest:prior-lessons',
+    (_e, stockCode: string) => getInvestStore()?.priorLessons(stockCode) ?? [],
+  )
   installFeatures(
     [investFeatureMain],
     { db: getDb() },

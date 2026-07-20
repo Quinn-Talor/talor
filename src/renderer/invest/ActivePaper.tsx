@@ -27,6 +27,8 @@ import {
   factFreshness,
   type TimelineRow,
 } from './summarizeHealth'
+import { ChallengeCard } from './ChallengeCard'
+import { PriorLessonNote, type PriorLesson } from './PriorLessonNote'
 
 function nodeClass(r: TimelineRow): string {
   if (r.kind === '建立') return 'n-build'
@@ -49,6 +51,7 @@ export function ActivePaper({ cardId, refreshTick }: { cardId: string; refreshTi
   const [bundle, setBundle] = useState<CardBundle | null>(null)
   const [cur, setCur] = useState<number | null>(null) // chronological index; null → 现在(末节点)
   const [dial, setDial] = useState<number | null>(null) // 拨:命门 forecast.base 覆盖
+  const [priorLessons, setPriorLessons] = useState<PriorLesson[]>([]) // 回程边:同 code 上轮教训
 
   // cardId 变 → 重置到现在;refreshTick 变(agent 更新卡)→ 重取并回到现在(展示最新)
   useEffect(() => {
@@ -59,6 +62,14 @@ export function ActivePaper({ cardId, refreshTick }: { cardId: string; refreshTi
       try {
         const b = (await window.talorAPI.artifact.read('stock_card', cardId)) as CardBundle | null
         if (alive) setBundle(b)
+        if (b?.head.code) {
+          try {
+            const ls = await window.talorAPI.invest.getPriorLessons(b.head.code)
+            if (alive) setPriorLessons(ls)
+          } catch {
+            if (alive) setPriorLessons([])
+          }
+        } else if (alive) setPriorLessons([])
       } catch {
         if (alive) setBundle(null)
       }
@@ -99,6 +110,7 @@ export function ActivePaper({ cardId, refreshTick }: { cardId: string; refreshTi
         bundle={bundle}
       />
       <div className="canvas-scroll">
+        <PriorLessonNote lessons={priorLessons} />
         {cardEl && node && (
           <CardBody
             view={cardEl}
@@ -237,6 +249,7 @@ function CardBody(props: {
 
       <div className="concl">{concl}</div>
       <div className="action">{action}</div>
+      {cur?.challenge && <ChallengeCard challenge={cur.challenge} />}
 
       <EventDetail node={node} />
 

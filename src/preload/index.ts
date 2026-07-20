@@ -394,6 +394,11 @@ const talorAPI = {
   invest: {
     ensureSession: (cardId: string): Promise<string | null> =>
       ipcRenderer.invoke('invest:ensure-session', cardId),
+    startResearch: (): Promise<string> => ipcRenderer.invoke('invest:start-research'),
+    getPriorLessons: (
+      stockCode: string,
+    ): Promise<{ ref_v?: number; lesson?: string; at: string }[]> =>
+      ipcRenderer.invoke('invest:prior-lessons', stockCode),
   },
 }
 

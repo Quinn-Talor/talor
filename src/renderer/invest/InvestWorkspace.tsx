@@ -4,10 +4,11 @@
 // 视觉走 invest.css 的 .invest-surface 设计系统(light-first + 暗色适配,与 Talor token 隔离)。
 // U2 池子接真数据(artifact:list);选中态上提给 ActivePaper / ProcessPanel。
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CardSummary, Validity } from '@shared/types/invest'
 import { ActivePaper } from './ActivePaper'
 import { ProcessPanel } from './ProcessPanel'
+import { flowStatus } from './flowStatus'
 import { useStreamingMessage } from '../hooks/useStreamingMessage'
 import { useChatStore } from '../store/chatStore'
 import { PermissionsPopover } from '../components/PermissionsPopover'
@@ -30,6 +31,8 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [tick, setTick] = useState(0) // 落库/建卡 → bump,驱动 池子/活论文/对话 刷新
+  const [researchSessionId, setResearchSessionId] = useState<string | null>(null) // 无卡研究会话
+  const researchRef = useRef<string | null>(null) // 供 [tick] effect 读当前研究态,不触发重跑
 
   // 池子:挂载 + 每次 tick 重取(setSelectedId(prev??) 保留当前选中)
   useEffect(() => {
@@ -39,7 +42,11 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
         const list = (await window.talorAPI.artifact.list('stock_card')) as CardSummary[]
         if (!alive) return
         setCards(list ?? [])
-        setSelectedId((prev) => prev ?? list?.[0]?.id ?? null)
+        setSelectedId((prev) => {
+          if (prev) return prev
+          if (researchRef.current) return null // 研究会话进行中:不自动选卡(保持研究流)
+          return list?.[0]?.id ?? null
+        })
       } catch {
         // 无 preload 桥(浏览器直测 / 测试未 mock)→ 空池,不崩
       } finally {
@@ -52,7 +59,7 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
   }, [tick])
 
   const selected = cards.find((c) => c.id === selectedId) ?? null
-  const activeSession = selected?.origin_session_id ?? null
+  const activeSession = selected?.origin_session_id ?? researchSessionId ?? null
 
   // 选卡即确保其研究会话存在(修悬空 origin_session → 发消息违反 chat 外键;同 id 重建 + 绑研究 agent)
   useEffect(() => {
@@ -104,21 +111,41 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
         {/* 池子 */}
         <aside className="pool">
           <h4>我的论文 · {cards.length}</h4>
+          <button
+            className={'thumb thumb-new' + (researchSessionId && !selectedId ? ' active' : '')}
+            onClick={async () => {
+              try {
+                const sid = await window.talorAPI.invest.startResearch()
+                researchRef.current = sid
+                setResearchSessionId(sid)
+                setSelectedId(null)
+              } catch {
+                /* 测试/无桥:忽略 */
+              }
+            }}
+          >
+            + 研究新标的
+          </button>
           {cards.length === 0 ? (
             <div className="iv-empty" style={{ height: 'auto', paddingTop: 24 }}>
-              {loaded ? '暂无标的' : '载入中…'}
+              {loaded ? '从「+ 研究新标的」起步' : '载入中…'}
             </div>
           ) : (
             cards.map((c) => (
               <button
                 key={c.id}
                 className={'thumb' + (c.id === selectedId ? ' active' : '')}
-                onClick={() => setSelectedId(c.id)}
+                onClick={() => {
+                  researchRef.current = null
+                  setResearchSessionId(null)
+                  setSelectedId(c.id)
+                }}
               >
                 <div className="tn">
                   <span className="tcode">{c.code}</span>
                   {c.name}
                   <span className="sdot" style={{ background: sdotColor(c.validity) }} />
+                  <span className="flowbadge">{flowStatus(c)}</span>
                 </div>
                 <div className="tc">
                   {c.claim ?? (c.validity ? `最新:${c.validity}` : '待建立逻辑')}

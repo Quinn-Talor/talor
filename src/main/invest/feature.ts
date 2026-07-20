@@ -56,6 +56,18 @@ export function ensureCardSession(cardId: string, providerId: string): string | 
   return sid
 }
 
+/** 无卡发起研究:建一个绑 stock-research 的新会话(冷启动;PM 建卡前先有会话可对话)。 */
+export function startResearchSession(providerId: string): string {
+  const s = sessionRepo.create({
+    title: '投研 · 新标的',
+    provider_id: providerId,
+    agent_id: 'stock-research',
+    status: 'completed',
+  })
+  log.info('[invest] started card-less research session', s.id)
+  return s.id
+}
+
 type InvestTool = ReturnType<typeof createInvestTools>[number]
 
 /** 真相库写工具(会改 CardBundle 落盘)。读/检索/compute 不在此列,全员保留。 */
