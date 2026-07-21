@@ -108,7 +108,7 @@
   min-height: 0;
 }
 .invest-surface .pool {
-  flex: 0 0 168px;
+  flex: 0 0 190px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
   padding: 12px 8px;
@@ -680,9 +680,32 @@
 }
 
 /* convo */
+/* 中|右 可拖分区线(取代 convo 的静态 border-left;6px 命中区 + 1px 视觉线,hover 高亮) */
+.invest-surface .iv-split {
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  position: relative;
+}
+.invest-surface .iv-split::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+}
+.invest-surface .iv-split:hover::before,
+.invest-surface .iv-split:active::before {
+  width: 3px;
+  background: var(--accent);
+}
 .invest-surface .convo {
-  flex: 0 0 320px;
-  border-left: 1px solid var(--border);
+  /* 宽度由 --iv-convo-w 驱动(可拖);min-width:0 → agent 输出撑不动分区,不拖即固定 */
+  flex: 0 0 var(--iv-convo-w, 320px);
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -704,7 +727,9 @@
 }
 .invest-surface .thread {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 13px;
 }
 .invest-surface .turn {

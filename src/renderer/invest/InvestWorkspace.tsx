@@ -4,11 +4,18 @@
 // 视觉走 invest.css 的 .invest-surface 设计系统(light-first + 暗色适配,与 Talor token 隔离)。
 // U2 池子接真数据(artifact:list);选中态上提给 ActivePaper / ProcessPanel。
 
-import { useEffect, useRef, useState } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import type { CardSummary, Validity } from '@shared/types/invest'
 import { ActivePaper } from './ActivePaper'
 import { ProcessPanel } from './ProcessPanel'
 import { flowStatus } from './flowStatus'
+import { clampConvoWidth, CONVO_DEFAULT } from './splitLayout'
 import { useStreamingMessage } from '../hooks/useStreamingMessage'
 import { useChatStore } from '../store/chatStore'
 import { PermissionsPopover } from '../components/PermissionsPopover'
@@ -33,6 +40,42 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
   const [tick, setTick] = useState(0) // 落库/建卡 → bump,驱动 池子/活论文/对话 刷新
   const [researchSessionId, setResearchSessionId] = useState<string | null>(null) // 无卡研究会话
   const researchRef = useRef<string | null>(null) // 供 [tick] effect 读当前研究态,不触发重跑
+  const ivBodyRef = useRef<HTMLDivElement>(null)
+  const [convoW, setConvoW] = useState<number>(() => {
+    try {
+      const s = Number(localStorage.getItem('iv.convoW'))
+      return Number.isFinite(s) && s > 0 ? s : CONVO_DEFAULT
+    } catch {
+      return CONVO_DEFAULT
+    }
+  })
+
+  // 中|右 分区拖拽:只在拖动时改宽;不拖时 convoW 固定(agent 输出经 min-width:0 撑不动分区)
+  const startDrag = (e: ReactMouseEvent) => {
+    e.preventDefault()
+    const body = ivBodyRef.current
+    if (!body) return
+    const move = (ev: MouseEvent) => {
+      const rect = body.getBoundingClientRect()
+      setConvoW(clampConvoWidth(rect.right - ev.clientX, rect.width))
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      document.body.style.userSelect = ''
+      setConvoW((w) => {
+        try {
+          localStorage.setItem('iv.convoW', String(w))
+        } catch {
+          /* 无 localStorage:忽略 */
+        }
+        return w
+      })
+    }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
 
   // 池子:挂载 + 每次 tick 重取(setSelectedId(prev??) 保留当前选中)
   useEffect(() => {
@@ -107,7 +150,11 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
       </header>
 
       {/* 三区 */}
-      <div className="iv-body">
+      <div
+        className="iv-body"
+        ref={ivBodyRef}
+        style={{ ['--iv-convo-w']: convoW + 'px' } as CSSProperties}
+      >
         {/* 池子 */}
         <aside className="pool">
           <h4>我的论文 · {cards.length}</h4>
@@ -163,6 +210,14 @@ export function InvestWorkspace({ onBack }: InvestWorkspaceProps) {
             <div className="iv-empty">选一个标的，展开它的活论文</div>
           </main>
         )}
+
+        {/* 中|右 可拖分区线 */}
+        <div
+          className="iv-split"
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={startDrag}
+        />
 
         {/* 分析过程 */}
         <ProcessPanel
