@@ -45,12 +45,15 @@ export interface FactObservation {
   change?: FactChange
   structure?: FactStructure
 }
+/** 披露周期(定新鲜窗;缺省从 as_of 推断)。 */
+export type Cadence = 'daily' | 'monthly' | 'quarterly' | 'annual' | 'irregular'
 /** 一个 key 的事实(序列;只增不改)。 */
 export interface Fact {
   level: FactLevel
   label: string
   unit?: string | null
   role?: FactRole // 先行/同步/滞后/排雷
+  cadence?: Cadence // 披露周期(定新鲜窗;缺省从 as_of 推断)
   series: FactObservation[] // append-only,新观测 push,旧的不改
 }
 /** facts = key → Fact(主轴是 key)。 */

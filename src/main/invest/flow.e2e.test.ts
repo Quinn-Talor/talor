@@ -153,7 +153,8 @@ describe('invest 建卡闭环 e2e(新)', () => {
     const db = new Database(':memory:')
     db.pragma('foreign_keys = ON')
     createCardTables(db)
-    const store = new CardRepo(db)
+    // 固定 clock:新鲜度硬闸(命门 co_share 锚@2025-12)比 as_of vs 此;2025-12+1 月 → 1 月龄在窗内,确定性。
+    const store = new CardRepo(db, () => new Date('2026-01-15'))
     byName = Object.fromEntries(createCardTools(store).map((t) => [t.name, t]))
   })
 

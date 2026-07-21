@@ -34,6 +34,7 @@ import type {
   TimelineEvent,
 } from '../../shared/types/invest'
 import { computeValuationTrace, resolveForecast } from '../../shared/invest/valuation-trace'
+import { parseAsOfMonth, cadenceOf, freshnessWindowMonths } from '../../shared/invest/freshness'
 import { buyTriggerPrice } from './compute'
 
 export class CardValidationError extends Error {
@@ -188,7 +189,11 @@ interface CardRow {
 }
 
 export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
-  constructor(private readonly db: Database) {}
+  // clock 可注入(默认系统时钟);新鲜度硬闸用它比 as_of vs 今天,测试传固定日期。
+  constructor(
+    private readonly db: Database,
+    private readonly clock: () => Date = () => new Date(),
+  ) {}
 
   read(id: string): CardBundle | null {
     const row = this.getRow(id)
@@ -457,6 +462,29 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
             'ANCHOR_UNTRUSTED',
             `命门「${name}」锚事实「${a.anchor!.fact}@${a.anchor?.as_of ?? '*'}」不可信:显式低级来源(T3/compute)不得作命门锚,需 T1 或 T2×≥2 源交叉。`,
           )
+        }
+        // 新鲜度硬闸(只认 as_of·按 cadence 分级):命门锚须 series 最新期 + 最新期在披露窗内。
+        const freshIdx = anchorSeries
+          .map((o) => parseAsOfMonth(o.as_of))
+          .filter((x): x is number => x != null)
+        if (freshIdx.length > 0) {
+          const latestIdx = Math.max(...freshIdx)
+          const anchorIdx = parseAsOfMonth(a.anchor?.as_of ?? '')
+          if (anchorIdx == null || anchorIdx < latestIdx) {
+            throw new CardValidationError(
+              'ANCHOR_NOT_LATEST',
+              `命门「${name}」锚 ${a.anchor!.fact}@${a.anchor?.as_of ?? '*'} 非最新期(series 有更晚观测),命门须锚最新`,
+            )
+          }
+          const anchorFact = facts[a.anchor!.fact]
+          const win = freshnessWindowMonths(anchorFact)
+          const nowIdx = parseAsOfMonth(this.clock().toISOString().slice(0, 7))
+          if (win != null && nowIdx != null && nowIdx - latestIdx > win) {
+            throw new CardValidationError(
+              'STALE_ANCHOR',
+              `命门「${name}」锚最新期 ${a.anchor?.as_of} 距今 ${nowIdx - latestIdx} 月 > ${cadenceOf(anchorFact)} 窗 ${win} 月,过时;取最新一期再立论`,
+            )
+          }
         }
       }
       for (const vh of a.verify ?? []) {

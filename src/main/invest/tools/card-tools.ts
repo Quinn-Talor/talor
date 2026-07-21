@@ -74,6 +74,10 @@ const FactZ = z.object({
   label: z.string(),
   unit: z.string().nullable().optional(),
   role: z.enum(['先行', '同步', '滞后', '排雷']).optional(),
+  cadence: z
+    .enum(['daily', 'monthly', 'quarterly', 'annual', 'irregular'])
+    .optional()
+    .describe('披露周期(定新鲜窗;缺省从 as_of 推断)'),
   series: z.array(FactObservationZ).describe('按 key 的观测序列(只增不改)'),
 })
 const FactsZ = z.record(z.string(), FactZ).describe('key → 事实序列(主轴是 key,三层 level tag)')

@@ -21,6 +21,7 @@ import type {
   TimelineEvent,
   Facts,
 } from '@shared/types/invest'
+import { parseAsOfMonth, freshnessWindowMonths } from '@shared/invest/freshness'
 import {
   computeValuationTrace,
   resolveForecast,
@@ -210,37 +211,37 @@ export function coreLogicLines(bundle: CardBundle | null): LogicLine[] {
   })
 }
 
-// ===== 数据新鲜度(事实 as_of 相对卡内最新事实的月龄;不依赖时钟 → 可测)=====
+// ===== 数据新鲜度(as_of 相对今天的月龄;按披露周期 cadence 判过时。now 可注入 → 可测)=====
 export interface FactFreshness {
-  asOf?: string // 该事实最新观测时点
-  ageMonths: number | null // 卡内最新事实 − 本事实 的月数差
-  stale: boolean // 月龄超阈值(默认 18 月)→ 过时
-}
-const STALE_MONTHS = 18
-
-/** as_of('YYYY-MM-DD' / 'YYYY-MM' / 'YYYY')→ 绝对月数(年×12+月);无法解析→null。 */
-function asOfMonths(s?: string): number | null {
-  if (!s) return null
-  const m = /^(\d{4})(?:-(\d{1,2}))?/.exec(s)
-  return m ? Number(m[1]) * 12 + (m[2] ? Number(m[2]) - 1 : 0) : null
+  asOf?: string // 该事实最新观测时点(按 as_of 解析取最大,非数组序)
+  ageMonths: number | null // 相对今天的月龄
+  stale: boolean // 月龄超该 cadence 新鲜窗 → 过时
 }
 
-/** 每条事实的新鲜度:月龄 = 卡内最新事实时点 − 本事实最新时点;超阈值标 stale。 */
-export function factFreshness(facts: Facts | undefined): Record<string, FactFreshness> {
-  const entries = Object.entries(facts ?? {})
-  const latest: Record<string, string | undefined> = {}
-  let newest = -Infinity
-  for (const [k, f] of entries) {
-    const s = f.series?.[f.series.length - 1]?.as_of
-    latest[k] = s
-    const m = asOfMonths(s)
-    if (m != null && m > newest) newest = m
-  }
+/** 每条事实:取 series 最新期(parseAsOfMonth 求 max),月龄相对今天,按 cadence 窗判 stale。 */
+export function factFreshness(
+  facts: Facts | undefined,
+  now: Date = new Date(),
+): Record<string, FactFreshness> {
+  const nowIdx = parseAsOfMonth(now.toISOString().slice(0, 7))
   const out: Record<string, FactFreshness> = {}
-  for (const [k] of entries) {
-    const m = asOfMonths(latest[k])
-    const ageMonths = m != null && newest > -Infinity ? newest - m : null
-    out[k] = { asOf: latest[k], ageMonths, stale: ageMonths != null && ageMonths > STALE_MONTHS }
+  for (const [k, f] of Object.entries(facts ?? {})) {
+    let latestIdx: number | null = null
+    let latestAsOf: string | undefined
+    for (const o of f.series ?? []) {
+      const idx = parseAsOfMonth(o.as_of)
+      if (idx != null && (latestIdx == null || idx > latestIdx)) {
+        latestIdx = idx
+        latestAsOf = o.as_of
+      }
+    }
+    const ageMonths = nowIdx != null && latestIdx != null ? nowIdx - latestIdx : null
+    const win = freshnessWindowMonths(f)
+    out[k] = {
+      asOf: latestAsOf,
+      ageMonths,
+      stale: win != null && ageMonths != null && ageMonths > win,
+    }
   }
   return out
 }

@@ -15,6 +15,7 @@ import type { AgentProfile } from '../../shared/types/agent'
 /** init 时平台注入的上下文(建数据用)。 */
 export interface FeatureInitCtx {
   db: Database
+  clock?: () => Date // 可注入时钟(新鲜度校验用;缺省系统时钟)。测试传固定日期保确定性。
 }
 
 /** Feature 声明的一个 agent + 它的工具(内聚:agent 与其工具一体声明,不再两结构按 id 重接)。 */

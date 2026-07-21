@@ -46,6 +46,23 @@ describe('schema: challenge + review 扩容(不被 strip)', () => {
     expect(parsed.data.snapshot.challenge?.adjudication?.verdict).toBe('reject')
   })
 
+  it('add_facts 保留 Fact.cadence', () => {
+    const parsed = toolSchema('add_facts').safeParse({
+      card_id: 'c1',
+      facts: {
+        co_share: {
+          level: 'company',
+          label: '份额',
+          unit: '%',
+          cadence: 'quarterly',
+          series: [{ value: '16%', as_of: '2026-03', source: '乘联会' }],
+        },
+      },
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.data.facts.co_share.cadence).toBe('quarterly')
+  })
+
   it('add_review 保留 thesis_realized/attribution/ref_decisions', () => {
     const parsed = toolSchema('add_review').safeParse({
       card_id: 'c1',

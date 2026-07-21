@@ -19,7 +19,8 @@ function tools(): { store: CardRepo; byName: Record<string, ToolDefinition> } {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
   createCardTables(db)
-  const store = new CardRepo(db)
+  // 固定 clock:命门锚新鲜度硬闸比 as_of vs 此(fixtures 锚 2025-12,+1 月内)→ 确定性、不随真时钟漂移
+  const store = new CardRepo(db, () => new Date('2026-01-15'))
   const byName = Object.fromEntries(createCardTools(store).map((t) => [t.name, t]))
   return { store, byName }
 }

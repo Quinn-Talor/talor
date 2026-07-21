@@ -2,13 +2,21 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { CardRepo, createCardTables, CardValidationError } from './store'
-import type { ThesisSnapshot, Checkpoint, Facts, ThesisChallenge } from '@shared/types/invest'
+import type {
+  ThesisSnapshot,
+  Checkpoint,
+  Facts,
+  ThesisChallenge,
+  Cadence,
+} from '@shared/types/invest'
 
+// 固定 clock:新鲜度硬闸比 as_of vs 此;fixtures 用 2026-03(距 4 月,在季度窗 5 内)→ 确定性、不随真时钟漂移
+const CLOCK = () => new Date('2026-07-01')
 let store: CardRepo
 beforeEach(() => {
   const db = new Database(':memory:')
   createCardTables(db)
-  store = new CardRepo(db)
+  store = new CardRepo(db, CLOCK)
 })
 
 const THESIS_CHALLENGE: ThesisChallenge = {
@@ -241,5 +249,67 @@ describe('get_prior_lessons(回程边)', () => {
   })
   it('无历史 → 空数组', () => {
     expect(store.priorLessons('999999')).toEqual([])
+  })
+})
+
+describe('命门锚新鲜度硬闸 F2/F3(clock=2026-07-01)', () => {
+  // 建一张卡,co_share 事实按给定 series/cadence,命门锚 anchorAsOf → 返回 add_thesis thunk
+  function anchoredThesis(seriesAsOf: string[], anchorAsOf: string, cadence?: Cadence): () => void {
+    const c = store.apply({ kind: 'create', code: '300750', name: '宁德', originSessionId: 'sf' })
+    store.apply({
+      kind: 'addFacts',
+      id: c.id,
+      facts: {
+        co_share: {
+          level: 'company',
+          label: '份额',
+          unit: '%',
+          cadence,
+          series: seriesAsOf.map((a) => ({
+            value: '16%',
+            as_of: a,
+            source: '乘联会',
+            tier: 'T1' as const,
+          })),
+        },
+      },
+    })
+    const b = baseSnap()
+    const snap: ThesisSnapshot = {
+      ...b,
+      valuation: {
+        ...b.valuation,
+        assumptions: [
+          { ...b.valuation.assumptions[0], anchor: { fact: 'co_share', as_of: anchorAsOf } },
+        ],
+      },
+    }
+    return () => void store.apply({ kind: 'addThesisVersion', id: c.id, snapshot: snap })
+  }
+
+  it('(AC-003) 锚非最新期 → ANCHOR_NOT_LATEST', () => {
+    try {
+      anchoredThesis(['2026-03', '2026-06'], '2026-03')()
+      throw new Error('should throw')
+    } catch (e) {
+      expect(code(e)).toBe('ANCHOR_NOT_LATEST')
+    }
+  })
+  it('(AC-004 季度) 最新期 13 月旧 → STALE_ANCHOR', () => {
+    try {
+      anchoredThesis(['2025-06'], '2025-06')()
+      throw new Error('should throw')
+    } catch (e) {
+      expect(code(e)).toBe('STALE_ANCHOR')
+    }
+  })
+  it('(AC-004 季度) 4 月旧 → 通过', () => {
+    expect(anchoredThesis(['2026-03'], '2026-03')).not.toThrow()
+  })
+  it('(AC-005 irregular) 老数据但不定期 → 不抛(不设绝对新鲜闸)', () => {
+    expect(anchoredThesis(['2020-01'], '2020-01', 'irregular')).not.toThrow()
+  })
+  it('(AC-005 不可解析) as_of 乱串 → 不抛', () => {
+    expect(anchoredThesis(['最新一期'], '最新一期')).not.toThrow()
   })
 })

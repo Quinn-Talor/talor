@@ -135,7 +135,8 @@ describe('invest 后端端到端(真 SQLite → 闸门 → feature → 平台 re
 
   beforeEach(() => {
     // feature.init 建表 + 构造模块级 investStore(artifacts() 引用它)
-    investFeatureMain.init({ db: new Database(':memory:') })
+    // 固定 clock:新鲜度硬闸(命门 co_share 锚@2025-12)比 as_of vs 此;2025-12+1 月 → 1 月龄在窗内,确定性。
+    investFeatureMain.init({ db: new Database(':memory:'), clock: () => new Date('2026-01-15') })
     store = getInvestStore()!
   })
 

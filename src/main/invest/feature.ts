@@ -113,9 +113,9 @@ export const investFeatureMain: TalorFeatureMain = {
   id: 'invest',
 
   // ① 数据:建表 + 构造 store。
-  init({ db }) {
+  init({ db, clock }) {
     createCardTables(db)
-    investStore = new CardRepo(db)
+    investStore = new CardRepo(db, clock)
     log.info('[invest] feature initialized — card tables ready')
   },
 

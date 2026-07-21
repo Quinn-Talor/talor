@@ -289,20 +289,21 @@ describe('coreLogicLines — B1 逻辑→预期(锚→估+跳变,全程可见)',
   })
 })
 
-describe('factFreshness — 数据新鲜度(相对卡内最新事实·不依赖时钟)', () => {
-  it('远老于最新事实 → stale + 月龄;最新/次新不 stale', () => {
+describe('factFreshness — 数据新鲜度(相对今天·按 cadence·now 注入)', () => {
+  it('月龄相对今天;超该 cadence 窗 → stale', () => {
     const mk = (as_of: string) => ({
       level: 'company' as const,
       label: 'x',
       series: [{ value: '1', as_of, source: '年报' }],
     })
-    const f = factFreshness({ 新: mk('2026-06'), 旧: mk('2022-12'), 次新: mk('2025-12') })
-    expect(f['新'].ageMonths).toBe(0)
+    const now = new Date('2026-07-01') // 季度窗 5 月
+    const f = factFreshness({ 新: mk('2026-06'), 旧: mk('2022-12'), 次新: mk('2025-12') }, now)
+    expect(f['新'].ageMonths).toBe(1) // 2026-07 − 2026-06
     expect(f['新'].stale).toBe(false)
-    expect(f['旧'].ageMonths).toBe(42) // 2026-06 − 2022-12
+    expect(f['旧'].ageMonths).toBe(43) // 2026-07 − 2022-12
     expect(f['旧'].stale).toBe(true)
-    expect(f['次新'].ageMonths).toBe(6) // 2026-06 − 2025-12
-    expect(f['次新'].stale).toBe(false)
+    expect(f['次新'].ageMonths).toBe(7) // 2026-07 − 2025-12;季度窗 5 → 过时(相对今天,非相对卡内)
+    expect(f['次新'].stale).toBe(true)
   })
 })
 

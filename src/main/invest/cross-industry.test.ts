@@ -15,11 +15,15 @@ import type {
   ProfitType,
 } from '../../shared/types/invest'
 
+// 固定 clock:新鲜度硬闸(命门锚)比 as_of vs 此时钟。取最新命门锚(backlog@2026-03)+1 月;
+// 其余命门锚 2025-12(季频窗 5)此时 4 月龄,仍在窗内 → 确定性、不随真时钟漂移。
+const CLOCK = () => new Date('2026-04-15')
+
 function repo(): CardRepo {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
   createCardTables(db)
-  return new CardRepo(db)
+  return new CardRepo(db, CLOCK)
 }
 
 interface IndustryFixture {

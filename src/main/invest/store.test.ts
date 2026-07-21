@@ -142,11 +142,16 @@ function expectCode(fn: () => unknown, code: string): void {
   }
 }
 
+// 固定 clock:新鲜度硬闸(addThesisVersion 命门锚)比 as_of vs 此时钟,不随真时钟漂移。
+// 取本文件最老命门锚(2025-12)+1 月:2025-12 锚仅 1 月龄(任何 cadence 窗内),
+// 更新的锚(ev_pen@2026-03 月频窗2、动态PE@2026-06 季频)相对此时钟处于"未来"→ 永不 stale。
+const CLOCK = () => new Date('2026-01-15')
+
 function newRepo(): CardRepo {
   const db = new Database(':memory:')
   db.pragma('foreign_keys = ON')
   createCardTables(db)
-  return new CardRepo(db)
+  return new CardRepo(db, CLOCK)
 }
 
 describe('createCardTables migration', () => {
@@ -169,7 +174,7 @@ describe('createCardTables migration', () => {
     ).map((c) => c.name)
     expect(cols).toContain('facts')
     expect(cols).toContain('thesis')
-    const repo = new CardRepo(db)
+    const repo = new CardRepo(db, CLOCK)
     const b = repo.apply({ kind: 'create', code: '300750', name: '宁德', originSessionId: 's1' })
     expect(repo.read(b.id)?.head.origin_session_id).toBe('s1')
   })
