@@ -29,6 +29,9 @@ function rootSessionId(sid: string): string {
 /** 模块级 store(init 时构造,agents() / artifacts() 引用)。 */
 let investStore: CardRepo | null = null
 
+/** 模块级 callMcp(组合根注入;agents() 传给 fetch_metric 走金融 MCP)。缺省=未注入,回落 json。 */
+let investCallMcp: ((tool: string, args: Record<string, unknown>) => Promise<unknown>) | undefined
+
 /** 供测试/外部读取当前 store(未 init 返 null)。 */
 export function getInvestStore(): CardRepo | null {
   return investStore
@@ -113,9 +116,10 @@ export const investFeatureMain: TalorFeatureMain = {
   id: 'invest',
 
   // ① 数据:建表 + 构造 store。
-  init({ db, clock }) {
+  init({ db, clock, callMcp }) {
     createCardTables(db)
     investStore = new CardRepo(db, clock)
+    investCallMcp = callMcp // 平台注入的通用 MCP 调用器(缺省=未配,fetch_metric 回落 json)
     log.info('[invest] feature initialized — card tables ready')
   },
 
@@ -124,7 +128,11 @@ export const investFeatureMain: TalorFeatureMain = {
   //    create_card 经 rootSessionId 把 origin 上溯到根会话(S3)。
   agents(): FeatureAgent[] {
     if (!investStore) throw new Error('[invest] agents() called before init()')
-    const all = createInvestTools({ store: investStore, resolveRootSession: rootSessionId })
+    const all = createInvestTools({
+      store: investStore,
+      resolveRootSession: rootSessionId,
+      callMcp: investCallMcp, // fetch_metric 走金融 MCP(未注入则回落 json)
+    })
     return INVEST_SEED_AGENTS.map((profile) => ({
       profile,
       tools: narrowTools(all, profile.id),

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import Database from 'better-sqlite3'
 import { investFeatureMain, getInvestStore } from './feature'
+import type { ToolExecuteContext } from '../tools/types'
 
 function freshInit() {
   const db = new Database(':memory:')
@@ -87,5 +88,29 @@ describe('investFeatureMain (TalorFeatureMain 契约)', () => {
     const read = arts[0].read(b.id) as { head: { code: string } } | null
     expect(read?.head.code).toBe('600519')
     expect(arts[0].read('nope')).toBeNull()
+  })
+
+  it('(AC-002) FeatureInitCtx.callMcp 透传到 fetch_metric(走 MCP,不落 json→无网络)', async () => {
+    const db = new Database(':memory:')
+    db.pragma('foreign_keys = ON')
+    const calls: string[] = []
+    // 返回匹配 registry mcp 通道 valueField/asOfField 的数据 → mcp 命中,不回落 json(零网络)
+    const callMcp = async (tool: string): Promise<unknown> => {
+      calls.push(tool)
+      return { TOTALOPERATEREVETZ: 5, end_date: '2026-03-31' }
+    }
+    investFeatureMain.init({ db, callMcp })
+    const fm = (investFeatureMain.agents?.() ?? [])
+      .find((a) => a.profile.id === 'stock-research')!
+      .tools!.find((t) => t.name === 'fetch_metric')!
+    const out = (
+      await fm.execute({ code: '300308', metric_key: 'rev_yoy' }, {
+        sessionId: 's',
+        workspace: '',
+      } as ToolExecuteContext)
+    ).output as { tier?: string; provenance?: { method?: string } }
+    expect(calls).toContain('financial.report') // callMcp 被调 → 已透传注入
+    expect(out.tier).toBe('T1') // mcp 通道命中 → T1(未落 json)
+    expect(out.provenance?.method).toBe('fetch')
   })
 })

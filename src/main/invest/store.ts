@@ -26,7 +26,6 @@ import type {
   CardStatus,
   Eligibility,
   Facts,
-  FactObservation,
   Thesis,
   ThesisSnapshot,
   Checkpoint,
@@ -35,8 +34,8 @@ import type {
   TimelineEvent,
 } from '../../shared/types/invest'
 import { computeValuationTrace, resolveForecast } from '../../shared/invest/valuation-trace'
-import { parseAsOfMonth, cadenceOf, freshnessWindowMonths } from '../../shared/invest/freshness'
 import { buyTriggerPrice } from './compute'
+import { ASSUMPTION_VALIDATORS, type AssumptionCtx } from './validators/thesis-validators'
 
 export class CardValidationError extends Error {
   constructor(
@@ -388,128 +387,19 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         '估值缺 assumptions(预测参数;至少含命门)',
       )
     }
-    let hasCore = false
+    // 逐参数不变量:注册校验器链(顺序敏感,与原内联逐条一致;新不变量=加 validator,不改此方法)。
     for (const a of assumptions) {
-      const name = a.label ?? a.key
-      const f = a.forecast
-      if (!f || (f.mode !== 'delta' && f.mode !== 'factor' && f.mode !== 'absolute')) {
-        throw new CardValidationError('FORECAST_NO_MODE', `参数「${name}」无 forecast.mode`)
+      const ctx: AssumptionCtx = {
+        a,
+        name: a.label ?? a.key,
+        isCore: !!(a.logic && a.logic.trim()),
+        facts,
+        factKeys,
+        now: this.clock,
       }
-      const isCore = !!(a.logic && a.logic.trim())
-      // Guard 2a(命门基于事实):命门是"前值经逻辑估算预期"的叶子输入,必须 delta/factor(锚事实值推导);
-      //   禁 absolute(凭空给数)。绝对常量(WACC/终值增长等技术输入)只能作支撑(去掉 logic)。方法无关。
-      if (isCore && f.mode === 'absolute') {
-        throw new CardValidationError(
-          'CORE_FORECAST_NOT_DERIVED',
-          `命门「${name}」用了 absolute(凭空给数)。命门预估须基于锚事实推导(delta=锚+增量 / factor=锚×倍数);纯常量请作支撑(去掉 logic)。`,
-        )
-      }
-      // 不变量⑦:命门 / delta / factor 必立足锚事实(anchor.fact 指向已有 facts)
-      const needsAnchor = isCore || f.mode === 'delta' || f.mode === 'factor'
-      if (needsAnchor) {
-        if (!a.anchor?.fact || a.anchor.fact.trim() === '') {
-          throw new CardValidationError(
-            'ASSUMPTION_NO_ANCHOR',
-            `参数「${name}」无 anchor.fact(预测须立足事实)`,
-          )
-        }
-        if (!factKeys.has(a.anchor.fact)) {
-          throw new CardValidationError(
-            'FACT_REFERENCED_MISSING',
-            `参数「${name}」锚事实「${a.anchor.fact}」不在 facts(先 addFacts)`,
-          )
-        }
-      }
-      // delta/factor 须有基线时点,且该观测在序列中(对照复盘不漂的起点)
-      if (f.mode === 'delta' || f.mode === 'factor') {
-        const asOf = a.anchor?.as_of
-        if (!asOf || asOf.trim() === '') {
-          throw new CardValidationError(
-            'ANCHOR_NO_ASOF',
-            `参数「${name}」forecast=${f.mode} 须 anchor.as_of(基线时点)`,
-          )
-        }
-        if (!(facts[a.anchor!.fact]?.series ?? []).some((o) => o.as_of === asOf)) {
-          throw new CardValidationError(
-            'ANCHOR_ASOF_MISSING',
-            `参数「${name}」基线 ${a.anchor!.fact}@${asOf} 不在 facts 观测序列`,
-          )
-        }
-        // Guard 2b(锚同量纲):delta/factor 是"锚事实值经推导",参数与锚必须同口径(单位一致),
-        //   否则推算无意义(如 行业增速% ← 营收亿)。两边单位都须显式且相等。
-        const factUnit = facts[a.anchor!.fact]?.unit ?? undefined
-        const paramUnit = a.unit ?? undefined
-        if (!paramUnit || !factUnit || paramUnit !== factUnit) {
-          throw new CardValidationError(
-            'ANCHOR_UNIT_MISMATCH',
-            `参数「${name}」(单位 ${paramUnit ?? '∅'})与锚事实「${a.anchor!.fact}」(单位 ${factUnit ?? '∅'})量纲不一致 — delta/factor 推算要求同口径(锚应挂同量纲事实)。`,
-          )
-        }
-      }
-      // 命门 = 挂了 logic 的参数(支持逻辑的指标);命门必有验证(对账事实须在场)。
-      if (isCore) {
-        hasCore = true
-        if (!Array.isArray(a.verify) || a.verify.length === 0) {
-          throw new CardValidationError('CORE_NO_VERIFY', `命门「${name}」无 verify(验收映射)`)
-        }
-        // 命门锚可信硬闸(不采信自报 tier):
-        //   effTier = fetch→obs.tier(channel 派生 T1/T2) / compute→'compute' / manual|无 provenance→'T3'。
-        //   受信取数(fetch T1/T2)单条即可锚;手填/compute(effTier T3/compute)须同点 ≥2 权威源交叉。
-        //   grandfather(缺 tier→可信)已移除:手填不再凭自报 tier 立命门。
-        const anchorSeries = facts[a.anchor!.fact]?.series ?? []
-        const anchorObs = a.anchor?.as_of
-          ? anchorSeries.filter((o) => o.as_of === a.anchor!.as_of)
-          : anchorSeries
-        const effTier = (o: FactObservation): 'T1' | 'T2' | 'T3' | 'compute' =>
-          o.provenance?.method === 'fetch'
-            ? (o.tier ?? 'T2')
-            : o.provenance?.method === 'compute'
-              ? 'compute'
-              : 'T3'
-        const effTiers = anchorObs.map(effTier)
-        const srcCount = new Set(anchorObs.map((o) => o.source)).size
-        const hasHigh = effTiers.includes('T1') || effTiers.includes('T2')
-        const anyLow = effTiers.includes('T3') || effTiers.includes('compute')
-        if (anyLow && !hasHigh && srcCount < 2) {
-          throw new CardValidationError(
-            'ANCHOR_UNTRUSTED',
-            `命门「${name}」锚事实「${a.anchor!.fact}@${a.anchor?.as_of ?? '*'}」不可信:手填/低级来源须经受信取数(fetch_metric→T1/T2)或同点 ≥2 权威源交叉。`,
-          )
-        }
-        // 新鲜度硬闸(只认 as_of·按 cadence 分级):命门锚须 series 最新期 + 最新期在披露窗内。
-        const freshIdx = anchorSeries
-          .map((o) => parseAsOfMonth(o.as_of))
-          .filter((x): x is number => x != null)
-        if (freshIdx.length > 0) {
-          const latestIdx = Math.max(...freshIdx)
-          const anchorIdx = parseAsOfMonth(a.anchor?.as_of ?? '')
-          if (anchorIdx == null || anchorIdx < latestIdx) {
-            throw new CardValidationError(
-              'ANCHOR_NOT_LATEST',
-              `命门「${name}」锚 ${a.anchor!.fact}@${a.anchor?.as_of ?? '*'} 非最新期(series 有更晚观测),命门须锚最新`,
-            )
-          }
-          const anchorFact = facts[a.anchor!.fact]
-          const win = freshnessWindowMonths(anchorFact)
-          const nowIdx = parseAsOfMonth(this.clock().toISOString().slice(0, 7))
-          if (win != null && nowIdx != null && nowIdx - latestIdx > win) {
-            throw new CardValidationError(
-              'STALE_ANCHOR',
-              `命门「${name}」锚最新期 ${a.anchor?.as_of} 距今 ${nowIdx - latestIdx} 月 > ${cadenceOf(anchorFact)} 窗 ${win} 月,过时;取最新一期再立论`,
-            )
-          }
-        }
-      }
-      for (const vh of a.verify ?? []) {
-        if (!factKeys.has(factRefKey(vh.fact))) {
-          throw new CardValidationError(
-            'FACT_REFERENCED_MISSING',
-            `参数「${name}」验证事实「${vh.fact}」不在 facts`,
-          )
-        }
-      }
+      for (const v of ASSUMPTION_VALIDATORS) v.validate(ctx)
     }
-    if (!hasCore) {
+    if (!assumptions.some((a) => !!(a.logic && a.logic.trim()))) {
       throw new CardValidationError('NO_CORE_ASSUMPTION', '至少需一个命门(带 logic 的参数)')
     }
     // 不变量③′(声明式恒等式·方法无关):一旦逐参数声明了 step,折叠链须收敛到 V ——

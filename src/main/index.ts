@@ -44,6 +44,7 @@ import { BuiltinToolRegistry } from './agent/builtin-registry'
 import { AccountStore } from './accounts/account-store'
 import type { DelegationRuntime } from './agent/delegate-agent'
 import { toolRegistry } from './tools/registry'
+import type { ToolExecuteContext } from './tools/types'
 import { sessionRepo } from './repos/session-repo'
 import { sharedPromptPipeline } from './chat/orchestrator'
 import { runReactLoop } from './loop/react-loop'
@@ -280,9 +281,20 @@ app.whenReady().then(() => {
     'invest:prior-lessons',
     (_e, stockCode: string) => getInvestStore()?.priorLessons(stockCode) ?? [],
   )
+  // 通用 MCP 调用器:组合根包 mcpRegistry.execute 注入给 feature(feature 不 import mcp/*)。
+  // invest fetch_metric 据此走金融 MCP(如 tushare);未配则 feature 回落自有 json 通道。
+  const callMcp = async (tool: string, args: Record<string, unknown>): Promise<unknown> => {
+    // 最小上下文:MCP 数值取数只读(LOW),无 per-session / permission 需求。
+    // cast 原因:ToolExecuteContext 余字段(skillTracker/requestPermission…)对只读取数不适用。
+    const res = await mcpRegistry.execute(tool, args, {
+      sessionId: 'invest-fetch-metric',
+      workspace: '',
+    } as ToolExecuteContext)
+    return res.output
+  }
   installFeatures(
     [investFeatureMain],
-    { db: getDb() },
+    { db: getDb(), callMcp },
     {
       registerAgent: (fa) => agentManager.registerFeatureAgent(fa.profile, fa.tools ?? []),
       registerArtifactReader: (a) => artifactReaders.register(a),

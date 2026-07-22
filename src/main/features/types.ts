@@ -16,6 +16,12 @@ import type { AgentProfile } from '../../shared/types/agent'
 export interface FeatureInitCtx {
   db: Database
   clock?: () => Date // 可注入时钟(新鲜度校验用;缺省系统时钟)。测试传固定日期保确定性。
+  /**
+   * 通用 MCP 调用器(组合根包 mcpRegistry.execute 注入;feature 不 import mcp/*)。
+   * declare-inject:feature 声明需求,平台注入实现 → invest fetch_metric 据此走金融 MCP(如 tushare)。
+   * 缺省(未注入 / 无 MCP)→ feature 回落自有 json 通道。
+   */
+  callMcp?: (tool: string, args: Record<string, unknown>) => Promise<unknown>
 }
 
 /** Feature 声明的一个 agent + 它的工具(内聚:agent 与其工具一体声明,不再两结构按 id 重接)。 */
