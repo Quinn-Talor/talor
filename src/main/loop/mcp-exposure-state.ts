@@ -3,9 +3,10 @@
 // 收敛主循环散落的 3 个变量 (mcpExpandThisStep / usedMcpToolNames / mcpNameSet 懒缓存)。
 //
 // 策略 (方案 C "累积可见", 与 ToolSelectionPlugin 配合):
-//   - 首步 expand=true (若 agent 有 MCP 工具) — 让模型一次看到全集
-//   - 之后 expand=false; 仅 search_tool 调用后下一步再次 expand
-//   - usedMcpToolNames 累积 — 已用过的 MCP 工具永远可见, 不收缩
+//   - 系统/内置工具 (base) 常驻;外部 (MCP) 工具**一律经 search_tool 发现**,首步不展开
+//     (无 magic number 阈值 — 外部集可达 280+,首步全抛既撑爆 context 又降选择精度)。
+//   - search_tool 调用后下一步展开全集 (一次性), 之后收敛回 base + used。
+//   - usedMcpToolNames 累积 — 已用过的 MCP 工具永远可见, 不收缩。
 //
 // 允许依赖: ./types, ../agent/agent
 // 禁止依赖: ipc/*
@@ -27,8 +28,8 @@ export class McpExposureState {
   private mcpNameSet: Set<string> | null = null
 
   constructor(private readonly agent: Agent) {
-    // 首步默认: 若 agent 有 MCP 工具就展开 (避免强制 search_tool 双跳)
-    this.expandNext = (agent.toolRegistry?.listMcpTools?.().length ?? 0) > 0
+    // 首步不展开外部工具:系统工具由 base 常驻,MCP 一律经 search_tool 按需发现。
+    this.expandNext = false
   }
 
   /** 给主循环用于传给 runReactStep 的当前 flag。 */
@@ -42,10 +43,11 @@ export class McpExposureState {
   /**
    * 强制下一步 expand=true。
    *
-   * 用于 reflect 推翻 final 并 continue 的场景: 此时上一步 outcome 为纯文本 final
-   * (toolNames=[]), 正常 update 路径会将 expandNext 设为 false, 导致下一步丢失
-   * MCP 工具集; 模型从历史看到 MCP 工具名却拿不到 schema, 会幻觉调用 → tool_use
-   * 没有对应 tool_result, 下一步 streamText 校验失败。
+   * 用于 reflect 推翻 final 并 continue 的场景: 上一步 outcome 为纯文本 final
+   * (toolNames=[]), 正常 update 会将 expandNext 设为 false; 若模型此前 search 过、
+   * 从历史/搜索结果看到 MCP 工具名却在恢复步拿不到 schema, 会幻觉调用 → tool_use
+   * 没有对应 tool_result, 下一步 streamText 校验失败。恢复步重新展开兜底 (罕见路径,
+   * 正确性优先于 context)。
    */
   forceExpandNext(): void {
     this.expandNext = (this.agent.toolRegistry?.listMcpTools?.().length ?? 0) > 0

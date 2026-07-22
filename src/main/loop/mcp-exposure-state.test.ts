@@ -26,15 +26,20 @@ function makeOutcome(overrides: Partial<StepOutcome> = {}): StepOutcome {
 }
 
 describe('McpExposureState', () => {
-  it('首步 expand=true (agent 有 MCP 工具)', () => {
+  it('首步 expand=false (有 MCP 工具:外部一律经 search 发现,系统工具由 base 常驻)', () => {
     const state = new McpExposureState(makeAgent(['m1', 'm2']))
-    expect(state.flags.expand).toBe(true)
+    expect(state.flags.expand).toBe(false)
     expect(state.flags.used).toEqual([])
   })
 
   it('首步 expand=false (agent 无 MCP 工具)', () => {
     const state = new McpExposureState(makeAgent([]))
     expect(state.flags.expand).toBe(false)
+  })
+
+  it('首步 expand=false 与 MCP 面大小无关 (大面同样不首步全抛)', () => {
+    const many = Array.from({ length: 200 }, (_, i) => `m${i}`)
+    expect(new McpExposureState(makeAgent(many)).flags.expand).toBe(false)
   })
 
   it('调过 search_tool → 下一步 expand=true', () => {
