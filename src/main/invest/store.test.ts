@@ -18,13 +18,29 @@ const facts = (over: Facts = {}): Facts => ({
     level: 'industry',
     label: '渗透率',
     unit: '%',
-    series: [{ value: '42%', as_of: '2026-03', source: '中汽协', tier: 'T1' }],
+    series: [
+      {
+        value: '42%',
+        as_of: '2026-03',
+        source: '中汽协',
+        tier: 'T1',
+        provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+      },
+    ],
   },
   co_share: {
     level: 'company',
     label: '份额',
     unit: '%',
-    series: [{ value: '16%', as_of: '2025-12', source: '乘联会', tier: 'T1' }],
+    series: [
+      {
+        value: '16%',
+        as_of: '2025-12',
+        source: '乘联会',
+        tier: 'T1',
+        provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+      },
+    ],
   },
   ...over,
 })
@@ -704,19 +720,43 @@ describe('CardRepo (价值链严谨化 schema)', () => {
         level: 'company',
         label: '营收',
         unit: '亿',
-        series: [{ value: '6000', as_of: '2025-12', source: '年报', tier: 'T1' }],
+        series: [
+          {
+            value: '6000',
+            as_of: '2025-12',
+            source: '年报',
+            tier: 'T1',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       净利率: {
         level: 'company',
         label: '净利率',
         unit: '%',
-        series: [{ value: '5', as_of: '2025-12', source: '年报', tier: 'T1' }],
+        series: [
+          {
+            value: '5',
+            as_of: '2025-12',
+            source: '年报',
+            tier: 'T1',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       动态PE: {
         level: 'company',
         label: '动态PE',
         unit: '倍',
-        series: [{ value: '25', as_of: '2026-06', source: '交易所', tier: 'T1' }],
+        series: [
+          {
+            value: '25',
+            as_of: '2026-06',
+            source: '交易所',
+            tier: 'T1',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
     })
   const stepAssumps = (

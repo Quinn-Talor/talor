@@ -8,6 +8,7 @@ import type {
   Facts,
   ThesisChallenge,
   Cadence,
+  FactObservation,
 } from '@shared/types/invest'
 
 // 固定 clock:新鲜度硬闸比 as_of vs 此;fixtures 用 2026-03(距 4 月,在季度窗 5 内)→ 确定性、不随真时钟漂移
@@ -41,7 +42,24 @@ function facts(tier: 'T1' | 'T2' | 'T3' = 'T1', crossed = false): Facts {
           { value: '16%', as_of: '2026-03', source: '中信研报', tier: 'T2' as const },
           { value: '16%', as_of: '2026-03', source: '华泰研报', tier: 'T2' as const },
         ]
-      : [{ value: '16%', as_of: '2026-03', source: tier === 'T3' ? '券商研报' : '乘联会', tier }]
+      : [
+          {
+            value: '16%',
+            as_of: '2026-03',
+            source: tier === 'T3' ? '券商研报' : '乘联会',
+            tier,
+            // T1/T2 单源 → 模拟经 fetch_metric 取得(provenance)→ 可锚;T3 → manual → 须交叉
+            ...(tier !== 'T3'
+              ? {
+                  provenance: {
+                    method: 'fetch' as const,
+                    channel: 'json:eastmoney',
+                    retrieved_at: 'x',
+                  },
+                }
+              : {}),
+          },
+        ]
   return { co_share: { level: 'company', label: '份额', unit: '%', series } }
 }
 
@@ -166,10 +184,31 @@ describe('复查薄守卫', () => {
 })
 
 describe('命门锚可信硬闸', () => {
-  it('(no-trigger) 命门锚 T1 → 通过', () => {
+  it('(AC-008 no-trigger) 命门锚 fetched(T2)单源 → 通过', () => {
     expect(() =>
       store.apply({ kind: 'addThesisVersion', id: seed('T1'), snapshot: baseSnap() }),
     ).not.toThrow()
+  })
+  it('(AC-008 trigger) 手填自报 T1 但无 provenance,单源 → ANCHOR_UNTRUSTED(不采信自报)', () => {
+    const c = store.apply({ kind: 'create', code: '000004', name: 'x', originSessionId: 's' })
+    store.apply({
+      kind: 'addFacts',
+      id: c.id,
+      facts: {
+        co_share: {
+          level: 'company',
+          label: '份额',
+          unit: '%',
+          series: [{ value: '16%', as_of: '2026-03', source: '乘联会', tier: 'T1' }], // manual 自报 T1
+        },
+      },
+    })
+    try {
+      store.apply({ kind: 'addThesisVersion', id: c.id, snapshot: baseSnap() })
+      throw new Error('should throw')
+    } catch (e) {
+      expect(code(e)).toBe('ANCHOR_UNTRUSTED')
+    }
   })
   it('(trigger) 命门锚 T3 → ANCHOR_UNTRUSTED', () => {
     try {
@@ -270,6 +309,7 @@ describe('命门锚新鲜度硬闸 F2/F3(clock=2026-07-01)', () => {
             as_of: a,
             source: '乘联会',
             tier: 'T1' as const,
+            provenance: { method: 'fetch' as const, channel: 'json:eastmoney', retrieved_at: 'x' },
           })),
         },
       },
@@ -311,5 +351,53 @@ describe('命门锚新鲜度硬闸 F2/F3(clock=2026-07-01)', () => {
   })
   it('(AC-005 不可解析) as_of 乱串 → 不抛', () => {
     expect(anchoredThesis(['最新一期'], '最新一期')).not.toThrow()
+  })
+})
+
+describe('tier 派生(不采信自报·addFacts)', () => {
+  function addAndRead(o: FactObservation): FactObservation {
+    const c = store.apply({ kind: 'create', code: '000002', name: 'x', originSessionId: 's' })
+    store.apply({
+      kind: 'addFacts',
+      id: c.id,
+      facts: { k: { level: 'company', label: 'k', series: [o] } },
+    })
+    return store.read(c.id)!.facts.k.series[0]
+  }
+  it('(AC-007) fetch·json → T2(自报 T1 被覆盖)', () => {
+    expect(
+      addAndRead({
+        value: '1',
+        as_of: '2026-03',
+        source: '定期报告',
+        tier: 'T1',
+        provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+      }).tier,
+    ).toBe('T2')
+  })
+  it('(AC-007) fetch·mcp → T1', () => {
+    expect(
+      addAndRead({
+        value: '1',
+        as_of: '2026-03',
+        source: '定期报告',
+        provenance: { method: 'fetch', channel: 'mcp:financial.report', retrieved_at: 'x' },
+      }).tier,
+    ).toBe('T1')
+  })
+  it('(AC-007) compute → compute', () => {
+    expect(
+      addAndRead({
+        value: '1',
+        as_of: '2026-03',
+        source: 'compute',
+        provenance: { method: 'compute', channel: 'compute:dupont', retrieved_at: 'x' },
+      }).tier,
+    ).toBe('compute')
+  })
+  it('(AC-007) manual 无 provenance → 保留自报(命门锚处才降 T3)', () => {
+    expect(addAndRead({ value: '1', as_of: '2026-03', source: '乘联会', tier: 'T1' }).tier).toBe(
+      'T1',
+    )
   })
 })

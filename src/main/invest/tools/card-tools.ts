@@ -61,11 +61,24 @@ const FactChangeZ = z.object({
   turnover_trend: z.string().optional(),
   percentile: z.number().optional(),
 })
+const ProvenanceZ = z.object({
+  method: z.enum(['fetch', 'compute', 'manual']).describe('取数方式(tier 由此派生,不自报)'),
+  channel: z
+    .string()
+    .optional()
+    .describe("传输管:'mcp:<tool>' / 'json:eastmoney' / 'compute:<tool>'"),
+  official_source: z.string().optional().describe('终极官方来源(渠道≠来源)'),
+  params: z.record(z.string(), z.string()).optional(),
+  field: z.string().optional().describe('响应取值字段(可回溯)'),
+  retrieved_at: z.string().describe('ISO,取数时点'),
+})
 const FactObservationZ = z.object({
   value: z.union([z.string(), z.number()]),
   as_of: z.string().describe('必填:事实时点 ISO'),
   source: z.string().describe('必填:白名单来源'),
   tier: z.enum(['T1', 'T2', 'T3', 'compute']).optional(),
+  provenance: ProvenanceZ.optional().describe('取数留痕(fetch/compute 必带;manual 无)'),
+  basis: z.string().optional().describe('口径(TTM/单季/年度·合并/母公司 等)'),
   change: FactChangeZ.optional().describe('变化维(趋势/动能/周转,可 compute 派生)'),
   structure: FactStructureZ.optional().describe('结构维(拆解+质量)'),
 })

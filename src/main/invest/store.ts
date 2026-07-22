@@ -26,6 +26,7 @@ import type {
   CardStatus,
   Eligibility,
   Facts,
+  FactObservation,
   Thesis,
   ThesisSnapshot,
   Checkpoint,
@@ -350,6 +351,11 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         if (!obs.as_of || String(obs.as_of).trim() === '') {
           throw new CardValidationError('FACT_NO_ASOF', `事实「${tag}」缺 as_of(必须标事实时点)`)
         }
+        // tier 派生(不采信自报):fetch→按 channel(mcp:T1 / json:T2);compute→compute;
+        // manual(无 provenance)→ 保留自报值(兼容既有卡;命门锚处才按 T3 收敛)。
+        const pv = obs.provenance
+        if (pv?.method === 'fetch') obs.tier = pv.channel?.startsWith('mcp:') ? 'T1' : 'T2'
+        else if (pv?.method === 'compute') obs.tier = 'compute'
       }
       // 合并:已有 key → append 观测(只增不改);新 key → 整条加入
       if (cur[key]) cur[key].series.push(...(fact.series ?? []))
@@ -446,21 +452,28 @@ export class CardRepo implements ArtifactStore<CardBundle, CardCmd> {
         if (!Array.isArray(a.verify) || a.verify.length === 0) {
           throw new CardValidationError('CORE_NO_VERIFY', `命门「${name}」无 verify(验收映射)`)
         }
-        // 命门锚可信硬闸:显式低级来源(T3/compute)不得作命门锚,除非同点另有 T1 或 T2×≥2 源交叉;
-        // 未标级 → 已过 addFacts 白名单,按可信 grandfather(不阻断存量/未标级数据)。
+        // 命门锚可信硬闸(不采信自报 tier):
+        //   effTier = fetch→obs.tier(channel 派生 T1/T2) / compute→'compute' / manual|无 provenance→'T3'。
+        //   受信取数(fetch T1/T2)单条即可锚;手填/compute(effTier T3/compute)须同点 ≥2 权威源交叉。
+        //   grandfather(缺 tier→可信)已移除:手填不再凭自报 tier 立命门。
         const anchorSeries = facts[a.anchor!.fact]?.series ?? []
         const anchorObs = a.anchor?.as_of
           ? anchorSeries.filter((o) => o.as_of === a.anchor!.as_of)
           : anchorSeries
-        const tiers = anchorObs.map((o) => o.tier)
+        const effTier = (o: FactObservation): 'T1' | 'T2' | 'T3' | 'compute' =>
+          o.provenance?.method === 'fetch'
+            ? (o.tier ?? 'T2')
+            : o.provenance?.method === 'compute'
+              ? 'compute'
+              : 'T3'
+        const effTiers = anchorObs.map(effTier)
         const srcCount = new Set(anchorObs.map((o) => o.source)).size
-        const hasT1 = tiers.includes('T1')
-        const t2crossed = tiers.includes('T2') && srcCount >= 2
-        const anyLow = tiers.includes('T3') || tiers.includes('compute')
-        if (anyLow && !hasT1 && !t2crossed) {
+        const hasHigh = effTiers.includes('T1') || effTiers.includes('T2')
+        const anyLow = effTiers.includes('T3') || effTiers.includes('compute')
+        if (anyLow && !hasHigh && srcCount < 2) {
           throw new CardValidationError(
             'ANCHOR_UNTRUSTED',
-            `命门「${name}」锚事实「${a.anchor!.fact}@${a.anchor?.as_of ?? '*'}」不可信:显式低级来源(T3/compute)不得作命门锚,需 T1 或 T2×≥2 源交叉。`,
+            `命门「${name}」锚事实「${a.anchor!.fact}@${a.anchor?.as_of ?? '*'}」不可信:手填/低级来源须经受信取数(fetch_metric→T1/T2)或同点 ≥2 权威源交叉。`,
           )
         }
         // 新鲜度硬闸(只认 as_of·按 cadence 分级):命门锚须 series 最新期 + 最新期在披露窗内。

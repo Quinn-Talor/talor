@@ -11,11 +11,11 @@ function store(): CardRepo {
 }
 
 describe('createInvestTools', () => {
-  it('返回 24 工具(14 compute + 10 card),name 唯一', () => {
+  it('返回 25 工具(14 compute + 10 card + 1 fetch),name 唯一', () => {
     const tools = createInvestTools({ store: store() })
-    expect(tools).toHaveLength(24)
+    expect(tools).toHaveLength(25)
     const names = tools.map((t) => t.name)
-    expect(new Set(names).size).toBe(24)
+    expect(new Set(names).size).toBe(25)
     for (const n of [
       'compute_red_flags',
       'compute_percentile',
@@ -41,6 +41,7 @@ describe('createInvestTools', () => {
       'add_review',
       'get_timeline',
       'get_prior_lessons',
+      'fetch_metric',
     ]) {
       expect(names).toContain(n)
     }

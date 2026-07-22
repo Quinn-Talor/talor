@@ -9,7 +9,7 @@ function freshInit() {
 }
 
 describe('investFeatureMain (TalorFeatureMain 契约)', () => {
-  it('id = invest, 声明 Playwright mcpDep', () => {
+  it('id = invest, 声明 Playwright mcpDep(通用数值走内置 fetch_metric)', () => {
     expect(investFeatureMain.id).toBe('invest')
     expect(investFeatureMain.mcpDeps?.()).toEqual([
       { name: 'Playwright', hint: expect.stringContaining('检索') },
@@ -49,21 +49,23 @@ describe('investFeatureMain (TalorFeatureMain 契约)', () => {
       'add_review',
     ]
 
-    // 主 agent:全 24 —— 建立/落卡/决策/复盘全授权(+get_prior_lessons 回程读)
-    expect(byId('stock-research').tools).toHaveLength(24)
+    // 主 agent:全 25 —— 建立/落卡/决策/复盘全授权(+get_prior_lessons 回程读 +fetch_metric 取数)
+    expect(byId('stock-research').tools).toHaveLength(25)
     expect(names('stock-research')).toEqual(expect.arrayContaining(WRITE))
 
     // 域 specialist:调不到任何真相库写工具(spec 验收「域 specialist 调不到建卡工具」);
     // compute + 读卡保留(自发现不受影响)
     for (const id of ['stock-specialist', 'industry-research', 'macro-research']) {
-      expect(byId(id).tools).toHaveLength(17)
+      expect(byId(id).tools).toHaveLength(18)
       const n = names(id)
       for (const w of WRITE) expect(n).not.toContain(w)
-      expect(n).toEqual(expect.arrayContaining(['get_card', 'get_timeline', 'compute_macro_clock']))
+      expect(n).toEqual(
+        expect.arrayContaining(['get_card', 'get_timeline', 'compute_macro_clock', 'fetch_metric']),
+      )
     }
 
     // 复盘:只读历史 + 唯一写口 add_review;调不到建卡/决策
-    expect(byId('review-analyst').tools).toHaveLength(18)
+    expect(byId('review-analyst').tools).toHaveLength(19)
     const rv = names('review-analyst')
     expect(rv).toContain('add_review')
     expect(rv).toEqual(expect.arrayContaining(['get_card', 'get_timeline']))

@@ -119,7 +119,8 @@ export const investFeatureMain: TalorFeatureMain = {
     log.info('[invest] feature initialized — card tables ready')
   },
 
-  // ② agent:6 agent,工具按角色收窄真相库写权限(受限盒子):主 24 / 域 specialist·空方 17 / 复盘 18。
+  // ② agent:6 agent,工具按角色收窄真相库写权限(受限盒子):主 25 / 域 specialist·空方 18 / 复盘 19。
+  //    fetch_metric(取数)非写工具,全员保留(域 specialist 也要取事实)。
   //    create_card 经 rootSessionId 把 origin 上溯到根会话(S3)。
   agents(): FeatureAgent[] {
     if (!investStore) throw new Error('[invest] agents() called before init()')
@@ -144,7 +145,9 @@ export const investFeatureMain: TalorFeatureMain = {
   mcpDeps: () => [
     {
       name: 'Playwright',
-      hint: 'Settings → MCP: Playwright(浏览器检索权威公开页:交易所/巨潮/统计局/券商研报;数据=主路检索,key↔东财公开 JSON 接口见 docs/investment-agent/fact-keys.md)',
+      hint: 'Settings → MCP: Playwright(浏览器检索:交易所/巨潮/统计局/券商研报/行业协会 等权威公开页,补定性 + 行业特殊/软信息)。通用财务数值走内置 fetch_metric(东财 datacenter 镜像官方定期报),不靠检索手抄。',
     },
+    // 金融数据 MCP(tushare 类):本期 fetch_metric 未接 callMcp(走东财 json),故不声明为 dep
+    // 以免误报"未配置";装机接线见 §E DEFERRED(接后再声明,name 对齐真实 server id)。
   ],
 }

@@ -44,7 +44,15 @@ const FACTS = {
     label: '公司份额',
     unit: '%',
     role: '同步',
-    series: [{ value: '16%', as_of: '2025-12', source: '乘联会', tier: 'T1' }],
+    series: [
+      {
+        value: '16%',
+        as_of: '2025-12',
+        source: '乘联会',
+        tier: 'T1',
+        provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+      },
+    ],
   },
   inventory: {
     level: 'company',

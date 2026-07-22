@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import { createCardTools } from './card-tools'
+import { createInvestTools } from './index'
 import { CardRepo, createCardTables } from '../store'
 import type { ToolDefinition, ToolExecuteContext, ToolErrorEnvelope } from '../../tools/types'
 import type { Facts, ThesisSnapshot } from '../../../shared/types/invest'
@@ -35,7 +36,14 @@ const facts: Facts = {
     level: 'company',
     label: '份额',
     unit: '%',
-    series: [{ value: '16%', as_of: '2025-12', source: '乘联会' }],
+    series: [
+      {
+        value: '16%',
+        as_of: '2025-12',
+        source: '乘联会',
+        provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+      },
+    ],
   },
 }
 const snapshot: ThesisSnapshot = {
@@ -195,5 +203,12 @@ describe('card-tools (新)', () => {
       workspace: '/tmp',
     } as ToolExecuteContext)) as Summary
     expect(s.read(out.card_id)?.head.origin_session_id).toBe('root')
+  })
+
+  it('(AC-010) createInvestTools 含 fetch_metric(默认注入 fetchJson,callMcp 缺省)', () => {
+    const db = new Database(':memory:')
+    createCardTables(db)
+    const names = createInvestTools({ store: new CardRepo(db) }).map((t) => t.name)
+    expect(names).toContain('fetch_metric')
   })
 })

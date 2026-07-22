@@ -34,7 +34,15 @@ const facts = (): Facts => ({
     level: 'company',
     label: '份额',
     unit: '%',
-    series: [{ value: '16%', as_of: '2025-12', source: '乘联会', tier: 'T1' }],
+    series: [
+      {
+        value: '16%',
+        as_of: '2025-12',
+        source: '乘联会',
+        tier: 'T1',
+        provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+      },
+    ],
   },
 })
 const snapshot = (): ThesisSnapshot => ({

@@ -36,12 +36,25 @@ export interface FactChange {
   turnover_trend?: string // "52→58·放缓"
   percentile?: number // 历史分位 0~100
 }
+/** 取数方式:fetch(接口抽字段)/ compute(算)/ manual(手填);tier 由此派生,不自报。 */
+export type FactMethod = 'fetch' | 'compute' | 'manual'
+/** 取数留痕:绑定 value↔来源,工具盖章(非 LLM 自由文本)。渠道≠来源(记终极官方来源)。 */
+export interface Provenance {
+  method: FactMethod
+  channel?: string // 传输管:'mcp:<tool>' | 'json:eastmoney' | 'compute:<tool>'
+  official_source?: string // 终极官方来源(如「定期报告」「交易所行情」)
+  params?: Record<string, string>
+  field?: string // 响应取值字段(可回溯)
+  retrieved_at: string // ISO,取数时点(工具盖)
+}
 /** 一条观测(point-in-time);三维 = value(数值) + change(变化) + structure(结构)。 */
 export interface FactObservation {
   value: string | number
   as_of: string // 必填:事实时点 ISO(不晚于引用它的快照/复查)
   source: string // 必填:白名单来源(无源/非白名单=拒)
   tier?: 'T1' | 'T2' | 'T3' | 'compute'
+  provenance?: Provenance // 取数留痕(fetch/compute 必带;manual 无)
+  basis?: string // 口径(TTM/单季/年度·合并/母公司·前复权 等)
   change?: FactChange
   structure?: FactStructure
 }

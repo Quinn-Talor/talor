@@ -50,7 +50,14 @@ const FIXTURES: IndustryFixture[] = [
         label: '在手订单',
         unit: '亿',
         role: '先行',
-        series: [{ value: '200亿', as_of: '2026-03', source: '巨潮:公告' }],
+        series: [
+          {
+            value: '200亿',
+            as_of: '2026-03',
+            source: '巨潮:公告',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       eps: {
         level: 'company',
@@ -81,7 +88,14 @@ const FIXTURES: IndustryFixture[] = [
         label: '正常化ROE',
         unit: '%',
         role: '同步',
-        series: [{ value: '12%', as_of: '2025-12', source: '巨潮:年报' }],
+        series: [
+          {
+            value: '12%',
+            as_of: '2025-12',
+            source: '巨潮:年报',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       bvps: {
         level: 'company',
@@ -105,7 +119,14 @@ const FIXTURES: IndustryFixture[] = [
         label: '净息差',
         unit: '%',
         role: '同步',
-        series: [{ value: '2.1%', as_of: '2025-12', source: '巨潮:年报' }],
+        series: [
+          {
+            value: '2.1%',
+            as_of: '2025-12',
+            source: '巨潮:年报',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       npl: {
         level: 'company',
@@ -136,7 +157,14 @@ const FIXTURES: IndustryFixture[] = [
         label: '每股分红',
         unit: '元',
         role: '同步',
-        series: [{ value: '0.92', as_of: '2025-12', source: '巨潮:公告' }],
+        series: [
+          {
+            value: '0.92',
+            as_of: '2025-12',
+            source: '巨潮:公告',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       payout: {
         level: 'company',
@@ -160,7 +188,14 @@ const FIXTURES: IndustryFixture[] = [
         label: '黄金储量',
         unit: '吨',
         role: '同步',
-        series: [{ value: '3000吨', as_of: '2025-12', source: '巨潮:年报' }],
+        series: [
+          {
+            value: '3000吨',
+            as_of: '2025-12',
+            source: '巨潮:年报',
+            provenance: { method: 'fetch', channel: 'json:eastmoney', retrieved_at: 'x' },
+          },
+        ],
       },
       gold_price: {
         level: 'industry',

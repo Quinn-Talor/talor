@@ -63,6 +63,41 @@ describe('schema: challenge + review 扩容(不被 strip)', () => {
     expect(parsed.data.facts.co_share.cadence).toBe('quarterly')
   })
 
+  it('add_facts 保留 provenance + basis(不被 strip)', () => {
+    const parsed = toolSchema('add_facts').safeParse({
+      card_id: 'c1',
+      facts: {
+        rev_yoy: {
+          level: 'company',
+          label: '营收增速',
+          unit: '%',
+          series: [
+            {
+              value: 3.46,
+              as_of: '2026-03',
+              source: '定期报告',
+              tier: 'T2',
+              basis: 'TTM',
+              provenance: {
+                method: 'fetch',
+                channel: 'json:eastmoney',
+                official_source: '定期报告',
+                field: 'TOTALOPERATEREVETZ',
+                retrieved_at: '2026-07-22T00:00:00.000Z',
+              },
+            },
+          ],
+        },
+      },
+    })
+    expect(parsed.success).toBe(true)
+    const obs = parsed.data.facts.rev_yoy.series[0]
+    expect(obs.provenance?.method).toBe('fetch')
+    expect(obs.provenance?.channel).toBe('json:eastmoney')
+    expect(obs.provenance?.field).toBe('TOTALOPERATEREVETZ')
+    expect(obs.basis).toBe('TTM')
+  })
+
   it('add_review 保留 thesis_realized/attribution/ref_decisions', () => {
     const parsed = toolSchema('add_review').safeParse({
       card_id: 'c1',
