@@ -39,7 +39,7 @@ import { toolRegistry } from './tools/registry'
 import { sessionRepo } from './repos/session-repo'
 import { sharedPromptPipeline } from './chat/orchestrator'
 import { runReactLoop } from './loop/react-loop'
-import { getAdapter } from './providers/model-adapter'
+import { getAdapter, resolveStreamOptions } from './providers/model-adapter'
 import { getDefaultProvider, getProviderById } from './chat/provider-selector'
 import { resolveProviderConfig } from './prompt/PromptPipeline'
 import { SkillRegistry } from './skills/registry'
@@ -216,7 +216,7 @@ app.whenReady().then(() => {
         model,
         provider,
         providerConfig: resolveProviderConfig(provider),
-        streamOptions: adapter.buildStreamOptions(),
+        streamOptions: resolveStreamOptions(adapter, provider),
       }
     },
   }

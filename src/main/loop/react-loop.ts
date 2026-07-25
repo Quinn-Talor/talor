@@ -25,6 +25,7 @@ import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks, LoopExitReason } from './types'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
+import { mergeProviderOptions } from '../providers/model-adapter'
 import type { ProviderContextConfig } from '../prompt/types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
 import { LoopAccumulator } from './loop-accumulator'
@@ -588,10 +589,10 @@ async function runReactStep(
     headers: provider.headers,
   }
   if (provider.request_timeout_ms !== undefined) streamParams.timeout = provider.request_timeout_ms
-  const adapterProviderOpts =
-    (ctx.streamOptions as { providerOptions?: Record<string, unknown> } | undefined)
-      ?.providerOptions ?? {}
-  streamParams.providerOptions = { ...adapterProviderOpts, ...(provider.provider_options ?? {}) }
+  streamParams.providerOptions = mergeProviderOptions(
+    ctx.streamOptions as Record<string, unknown> | undefined,
+    { providerOptions: provider.provider_options ?? {} },
+  ).providerOptions
 
   log.info(`[ReactLoop] ${SEPARATOR} step ${stepIndex + 1}/${maxSteps} ${SEPARATOR}`)
   log.info(`[ReactLoop]   messages: ${messages.length} | provider: ${ctx.provider.name}`)

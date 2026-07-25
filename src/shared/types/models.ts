@@ -16,12 +16,24 @@ export interface ModelInfo {
 }
 
 export interface ModelCapability {
-  category: 'text' | 'vision' | 'tools' | 'video' | 'audio'
+  category: 'text' | 'vision' | 'tools' | 'video' | 'audio' | 'reasoning'
   type: string // e.g., "text_generation", "image_understanding"
   supported: boolean
   description: string
   detected_at?: string // ISO timestamp
   source: 'auto' | 'manual' | 'default'
+}
+
+/**
+ * 用户为某 Provider 配置的推理/思考深度。各 ModelAdapter.applyReasoningConfig
+ * 把这份通用配置翻译成自己 provider 的 wire 格式（Anthropic thinking /
+ * Google thinkingConfig / OpenAI reasoningEffort / Ollama think 等）。
+ */
+export interface ReasoningConfig {
+  enabled: boolean
+  /** 显式覆盖预算 token 数;不设置时由 adapter 按 effort 档位推导默认值(仅 Anthropic 用得到)。 */
+  budgetTokens?: number
+  effort?: 'low' | 'medium' | 'high'
 }
 
 export interface ProviderModelResponse {

@@ -1,4 +1,5 @@
 import type { ModelInfo } from './models'
+import type { ReasoningConfig } from '@shared/types/models'
 
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google'
 
@@ -7,25 +8,29 @@ export interface Provider {
   type: ProviderType
   name: string
   base_url: string
-  models: ModelInfo[]           // Updated: ModelInfo objects instead of string array
+  models: ModelInfo[] // Updated: ModelInfo objects instead of string array
   enabled: boolean
   is_default: boolean
   api_key?: string
   created_at: string
   updated_at: string
   // New fields for model caching
-  models_last_updated?: string   // ISO timestamp of last model list update
-  models_cache_ttl?: number      // Cache TTL in seconds (default: 300)
+  models_last_updated?: string // ISO timestamp of last model list update
+  models_cache_ttl?: number // Cache TTL in seconds (default: 300)
+  provider_options?: Record<string, unknown>
+  middleware?: string[]
+  reasoning?: ReasoningConfig
 }
 
 export interface ProviderInput {
   type: ProviderType
   name: string
   base_url: string
-  models?: ModelInfo[]           // Updated: ModelInfo objects instead of string array
+  models?: ModelInfo[] // Updated: ModelInfo objects instead of string array
   enabled: boolean
   is_default: boolean
   api_key?: string
+  reasoning?: ReasoningConfig
 }
 
 export interface AppConfig {

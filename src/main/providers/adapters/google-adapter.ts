@@ -51,4 +51,17 @@ export const googleAdapter: ModelAdapter = {
   buildStreamOptions() {
     return {}
   },
+
+  applyReasoningConfig(config) {
+    if (!config.enabled) {
+      return { providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } } }
+    }
+    return {
+      providerOptions: {
+        google: {
+          thinkingConfig: { thinkingBudget: config.budgetTokens, thinkingLevel: config.effort },
+        },
+      },
+    }
+  },
 }

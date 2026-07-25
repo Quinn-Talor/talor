@@ -74,4 +74,18 @@ export const openaiAdapter: ModelAdapter = {
       },
     }
   },
+
+  applyReasoningConfig(config, provider) {
+    const baseUrl = provider.base_url.replace(/\/$/, '')
+    const middlewareNames =
+      provider.middleware ?? (isNonOpenAI(baseUrl) ? ['disable-thinking'] : [])
+    if (shouldDisableThinking(middlewareNames) && !config.enabled) {
+      return {} // 已由 disable-thinking fetch 拦截处理，不重复设置
+    }
+    return {
+      providerOptions: {
+        openai: { reasoningEffort: config.enabled ? (config.effort ?? 'medium') : 'none' },
+      },
+    }
+  },
 }

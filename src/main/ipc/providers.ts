@@ -32,6 +32,7 @@ export function registerProviderHandlers(): void {
       models: input.models ?? [],
       created_at: now,
       updated_at: now,
+      reasoning: input.reasoning,
     }
 
     if (apiKey) {
@@ -69,6 +70,7 @@ export function registerProviderHandlers(): void {
       is_default: restUpdates.is_default ?? providers[id].is_default,
       supports_vision: restUpdates.supports_vision ?? providers[id].supports_vision,
       models: restUpdates.models ?? providers[id].models,
+      reasoning: restUpdates.reasoning ?? providers[id].reasoning,
       updated_at: new Date().toISOString(),
     }
 

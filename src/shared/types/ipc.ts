@@ -7,6 +7,8 @@
 //
 // 新代码请直接从 '@shared/types/ipc' 导入,不要再经 '../../preload/index'。
 
+import type { ReasoningConfig } from './models'
+
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google'
 
 // ── Model / Provider ─────────────────────────────────────────────────
@@ -45,6 +47,9 @@ export interface Provider {
   updated_at: string
   models_last_updated?: string // ISO timestamp of last model list update
   models_cache_ttl?: number // Cache TTL in seconds (default: 300)
+  provider_options?: Record<string, unknown>
+  middleware?: string[]
+  reasoning?: ReasoningConfig
 }
 
 export interface ProviderModelResponse {
@@ -62,6 +67,7 @@ export interface ProviderInput {
   enabled: boolean
   is_default: boolean
   api_key?: string
+  reasoning?: ReasoningConfig
 }
 
 export interface ConnectionTestResult {
@@ -144,6 +150,7 @@ export interface ChatSession {
   workspace?: string
   agent_id: string
   parent_session_id?: string
+  reasoning?: ReasoningConfig
   created_at: string
   updated_at: string
 }
@@ -228,6 +235,11 @@ export interface SessionUpdateModelParams {
   session_id: string
   model_id: string
   provider_id?: string
+}
+
+export interface SessionUpdateReasoningParams {
+  session_id: string
+  reasoning: ReasoningConfig
 }
 
 export interface SessionCheckModelAvailabilityResult {

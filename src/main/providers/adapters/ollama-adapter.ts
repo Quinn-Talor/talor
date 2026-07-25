@@ -49,4 +49,9 @@ export const ollamaAdapter: ModelAdapter = {
   buildStreamOptions() {
     return {}
   },
+
+  applyReasoningConfig(config) {
+    // ollama-ai-provider-v2 的 think 只是 boolean，无 budget/effort 概念——忽略这两个字段。
+    return { providerOptions: { ollama: { think: config.enabled } } }
+  },
 }

@@ -3,7 +3,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync, unlinkSync } from 'fs'
 import log from 'electron-log'
-import type { ModelInfo } from '@shared/types/models'
+import type { ModelInfo, ReasoningConfig } from '@shared/types/models'
 
 interface WindowBounds {
   width: number
@@ -81,6 +81,8 @@ export interface Provider {
    *   - 'request-logging'    (dev mode 详细日志)
    */
   middleware?: string[]
+  /** 推理/思考深度配置。各 ModelAdapter.applyReasoningConfig 据此翻译成自己的 wire 格式。 */
+  reasoning?: ReasoningConfig
 }
 
 export interface ProviderInput {
@@ -92,6 +94,7 @@ export interface ProviderInput {
   is_default: boolean
   supports_vision?: boolean
   models?: ModelInfo[] // Updated: ModelInfo objects instead of string array
+  reasoning?: ReasoningConfig
 }
 
 interface StoreSchema {

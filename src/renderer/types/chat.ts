@@ -1,5 +1,7 @@
 // Phase 2 types — source: FEATURE-talor-phase2.md §F.2, REQUIREMENTS.md §1.3
 
+import type { ReasoningConfig } from '@shared/types/models'
+
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface TextPart {
@@ -47,6 +49,8 @@ export interface ChatSession {
   parent_message_id?: string
   /** 子 session 生命周期状态；顶层 session 默认 'completed'，不参与状态机。 */
   status?: SessionStatus
+  /** 本会话的推理深度覆盖；未设置时 fallback 到 provider.reasoning。 */
+  reasoning?: ReasoningConfig
   created_at: string
   updated_at: string
   /** 本会话累计 token 用量（含 reflect / 压缩等隐藏调用）。旧 session 缺省视为 0。 */

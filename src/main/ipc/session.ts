@@ -3,6 +3,7 @@
 
 import { ipcMain } from 'electron'
 import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/session-repo'
+import type { ReasoningConfig } from '@shared/types/models'
 import { ConfigStore } from '../store/config-store'
 import { getProviderModels } from '../providers/provider-fetcher'
 import { checkModelAvailability } from '../providers/model-availability'
@@ -62,6 +63,13 @@ export function registerSessionHandlers(): void {
         sessionRepo.updateProvider(params.session_id, params.provider_id)
       }
       return sessionRepo.updateModel(params.session_id, params.model_id)
+    },
+  )
+
+  ipcMain.handle(
+    'session:updateReasoning',
+    (_, params: { session_id: string; reasoning: ReasoningConfig }): ChatSession | null => {
+      return sessionRepo.updateReasoning(params.session_id, params.reasoning)
     },
   )
 

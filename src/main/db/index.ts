@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     parent_message_id TEXT,
     status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('running', 'completed', 'aborted')),
     metadata TEXT,
+    reasoning TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     input_tokens       INTEGER NOT NULL DEFAULT 0,
@@ -237,6 +238,7 @@ export function recreateSessionsIfOutdated(db: Database.Database): void {
     'parent_message_id',
     'status',
     'metadata',
+    'reasoning',
     'created_at',
     'updated_at',
   ]

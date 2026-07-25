@@ -296,6 +296,37 @@ describe('runReactLoop — text-only response', () => {
   })
 })
 
+describe('runReactLoop — providerOptions 合并（AC-013）', () => {
+  it('adapter 默认值 + provider.provider_options 同 provider-key 下并集共存，不互相覆盖', async () => {
+    mockStreamText.mockImplementation(mockSingleStep({ text: 'hello' }))
+    const opts = makeOpts({
+      provider: {
+        id: 'p1',
+        name: 'test-provider',
+        provider_options: { openai: { reasoningEffort: 'high' } },
+      } as unknown as ReactLoopOptions['provider'],
+      streamOptions: { providerOptions: { openai: { parallelToolCalls: true } } },
+    })
+    await runReactLoop(opts)
+    const [[params]] = mockStreamText.mock.calls
+    expect((params as { providerOptions: unknown }).providerOptions).toEqual({
+      openai: { parallelToolCalls: true, reasoningEffort: 'high' },
+    })
+  })
+
+  it('provider.provider_options 未设置 → 结果等于 streamOptions.providerOptions 原值（不触发）', async () => {
+    mockStreamText.mockImplementation(mockSingleStep({ text: 'hello' }))
+    const opts = makeOpts({
+      streamOptions: { providerOptions: { openai: { parallelToolCalls: true } } },
+    })
+    await runReactLoop(opts)
+    const [[params]] = mockStreamText.mock.calls
+    expect((params as { providerOptions: unknown }).providerOptions).toEqual({
+      openai: { parallelToolCalls: true },
+    })
+  })
+})
+
 describe('runReactLoop — abort', () => {
   it('已 aborted 时不调 streamText, 不落库', async () => {
     const controller = new AbortController()

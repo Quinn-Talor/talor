@@ -7,7 +7,7 @@ import type {
   ChatToolResultEvent,
   Attachment,
 } from '../types/chat'
-import type { ProviderModelResponse, ModelInfo } from '@shared/types/models'
+import type { ProviderModelResponse, ModelInfo, ReasoningConfig } from '@shared/types/models'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
 import type {
   PermissionRequest,
@@ -54,6 +54,10 @@ declare global {
         updateModel: (params: {
           session_id: string
           model_id: string
+        }) => Promise<ChatSession | null>
+        updateReasoning: (params: {
+          session_id: string
+          reasoning: ReasoningConfig
         }) => Promise<ChatSession | null>
         updateWorkspace: (params: {
           session_id: string
@@ -286,6 +290,7 @@ const stubSession = {
   get: () => Promise.resolve(null),
   rename: () => Promise.resolve(null),
   updateModel: () => Promise.resolve(null),
+  updateReasoning: () => Promise.resolve(null),
   updateWorkspace: () => Promise.resolve(null),
   checkModelAvailability: () => Promise.resolve({ available: true }),
   delete: () => Promise.resolve(),
