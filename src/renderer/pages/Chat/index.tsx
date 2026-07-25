@@ -21,7 +21,7 @@ import { DraftReviewModal } from '../../components/DraftReviewModal'
 import { AgentPreviewModal } from '../../components/AgentPreviewModal'
 import { useCrystallizeWorkbench } from '../../hooks/useCrystallizeWorkbench'
 import type { Attachment } from '../../types/chat'
-import type { ModelInfo } from '@shared/types/models'
+import type { ModelInfo, ReasoningConfig } from '@shared/types/models'
 import type { AgentCardData } from '../../components/AgentCard'
 
 interface ModelOption {
@@ -29,6 +29,21 @@ interface ModelOption {
   displayName: string
   providerName: string
   providerId: string
+  supportsReasoning: boolean
+}
+
+const REASONING_LEVELS: Array<{ label: string; config: ReasoningConfig }> = [
+  { label: '关', config: { enabled: false } },
+  { label: '低', config: { enabled: true, effort: 'low' } },
+  { label: '中', config: { enabled: true, effort: 'medium' } },
+  { label: '高', config: { enabled: true, effort: 'high' } },
+]
+
+function reasoningLevelIndex(reasoning: ReasoningConfig | undefined): number {
+  if (!reasoning || !reasoning.enabled) return 0
+  if (reasoning.effort === 'low') return 1
+  if (reasoning.effort === 'high') return 3
+  return 2
 }
 
 const BUILTIN_TOOLS = [
@@ -75,6 +90,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const [showAgentPicker, setShowAgentPicker] = useState(false)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [currentModelId, setCurrentModelId] = useState<string | undefined>()
+  const [currentReasoning, setCurrentReasoning] = useState<ReasoningConfig | undefined>()
   const [currentWorkspace, setCurrentWorkspace] = useState<string | undefined>()
   const [currentAgentId, setCurrentAgentId] = useState<string | undefined>()
   const [agentTools, setAgentTools] = useState<
@@ -155,6 +171,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
             displayName: (m as ModelInfo).display_name || (m as ModelInfo).name,
             providerName: p.name,
             providerId: p.id,
+            supportsReasoning:
+              (m as ModelInfo).capabilities?.some((c) => c.category === 'reasoning') ?? false,
           })
         }
       }
@@ -328,6 +346,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       loadMessages(currentSessionId)
       const s = sessions.find((s) => s.id === currentSessionId)
       setCurrentModelId(s?.model_id)
+      setCurrentReasoning(s?.reasoning)
       setCurrentWorkspace(s?.workspace ?? undefined)
       const resolvedId = resolveAgentId(s?.agent_id)
       setCurrentAgentId(resolvedId)
@@ -344,6 +363,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     } else {
       setMessages([])
       setCurrentModelId(undefined)
+      setCurrentReasoning(undefined)
       setCurrentWorkspace(undefined)
       setCurrentAgentId(undefined)
       setAgentTools([])
@@ -355,6 +375,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     if (currentSessionId) {
       const s = sessions.find((s) => s.id === currentSessionId)
       setCurrentModelId(s?.model_id)
+      setCurrentReasoning(s?.reasoning)
       setCurrentWorkspace(s?.workspace ?? undefined)
       const resolvedId = resolveAgentId(s?.agent_id)
       setCurrentAgentId(resolvedId)
@@ -482,6 +503,17 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       }
     } catch (e) {
       console.error('Failed to update model', e)
+    }
+  }
+
+  const handleReasoningChange = async (level: number) => {
+    if (!currentSessionId) return
+    const reasoning = REASONING_LEVELS[level].config
+    setCurrentReasoning(reasoning)
+    try {
+      await talorAPI.session.updateReasoning({ session_id: currentSessionId, reasoning })
+    } catch (e) {
+      console.error('Failed to update reasoning', e)
     }
   }
 
@@ -960,6 +992,36 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                         ))
                       )}
                     </div>
+                    {modelOptions.find((m) => m.id === currentModelId)?.supportsReasoning && (
+                      <div className="px-3 py-2.5 border-t" style={{ borderColor: '#f1f5f9' }}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px]" style={{ color: '#334155' }}>
+                            推理深度
+                          </span>
+                          <span className="text-[11px] font-medium" style={{ color: '#7c3aed' }}>
+                            {REASONING_LEVELS[reasoningLevelIndex(currentReasoning)].label}
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          {REASONING_LEVELS.map((lv, i) => (
+                            <button
+                              key={lv.label}
+                              onClick={() => handleReasoningChange(i)}
+                              className="flex-1 rounded transition-colors"
+                              style={{
+                                height: 6,
+                                background:
+                                  i <= reasoningLevelIndex(currentReasoning)
+                                    ? '#7c3aed'
+                                    : '#e2e8f0',
+                              }}
+                              aria-label={`推理深度：${lv.label}`}
+                              data-testid={`reasoning-level-${i}`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

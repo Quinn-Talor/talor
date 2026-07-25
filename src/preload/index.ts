@@ -36,6 +36,7 @@ export type {
   ChatStreamEvent,
   SessionRenameParams,
   SessionUpdateModelParams,
+  SessionUpdateReasoningParams,
   SessionCheckModelAvailabilityResult,
 } from '@shared/types/ipc'
 
@@ -60,6 +61,7 @@ import type {
   ChatStreamEvent,
   SessionRenameParams,
   SessionUpdateModelParams,
+  SessionUpdateReasoningParams,
   SessionUpdateWorkspaceParams,
   SessionCheckModelAvailabilityResult,
 } from '@shared/types/ipc'
@@ -157,6 +159,8 @@ const talorAPI = {
       ipcRenderer.invoke('session:rename', params),
     updateModel: (params: SessionUpdateModelParams): Promise<ChatSession | null> =>
       ipcRenderer.invoke('session:updateModel', params),
+    updateReasoning: (params: SessionUpdateReasoningParams): Promise<ChatSession | null> =>
+      ipcRenderer.invoke('session:updateReasoning', params),
     checkModelAvailability: (params: {
       session_id: string
     }): Promise<SessionCheckModelAvailabilityResult> =>

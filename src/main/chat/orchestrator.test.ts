@@ -21,6 +21,7 @@ const { hoisted } = vi.hoisted(() => ({
     runReactLoop: vi.fn(),
     resolveProviderConfig: vi.fn(() => ({})),
     configGet: vi.fn(),
+    resolveStreamOptions: vi.fn((_adapter: unknown, _provider: { reasoning?: unknown }) => ({})),
   },
 }))
 
@@ -48,6 +49,9 @@ vi.mock('../providers/model-adapter', () => ({
     fetchModels: vi.fn(async () => []),
     buildStreamOptions: vi.fn(() => ({})),
   }),
+  // provider.reasoning 未设置时，真实实现直接返回 adapter.buildStreamOptions()（AC-012 回归）；
+  // reasoning 翻译本身已在 model-adapter.test.ts 单测覆盖，这里只验证 session 覆盖优先级。
+  resolveStreamOptions: hoisted.resolveStreamOptions,
 }))
 
 vi.mock('../repos/session-repo', () => ({
@@ -145,6 +149,37 @@ describe('sendChat', () => {
     expect(hoisted.messageCreate).toHaveBeenCalledWith(expect.objectContaining({ role: 'user' }))
     expect(hoisted.runReactLoop).toHaveBeenCalled()
     expect(cb.onDone).toHaveBeenCalledWith(expect.any(String))
+  })
+
+  it('session.reasoning 覆盖 provider.reasoning（AC-014）', async () => {
+    hoisted.getDefaultProvider.mockReturnValue({
+      id: 'p1',
+      supports_vision: true,
+      reasoning: { enabled: true, effort: 'low' },
+    })
+    hoisted.sessionGetById.mockReturnValue({
+      id: 's1',
+      workspace: '/ws',
+      model_id: 'm1',
+      reasoning: { enabled: true, effort: 'high' },
+    })
+    const cb = makeCallbacks()
+    await sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts())
+    const [, providerArg] = hoisted.resolveStreamOptions.mock.calls[0]
+    expect(providerArg.reasoning).toEqual({ enabled: true, effort: 'high' })
+  })
+
+  it('session 未设置 reasoning → 沿用 provider.reasoning（不触发）', async () => {
+    hoisted.getDefaultProvider.mockReturnValue({
+      id: 'p1',
+      supports_vision: true,
+      reasoning: { enabled: true, effort: 'low' },
+    })
+    hoisted.sessionGetById.mockReturnValue({ id: 's1', workspace: '/ws', model_id: 'm1' })
+    const cb = makeCallbacks()
+    await sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts())
+    const [, providerArg] = hoisted.resolveStreamOptions.mock.calls[0]
+    expect(providerArg.reasoning).toEqual({ enabled: true, effort: 'low' })
   })
 
   it('附件校验失败 → 错误码映射到 onDone', async () => {

@@ -12,7 +12,7 @@ import log from 'electron-log'
 import { ConfigStore } from '../store/config-store'
 import { SafeStorageService } from '../services/safe-storage'
 import { sessionRepo, messageRepo } from '../repos/session-repo'
-import { getAdapter } from '../providers/model-adapter'
+import { getAdapter, resolveStreamOptions } from '../providers/model-adapter'
 import '../tools/builtin'
 import { runReactLoop } from '../loop/react-loop'
 import { SkillActivationTracker } from '../skills/registry'
@@ -261,7 +261,10 @@ export async function sendChat(
       requestPermission,
       skillTracker,
       events,
-      streamOptions: adapter.buildStreamOptions(),
+      streamOptions: resolveStreamOptions(adapter, {
+        ...provider,
+        reasoning: session?.reasoning ?? provider.reasoning,
+      }),
       callbacks: {
         onTextDelta: (delta, stepIdx) => callbacks.onTextDelta(messageId, delta, stepIdx),
         onToolCall: (id, name, input, stepIdx, startedAt) =>

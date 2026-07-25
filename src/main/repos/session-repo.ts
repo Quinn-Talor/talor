@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getDb } from '../db/index'
 import log from 'electron-log'
+import type { ReasoningConfig } from '@shared/types/models'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -17,6 +18,7 @@ export interface SessionRow {
   parent_message_id: string | null
   status: SessionStatus
   metadata: string | null
+  reasoning: string | null
   created_at: string
   updated_at: string
 }
@@ -43,6 +45,8 @@ export interface ChatSession {
   status: SessionStatus
   /** 临时元数据（KV）。crystallizer / 子组件用此通道传 session 上下文，不参与持久化语义。 */
   metadata?: Record<string, unknown>
+  /** 本会话的推理深度覆盖；未设置时 fallback 到 provider.reasoning。 */
+  reasoning?: ReasoningConfig
   created_at: string
   updated_at: string
 }
@@ -68,6 +72,7 @@ function rowToSession(row: SessionRow): ChatSession {
     parent_message_id: row.parent_message_id ?? undefined,
     status: (row.status as SessionStatus) ?? 'completed',
     metadata: parseMetadata(row.metadata),
+    reasoning: parseReasoning(row.reasoning),
     created_at: row.created_at,
     updated_at: row.updated_at,
   }
@@ -79,6 +84,19 @@ function parseMetadata(raw: string | null): Record<string, unknown> | undefined 
     const parsed = JSON.parse(raw)
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, unknown>
+    }
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+function parseReasoning(raw: string | null | undefined): ReasoningConfig | undefined {
+  if (raw === null || raw === undefined || raw === '') return undefined
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && typeof parsed.enabled === 'boolean') {
+      return parsed as ReasoningConfig
     }
     return undefined
   } catch {
@@ -275,6 +293,17 @@ export const sessionRepo = {
       .run(model_id, now, id)
     if (info.changes === 0) return null
     log.info('[SessionRepo] Updated model for session:', id, '->', model_id)
+    return this.getById(id)
+  },
+
+  updateReasoning(id: string, reasoning: ReasoningConfig): ChatSession | null {
+    const db = getDb()
+    const now = new Date().toISOString()
+    const info = db
+      .prepare('UPDATE sessions SET reasoning = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(reasoning), now, id)
+    if (info.changes === 0) return null
+    log.info('[SessionRepo] Updated reasoning for session:', id)
     return this.getById(id)
   },
 

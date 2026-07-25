@@ -9,6 +9,7 @@ import {
   getCapabilitiesWithFallback,
   VISION_MODEL_PATTERNS,
   TOOLS_MODEL_PATTERNS,
+  REASONING_MODEL_PATTERNS,
 } from './detector'
 import type { ModelInfo } from '@shared/types/models'
 
@@ -103,6 +104,31 @@ describe('detectModelCapabilities', () => {
       expect(cap.detected_at).toBeDefined()
       expect(() => new Date(cap.detected_at!).toISOString()).not.toThrow()
     }
+  })
+})
+
+describe('detectModelCapabilities（AC-003 reasoning 分类）', () => {
+  it.each(['claude-sonnet-5', 'gemini-2.5-pro', 'o3-mini', 'deepseek-r1', 'deepseek-reasoner'])(
+    '%s 命中 reasoning capability',
+    (name) => {
+      const model = makeModel(`test/${name}`, name)
+      const caps = detectModelCapabilities(model)
+      const reasoning = caps.find((c) => c.category === 'reasoning')
+      expect(reasoning).toBeDefined()
+      expect(reasoning?.supported).toBe(true)
+      expect(reasoning?.source).toBe('auto')
+    },
+  )
+
+  it('gpt-3.5-turbo 不命中 reasoning capability（不触发）', () => {
+    const model = makeModel('openai/gpt-3.5-turbo', 'gpt-3.5-turbo')
+    const caps = detectModelCapabilities(model)
+    expect(caps.find((c) => c.category === 'reasoning')).toBeUndefined()
+  })
+
+  it('exports REASONING_MODEL_PATTERNS as non-empty array', () => {
+    expect(Array.isArray(REASONING_MODEL_PATTERNS)).toBe(true)
+    expect(REASONING_MODEL_PATTERNS.length).toBeGreaterThan(0)
   })
 })
 

@@ -30,6 +30,17 @@ export const TOOLS_MODEL_PATTERNS: RegExp[] = [
   /llama[-_]?3\.[1-9]/i,
 ]
 
+export const REASONING_MODEL_PATTERNS: RegExp[] = [
+  /claude-3[-_]?7/i,
+  /claude-[4-9](\.|-|$)/i,
+  /claude-(sonnet|opus|haiku|fable)-[4-9]/i,
+  /gemini[-_]?2\.[5-9]/i,
+  /^o[1-9](-mini)?$/i,
+  /deepseek[-_]?r[0-9]/i,
+  /deepseek[-_]?reasoner/i,
+  /gpt-5/i,
+]
+
 function matchesAny(name: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(name))
 }
@@ -40,6 +51,7 @@ export function detectModelCapabilities(model: ModelInfo): ModelCapability[] {
 
   const supportsVision = matchesAny(name, VISION_MODEL_PATTERNS)
   const supportsTools = matchesAny(name, TOOLS_MODEL_PATTERNS)
+  const supportsReasoning = matchesAny(name, REASONING_MODEL_PATTERNS)
 
   const capabilities: ModelCapability[] = [
     {
@@ -68,6 +80,17 @@ export function detectModelCapabilities(model: ModelInfo): ModelCapability[] {
       type: 'function_calling',
       supported: true,
       description: '工具调用和函数执行',
+      source: 'auto',
+      detected_at: now,
+    })
+  }
+
+  if (supportsReasoning) {
+    capabilities.push({
+      category: 'reasoning',
+      type: 'configurable_reasoning',
+      supported: true,
+      description: '可配置推理深度',
       source: 'auto',
       detected_at: now,
     })
