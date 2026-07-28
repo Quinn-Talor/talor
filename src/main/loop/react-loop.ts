@@ -20,7 +20,7 @@
 
 import {
   streamText,
-  isStepCount,
+  stepCountIs,
   type LanguageModel,
   type ModelMessage,
   type StepResult,
@@ -781,7 +781,7 @@ async function runReactStep(
       ...ctx.streamOptions,
       ...streamParams,
       abortSignal: streamTimeout.signal,
-      stopWhen: isStepCount(1),
+      stopWhen: stepCountIs(1),
       // v7: 默认拒绝 messages 里的 system 消息;Talor 多层 system(宪法/agent/hint)
       // 刻意放在 messages 数组里,显式允许。
       allowSystemInMessages: true,
