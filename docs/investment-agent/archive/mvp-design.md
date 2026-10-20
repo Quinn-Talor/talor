@@ -1,8 +1,10 @@
 # A股标的投资 Agent — MVP 完整方案
 
+> 🗄️ **已归档**：本文已被现行规格 [`../spec.md`](../spec.md) 取代，只读、不再维护；归档说明见 [`README.md`](./README.md)。
+
 > 本文是投资 agent 的**权威系统设计**。相较早期分层方案大幅收敛:**砍掉宏观/行业独立卡、版本化共享视图、跨卡传导、5维矩阵、选股发现流**(推迟 v2)。MVP 只做一件事:**让一张标的卡走完「建立 → 逻辑跟踪 → 决策 → 复盘」的完整闭环**。
 >
-> 方法论依据:`docs/investment-agent/README.md`(散户认知 / 三层研究 / 逻辑卡 / 证伪 / 估值 / 纪律 / 复盘)。
+> 方法论依据:`docs/investment-agent/archive/design-final.md`(原 README:散户认知 / 三层研究 / 逻辑卡 / 证伪 / 估值 / 纪律 / 复盘)。
 > 实施按 **klook-vibe** 规范(`vibe/features/investment-agent/`)。`invest_lib` = §8 的 6 个纯函数,落 `src/main/invest/compute/`。
 
 ---

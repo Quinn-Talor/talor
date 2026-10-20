@@ -1,8 +1,10 @@
 # 投研(invest)Feature — 当前实现方案(as-built)
 
+> 状态：参考——反映 2026-06-28 的代码结构，迁移到现行规格时对照（[`../spec.md`](../spec.md) §20）；文中链接的设计文档均已归档。
+
 > 本文 = invest feature 的**实现现状参考**(as-built,反映代码真实结构),区别于偏理念的设计文档
-> ([`README.md`](./README.md) / [`value-chain-rigor.md`](./value-chain-rigor.md) / [`mvp-design.md`](./mvp-design.md))。
-> 字段/双锚/复盘细节见 [`prediction-verification-model.md`](./prediction-verification-model.md)。日期:2026-06-28。
+> ([`design-final.md`](../archive/design-final.md) / [`value-chain-rigor.md`](../archive/value-chain-rigor.md) / [`mvp-design.md`](../archive/mvp-design.md))。
+> 字段/双锚/复盘细节见 [`prediction-verification-model.md`](../archive/prediction-verification-model.md)。日期:2026-06-28。
 
 ---
 
@@ -148,10 +150,10 @@ invest 只**声明**贡献,平台 `installFeatures`(`main/index.ts`)注册:
 
 ## 13. 文档导航
 
-| 文档                                                                     | 性质                                                    |
-| ------------------------------------------------------------------------ | ------------------------------------------------------- |
-| 本文                                                                     | as-built 实现现状                                       |
-| [`prediction-verification-model.md`](./prediction-verification-model.md) | 字段模型 / 双锚 / 四概念关系(最新)                      |
-| [`value-chain-rigor.md`](./value-chain-rigor.md)                         | 价值链 + 决策系统设计(部分早于字段重构,以本文/上文为准) |
-| [`README.md`](./README.md) / [`mvp-design.md`](./mvp-design.md)          | 理念 / MVP 设计                                         |
-| [`fact-keys.md`](./fact-keys.md)                                         | 事实 key 字典                                           |
+| 文档                                                                                          | 性质                                                    |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 本文                                                                                          | as-built 实现现状                                       |
+| [`prediction-verification-model.md`](../archive/prediction-verification-model.md)             | 字段模型 / 双锚 / 四概念关系(最新)                      |
+| [`value-chain-rigor.md`](../archive/value-chain-rigor.md)                                     | 价值链 + 决策系统设计(部分早于字段重构,以本文/上文为准) |
+| [`design-final.md`](../archive/design-final.md) / [`mvp-design.md`](../archive/mvp-design.md) | 理念 / MVP 设计                                         |
+| [`fact-keys.md`](./fact-keys.md)                                                              | 事实 key 字典                                           |

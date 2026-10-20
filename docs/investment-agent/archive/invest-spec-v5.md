@@ -1,16 +1,16 @@
 # Talor 投资模块 Spec v5：以估值公式为核心的投资研究循环
 
-> 状态：**已被 v6 取代**（见 `invest-spec-v6.md`，各机制去向见其附录 B），保留供对照；原状态：草案 v5.1（v5 + 评审修订，修订明细见附录 C）
+> 状态：**已被 v6 取代**（现行规格见 [`../spec.md`](../spec.md)；v5.1 各机制在 v6 中的去向见 v6 附录 B，git `aa3ca370`），保留供对照；原状态：草案 v5.1（v5 + 评审修订，修订明细见附录 C）
 > 依据：`feature/investment-agent` 分支 `952045eb`（rebase 到 master 后为 `bf20a2a1`）的代码与文档（静态阅读，未运行）
 > 取代：此前讨论中的 spec v2 至 v4 草稿（未入库）；以及 `feature/investment-agent` 分支上以下文档的数据结构、不变量、估值与有效性规则（标 \* 的文件只存在于该分支，master 上没有）：
 >
-> - `docs/investment-agent/README.md` §4、§8、§10、§11
-> - `docs/investment-agent/value-chain-rigor.md`\* §2–§7、§9
-> - `docs/investment-agent/prediction-verification-model.md`\*、`traceable-valuation-chain.md`\* 全文
-> - `docs/investment-agent/implementation-overview.md`\* §2、§3、§4
+> - `docs/investment-agent/archive/design-final.md`（原 README）§4、§8、§10、§11
+> - `docs/investment-agent/archive/value-chain-rigor.md`\* §2–§7、§9
+> - `docs/investment-agent/archive/prediction-verification-model.md`\*、`traceable-valuation-chain.md`\* 全文
+> - `docs/investment-agent/reference/implementation-overview.md`\* §2、§3、§4
 > - `docs/superpowers/specs/2026-07-20-invest-agent-system-redesign.md`\* §1 原则 1 中"判校准 / 证伪、归因 = agent 自由"
 >
-> 保留：README §1 的理念——为结构弱势的散户卫星仓建投资纪律外骨骼；盯逻辑不盯价格；复盘跑赢宽基才算赢。
+> 保留：原 README（现 `archive/design-final.md`）§1 的理念——为结构弱势的散户卫星仓建投资纪律外骨骼；盯逻辑不盯价格；复盘跑赢宽基才算赢。
 
 ---
 

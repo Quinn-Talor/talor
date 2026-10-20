@@ -2,7 +2,7 @@
 //
 // invest_lib = 方法论 IP 的确定性计算(排雷/分位/逆向DCF/趋势/硬证伪/可靠性)。
 // 输入 = 归一化数据契约(由 MCP 适配/LLM 喂入);输出 = 结构化信号。LLM 永不算这些。
-// 设计依据: docs/investment-agent/mvp-design.md §8.2 / §3。
+// 设计依据: docs/investment-agent/archive/mvp-design.md §8.2 / §3。
 //
 // 允许依赖: 无
 // 禁止依赖: ipc/* / repos/* / mcp/*

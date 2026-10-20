@@ -1,6 +1,6 @@
 // src/main/invest/store.ts —— 业务层: 标的卡持久化(CardRepo implements ArtifactStore)
 //
-// 终稿模型(docs/investment-agent/README.md):卡 = 事实(facts) + 逻辑(thesis) + 时间线(timeline)。
+// 终稿模型(docs/investment-agent/archive/design-final.md):卡 = 事实(facts) + 逻辑(thesis) + 时间线(timeline)。
 //   stock_cards:卡头 + eligibility/facts/thesis JSON 列(facts append、thesis 加版本=可变聚合,JSON 最简)。
 //   card_timeline:复查/决策/复盘 事件(append-only)。
 // 六不变量(写经 apply 强制):

@@ -319,4 +319,4 @@ P1→P2 打通"工具读写 + UI 能读卡";P3 出主交付;P4/P5 增量;P6 固�
 
 ## 12. 设计文档一致性
 
-本文取代 `docs/investment-agent/card-ui-rendering-plan.md`(其 §4–5 = 本文 invest 实例的早期版)。mvp-design §9.4 的"落地"以本文为准:**卡 = ArtifactUI 实现(Inline/Panel),读经 feature IPC,写经工具,不走 talor block、无平台溯源/自动注入**。
+本文取代 `docs/investment-agent/archive/card-ui-rendering-plan.md`(其 §4–5 = 本文 invest 实例的早期版)。mvp-design §9.4 的"落地"以本文为准:**卡 = ArtifactUI 实现(Inline/Panel),读经 feature IPC,写经工具,不走 talor block、无平台溯源/自动注入**。

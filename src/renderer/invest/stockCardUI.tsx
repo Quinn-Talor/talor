@@ -1,6 +1,6 @@
 // src/renderer/invest/stockCardUI.tsx —— renderer: 标的卡 ArtifactUI(Inline chip + Panel 案卷)
 //
-// 终稿模型(docs/investment-agent/{README.md,value-chain-rigor.md}):
+// 终稿模型(docs/investment-agent/archive/{design-final.md,value-chain-rigor.md}):
 //   案卷 = 决策面(散户层链条 ①逻辑→②估值→③安全边际→④决策)+ 三下钻(专业层)。
 //   价值传导:事实→逻辑(命门)→预测参数(valuation.assumptions)→compute估值V→安全边际→决策。
 //   时间线:复查=验证(双向 outcome→validity)+重立;决策基于逻辑版本。

@@ -1,6 +1,6 @@
 // src/shared/types/invest.ts —— shared 层: invest 标的卡域类型(main + renderer 共用)
 //
-// 终稿模型(详见 docs/investment-agent/README.md):
+// 终稿模型(详见 docs/investment-agent/archive/design-final.md):
 //   卡 = 事实(facts:按 key 序列·三维·分层) + 逻辑(thesis:冻结快照·版本化)
 //        + 时间线(timeline:复查/决策/复盘)。
 //   事实快变(连续 append)· 逻辑慢变(离散冻结,basis 钉时点)· 复查归因定逻辑动否。

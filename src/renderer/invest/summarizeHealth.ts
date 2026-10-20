@@ -8,7 +8,7 @@
 //   · safety —— ③ 安全边际(读 margin_of_safety + buy_trigger)
 //   · redLines —— ④ 红线聚合(命门证伪 ∪ 排雷恶化 ∪ 8红灯)
 //   · timelineRows —— 时间线整合轴(逆序 + 活跃逻辑版本 + 版本台阶 + 决策基于vN)
-// 设计依据: docs/investment-agent/{README.md,value-chain-rigor.md}。
+// 设计依据: docs/investment-agent/archive/{design-final.md,value-chain-rigor.md}。
 
 import type {
   CardBundle,

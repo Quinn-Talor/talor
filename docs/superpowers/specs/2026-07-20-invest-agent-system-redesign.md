@@ -1,7 +1,7 @@
 # 投研 Agent 体系重构 + 闭环 MVP —— 完整方案(定稿·待评审)
 
 > 状态:定稿待评审 · 日期:2026-07-20 · 分支:feature/investment-agent
-> 上游依据:`docs/investment-agent/README.md`(设计终稿)、`value-chain-rigor.md`、`prediction-verification-model.md`、`fact-keys.md`、`docs/superpowers/specs/2026-07-16-invest-agent-design.md`(定稿)、`implementation-overview.md`(as-built)
+> 上游依据:`docs/investment-agent/archive/design-final.md`(设计终稿)、`value-chain-rigor.md`、`prediction-verification-model.md`、`fact-keys.md`、`docs/superpowers/specs/2026-07-16-invest-agent-design.md`(定稿)、`implementation-overview.md`(as-built)
 > 本方案定三件事:**① agent 体系怎么拆 ② 多 agent 怎么协作 ③ UI 怎么体现流程与协作**。范围 = MVP · 指令驱动 · 把流程做成闭环。§9 列全部已定决策。
 
 ---

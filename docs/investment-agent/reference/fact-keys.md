@@ -1,7 +1,7 @@
 # 事实 key 字典
 
 > facts 的命名/取数/引用权威。key 是系统公共锚:**数据源(取数)· compute(算)· driver.basis/verify(引用)· 配模式(必备项)** 全靠 key 对齐。
-> 配套设计见 [`README.md`](./README.md)。
+> 状态：参考——现有代码（`src/main/invest/fetch/registry.ts`）使用的事实 key 与数据源字段实证；现行规格中对应"指标定义"（[`../spec.md`](../spec.md) §14.3）。原配套设计见 [`design-final.md`](../archive/design-final.md)。
 
 ## 命名规范
 
