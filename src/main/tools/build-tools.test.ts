@@ -7,6 +7,11 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
+// buildTools 读 auto_approve_tools(ConfigStore 依赖 electron app);本文件注入 riskGate,取值不影响断言
+vi.mock('../store/config-store', () => ({
+  ConfigStore: { getInstance: () => ({ get: () => undefined }) },
+}))
+
 import { buildTools } from './build-tools'
 import type { RiskGate } from './risk-gate'
 import type { ToolExecuteContext, ToolMetadata } from './types'

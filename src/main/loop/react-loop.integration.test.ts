@@ -27,6 +27,11 @@ vi.mock('../db/index', async (importOriginal) => {
   }
 })
 
+// 真实 buildTools 读 auto_approve_tools(ConfigStore 依赖 electron app):取默认值(通过模式)
+vi.mock('../store/config-store', () => ({
+  ConfigStore: { getInstance: () => ({ get: () => undefined }) },
+}))
+
 import { ensureMessagesTraceColumn, initTraceTables } from '../db/index'
 import { runReactLoop } from './react-loop'
 import type { ReactLoopOptions } from './types'
