@@ -40,7 +40,7 @@ export async function runPolicyChain(
         `[turn-end-policy] decision by "${policy.name}": action=${decision.action} ` +
           `exitReason=${decision.exitReason ?? '-'} reason="${decision.reason}"`,
       )
-      return decision
+      return { ...decision, by: policy.name }
     }
   }
 

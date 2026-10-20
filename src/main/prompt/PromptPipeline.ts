@@ -113,6 +113,8 @@ export class PromptPipeline {
   async buildLayered(ctx: PipelineContext): Promise<{
     segments: Array<{ layer: StabilityLayer; messages: ModelMessage[] }>
     tools: ToolMetadata[]
+    /** 本次降级(构建失败被跳过)的非 critical plugin 名 */
+    degraded: string[]
   }> {
     const plugins = await this.getPlugins()
     const collected: Array<{ layer: StabilityLayer; order: number; messages: ModelMessage[] }> = []
@@ -165,6 +167,7 @@ export class PromptPipeline {
     return {
       segments: collected.map((c) => ({ layer: c.layer, messages: c.messages })),
       tools: allTools,
+      degraded,
     }
   }
 
@@ -175,9 +178,11 @@ export class PromptPipeline {
    * 缓存,需显式标)。断点落在稳定层末条 message,volatile(当前 turn / 运行时元)
    * 在其后,不进缓存前缀。react-loop 之后追加的 hint 同属 volatile,也在断点之后。
    */
-  async build(ctx: PipelineContext): Promise<{ messages: ModelMessage[]; tools: ToolMetadata[] }> {
-    const { segments, tools } = await this.buildLayered(ctx)
+  async build(
+    ctx: PipelineContext,
+  ): Promise<{ messages: ModelMessage[]; tools: ToolMetadata[]; degraded: string[] }> {
+    const { segments, tools, degraded } = await this.buildLayered(ctx)
     if (ctx.provider.type === 'anthropic') applyAnthropicCacheBreakpoints(segments)
-    return { messages: segments.flatMap((s) => s.messages), tools }
+    return { messages: segments.flatMap((s) => s.messages), tools, degraded }
   }
 }

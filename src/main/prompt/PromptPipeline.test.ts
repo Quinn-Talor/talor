@@ -154,6 +154,7 @@ describe('PromptPipeline.build', () => {
     )
     expect(degraded).toBeDefined()
     expect(degraded!.content as string).toContain('ToolSelectionPlugin')
+    expect(result.degraded).toEqual(['ToolSelectionPlugin'])
     // 稳定层 system('sys')应排在易变 DEGRADED 之前。
     const sysIdx = result.messages.findIndex(
       (m) => typeof m.content === 'string' && m.content === 'sys',
@@ -268,5 +269,6 @@ describe('PromptPipeline.build', () => {
       ),
     ).toBe(false)
     expect(result.tools).toHaveLength(1)
+    expect(result.degraded).toEqual([])
   })
 })

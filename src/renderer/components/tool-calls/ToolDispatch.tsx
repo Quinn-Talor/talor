@@ -29,20 +29,29 @@ interface ToolResultPart {
 interface ToolDispatchProps {
   use: ToolCallPart
   result?: ToolResultPart
+  /** 历史工具耗时(toolCallId → ms),来自 trace;无记录时 ToolRow 不显示耗时 */
+  durations?: Record<string, number>
 }
 
 const BUILTIN_TOOLS = new Set(['bash', 'read', 'write', 'edit', 'grep', 'glob', 'ls'])
 const MAX_TARGET_LEN = 50
 
-export function ToolDispatch({ use, result }: ToolDispatchProps) {
+export function ToolDispatch({ use, result, durations }: ToolDispatchProps) {
   const status: ToolStatus = !result ? 'running' : result.isError ? 'error' : 'done'
+  const durationMs = durations?.[use.toolCallId]
   const target = buildSummary(use.toolName, use.input)
   const isMcp = !BUILTIN_TOOLS.has(use.toolName)
 
   // MCP — generic row + expandable JSON
   if (isMcp) {
     return (
-      <ToolRow status={status} name={use.toolName} target={target} expandable={!!result}>
+      <ToolRow
+        status={status}
+        name={use.toolName}
+        target={target}
+        durationMs={durationMs}
+        expandable={!!result}
+      >
         {result && (
           <>
             <div className="tool-body-label">Input</div>
@@ -60,7 +69,13 @@ export function ToolDispatch({ use, result }: ToolDispatchProps) {
   // Built-in — row (specialized output renderers e.g. DiffView/BashOutput can be wired
   // here in a follow-up; v1 just shows the row which is already a big improvement).
   return (
-    <ToolRow status={status} name={use.toolName} target={target} expandable={!!result}>
+    <ToolRow
+      status={status}
+      name={use.toolName}
+      target={target}
+      durationMs={durationMs}
+      expandable={!!result}
+    >
       {result && (
         <>
           <div className="tool-body-label">Input</div>

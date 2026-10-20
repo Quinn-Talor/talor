@@ -193,6 +193,11 @@ export interface ToolExecuteContext extends ToolConfig {
    * step_index 作为下限)。
    */
   stepIndex?: number
+  /**
+   * 当前工具调用的 TOOL observation 引用;委托子 loop 据此把子 AGENT observation
+   * 挂在其下。无观测(trace 关闭 / 无 scope)时为 undefined。
+   */
+  traceParent?: import('../observe/trace-context').ObservationRef
 }
 
 export type PermissionPort = (req: PermissionRequestInput) => Promise<boolean>

@@ -18,6 +18,7 @@ import { generateText, type LanguageModel } from 'ai'
 import type { z } from 'zod'
 import log from 'electron-log'
 import { recordUsage } from '../../../providers/usage-recorder'
+import { withGenerationName } from '../../../observe/trace-context'
 
 /**
  * 反思 agent 接口 — 每场景一个实现。
@@ -60,16 +61,18 @@ export async function runReflectAgent<SNAPSHOT, RESULT>(
   const timeoutMs = agent.timeoutMs ?? 30_000
   const combinedSignal = AbortSignal.any([abortSignal, AbortSignal.timeout(timeoutMs)])
   try {
-    const res = await generateText({
-      model,
-      messages: [
-        { role: 'system', content: agent.systemPrompt + JSON_INSTRUCTION },
-        { role: 'user', content: agent.buildUserPrompt(snapshot) },
-      ],
-      maxOutputTokens: agent.maxOutputTokens,
-      abortSignal: combinedSignal,
-      allowSystemInMessages: true, // v7: system 走 messages 数组
-    })
+    const res = await withGenerationName(`llm:reflect:${agent.name}`, () =>
+      generateText({
+        model,
+        messages: [
+          { role: 'system', content: agent.systemPrompt + JSON_INSTRUCTION },
+          { role: 'user', content: agent.buildUserPrompt(snapshot) },
+        ],
+        maxOutputTokens: agent.maxOutputTokens,
+        abortSignal: combinedSignal,
+        allowSystemInMessages: true, // v7: system 走 messages 数组
+      }),
+    )
     if (sessionId) {
       recordUsage(sessionId, res.usage, res.providerMetadata as Record<string, unknown> | undefined)
     }

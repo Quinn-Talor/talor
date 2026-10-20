@@ -26,8 +26,10 @@ import { registerAgentHandlers } from './ipc/agents'
 import { registerSkillHandlers } from './ipc/skills'
 import { registerAccountHandlers } from './ipc/accounts'
 import { registerPermissionHandlers } from './ipc/permission'
+import { registerTraceHandlers } from './ipc/trace'
 import { mcpRegistry } from './mcp/client'
-import { initChatDb, closeChatDb, getDb } from './db/index'
+import { initChatDb, closeChatDb, getDb, pruneTraces } from './db/index'
+import { traceRecorder } from './observe/trace-recorder'
 import { installFeatures } from './features/install'
 import { ArtifactReaderRegistry } from './features/artifact-readers'
 import { mcpServerRepo } from './repos/mcp-server-repo'
@@ -61,6 +63,7 @@ registerMCPHandlers()
 registerAgentHandlers(agentManager)
 registerSkillHandlers(agentManager)
 registerPermissionHandlers()
+registerTraceHandlers()
 
 let mainWindow: BrowserWindow | null = null
 
@@ -172,6 +175,15 @@ app.whenReady().then(() => {
   registerNavigationGuards()
   configStore.ensureInitialized()
   initChatDb()
+  traceRecorder.configureEnvironment({
+    environment: app.isPackaged ? 'production' : 'development',
+    release: app.getVersion(),
+  })
+  try {
+    pruneTraces(getDb(), configStore.getTrace().retentionDays, new Date().toISOString())
+  } catch (err) {
+    log.warn('[Main] trace prune failed:', err)
+  }
 
   // Initialize Agent system — builtin tool definitions (skill / delegate_agent
   // are NOT in BuiltinToolRegistry; they're agent-level instances created in
@@ -260,8 +272,16 @@ app.whenReady().then(() => {
   })
 })
 
+// 退出前把仍在缓冲中的 trace 写盘(进行中的轮次下次启动由 sweepOpenTraces 收尾)。
+// macOS Cmd+Q 走 before-quit;Windows / Linux 关最后一个窗口会先 closeChatDb 再 quit,
+// 所以 window-all-closed 里要在关库之前先写盘,否则 before-quit 时 DB 已关闭。
+app.on('before-quit', () => {
+  traceRecorder.flushAll()
+})
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    traceRecorder.flushAll()
     closeChatDb()
     app.quit()
   }

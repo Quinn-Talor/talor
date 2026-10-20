@@ -1,10 +1,9 @@
 import { createAnthropic } from '@ai-sdk/anthropic'
-import { wrapLanguageModel } from 'ai'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
+import { wrapModel } from '../middleware'
 import { SafeStorageService } from '../../services/safe-storage'
 import { createBasicModelInfo } from '@shared/types/models'
-import { buildSdkMiddlewares } from '../middleware'
 
 // Anthropic 的 thinking.budgetTokens 是原始数字,没有命名档位。effort 是
 // Talor 跨 provider 的通用抽象,这里给它一个合理的默认映射,显式 budgetTokens
@@ -23,10 +22,8 @@ export const anthropicAdapter: ModelAdapter = {
     log.info('[anthropic-adapter] baseURL:', baseUrl, 'model:', model)
     const anthropic = createAnthropic({ baseURL: baseUrl, apiKey })
     const baseModel = anthropic(model)
-    // v4 Phase 1: SDK middleware (cost-tracking / request-logging)
-    const sdkMiddlewares = buildSdkMiddlewares(provider.middleware)
-    if (sdkMiddlewares.length === 0) return baseModel
-    return wrapLanguageModel({ model: baseModel, middleware: sdkMiddlewares })
+    // trace 中间件 + provider.middleware 配置的 SDK 中间件
+    return wrapModel(baseModel, provider.middleware)
   },
 
   async fetchModels(provider) {

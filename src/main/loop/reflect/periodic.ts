@@ -82,6 +82,7 @@ export class PeriodicReflector implements Reflector {
   readonly name = 'periodic'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['post-step'],
+    usesLlm: true,
   }
 
   private readonly every: number

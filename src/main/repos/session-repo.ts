@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDb } from '../db/index'
 import log from 'electron-log'
 import type { ReasoningConfig } from '@shared/types/models'
+import { currentTraceId } from '../observe/trace-context'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -35,6 +36,8 @@ export interface MessageRow {
   content_type: string // 'blocks'
   agent_id: string
   created_at: string
+  /** 所属 turn trace;trace scope 外写入的消息为 NULL。 */
+  trace_id: string | null
 }
 
 export interface ChatSession {
@@ -66,6 +69,7 @@ export interface ChatMessage {
   content: string // JSON SDK content
   agent_id: string
   created_at: string
+  trace_id?: string
 }
 
 function rowToSession(row: SessionRow): ChatSession {
@@ -124,6 +128,7 @@ function rowToMessage(row: MessageRow): ChatMessage {
     content: row.content,
     agent_id: row.agent_id ?? '__chat__',
     created_at: row.created_at,
+    ...(row.trace_id ? { trace_id: row.trace_id } : {}),
   }
 }
 
@@ -448,6 +453,30 @@ export interface MessageCreateParams {
   role: MessageRole
   content: unknown // SDK content format — AssistantContent / UserContent / ToolContent / string
   agent_id?: string
+  /** 缺省时取当前 trace scope 的 traceId(scope 外为 NULL);显式 null 强制不挂 trace。 */
+  trace_id?: string | null
+}
+
+function effectiveTraceId(params: MessageCreateParams): string | null {
+  return params.trace_id !== undefined ? params.trace_id : currentTraceId()
+}
+
+/** SDK content(字符串或 part 数组)里的第一段非空文本;没有则 null。 */
+function firstText(content: unknown): string | null {
+  if (typeof content === 'string') return content.length > 0 ? content : null
+  if (!Array.isArray(content)) return null
+  for (const part of content) {
+    if (
+      part !== null &&
+      typeof part === 'object' &&
+      (part as { type?: unknown }).type === 'text' &&
+      typeof (part as { text?: unknown }).text === 'string' &&
+      (part as { text: string }).text.length > 0
+    ) {
+      return (part as { text: string }).text
+    }
+  }
+  return null
 }
 
 export const messageRepo = {
@@ -469,12 +498,13 @@ export const messageRepo = {
     const now = new Date().toISOString()
     const contentJson = JSON.stringify(params.content)
     const agentId = params.agent_id ?? '__chat__'
+    const traceId = effectiveTraceId(params)
     db.prepare(
       `
-      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at)
-      VALUES (?, ?, ?, ?, 'blocks', ?, ?)
+      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at, trace_id)
+      VALUES (?, ?, ?, ?, 'blocks', ?, ?, ?)
     `,
-    ).run(params.id, params.session_id, params.role, contentJson, agentId, now)
+    ).run(params.id, params.session_id, params.role, contentJson, agentId, now, traceId)
     return {
       id: params.id,
       session_id: params.session_id,
@@ -482,6 +512,7 @@ export const messageRepo = {
       content: contentJson,
       agent_id: agentId,
       created_at: now,
+      ...(traceId ? { trace_id: traceId } : {}),
     }
   },
 
@@ -497,8 +528,8 @@ export const messageRepo = {
     if (items.length === 0) return []
     const db = getDb()
     const stmt = db.prepare(`
-      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at)
-      VALUES (?, ?, ?, ?, 'blocks', ?, ?)
+      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at, trace_id)
+      VALUES (?, ?, ?, ?, 'blocks', ?, ?, ?)
     `)
     const rows: ChatMessage[] = []
     const tx = db.transaction((batch: MessageCreateParams[]) => {
@@ -506,7 +537,8 @@ export const messageRepo = {
       for (const params of batch) {
         const contentJson = JSON.stringify(params.content)
         const agentId = params.agent_id ?? '__chat__'
-        stmt.run(params.id, params.session_id, params.role, contentJson, agentId, now)
+        const traceId = effectiveTraceId(params)
+        stmt.run(params.id, params.session_id, params.role, contentJson, agentId, now, traceId)
         rows.push({
           id: params.id,
           session_id: params.session_id,
@@ -514,6 +546,7 @@ export const messageRepo = {
           content: contentJson,
           agent_id: agentId,
           created_at: now,
+          ...(traceId ? { trace_id: traceId } : {}),
         })
       }
     })
@@ -524,5 +557,38 @@ export const messageRepo = {
   deleteBySession(sessionId: string): void {
     const db = getDb()
     db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
+  },
+
+  /** 一轮 trace 产生的全部消息(含委托子 session 的消息),排序同 listBySession。 */
+  listByTrace(traceId: string): ChatMessage[] {
+    const rows = getDb()
+      .prepare('SELECT * FROM messages WHERE trace_id = ? ORDER BY created_at ASC, rowid ASC')
+      .all(traceId) as MessageRow[]
+    return rows.map(rowToMessage)
+  },
+
+  /**
+   * 本轮(trace)在该 session 内最后一条非空 assistant 文本,作 trace output。
+   * 必须限定 session:委托子 session 的消息也带父 trace_id,不能把子 agent 的回复当成本轮输出。
+   * 读取失败只记 warn 返回 null(观测不改变业务结果)。
+   */
+  getLastAssistantText(sessionId: string, traceId: string): string | null {
+    try {
+      const rows = getDb()
+        .prepare(
+          `SELECT content FROM messages
+            WHERE session_id = ? AND trace_id = ? AND role = 'assistant'
+            ORDER BY created_at DESC, rowid DESC`,
+        )
+        .all(sessionId, traceId) as Array<{ content: string }>
+      for (const r of rows) {
+        const text = firstText(JSON.parse(r.content))
+        if (text !== null) return text
+      }
+      return null
+    } catch (err) {
+      log.warn('[SessionRepo] getLastAssistantText failed:', traceId, err)
+      return null
+    }
   },
 }

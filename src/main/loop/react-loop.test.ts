@@ -12,8 +12,9 @@
 //   - turn-end policy 续做 + final
 //   - 持久化配对事务 (tool 步 createBatch) / 纯文本步 create
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { StepResult, ToolSet } from 'ai'
+import { DEFAULT_TRACE_CONFIG, type ObservationRecord } from '@shared/types/trace'
 
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -94,6 +95,19 @@ vi.mock('../tools/build-tools', () => ({
 
 import { runReactLoop } from './react-loop'
 import type { ReactLoopOptions } from './types'
+import { traceRecorder } from '../observe/trace-recorder'
+import { traceRepo } from '../repos/trace-repo'
+import { runInScope } from '../observe/trace-context'
+import { ContextBudgetReflector } from './reflect/context-budget'
+import { SignatureDeadLoop } from './detectors/signature-dead-loop'
+import { LengthTruncationStreak } from './detectors/length-truncation-streak'
+import { FailureStreakReflector } from './reflect/failure-streak'
+import { ToolOnlyLoopReflector } from './reflect/tool-only-loop'
+import { PeriodicReflector } from './reflect/periodic'
+import { EscalationReflector } from './reflect/escalation'
+import { JudgeCompletionReflector } from './reflect/judge-completion'
+import { QuoteCorrectionReflector } from './reflect/quote-correction'
+import { ExplicitTerminationBlockPolicy } from './turn-end-policies/explicit-termination'
 
 // ── 测试 helpers ───────────────────────────────────────────────────────
 
@@ -638,5 +652,228 @@ describe('runReactLoop — persistence', () => {
     await runReactLoop(opts)
     expect(mockMessageCreate).toHaveBeenCalled()
     expect(mockMessageCreateBatch).not.toHaveBeenCalled()
+  })
+})
+
+// ── Turn trace 埋点（turn-trace TASK-4）────────────────────────────────
+
+describe('runReactLoop — turn trace', () => {
+  const REFLECTOR_CLASSES = [
+    ContextBudgetReflector,
+    SignatureDeadLoop,
+    LengthTruncationStreak,
+    FailureStreakReflector,
+    ToolOnlyLoopReflector,
+    PeriodicReflector,
+    EscalationReflector,
+    JudgeCompletionReflector,
+    QuoteCorrectionReflector,
+  ]
+
+  let rows: Map<string, ObservationRecord>
+
+  beforeEach(() => {
+    rows = new Map()
+    vi.spyOn(traceRepo, 'upsertBatch').mockImplementation((_trace, observations) => {
+      for (const o of observations) rows.set(o.id, { ...o })
+    })
+    for (const C of REFLECTOR_CLASSES) {
+      vi.spyOn(C.prototype, 'reflect').mockResolvedValue(null)
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function scriptToolThenText() {
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      if (!(params as { onChunk?: unknown }).onChunk) {
+        return mockSingleStep({})(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      stepIdx++
+      if (stepIdx === 1) {
+        return mockSingleStep({
+          toolCalls: [{ toolCallId: 'tc1', toolName: 'read', input: { path: 'a' } }],
+          toolResults: [{ toolCallId: 'tc1', toolName: 'read', output: 'content' }],
+        })(params as never) as unknown as ReturnType<typeof mockStreamText>
+      }
+      return mockSingleStep({ text: 'done', finishReason: 'stop' })(
+        params as never,
+      ) as unknown as ReturnType<typeof mockStreamText>
+    })
+  }
+
+  function toolAgentOpts() {
+    return makeOpts({
+      agent: {
+        id: '__chat__',
+        toolRegistry: { listTools: () => [], getToolNames: () => ['read'], listMcpTools: () => [] },
+      } as unknown as ReactLoopOptions['agent'],
+    })
+  }
+
+  async function runTraced(opts: ReactLoopOptions, id: string) {
+    const scope = traceRecorder.startTrace({
+      id,
+      sessionId: opts.sessionId,
+      name: 'turn',
+      input: opts.userContent,
+      rootName: 'agent:test',
+      config: DEFAULT_TRACE_CONFIG,
+    })
+    const result = await runInScope(scope, () => runReactLoop(opts))
+    traceRecorder.endTrace(id, {})
+    return result
+  }
+
+  function steps(): ObservationRecord[] {
+    return [...rows.values()]
+      .filter((o) => o.type === 'CHAIN' && o.name === 'react.step')
+      .sort((a, b) => Number(a.metadata.step_index) - Number(b.metadata.step_index))
+  }
+
+  function childrenOf(id: string): ObservationRecord[] {
+    return [...rows.values()].filter((o) => o.parent_observation_id === id)
+  }
+
+  function count(children: ObservationRecord[], name: string, phase?: string, type?: string) {
+    return children.filter(
+      (o) =>
+        o.name === name &&
+        (phase === undefined || o.metadata.phase === phase) &&
+        (type === undefined || o.type === type),
+    ).length
+  }
+
+  it('AC-017: records steps, every guard evaluation, prompt/persist spans and the turn-end policy', async () => {
+    scriptToolThenText()
+    await runTraced(toolAgentOpts(), 't-structure')
+
+    const [s0, s1] = steps()
+    expect(steps()).toHaveLength(2)
+    expect(s0.metadata.step_index).toBe(0)
+    expect(s1.metadata.step_index).toBe(1)
+
+    for (const step of [s0, s1]) {
+      const kids = childrenOf(step.id)
+      expect(count(kids, 'guard:context-budget', 'pre-step', 'GUARDRAIL')).toBe(1)
+      expect(count(kids, 'guard:signature-dead-loop', 'detector', 'GUARDRAIL')).toBe(1)
+      expect(count(kids, 'guard:length-truncation-streak', 'detector', 'GUARDRAIL')).toBe(1)
+      for (const n of [
+        'guard:signature-dead-loop',
+        'guard:length-truncation-streak',
+        'guard:failure-streak',
+        'guard:tool-only-loop',
+      ]) {
+        expect(count(kids, n, 'post-step', 'GUARDRAIL')).toBe(1)
+      }
+      expect(count(kids, 'guard:periodic', 'post-step', 'EVALUATOR')).toBe(1)
+      expect(count(kids, 'guard:escalation', 'post-step', 'EVALUATOR')).toBe(1)
+      expect(
+        kids.filter((o) => o.name.startsWith('guard:')).every((o) => o.level === 'DEBUG'),
+      ).toBe(true)
+      expect(count(kids, 'prompt.build', undefined, 'SPAN')).toBe(1)
+      expect(count(kids, 'react.persist', undefined, 'SPAN')).toBe(1)
+    }
+
+    const s1Kids = childrenOf(s1.id)
+    const policy = s1Kids.find((o) => o.name === 'react.turn-end-policy')!
+    expect(policy.type).toBe('CHAIN')
+    expect(policy.metadata.by).toBe('legacy-natural-final')
+    expect(count(s1Kids, 'guard:judge-completion', 'turn-end', 'EVALUATOR')).toBe(1)
+    expect(count(s1Kids, 'guard:quote-correction', 'turn-end', 'EVALUATOR')).toBe(1)
+    expect(count(childrenOf(s0.id), 'react.turn-end-policy')).toBe(0)
+    expect([...rows.values()].every((o) => o.end_time !== null)).toBe(true)
+  })
+
+  it('the step that ends the turn records metadata.exit, including the common FINAL-by-policy path', async () => {
+    scriptToolThenText()
+    await runTraced(toolAgentOpts(), 't-exit')
+
+    const [s0, s1] = steps()
+    expect(s1.metadata.exit).toBe('no_tool_calls')
+    // 不结束本轮的步不带 exit
+    expect(s0.metadata).not.toHaveProperty('exit')
+  })
+
+  it('policyExitReason is cleared when a turn-end reflector overturns the final', async () => {
+    vi.spyOn(ExplicitTerminationBlockPolicy.prototype, 'evaluate').mockResolvedValue({
+      action: 'final',
+      exitReason: 'declared_final',
+      reason: 'r',
+    })
+    vi.mocked(JudgeCompletionReflector.prototype.reflect)
+      .mockResolvedValueOnce({
+        internalNudge: { text: 'not done yet', label: 'judge', reason: 'r', role: 'user' },
+      })
+      .mockResolvedValue(null)
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      stepIdx++
+      // 第 1 步 final 被 judge 推翻;第 2 步空文本 → empty_text 结束(policy 未再判 final)
+      return mockSingleStep(stepIdx === 1 ? { text: 'draft', finishReason: 'stop' } : {})(
+        params as never,
+      ) as unknown as ReturnType<typeof mockStreamText>
+    })
+
+    const result = await runTraced(toolAgentOpts(), 't-overturn')
+
+    expect(result.exitReason).toBe('empty_text')
+    expect(result.policyExitReason).toBeNull()
+  })
+
+  it('AC-018: a carried-over hint is recorded as an EVENT with its source reflector', async () => {
+    vi.mocked(FailureStreakReflector.prototype.reflect)
+      .mockResolvedValueOnce({ hint: 'H1' })
+      .mockResolvedValue(null)
+    scriptToolThenText()
+    await runTraced(toolAgentOpts(), 't-hint')
+
+    const [s0, s1] = steps()
+    const hint = childrenOf(s1.id).find((o) => o.name === 'hint.injected')!
+    expect(hint).toMatchObject({ type: 'EVENT', input: 'H1' })
+    expect(hint.metadata).toMatchObject({ source: 'failure-streak', phase: 'carry-over' })
+    const guard = childrenOf(s0.id).find(
+      (o) => o.name === 'guard:failure-streak' && o.metadata.phase === 'post-step',
+    )!
+    expect(guard.level).toBe('DEFAULT')
+    expect(guard.metadata.outcome).toBe('hint')
+  })
+
+  it('AC-019: returns LoopResult with the policy exit reason the loop itself does not keep', async () => {
+    vi.spyOn(ExplicitTerminationBlockPolicy.prototype, 'evaluate').mockResolvedValue({
+      action: 'final',
+      exitReason: 'declared_final',
+      reason: 'r',
+    })
+    scriptToolThenText()
+    const result = await runTraced(toolAgentOpts(), 't-result')
+
+    expect(result).toEqual({
+      exitReason: 'no_tool_calls',
+      policyExitReason: 'declared_final',
+      totalSteps: 2,
+      totalToolCalls: 1,
+    })
+    const policy = [...rows.values()].find((o) => o.name === 'react.turn-end-policy')!
+    expect(policy.metadata).toMatchObject({
+      by: 'explicit-termination',
+      exit_reason: 'declared_final',
+    })
+  })
+
+  it('LoopResult without tracing: abort before the first step → abort, zero steps', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const result = await runReactLoop(makeOpts({ abortSignal: controller.signal }))
+    expect(result).toEqual({
+      exitReason: 'abort',
+      policyExitReason: null,
+      totalSteps: 0,
+      totalToolCalls: 0,
+    })
+    expect(rows.size).toBe(0)
   })
 })

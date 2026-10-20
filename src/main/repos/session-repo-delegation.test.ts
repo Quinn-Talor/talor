@@ -42,6 +42,7 @@ CREATE TABLE messages (
   content_type TEXT NOT NULL DEFAULT 'blocks',
   agent_id     TEXT NOT NULL DEFAULT '__chat__',
   created_at   TEXT NOT NULL,
+  trace_id     TEXT,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 `

@@ -32,6 +32,8 @@ export interface ChatMessage {
   role: MessageRole
   content: string
   created_at: string
+  /** 所属 turn trace;trace 关闭或旧消息为 undefined */
+  trace_id?: string
 }
 
 export type SessionStatus = 'running' | 'completed' | 'aborted'

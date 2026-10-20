@@ -12,6 +12,8 @@ import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolDispatch } from '../../components/tool-calls/ToolDispatch'
+import { TraceChip } from '../../components/trace/TraceChip'
+import { TracePanel } from '../../components/trace/TracePanel'
 // ToolConfirmDialog 和 PermissionDialog 已下线到 PermissionsPopover 内嵌渲染,
 // UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
 // 但 Chat 页面不再消费它们。
@@ -121,6 +123,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const [separatorCollapsed, setSeparatorCollapsed] = useState(false)
   const [reviewProfile, setReviewProfile] = useState<Record<string, unknown> | null>(null)
   const [previewAgentId, setPreviewAgentId] = useState<string | null>(null)
+  // Trace 检视:当前打开的 trace(连同所属 session,切走会话后不再显示)
+  // + 历史工具耗时(toolCallId → ms,来自 trace 的 TOOL observation)
+  const [openTrace, setOpenTrace] = useState<{ sessionId: string; traceId: string } | null>(null)
+  const [toolDurations, setToolDurations] = useState<Record<string, number>>({})
 
   useStreamingMessage(currentSessionId)
 
@@ -156,6 +162,12 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         setMessages(await talorAPI.session.getMessages(id))
       } catch (e) {
         console.error('Failed to load messages', e)
+      }
+      try {
+        const durations = await talorAPI.trace.toolDurations(id)
+        setToolDurations(durations.status === 'success' ? durations.durations : {})
+      } catch (e) {
+        console.error('Failed to load tool durations', e)
       }
     },
     [setMessages],
@@ -238,7 +250,19 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   // 之前每次输入(setInput)都会让父组件重渲染,触发这段含 40+ JSON.parse 的 reduce,
   // 导致输入卡顿。useMemo 后输入完全不影响这段计算。
   const renderedMessages = useMemo<React.ReactNode[]>(() => {
-    return messages.reduce((acc, msg, idx) => {
+    // 一轮(同 trace_id 的连续消息)结束处插入 Trace 入口
+    const traceChip = (traceId: string, sessionId: string, idx: number) => (
+      <TraceChip
+        key={`trace-${traceId}-${idx}`}
+        traceId={traceId}
+        onOpen={(id) => setOpenTrace({ sessionId, traceId: id })}
+      />
+    )
+    const nodes = messages.reduce((acc, msg, idx) => {
+      const prev = idx > 0 ? messages[idx - 1] : undefined
+      if (prev?.trace_id && prev.trace_id !== msg.trace_id) {
+        acc.push(traceChip(prev.trace_id, prev.session_id, idx))
+      }
       if (msg.role === 'tool') return acc
       if (msg.role === 'assistant') {
         try {
@@ -306,6 +330,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                     key={tu.toolCallId}
                     use={tu}
                     result={resultMap.get(tu.toolCallId)}
+                    durations={toolDurations}
                   />
                 ))}
               </div>,
@@ -327,7 +352,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       )
       return acc
     }, [] as React.ReactNode[])
-  }, [messages, blockOnPickChoice, blockOnConfirmProposal, blockOnEmit])
+    const last = messages[messages.length - 1]
+    if (last?.trace_id) nodes.push(traceChip(last.trace_id, last.session_id, messages.length))
+    return nodes
+  }, [messages, blockOnPickChoice, blockOnConfirmProposal, blockOnEmit, toolDurations])
 
   // Auto-select most recent session
   useEffect(() => {
@@ -1958,6 +1986,11 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           </div>
         )}
       </div>
+
+      {/* Trace 检视面板 — 右侧停靠,与聊天区同级(不覆盖) */}
+      {openTrace && openTrace.sessionId === currentSessionId && (
+        <TracePanel traceId={openTrace.traceId} onClose={() => setOpenTrace(null)} />
+      )}
 
       {/* Dialogs */}
       {sessionToDelete && (

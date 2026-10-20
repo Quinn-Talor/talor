@@ -1,9 +1,8 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { wrapLanguageModel } from 'ai'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
+import { wrapModel } from '../middleware'
 import { createBasicModelInfo } from '@shared/types/models'
-import { buildSdkMiddlewares } from '../middleware'
 
 // Ollama 暴露 OpenAI 兼容端点(/v1)。改用官方 @ai-sdk/openai-compatible(基于
 // @ai-sdk/provider v4,原生支持 ai@7),替代不再跟进 ai@7 的社区包
@@ -16,10 +15,8 @@ export const ollamaAdapter: ModelAdapter = {
     log.info('[ollama-adapter] baseURL:', apiBase, 'model:', model)
     const ollama = createOpenAICompatible({ name: 'ollama', baseURL: apiBase })
     const baseModel = ollama(model)
-    // v4 Phase 1: SDK middleware
-    const sdkMiddlewares = buildSdkMiddlewares(provider.middleware)
-    if (sdkMiddlewares.length === 0) return baseModel
-    return wrapLanguageModel({ model: baseModel, middleware: sdkMiddlewares })
+    // trace 中间件 + provider.middleware 配置的 SDK 中间件
+    return wrapModel(baseModel, provider.middleware)
   },
 
   async fetchModels(provider) {

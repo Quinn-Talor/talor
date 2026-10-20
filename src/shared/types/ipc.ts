@@ -93,6 +93,7 @@ export interface AppConfig {
   default_context_limit?: number
   default_recent_ratio?: number
   default_summary_ratio?: number
+  trace?: import('./trace').TraceConfig
 }
 
 // ── MCP ──────────────────────────────────────────────────────────────
@@ -185,6 +186,7 @@ export interface ChatMessage {
   role: MessageRole
   content: string
   created_at: string
+  trace_id?: string
 }
 
 export interface Attachment {

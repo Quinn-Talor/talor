@@ -22,6 +22,9 @@ import type { Agent } from './agent'
 import type { ToolDefinition, ToolExecuteContext, ToolErrorEnvelope } from '../tools/types'
 import type { ReactLoopOptions } from '../loop/types'
 import { v4 as uuidv4 } from 'uuid'
+import { DEFAULT_TRACE_CONFIG, type ObservationRecord } from '@shared/types/trace'
+import { traceRecorder } from '../observe/trace-recorder'
+import { traceRepo } from '../repos/trace-repo'
 
 const CREATE_SESSIONS_FULL = `
 CREATE TABLE sessions (
@@ -48,6 +51,7 @@ CREATE TABLE messages (
   content_type TEXT NOT NULL DEFAULT 'blocks',
   agent_id     TEXT NOT NULL DEFAULT '__chat__',
   created_at   TEXT NOT NULL,
+  trace_id     TEXT,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 `
@@ -973,5 +977,97 @@ Provide a stock ticker and mood. The agent fetches price data and composes a 七
       )
       expect(r.output).toContain('standalone task completed')
     })
+  })
+})
+
+describe('delegate_agent — turn trace（turn-trace AC-016）', () => {
+  let translator: Agent
+  let rows: Map<string, ObservationRecord>
+
+  beforeEach(() => {
+    currentDb.instance = new Database(':memory:')
+    currentDb.instance.exec(CREATE_SESSIONS_FULL)
+    currentDb.instance.exec(CREATE_MESSAGES)
+    translator = makeAgent('translator-001', '翻译助手')
+    sessionRepo.create({ title: 'Main', provider_id: 'mock-provider', agent_id: '__coordinator__' })
+    __TEST__.limiterPerSession.clear()
+    rows = new Map()
+    vi.spyOn(traceRepo, 'upsertBatch').mockImplementation((_trace, observations) => {
+      for (const o of observations) rows.set(o.id, { ...o })
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    currentDb.instance?.close()
+    currentDb.instance = null
+  })
+
+  async function delegateTraced(runReactLoop: RunReactLoopFn, withParent: boolean) {
+    const tool = createDelegateAgentTool(
+      makeRuntime({ runReactLoop, agents: new Map([['translator-001', translator]]) }),
+    )
+    const parentId = sessionRepo.list()[0].id
+    const scope = traceRecorder.startTrace({
+      id: 't-del',
+      sessionId: parentId,
+      name: 'turn',
+      input: 'x',
+      rootName: 'agent:coordinator',
+      config: DEFAULT_TRACE_CONFIG,
+    })!
+    const toolObs = traceRecorder.startObservation({
+      type: 'TOOL',
+      name: 'delegate_agent',
+      parent: scope.parent!,
+    })
+    const result = await tool.execute(
+      { agent_id: 'translator-001', instruction: 'translate this' },
+      makeCtx({ sessionId: parentId, traceParent: withParent ? toolObs.ref! : undefined }),
+    )
+    toolObs.end({ output: result.output })
+    traceRecorder.endTrace('t-del', {})
+    return { toolId: toolObs.ref!.observationId, result }
+  }
+
+  function childAgents(): ObservationRecord[] {
+    return [...rows.values()].filter((o) => o.type === 'AGENT' && o.name === 'agent:translator-001')
+  }
+
+  it('AC-016: the child AGENT nests under the delegate TOOL; child messages carry the parent trace_id', async () => {
+    const { toolId } = await delegateTraced(mockSuccessReactLoop('done (translated)'), true)
+
+    const agents = childAgents()
+    expect(agents).toHaveLength(1)
+    const child = agents[0]
+    expect(child.parent_observation_id).toBe(toolId)
+    expect(child.trace_id).toBe('t-del')
+    expect(child.output).toBe('done (translated)')
+    expect(child.end_time).not.toBeNull()
+    const childSessionId = child.metadata.child_session_id as string
+    const childMsgs = messageRepo.listBySession(childSessionId)
+    expect(childMsgs.length).toBeGreaterThan(0)
+    expect(childMsgs.every((m) => m.trace_id === 't-del')).toBe(true)
+  })
+
+  it('AC-016（不触发）: without ctx.traceParent no child AGENT is recorded', async () => {
+    await delegateTraced(mockSuccessReactLoop('done'), false)
+    expect(childAgents()).toHaveLength(0)
+  })
+
+  it('a child loop that writes no text ends the child AGENT as WARNING / SUBAGENT_MAX_STEPS', async () => {
+    await delegateTraced(async () => undefined, true)
+    expect(childAgents()[0]).toMatchObject({
+      level: 'WARNING',
+      status_message: 'SUBAGENT_MAX_STEPS',
+    })
+  })
+
+  it('a throwing child loop ends the child AGENT as ERROR with the envelope code', async () => {
+    const { result } = await delegateTraced(async () => {
+      throw new Error('child blew up')
+    }, true)
+    const code = (result.output as ToolErrorEnvelope).code
+    expect(childAgents()[0]).toMatchObject({ level: 'ERROR', status_message: code })
   })
 })

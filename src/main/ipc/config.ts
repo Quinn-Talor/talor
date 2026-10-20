@@ -29,5 +29,8 @@ export function registerConfigHandlers(): void {
     if (config.default_summary_ratio !== undefined) {
       store.set('default_summary_ratio', config.default_summary_ratio)
     }
+    if (config.trace !== undefined) {
+      store.setTrace(config.trace)
+    }
   })
 }

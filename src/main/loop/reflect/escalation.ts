@@ -26,6 +26,7 @@ export class EscalationReflector implements Reflector {
   readonly capabilities: ReflectorCapabilities = {
     phases: ['post-step'],
     maxPerTurn: 2,
+    usesLlm: true,
   }
 
   private hintStreak = 0

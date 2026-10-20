@@ -12,7 +12,10 @@
 // 关键设计: pipeline.build 每步重建 — skill / MCP search_tool / memory 压缩
 // 立即生效, 不积压到下次循环。
 //
-// 允许依赖: loop/*, repos/*, shared/*
+// 观测: 每步一条 CHAIN react.step(finally 中结束并 flush), 步内的 prompt 组装、
+// 守卫评估、policy、落库、hint 注入都挂在它下面; 返回 LoopResult 供 trace 收尾。
+//
+// 允许依赖: loop/*, repos/*, observe/*, shared/*
 // 禁止依赖: ipc/*
 
 import { streamText, isStepCount, type LanguageModel, type StepResult, type ToolSet } from 'ai'
@@ -22,7 +25,8 @@ import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { buildStreamTimeout } from './stream-utils'
 import { buildTools } from '../tools/build-tools'
 import { estimate } from '../memory/types'
-import type { ReactLoopOptions, ReactLoopCallbacks, LoopExitReason } from './types'
+import type { ReactLoopOptions, ReactLoopCallbacks, LoopExitReason, LoopResult } from './types'
+import type { ObservationLevel } from '@shared/types/trace'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import type { Provider } from '../store/config-store'
 import { mergeProviderOptions } from '../providers/model-adapter'
@@ -53,6 +57,14 @@ import {
 import { factsFromStep, outcomeFromStep, extractTextFromStep } from './step-adapter'
 import { persistStepFromResult, persistAbortedStep } from './persist-step'
 import { recordUsage } from '../providers/usage-recorder'
+import { currentTraceId, withGenerationName, withParent } from '../observe/trace-context'
+import { traceRecorder } from '../observe/trace-recorder'
+
+/** 跨步携带到下一步 system message 的 hint,source 记来源(reflector 名或 policy:<名>)。 */
+interface CarriedHint {
+  text: string
+  source: string
+}
 
 const DEFAULT_MAX_STEPS = 1000
 
@@ -129,7 +141,7 @@ interface StepRunResult {
  * 兜底: 循环结束后, 若 accumulator.needsFallback() 且非 abort/context_overflow,
  * 调一次 runForcedSummary 让用户至少看到一段文本。
  */
-export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
+export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> {
   const loopStart = Date.now()
   const turnStartTime = new Date(loopStart).toISOString()
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS
@@ -211,8 +223,10 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   }
 
   let exitReason: LoopExitReason = 'no_tool_calls'
-  let nextPolicyHint: string | null = null
+  let nextPolicyHint: CarriedHint | null = null
   let lastInputTokens: number | undefined
+  let lastPolicyExit: LoopExitReason | null = null
+  const traceId = currentTraceId()
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
@@ -220,181 +234,263 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
       break
     }
 
-    const hint = nextPolicyHint
-    nextPolicyHint = null
-
-    const { expand: mcpExpand, used: mcpUsed } = mcpState.flags
-
-    let stepResult: StepRunResult
+    const stepObs = traceRecorder.startObservation({
+      type: 'CHAIN',
+      name: 'react.step',
+      metadata: { step_index: step },
+    })
+    const inStep = <T>(fn: () => T): T => withParent(stepObs.ref, fn)
+    let stepLevel: ObservationLevel = 'DEFAULT'
+    let stepStatus: string | undefined
+    const stepMeta: Record<string, unknown> = {}
+    // 本步结束本轮时调用:把结束原因记到本步 metadata.exit,并返回它供赋给 exitReason
+    // (赋值留在调用处,TS 才能跟踪 exitReason 的取值)
+    const stepExit = (reason: LoopExitReason): LoopExitReason => {
+      stepMeta.exit = reason
+      return reason
+    }
     try {
-      stepResult = await runReactStep(ctx, runtime, step, maxSteps, {
-        hint,
-        mcpExpand,
-        mcpUsed,
-        lastInputTokens,
-        persistUserOutput: (sIdx, from, u) => persistUserOutput(opts, sIdx, from, u),
-        persistInternalNudge: (sIdx, from, n) => persistInternalNudge(opts, sIdx, from, n),
-      })
-    } catch (err) {
-      log.error(`[ReactLoop] step ${step} threw:`, err)
-      exitReason = opts.abortSignal.aborted ? 'abort' : 'fallback_summary'
-      break
-    }
+      const hint = nextPolicyHint
+      nextPolicyHint = null
 
-    if (stepResult.exitReason === 'context_overflow') {
-      exitReason = 'context_overflow'
-      break
-    }
-    if (stepResult.exitReason === 'abort') {
-      exitReason = 'abort'
-      break
-    }
-    if (!stepResult.step) {
-      log.warn(`[ReactLoop] step ${step} returned null step without exit reason`)
-      break
-    }
+      const { expand: mcpExpand, used: mcpUsed } = mcpState.flags
 
-    if (stepResult.lastInputTokens) lastInputTokens = stepResult.lastInputTokens
-
-    const outcome = outcomeFromStep(stepResult.step, stepResult.durationMs)
-    accumulator.observe(outcome)
-    mcpState.update(outcome)
-    recentHistory.push(outcome)
-    if (recentHistory.length > 20) recentHistory.shift()
-
-    const facts = factsFromStep(stepResult.step)
-    const rawCtx = { stepText: outcome.stepText, finishReason: outcome.finishReason }
-
-    // ── Detector chain — 硬切断侦测 (代码判定) ──
-    let detectorBreak: { exitReason: LoopExitReason } | null = null
-    for (const d of detectors) {
-      const verdict = d.observe(facts, step, rawCtx)
-      if (!verdict.triggered) continue
-      log.warn(`[ReactLoop] Detector "${d.name}" triggered (exit=${verdict.exitReason})`)
-      detectorBreak = { exitReason: verdict.exitReason ?? 'repeated_error' }
-      break
-    }
-
-    // ── Mid-turn Reflector chain (aboutToFinal=false) ──
-    const commonReflectFields = {
-      stepIndex: step,
-      userIntent: opts.userContent,
-      sessionId: opts.sessionId,
-      abortSignal: opts.abortSignal,
-      recentHistory: recentHistory.slice(),
-      reflectModel: reflectModel ?? undefined,
-    }
-    const midOut = await runReflectorChain(
-      'post-step',
-      postStepReflectors,
-      { ...commonReflectFields, phase: 'post-step', facts, outcome, raw: rawCtx },
-      perTurnCounters,
-    )
-
-    // 跟踪 L1 hint 注入: EscalationReflector 据此决定何时升级 LLM reflect。
-    lastL1Hinted =
-      midOut.kind === 'hint' &&
-      (midOut.from === 'failure-streak' || midOut.from === 'tool-only-loop')
-
-    // 决策优先级: wrapUp > detectorBreak > userOutput > policy > internalNudge > hint
-    //   wrapUp / userOutput  → 用户回复, break turn
-    //   internalNudge        → 内部纠正, 持久化为非 assistant 消息, continue loop
-    //   hint                 → 临时引导, 注入下一步 system message
-    if (midOut.wrapUp) {
+      let stepResult: StepRunResult
       try {
-        await midOut.wrapUp.runSummary()
-      } catch (e) {
-        log.error(`[ReactLoop] reflector "${midOut.from}" wrap-up failed:`, e)
-      }
-      if (midOut.wrapUp.markFinal) accumulator.markFinal()
-      exitReason = midOut.wrapUp.exitReason
-      break
-    }
-    if (detectorBreak) {
-      exitReason = detectorBreak.exitReason
-      break
-    }
-    if (midOut.userOutput) {
-      await persistUserOutput(opts, step, midOut.from ?? 'unknown', midOut.userOutput)
-      exitReason = midOut.userOutput.exitReason ?? 'no_tool_calls'
-      break
-    }
-    if (midOut.internalNudge) {
-      await persistInternalNudge(opts, step, midOut.from ?? 'unknown', midOut.internalNudge)
-      // 已落库为非 assistant 消息, 下次 pipeline.build 读到, 主 LLM 续做
-      continue
-    }
-
-    // ── Turn-end policy (无 tool 时) ──
-    let policyDecision: 'final' | 'continue' | null = null
-    if (outcome.toolNames.length === 0) {
-      if (!outcome.stepText) {
-        log.info(`[ReactLoop]   → empty (no text, no tools)`)
-        exitReason = 'empty_text'
+        stepResult = await inStep(() =>
+          runReactStep(ctx, runtime, step, maxSteps, {
+            hint,
+            mcpExpand,
+            mcpUsed,
+            lastInputTokens,
+            persistUserOutput: (sIdx, from, u) => persistUserOutput(opts, sIdx, from, u),
+            persistInternalNudge: (sIdx, from, n) => persistInternalNudge(opts, sIdx, from, n),
+          }),
+        )
+      } catch (err) {
+        log.error(`[ReactLoop] step ${step} threw:`, err)
+        stepLevel = 'ERROR'
+        stepStatus = err instanceof Error ? err.message : String(err)
+        exitReason = stepExit(opts.abortSignal.aborted ? 'abort' : 'fallback_summary')
         break
       }
-      const policyCtx: PolicyContext = {
-        agent: opts.agent,
-        sessionId: opts.sessionId,
+
+      if (stepResult.exitReason === 'context_overflow') {
+        exitReason = stepExit('context_overflow')
+        break
+      }
+      if (stepResult.exitReason === 'abort') {
+        exitReason = stepExit('abort')
+        break
+      }
+      if (!stepResult.step) {
+        log.warn(`[ReactLoop] step ${step} returned null step without exit reason`)
+        stepExit(exitReason) // 沿用当前 exitReason
+        break
+      }
+
+      if (stepResult.lastInputTokens) lastInputTokens = stepResult.lastInputTokens
+
+      const outcome = outcomeFromStep(stepResult.step, stepResult.durationMs)
+      accumulator.observe(outcome)
+      mcpState.update(outcome)
+      recentHistory.push(outcome)
+      if (recentHistory.length > 20) recentHistory.shift()
+      stepMeta.finish_reason = outcome.finishReason ?? null
+      stepMeta.tool_names = outcome.toolNames
+      stepMeta.all_tools_failed = outcome.allToolsFailed
+      stepMeta.signature = outcome.signature
+
+      const facts = factsFromStep(stepResult.step)
+      const rawCtx = { stepText: outcome.stepText, finishReason: outcome.finishReason }
+
+      // ── Detector chain — 硬切断侦测 (代码判定) ──
+      let detectorBreak: { exitReason: LoopExitReason } | null = null
+      for (const d of detectors) {
+        const guard = traceRecorder.startObservation({
+          type: 'GUARDRAIL',
+          name: `guard:${d.name}`,
+          parent: stepObs.ref ?? undefined,
+          metadata: { phase: 'detector' },
+        })
+        const verdict = d.observe(facts, step, rawCtx)
+        guard.end({
+          level: verdict.triggered ? 'WARNING' : 'DEBUG',
+          output: verdict,
+          metadata: { triggered: verdict.triggered, exit_reason: verdict.exitReason ?? null },
+        })
+        if (!verdict.triggered) continue
+        log.warn(`[ReactLoop] Detector "${d.name}" triggered (exit=${verdict.exitReason})`)
+        detectorBreak = { exitReason: verdict.exitReason ?? 'repeated_error' }
+        break
+      }
+
+      // ── Mid-turn Reflector chain (aboutToFinal=false) ──
+      const commonReflectFields = {
         stepIndex: step,
+        userIntent: opts.userContent,
+        sessionId: opts.sessionId,
         abortSignal: opts.abortSignal,
-        sdkSignals: stepResult.sdkSignals ?? { finishReason: outcome.finishReason ?? 'stop' },
+        recentHistory: recentHistory.slice(),
+        reflectModel: reflectModel ?? undefined,
       }
-      const decision = await runPolicyChain(turnEndPolicies, outcome, policyCtx)
-      policyDecision = decision.action === 'final' ? 'final' : 'continue'
-      if (decision.action === 'continue') {
-        log.info(`[ReactLoop]   → CONTINUE by policy`)
-        nextPolicyHint = decision.injectHint ?? null
-      } else if (decision.action !== 'final') {
-        log.warn(`[ReactLoop]   policy chain no-opinion; treating as FINAL`)
-        exitReason = 'no_tool_calls'
-        break
-      }
-    }
-
-    // ── End Reflector chain (仅 policy='final' 时) ──
-    if (policyDecision === 'final') {
-      const endOut = await runReflectorChain(
-        'turn-end',
-        turnEndReflectors,
-        {
-          ...commonReflectFields,
-          phase: 'turn-end',
-          facts,
-          outcome,
-          raw: rawCtx,
-          policyDecision: 'final',
-        },
-        perTurnCounters,
+      const midOut = await inStep(() =>
+        runReflectorChain(
+          'post-step',
+          postStepReflectors,
+          { ...commonReflectFields, phase: 'post-step', facts, outcome, raw: rawCtx },
+          perTurnCounters,
+        ),
       )
-      if (endOut.userOutput) {
-        await persistUserOutput(opts, step, endOut.from ?? 'unknown', endOut.userOutput)
-        exitReason = endOut.userOutput.exitReason ?? 'no_tool_calls'
+
+      // 跟踪 L1 hint 注入: EscalationReflector 据此决定何时升级 LLM reflect。
+      lastL1Hinted =
+        midOut.kind === 'hint' &&
+        (midOut.from === 'failure-streak' || midOut.from === 'tool-only-loop')
+
+      // 决策优先级: wrapUp > detectorBreak > userOutput > policy > internalNudge > hint
+      //   wrapUp / userOutput  → 用户回复, break turn
+      //   internalNudge        → 内部纠正, 持久化为非 assistant 消息, continue loop
+      //   hint                 → 临时引导, 注入下一步 system message
+      if (midOut.wrapUp) {
+        const wrapUp = midOut.wrapUp
+        try {
+          await inStep(() =>
+            traceRecorder.withObservation(
+              {
+                type: 'CHAIN',
+                name: 'react.forced-summary',
+                metadata: { reason: midOut.from ?? 'unknown' },
+              },
+              () => wrapUp.runSummary(),
+            ),
+          )
+        } catch (e) {
+          log.error(`[ReactLoop] reflector "${midOut.from}" wrap-up failed:`, e)
+        }
+        if (wrapUp.markFinal) accumulator.markFinal()
+        exitReason = stepExit(wrapUp.exitReason)
+        stepLevel = 'WARNING'
         break
       }
-      if (endOut.internalNudge) {
-        // judge 推翻 final: 落库内部纠正 + 强制下一步 expand MCP 全集
-        // (上一步为 final 纯文本, mcpState.update 会把 expandNext 设为 false,
-        // 必须重置避免 mcp 工具丢失)
-        await persistInternalNudge(opts, step, endOut.from ?? 'unknown', endOut.internalNudge)
-        mcpState.forceExpandNext()
+      if (detectorBreak) {
+        exitReason = stepExit(detectorBreak.exitReason)
+        stepLevel = 'WARNING'
+        break
+      }
+      if (midOut.userOutput) {
+        await persistUserOutput(opts, step, midOut.from ?? 'unknown', midOut.userOutput)
+        exitReason = stepExit(midOut.userOutput.exitReason ?? 'no_tool_calls')
+        break
+      }
+      if (midOut.internalNudge) {
+        await persistInternalNudge(opts, step, midOut.from ?? 'unknown', midOut.internalNudge)
+        // 已落库为非 assistant 消息, 下次 pipeline.build 读到, 主 LLM 续做
         continue
       }
-      log.info(`[ReactLoop]   → FINAL by policy`)
-      exitReason = 'no_tool_calls'
-      break
+
+      // ── Turn-end policy (无 tool 时) ──
+      let policyDecision: 'final' | 'continue' | null = null
+      if (outcome.toolNames.length === 0) {
+        if (!outcome.stepText) {
+          log.info(`[ReactLoop]   → empty (no text, no tools)`)
+          exitReason = stepExit('empty_text')
+          break
+        }
+        const policyCtx: PolicyContext = {
+          agent: opts.agent,
+          sessionId: opts.sessionId,
+          stepIndex: step,
+          abortSignal: opts.abortSignal,
+          sdkSignals: stepResult.sdkSignals ?? { finishReason: outcome.finishReason ?? 'stop' },
+        }
+        const decision = await inStep(() =>
+          traceRecorder.withObservation(
+            { type: 'CHAIN', name: 'react.turn-end-policy' },
+            async (h) => {
+              const d = await runPolicyChain(turnEndPolicies, outcome, policyCtx)
+              h.end({
+                output: d,
+                metadata: {
+                  by: d.by ?? null,
+                  action: d.action,
+                  exit_reason: d.exitReason ?? null,
+                  reason: d.reason,
+                },
+              })
+              return d
+            },
+          ),
+        )
+        policyDecision = decision.action === 'final' ? 'final' : 'continue'
+        if (decision.action === 'final') lastPolicyExit = decision.exitReason ?? null
+        if (decision.action === 'continue') {
+          log.info(`[ReactLoop]   → CONTINUE by policy`)
+          nextPolicyHint = decision.injectHint
+            ? { text: decision.injectHint, source: `policy:${decision.by ?? 'unknown'}` }
+            : null
+        } else if (decision.action !== 'final') {
+          log.warn(`[ReactLoop]   policy chain no-opinion; treating as FINAL`)
+          exitReason = stepExit('no_tool_calls')
+          break
+        }
+      }
+
+      // ── End Reflector chain (仅 policy='final' 时) ──
+      if (policyDecision === 'final') {
+        const endOut = await inStep(() =>
+          runReflectorChain(
+            'turn-end',
+            turnEndReflectors,
+            {
+              ...commonReflectFields,
+              phase: 'turn-end',
+              facts,
+              outcome,
+              raw: rawCtx,
+              policyDecision: 'final',
+            },
+            perTurnCounters,
+          ),
+        )
+        if (endOut.userOutput) {
+          await persistUserOutput(opts, step, endOut.from ?? 'unknown', endOut.userOutput)
+          exitReason = stepExit(endOut.userOutput.exitReason ?? 'no_tool_calls')
+          break
+        }
+        if (endOut.internalNudge) {
+          // judge 推翻 final: 落库内部纠正 + 强制下一步 expand MCP 全集
+          // (上一步为 final 纯文本, mcpState.update 会把 expandNext 设为 false,
+          // 必须重置避免 mcp 工具丢失)
+          await persistInternalNudge(opts, step, endOut.from ?? 'unknown', endOut.internalNudge)
+          mcpState.forceExpandNext()
+          lastPolicyExit = null // 被推翻的 final 不再是本轮的结束依据
+          continue
+        }
+        log.info(`[ReactLoop]   → FINAL by policy`)
+        exitReason = stepExit('no_tool_calls')
+        break
+      }
+
+      // mid-reflector advisor hint 仅在没有 policy hint 时注入下步
+      if (midOut.hint && nextPolicyHint === null) {
+        nextPolicyHint = { text: midOut.hint, source: midOut.from ?? 'unknown' }
+      }
+
+      if (step === maxSteps - 1) exitReason = stepExit('max_steps')
+    } finally {
+      stepObs.end({ level: stepLevel, statusMessage: stepStatus, metadata: stepMeta })
+      if (traceId !== null) traceRecorder.flush(traceId)
     }
-
-    // mid-reflector advisor hint 仅在没有 policy hint 时注入下步
-    if (midOut.hint && !nextPolicyHint) nextPolicyHint = midOut.hint
-
-    if (step === maxSteps - 1) exitReason = 'max_steps'
   }
 
   // 兜底摘要 (整轮零文本) — 仅非 abort / context_overflow 触发
   if (accumulator.needsFallback() && exitReason !== 'abort' && exitReason !== 'context_overflow') {
     exitReason = 'fallback_summary'
-    await runForcedSummary(ctx, accumulator.totalSteps, FALLBACK_SUMMARY_OPTS)
+    await traceRecorder.withObservation(
+      { type: 'CHAIN', name: 'react.forced-summary', metadata: { reason: 'fallback' } },
+      () => runForcedSummary(ctx, accumulator.totalSteps, FALLBACK_SUMMARY_OPTS),
+    )
   }
 
   // 循环结束报告
@@ -404,6 +500,12 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<void> {
   log.info(`[ReactLoop] ${summary}`)
   log.info(`[ReactLoop]      | ${detail}`)
   log.info(`[ReactLoop] ${DOUBLE_SEPARATOR}`)
+  return {
+    exitReason,
+    policyExitReason: lastPolicyExit,
+    totalSteps: accumulator.totalSteps,
+    totalToolCalls: accumulator.totalToolCalls,
+  }
 }
 
 // ── 持久化 reflect outcome ────────────────────────────────────────────────
@@ -477,7 +579,7 @@ async function runReactStep(
   stepIndex: number,
   maxSteps: number,
   state: {
-    hint: string | null
+    hint: CarriedHint | null
     mcpExpand: boolean
     mcpUsed: string[]
     lastInputTokens?: number
@@ -508,7 +610,21 @@ async function runReactStep(
     mcpExpandThisStep: state.mcpExpand,
     usedMcpToolNames: state.mcpUsed,
   }
-  const { messages, tools: toolSchemas } = await ctx.pipeline.build(pipelineCtx)
+  const built = await traceRecorder.withObservation(
+    { type: 'SPAN', name: 'prompt.build' },
+    async (h) => {
+      const r = await ctx.pipeline.build(pipelineCtx)
+      const degraded = r.degraded ?? []
+      h.end({
+        output: { message_count: r.messages.length, tool_count: r.tools.length },
+        level: degraded.length > 0 ? 'WARNING' : 'DEFAULT',
+        statusMessage: degraded.length > 0 ? `DEGRADED: ${degraded.join(',')}` : undefined,
+        metadata: { degraded_plugins: degraded },
+      })
+      return r
+    },
+  )
+  const { messages, tools: toolSchemas } = built
 
   // 2. Pre-step Reflector chain (context-budget + 未来 pre-step reflectors)
   const limit = ctx.providerConfig.context_limit
@@ -556,13 +672,23 @@ async function runReactStep(
   if (preOut.hint) {
     messages.push({ role: 'system', content: preOut.hint })
     log.info(`[ReactLoop]   pre-step hint injected (${preOut.hint.length} chars)`)
+    traceRecorder.event({
+      name: 'hint.injected',
+      input: preOut.hint,
+      metadata: { source: preOut.from ?? 'unknown', phase: 'pre-step' },
+    })
   }
   // wrapUp from pre-step 不预期; 若发生, runReflectorChain 会返回但主循环不处理 wrapUp (pre-step 不该有)
 
   // 3. Hint 注入 (上一步留下的 nextPolicyHint / mid-reflector advisor)
   if (state.hint) {
-    messages.push({ role: 'system', content: state.hint })
-    log.info(`[ReactLoop]   injected hint (${state.hint.length} chars)`)
+    messages.push({ role: 'system', content: state.hint.text })
+    log.info(`[ReactLoop]   injected hint (${state.hint.text.length} chars)`)
+    traceRecorder.event({
+      name: 'hint.injected',
+      input: state.hint.text,
+      metadata: { source: state.hint.source, phase: 'carry-over' },
+    })
   }
 
   // 4. buildTools per-step
@@ -601,71 +727,73 @@ async function runReactStep(
   // 流超时 = 模型不活跃超时,工具执行期暂停(delegate_agent / 慢 MCP 在 step 内执行,
   // 不应计入流超时;delegate 有自己的 executionTimeoutMs 预算)。见 stream-utils。
   const streamTimeout = buildStreamTimeout(ctx.abortSignal)
-  const result = streamText({
-    model: ctx.model,
-    messages,
-    tools,
-    ...ctx.streamOptions,
-    ...streamParams,
-    abortSignal: streamTimeout.signal,
-    stopWhen: isStepCount(1),
-    // v7: 默认拒绝 messages 里的 system 消息;Talor 多层 system(宪法/agent/hint)
-    // 刻意放在 messages 数组里,显式允许。
-    allowSystemInMessages: true,
+  const result = withGenerationName('llm:main', () =>
+    streamText({
+      model: ctx.model,
+      messages,
+      tools,
+      ...ctx.streamOptions,
+      ...streamParams,
+      abortSignal: streamTimeout.signal,
+      stopWhen: isStepCount(1),
+      // v7: 默认拒绝 messages 里的 system 消息;Talor 多层 system(宪法/agent/hint)
+      // 刻意放在 messages 数组里,显式允许。
+      allowSystemInMessages: true,
 
-    onChunk({ chunk }) {
-      streamTimeout.ping() // 模型在产出 → 重置不活跃计时
-      if (chunk.type === 'text-delta' && chunk.text.length > 0) {
-        ctx.callbacks.onTextDelta(chunk.text, stepIndex)
-      }
-    },
-
-    onToolExecutionStart({ toolCall }) {
-      streamTimeout.pause() // 工具执行期不计入流超时
-      const startedAt = Date.now()
-      log.info(
-        `[ReactLoop]   ⊳ tool-start: ${toolCall.toolName} id=${toolCall.toolCallId.slice(0, 12)}`,
-      )
-      ctx.callbacks.onToolCall(
-        toolCall.toolCallId,
-        toolCall.toolName,
-        toolCall.input,
-        stepIndex,
-        startedAt,
-      )
-    },
-
-    // v7: experimental_onToolCallFinish → onToolExecutionEnd;成败由 toolOutput.type
-    // 判别('tool-result' / 'tool-error'),时长来自 toolExecutionMs。
-    onToolExecutionEnd(event) {
-      streamTimeout.resume() // 工具结束 → 恢复不活跃计时
-      const { toolOutput, toolExecutionMs } = event
-      let output: unknown
-      if (toolOutput.type === 'tool-error') {
-        const e = toolOutput.error
-        output = {
-          __talor_error: true,
-          code: 'SDK_TOOL_ERROR',
-          message: e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e),
+      onChunk({ chunk }) {
+        streamTimeout.ping() // 模型在产出 → 重置不活跃计时
+        if (chunk.type === 'text-delta' && chunk.text.length > 0) {
+          ctx.callbacks.onTextDelta(chunk.text, stepIndex)
         }
-      } else {
-        output = toolOutput.output
-      }
-      log.info(
-        `[ReactLoop]   ⊲ tool-finish: ${toolOutput.toolName} id=${String(toolOutput.toolCallId).slice(0, 12)} [${toolExecutionMs}ms] success=${toolOutput.type !== 'tool-error'}`,
-      )
-      ctx.callbacks.onToolResult(
-        toolOutput.toolCallId,
-        toolOutput.toolName,
-        output,
-        toolExecutionMs,
-      )
-    },
+      },
 
-    onError({ error }) {
-      log.error('[ReactLoop]   stream error:', error)
-    },
-  })
+      onToolExecutionStart({ toolCall }) {
+        streamTimeout.pause() // 工具执行期不计入流超时
+        const startedAt = Date.now()
+        log.info(
+          `[ReactLoop]   ⊳ tool-start: ${toolCall.toolName} id=${toolCall.toolCallId.slice(0, 12)}`,
+        )
+        ctx.callbacks.onToolCall(
+          toolCall.toolCallId,
+          toolCall.toolName,
+          toolCall.input,
+          stepIndex,
+          startedAt,
+        )
+      },
+
+      // v7: experimental_onToolCallFinish → onToolExecutionEnd;成败由 toolOutput.type
+      // 判别('tool-result' / 'tool-error'),时长来自 toolExecutionMs。
+      onToolExecutionEnd(event) {
+        streamTimeout.resume() // 工具结束 → 恢复不活跃计时
+        const { toolOutput, toolExecutionMs } = event
+        let output: unknown
+        if (toolOutput.type === 'tool-error') {
+          const e = toolOutput.error
+          output = {
+            __talor_error: true,
+            code: 'SDK_TOOL_ERROR',
+            message: e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e),
+          }
+        } else {
+          output = toolOutput.output
+        }
+        log.info(
+          `[ReactLoop]   ⊲ tool-finish: ${toolOutput.toolName} id=${String(toolOutput.toolCallId).slice(0, 12)} [${toolExecutionMs}ms] success=${toolOutput.type !== 'tool-error'}`,
+        )
+        ctx.callbacks.onToolResult(
+          toolOutput.toolCallId,
+          toolOutput.toolName,
+          output,
+          toolExecutionMs,
+        )
+      },
+
+      onError({ error }) {
+        log.error('[ReactLoop]   stream error:', error)
+      },
+    }),
+  )
 
   let persisted = false
   let stepResult: StepRunResult
@@ -697,17 +825,23 @@ async function runReactStep(
     const durationMs = Date.now() - stepStart
 
     // 8. 持久化 (persistStepFromResult: tool-pair createBatch 或 text-only create)
+    const persistObs = traceRecorder.startObservation({ type: 'SPAN', name: 'react.persist' })
     try {
-      await persistStepFromResult(step, {
+      const persistedInfo = await persistStepFromResult(step, {
         sessionId: ctx.sessionId,
         agentId: ctx.agentId,
         finalMessageId: ctx.messageId,
         isMidTurnText: true, // FINAL 决策由主循环 turn-end policy 做; 此处统一 mid-turn
       })
       persisted = true
+      persistObs.end({ output: persistedInfo })
       ctx.callbacks.onMessagePersisted?.(ctx.sessionId, stepIndex)
     } catch (err) {
       log.error('[ReactLoop]   persist failed:', err)
+      persistObs.end({
+        level: 'ERROR',
+        statusMessage: `PERSIST_FAILED: ${err instanceof Error ? err.message : String(err)}`,
+      })
     }
 
     // 8.5 统计本步 token 用量(主对话) — usage/providerMetadata 来自 SDK, 累加到 session

@@ -117,6 +117,7 @@ export class JudgeCompletionReflector implements Reflector {
   readonly capabilities: ReflectorCapabilities = {
     phases: ['turn-end'],
     maxPerTurn: 2,
+    usesLlm: true,
   }
 
   constructor(_opts: JudgeCompletionReflectorOpts) {

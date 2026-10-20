@@ -1,14 +1,9 @@
 import { createOpenAI } from '@ai-sdk/openai'
-import { wrapLanguageModel } from 'ai'
 import log from 'electron-log'
 import type { ModelAdapter } from '../model-adapter'
 import { SafeStorageService } from '../../services/safe-storage'
 import { createBasicModelInfo } from '@shared/types/models'
-import {
-  buildDisableThinkingFetch,
-  buildSdkMiddlewares,
-  shouldDisableThinking,
-} from '../middleware'
+import { buildDisableThinkingFetch, shouldDisableThinking, wrapModel } from '../middleware'
 
 function isNonOpenAI(baseUrl: string): boolean {
   return !baseUrl.includes('api.openai.com')
@@ -34,10 +29,8 @@ export const openaiAdapter: ModelAdapter = {
     const openaiClient = createOpenAI(opts)
     const baseModel = openaiClient.chat(model)
 
-    // v4 Phase 1: 叠加 SDK middleware (cost-tracking / request-logging 等)
-    const sdkMiddlewares = buildSdkMiddlewares(middlewareNames)
-    if (sdkMiddlewares.length === 0) return baseModel
-    return wrapLanguageModel({ model: baseModel, middleware: sdkMiddlewares })
+    // trace 中间件 + middlewareNames 中的 SDK 中间件(cost-tracking / request-logging 等)
+    return wrapModel(baseModel, middlewareNames)
   },
 
   async fetchModels(provider) {

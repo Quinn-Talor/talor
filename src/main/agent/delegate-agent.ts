@@ -21,7 +21,10 @@
 //   B2 entity binding — 子 agent 输出必须提及 instruction 实体之一
 //   C1 recovery envelope — failure-recovery 文本转结构化错误
 //
-// 允许依赖：agent/* / repos/* / chat/events / loop/* / skills/* / prompt/* / shared/*
+// 观测：父工具调用传入 ctx.traceParent 时，子 loop 在一条子 AGENT observation 下运行
+// （挂在父 delegate_agent 的 TOOL 下，同一 trace），子 session 的消息带父 trace_id。
+//
+// 允许依赖：agent/* / repos/* / chat/events / loop/* / skills/* / prompt/* / observe/* / shared/*
 // 禁止依赖：ipc/*
 
 import { v4 as uuidv4 } from 'uuid'
@@ -30,7 +33,14 @@ import pLimit from 'p-limit'
 import type { LimitFunction } from 'p-limit'
 import { z } from 'zod'
 
-import type { ToolDefinition, ToolErrorEnvelope, ToolExecuteContext } from '../tools/types'
+import {
+  isToolErrorEnvelope,
+  type ToolDefinition,
+  type ToolErrorEnvelope,
+  type ToolExecuteContext,
+} from '../tools/types'
+import { withParent } from '../observe/trace-context'
+import { NOOP_OBSERVATION, traceRecorder } from '../observe/trace-recorder'
 import type { AgentManager } from './agent-manager'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
 import { messageRepo } from '../repos/session-repo'
@@ -62,8 +72,11 @@ export interface ProviderContext {
   streamOptions?: Record<string, unknown>
 }
 
-/** 子 ReAct loop 入口签名（和 loop/react-loop.ts 的 runReactLoop 兼容）。 */
-export type RunReactLoopFn = (opts: import('../loop/types').ReactLoopOptions) => Promise<void>
+/**
+ * 子 ReAct loop 入口签名（和 loop/react-loop.ts 的 runReactLoop 兼容）。
+ * 委托只看子 session 落库的消息，不消费返回值（真实实现返回 LoopResult）。
+ */
+export type RunReactLoopFn = (opts: import('../loop/types').ReactLoopOptions) => Promise<unknown>
 
 export interface DelegationRuntime {
   agentManager: AgentManager
@@ -454,31 +467,45 @@ async function runDelegation(
   const autoCtx = buildAutoContext(parentCtx)
   const userContent = [autoCtx, contextStr, instruction].filter(Boolean).join('\n\n')
 
+  // 子 AGENT observation 用显式父引用(p-limit 出队任务的异步上下文不可靠)
+  const childAgentObs =
+    parentCtx.traceParent === undefined
+      ? NOOP_OBSERVATION
+      : traceRecorder.startObservation({
+          type: 'AGENT',
+          name: `agent:${agent.id}`,
+          parent: parentCtx.traceParent,
+          input: userContent,
+          metadata: { child_session_id: childSession.id, parent_session_id: parentCtx.sessionId },
+        })
+
   try {
-    await runtime.runReactLoop({
-      model: providerCtx.model,
-      sessionId: childSession.id,
-      messageId: uuidv4(),
-      userContent,
-      mappedAttachments: [],
-      abortSignal: childAbort.signal,
-      pipeline: runtime.pipeline,
-      provider: providerCtx.provider,
-      providerConfig: providerCtx.providerConfig,
-      workspace: parentCtx.workspace,
-      callbacks: {
-        onTextDelta: () => {},
-        onToolCall: () => {},
-        onToolResult: () => {},
-      },
-      agent,
-      // 父的 confirmTool 透传到子。子高风险工具（bash/write/edit）的弹窗仍可达 UI。
-      confirmTool: parentCtx.confirmTool ?? noopConfirmTool,
-      requestPermission: parentCtx.requestPermission,
-      skillTracker: new SkillActivationTracker(),
-      events: new ExecutionEventBus(),
-      streamOptions: providerCtx.streamOptions,
-    })
+    await withParent(childAgentObs.ref, () =>
+      runtime.runReactLoop({
+        model: providerCtx.model,
+        sessionId: childSession.id,
+        messageId: uuidv4(),
+        userContent,
+        mappedAttachments: [],
+        abortSignal: childAbort.signal,
+        pipeline: runtime.pipeline,
+        provider: providerCtx.provider,
+        providerConfig: providerCtx.providerConfig,
+        workspace: parentCtx.workspace,
+        callbacks: {
+          onTextDelta: () => {},
+          onToolCall: () => {},
+          onToolResult: () => {},
+        },
+        agent,
+        // 父的 confirmTool 透传到子。子高风险工具（bash/write/edit）的弹窗仍可达 UI。
+        confirmTool: parentCtx.confirmTool ?? noopConfirmTool,
+        requestPermission: parentCtx.requestPermission,
+        skillTracker: new SkillActivationTracker(),
+        events: new ExecutionEventBus(),
+        streamOptions: providerCtx.streamOptions,
+      }),
+    )
 
     // ─ Step 6: 提取最终 text ─
     const messages = messageRepo.listBySession(childSession.id)
@@ -493,13 +520,17 @@ async function runDelegation(
           `[DelegateAgent] recovery-mode detected agent=${agent.id} session=${childSession.id} ` +
             `marker="${recoveryCheck.marker}" duration=${Date.now() - start}ms`,
         )
-        return {
-          output: makeEnvelope('SUBAGENT_RECOVERY', {
-            message: `Subagent reported failure-recovery: ${recoveryCheck.marker}`,
-            last_text: recoveryCheck.cleanedText,
-            child_session_id: childSession.id,
-          }),
-        }
+        const recoveryEnvelope = makeEnvelope('SUBAGENT_RECOVERY', {
+          message: `Subagent reported failure-recovery: ${recoveryCheck.marker}`,
+          last_text: recoveryCheck.cleanedText,
+          child_session_id: childSession.id,
+        })
+        childAgentObs.end({
+          level: 'WARNING',
+          statusMessage: 'SUBAGENT_RECOVERY',
+          output: recoveryEnvelope,
+        })
+        return { output: recoveryEnvelope }
       }
 
       // v3.7.2: B2 entity-binding check 已删除 —— regex 实体匹配判"子 agent 是否答对"
@@ -511,6 +542,7 @@ async function runDelegation(
         `[DelegateAgent] done code=COMPLETED session=${childSession.id} ` +
           `duration=${Date.now() - start}ms`,
       )
+      childAgentObs.end({ output: lastAssistant.text })
       return { output: lastAssistant.text }
     }
 
@@ -520,14 +552,24 @@ async function runDelegation(
       `[DelegateAgent] done code=SUBAGENT_MAX_STEPS session=${childSession.id} ` +
         `duration=${Date.now() - start}ms`,
     )
-    return {
-      output: makeEnvelope('SUBAGENT_MAX_STEPS', {
-        truncated: true,
-        last_text: '',
-      }),
-    }
+    const maxStepsEnvelope = makeEnvelope('SUBAGENT_MAX_STEPS', {
+      truncated: true,
+      last_text: '',
+    })
+    childAgentObs.end({
+      level: 'WARNING',
+      statusMessage: 'SUBAGENT_MAX_STEPS',
+      output: maxStepsEnvelope,
+    })
+    return { output: maxStepsEnvelope }
   } catch (err) {
-    return handleDelegationError(runtime, childSession.id, err, start, agent.id)
+    const failed = handleDelegationError(runtime, childSession.id, err, start, agent.id)
+    childAgentObs.end({
+      level: 'ERROR',
+      statusMessage: isToolErrorEnvelope(failed.output) ? failed.output.code : 'SUBAGENT_FAILED',
+      output: failed.output,
+    })
+    return failed
   } finally {
     for (const fn of cleanups) {
       try {

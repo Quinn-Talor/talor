@@ -3,7 +3,7 @@
 // 职责：接收参数化的 chat 请求 + UI 回调，完成 "附件校验 → provider/model →
 // 工具装配 → 持久化用户消息 → 驱动 ReAct 循环" 全流程。不感知 Electron / IPC。
 //
-// 允许依赖：chat/（同层）、tools/*、loop/*、prompt/*、memory/*、providers/*、
+// 允许依赖：chat/（同层）、tools/*、loop/*、prompt/*、memory/*、providers/*、observe/*、
 //          repos/*、store/*（只读）、services/*（基础能力 safe-storage 等）
 // 禁止依赖：ipc/* 的运行时代码（仅允许 ipc/ 的纯类型 import，如 ToolConfirmPort / ChatErrorCode）
 
@@ -29,6 +29,23 @@ import { getDefaultProvider, getProviderById } from './provider-selector'
 import { streamRegistry } from './stream-registry'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
+import type { LoopExitReason, LoopResult } from '../loop/types'
+import { traceRecorder } from '../observe/trace-recorder'
+import { runInScope } from '../observe/trace-context'
+
+/**
+ * 本轮未正常完成的 loop 结束原因：trace root 记 WARNING（具体原因见 metadata.exit_reason）。
+ * 典型是 fallback_summary —— 整轮模型调用都失败（如 401）时 loop 自行兜底收尾、不抛错，
+ * root 若仍记 DEFAULT，失败轮在 trace 里看起来与正常轮无异。
+ */
+const DEGRADED_EXITS: ReadonlySet<LoopExitReason> = new Set<LoopExitReason>([
+  'abort',
+  'fallback_summary',
+  'context_overflow',
+  'repeated_error',
+  'max_steps',
+  'empty_text',
+])
 
 // 单例：pipeline 和 memoryManager 按进程全局持有，避免每次请求重建插件链。
 // 注：单例副作用意味着未来增加与 session 绑定的状态时要小心——目前两者都是无状态的。
@@ -120,113 +137,147 @@ export async function sendChat(
   const attachments = params.attachments ?? []
 
   try {
-    // Step 1: 非空校验
-    if (!userContent && attachments.length === 0) throw new Error('Empty message')
-
-    // Step 2: 附件校验（并行，任意一个失败都中止本次请求）
-    const validated: ValidatedAttachment[] =
-      attachments.length > 0 ? await Promise.all(attachments.map(validateAttachment)) : []
-
-    // Step 3: 注册流（若同 session 有未完成流，先 abort）
-    const abortController = streamRegistry.register(sessionId, messageId)
-
-    // Step 4.5: 获取 Agent（通过 session.agent_id 查找，ADR-2 统一模型）
-    if (!ports.agentManager) throw new Error('agentManager not injected')
-    const session = sessionRepo.getById(sessionId)
-    const agentId = session?.agent_id ?? '__chat__'
-    const agent = ports.agentManager.getAgent(agentId) ?? ports.agentManager.getChatAgent()
-
-    // Step 4: provider + model;预热 API key;视觉能力校验
-    // 极简:不再读 profile.preferences,直接走 session 或 default。
-    const provider =
-      (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
-    SafeStorageService.getInstance().getApiKey(provider.id)
-    if (validated.length > 0) checkVisionSupport(provider, validated)
-
-    const adapter = getAdapter(provider.type)
-    // model fallback 链: session.model_id → provider.models[0].id → 'default' 占位
-    const fallbackProviderModel = provider.models?.[0]?.id
-    const effectiveModelId = session?.model_id ?? fallbackProviderModel ?? 'default'
-    const model = adapter.createModel(provider, effectiveModelId)
-    const workspace = session?.workspace ?? ''
-
-    // Step 5: 持久化用户消息
-    messageRepo.create({
-      id: uuidv4(),
-      session_id: sessionId,
-      role: 'user',
-      content: buildUserBlocks(userContent, validated),
-      agent_id: agentId,
-    })
-    sessionRepo.touch(sessionId)
-
-    log.info(
-      '[chat-orch] Starting ReAct loop, model:',
-      effectiveModelId,
-      'provider:',
-      `${provider.id}(${provider.type})`,
-      'agent:',
-      agentId,
-    )
-
-    // Per-execution event bus: subsystems emit/subscribe state-change notifications.
-    // Lives only for this sendChat — drops with the stack, no manual unsubscribe needed.
-    const events = new ExecutionEventBus()
-
-    // Per-session skill tracker: dedupes skill activations within this request.
-    // When memory compresses (skill tool_result contents get summarized away),
-    // clear the tracker so the model can re-activate and receive fresh instructions.
-    const skillTracker = new SkillActivationTracker()
-    events.on('memory.compressed', (e) => {
-      skillTracker.clear()
-      log.info(
-        `[chat-orch] memory compressed (covered_until=${e.coveredUntilMessageId}), skill tracker cleared`,
-      )
-    })
-
-    // Step 5.5: 构造 permission port。只在 workspace 已设置且 UI 端口存在时启用；
-    // 否则 requestPermission=undefined，工具退化为"needs_consent → deny"。
-    const { createPermissionPort } = await import('../permissions/port')
-    const requestPermission =
-      workspace && ports.promptPermission
-        ? createPermissionPort({ workspacePath: workspace, promptUI: ports.promptPermission })
-        : undefined
-
-    // Step 6: 驱动 ReAct 循环（工具由 pipeline 每步产出，react-loop 内部调 buildTools 包装）
-    const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
-    await runReactLoop({
-      model,
+    // 一轮一条 trace(id = messageId);观测关闭时 scope 为 null,下面的 trace 调用均为 no-op。
+    const scope = traceRecorder.startTrace({
+      id: messageId,
       sessionId,
-      messageId,
-      userContent,
-      mappedAttachments: validated.map((a) => ({
-        name: a.filename,
-        mediaType: a.mime_type,
-        base64: a.base64_data,
-        content: undefined,
-      })),
-      abortSignal: abortController.signal,
-      pipeline,
-      provider,
-      providerConfig: resolveProviderConfig(provider),
-      workspace,
-      maxSteps: typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
-      agent,
-      confirmTool: ports.confirmTool,
-      requestPermission,
-      skillTracker,
-      events,
-      streamOptions: resolveStreamOptions(adapter, {
-        ...provider,
-        reasoning: session?.reasoning ?? provider.reasoning,
-      }),
-      callbacks: {
-        onTextDelta: (delta, stepIdx) => callbacks.onTextDelta(messageId, delta, stepIdx),
-        onToolCall: (id, name, input, stepIdx, startedAt) =>
-          callbacks.onToolCall(messageId, id, name, input, stepIdx, startedAt),
-        onToolResult: (id, name, output, durationMs) =>
-          callbacks.onToolResult(messageId, id, name, output, durationMs),
-        onMessagePersisted: (sid, stepIdx) => callbacks.onMessagePersisted?.(sid, stepIdx),
+      name: 'turn',
+      input: userContent,
+      rootName: 'agent:__pending__',
+      config: ConfigStore.getInstance().getTrace(),
+    })
+    const loopResult = await runInScope(scope, async (): Promise<LoopResult> => {
+      // Step 1: 非空校验
+      if (!userContent && attachments.length === 0) throw new Error('Empty message')
+
+      // Step 2: 附件校验（并行，任意一个失败都中止本次请求）
+      const validated: ValidatedAttachment[] =
+        attachments.length > 0 ? await Promise.all(attachments.map(validateAttachment)) : []
+
+      // Step 3: 注册流（若同 session 有未完成流，先 abort）
+      const abortController = streamRegistry.register(sessionId, messageId)
+
+      // Step 4.5: 获取 Agent（通过 session.agent_id 查找，ADR-2 统一模型）
+      if (!ports.agentManager) throw new Error('agentManager not injected')
+      const session = sessionRepo.getById(sessionId)
+      const agentId = session?.agent_id ?? '__chat__'
+      const agent = ports.agentManager.getAgent(agentId) ?? ports.agentManager.getChatAgent()
+
+      // Step 4: provider + model;预热 API key;视觉能力校验
+      // 极简:不再读 profile.preferences,直接走 session 或 default。
+      const provider =
+        (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
+      const apiKey = SafeStorageService.getInstance().getApiKey(provider.id)
+      if (validated.length > 0) checkVisionSupport(provider, validated)
+
+      const adapter = getAdapter(provider.type)
+      // model fallback 链: session.model_id → provider.models[0].id → 'default' 占位
+      const fallbackProviderModel = provider.models?.[0]?.id
+      const effectiveModelId = session?.model_id ?? fallbackProviderModel ?? 'default'
+      const model = adapter.createModel(provider, effectiveModelId)
+      traceRecorder.updateRoot(messageId, {
+        name: `agent:${agentId}`,
+        metadata: {
+          agent_id: agentId,
+          provider_id: provider.id,
+          provider_type: provider.type,
+          model_id: effectiveModelId,
+          reasoning: session?.reasoning ?? provider.reasoning ?? null,
+        },
+      })
+      if (apiKey) traceRecorder.addSecret(messageId, apiKey)
+      const workspace = session?.workspace ?? ''
+
+      // Step 5: 持久化用户消息
+      messageRepo.create({
+        id: uuidv4(),
+        session_id: sessionId,
+        role: 'user',
+        content: buildUserBlocks(userContent, validated),
+        agent_id: agentId,
+      })
+      sessionRepo.touch(sessionId)
+
+      log.info(
+        '[chat-orch] Starting ReAct loop, model:',
+        effectiveModelId,
+        'provider:',
+        `${provider.id}(${provider.type})`,
+        'agent:',
+        agentId,
+      )
+
+      // Per-execution event bus: subsystems emit/subscribe state-change notifications.
+      // Lives only for this sendChat — drops with the stack, no manual unsubscribe needed.
+      const events = new ExecutionEventBus()
+
+      // Per-session skill tracker: dedupes skill activations within this request.
+      // When memory compresses (skill tool_result contents get summarized away),
+      // clear the tracker so the model can re-activate and receive fresh instructions.
+      const skillTracker = new SkillActivationTracker()
+      events.on('memory.compressed', (e) => {
+        skillTracker.clear()
+        log.info(
+          `[chat-orch] memory compressed (covered_until=${e.coveredUntilMessageId}), skill tracker cleared`,
+        )
+      })
+
+      // Step 5.5: 构造 permission port。只在 workspace 已设置且 UI 端口存在时启用；
+      // 否则 requestPermission=undefined，工具退化为"needs_consent → deny"。
+      const { createPermissionPort } = await import('../permissions/port')
+      const requestPermission =
+        workspace && ports.promptPermission
+          ? createPermissionPort({ workspacePath: workspace, promptUI: ports.promptPermission })
+          : undefined
+
+      // Step 6: 驱动 ReAct 循环（工具由 pipeline 每步产出，react-loop 内部调 buildTools 包装）
+      const maxReactSteps = ConfigStore.getInstance().get('max_react_steps')
+      const loopResult = await runReactLoop({
+        model,
+        sessionId,
+        messageId,
+        userContent,
+        mappedAttachments: validated.map((a) => ({
+          name: a.filename,
+          mediaType: a.mime_type,
+          base64: a.base64_data,
+          content: undefined,
+        })),
+        abortSignal: abortController.signal,
+        pipeline,
+        provider,
+        providerConfig: resolveProviderConfig(provider),
+        workspace,
+        maxSteps:
+          typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
+        agent,
+        confirmTool: ports.confirmTool,
+        requestPermission,
+        skillTracker,
+        events,
+        streamOptions: resolveStreamOptions(adapter, {
+          ...provider,
+          reasoning: session?.reasoning ?? provider.reasoning,
+        }),
+        callbacks: {
+          onTextDelta: (delta, stepIdx) => callbacks.onTextDelta(messageId, delta, stepIdx),
+          onToolCall: (id, name, input, stepIdx, startedAt) =>
+            callbacks.onToolCall(messageId, id, name, input, stepIdx, startedAt),
+          onToolResult: (id, name, output, durationMs) =>
+            callbacks.onToolResult(messageId, id, name, output, durationMs),
+          onMessagePersisted: (sid, stepIdx) => callbacks.onMessagePersisted?.(sid, stepIdx),
+        },
+      })
+      return loopResult
+    })
+    traceRecorder.endTrace(messageId, {
+      output: messageRepo.getLastAssistantText(sessionId, messageId),
+      level: DEGRADED_EXITS.has(loopResult.exitReason) ? 'WARNING' : 'DEFAULT',
+      metadata: {
+        exit_reason: loopResult.exitReason,
+        policy_exit_reason: loopResult.policyExitReason,
+        total_steps: loopResult.totalSteps,
+        total_tool_calls: loopResult.totalToolCalls,
       },
     })
 
@@ -238,6 +289,11 @@ export async function sendChat(
     log.error('[chat-orch] error:', error)
     const code = classifyLlmError(error)
     const message = error instanceof Error ? error.message : String(error)
+    traceRecorder.endTrace(messageId, {
+      level: 'ERROR',
+      statusMessage: `${code}: ${message}`,
+      metadata: { error_code: code },
+    })
     callbacks.onDone(messageId, { code, message })
     return { messageId }
   } finally {

@@ -25,12 +25,18 @@ const {
   mockSessionTouch,
   mockStreamText,
   mockLedgerBuildSummary,
+  mockRecordUsage,
 } = vi.hoisted(() => ({
   mockMessageCreate: vi.fn(),
   mockMessageListBySession: vi.fn(() => [] as unknown[]),
   mockSessionTouch: vi.fn(),
   mockStreamText: vi.fn(),
   mockLedgerBuildSummary: vi.fn(() => ''),
+  mockRecordUsage: vi.fn(),
+}))
+
+vi.mock('../providers/usage-recorder', () => ({
+  recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
 }))
 
 vi.mock('../repos/session-repo', () => ({
@@ -98,6 +104,45 @@ describe('runForcedSummary', () => {
       ungroundedCount: 0,
       ungroundedEntities: [],
     }))
+  })
+
+  describe('用量记录（turn-trace AC-014）', () => {
+    it('AC-014: 兜底摘要流结束后按 SDK usage 记一次 recordUsage', async () => {
+      mockStreamText.mockReturnValue({
+        textStream: (async function* () {
+          yield 'the answer'
+        })(),
+        usage: Promise.resolve({ inputTokens: 100, outputTokens: 20 }),
+        providerMetadata: Promise.resolve({}),
+      })
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+      expect(mockRecordUsage).toHaveBeenCalledTimes(1)
+      expect(mockRecordUsage).toHaveBeenCalledWith('s1', { inputTokens: 100, outputTokens: 20 }, {})
+    })
+
+    it('AC-014（不触发）: usage / providerMetadata 同因 reject → 只记一条无堆栈 warn、usage 记为 undefined、摘要照常落库', async () => {
+      const log = (await import('electron-log')).default
+      mockStreamText.mockReturnValue({
+        textStream: (async function* () {
+          yield 'sum'
+        })(),
+        get usage() {
+          return Promise.reject(new Error('no output generated'))
+        },
+        get providerMetadata() {
+          return Promise.reject(new Error('no output generated'))
+        },
+      })
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+      expect(mockMessageCreate).toHaveBeenCalledTimes(1)
+      expect(mockMessageCreate.mock.calls[0][0].content[0].text).toContain('sum')
+      expect(vi.mocked(log.warn)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
+        '[ReactLoop]   fallback summary: usage unavailable: no output generated',
+      )
+      expect(mockRecordUsage).toHaveBeenCalledTimes(1)
+      expect(mockRecordUsage.mock.calls[0][1]).toBeUndefined()
+    })
   })
 
   describe('FALLBACK_SUMMARY_OPTS', () => {

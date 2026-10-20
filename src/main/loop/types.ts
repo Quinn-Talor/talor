@@ -99,6 +99,22 @@ export type LoopExitReason =
   | 'continuation_chain'
 
 /**
+ * runReactLoop 的返回值。
+ *
+ * - exitReason:        loop 自身的结束原因
+ * - policyExitReason:  turn-end policy 判 final 时给出的原因(如 'declared_final');
+ *                      loop 的 exitReason 不保留它,单独返回供 trace 记录。未判 final、
+ *                      或 final 被 turn-end reflector(judge)推翻后为 null
+ * - totalSteps / totalToolCalls: 本轮累计步数与工具调用数
+ */
+export interface LoopResult {
+  exitReason: LoopExitReason
+  policyExitReason: LoopExitReason | null
+  totalSteps: number
+  totalToolCalls: number
+}
+
+/**
  * 单步 ReAct 的结果, 由 runReactStep 返回给主循环。
  *
  * 字段语义：

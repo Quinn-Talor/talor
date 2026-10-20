@@ -212,6 +212,23 @@ describe('runPolicyChain', () => {
     expect(d.action).toBe('final')
     expect(d.exitReason).toBe('no_tool_calls')
     expect(d.reason).toContain('unexpected')
+    // 防御性兜底不是某个 policy 的决策 → 不带 by
+    expect(d.by).toBeUndefined()
+  })
+
+  it('decision carries the deciding policy name in `by` (turn-trace)', async () => {
+    const d = await runPolicyChain(
+      buildDefaultChain(),
+      mockOutcome('just text'),
+      mockCtx({ finishReason: 'stop' }),
+    )
+    expect(d.by).toBe('legacy-natural-final')
+    const length = await runPolicyChain(
+      buildDefaultChain(),
+      mockOutcome('x'),
+      mockCtx({ finishReason: 'length' }),
+    )
+    expect(length.by).toBe('sdk-finish-reason')
   })
 })
 

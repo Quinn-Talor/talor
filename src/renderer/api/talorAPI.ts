@@ -14,6 +14,14 @@ import type {
   PermissionResponse,
   PermissionRuleView,
 } from '@shared/types/permissions'
+import type {
+  ScoreCreateInput,
+  ScoreCreateResult,
+  ToolDurationsResult,
+  TraceBlobResult,
+  TraceGetResult,
+  TraceListResult,
+} from '@shared/types/trace'
 
 declare global {
   interface Window {
@@ -239,6 +247,13 @@ declare global {
       artifact: {
         read: (type: string, id: string) => Promise<unknown>
       }
+      trace: {
+        list: (sessionId: string, limit?: number) => Promise<TraceListResult>
+        get: (traceId: string) => Promise<TraceGetResult>
+        getBlob: (traceId: string, hash: string) => Promise<TraceBlobResult>
+        createScore: (input: ScoreCreateInput) => Promise<ScoreCreateResult>
+        toolDurations: (sessionId: string) => Promise<ToolDurationsResult>
+      }
     }
   }
 }
@@ -380,6 +395,16 @@ const stubAccounts = {
   getValue: () => Promise.resolve(null as string | null),
 }
 
+const stubTrace: Window['talorAPI']['trace'] = {
+  list: () => Promise.resolve({ status: 'success', traces: [] }),
+  get: () => Promise.resolve({ status: 'failure', error_code: 'TRACE_NOT_FOUND', message: 'stub' }),
+  getBlob: () =>
+    Promise.resolve({ status: 'failure', error_code: 'TRACE_NOT_FOUND', message: 'stub' }),
+  createScore: () =>
+    Promise.resolve({ status: 'failure', error_code: 'TRACE_WRITE_FAILED', message: 'stub' }),
+  toolDurations: () => Promise.resolve({ status: 'success', durations: {} }),
+}
+
 export const talorAPI = new Proxy({} as Window['talorAPI'], {
   get(_target, prop) {
     const real = window.talorAPI
@@ -507,6 +532,17 @@ export const talorAPI = new Proxy({} as Window['talorAPI'], {
               : (stubAccounts as Record<string, unknown>)?.[p as string],
         },
       ) as Window['talorAPI']['accounts']
+    }
+    if (prop === 'trace') {
+      return new Proxy(
+        {},
+        {
+          get: (_, p) =>
+            real
+              ? (real as Record<string, unknown>)?.[p as string]
+              : (stubTrace as Record<string, unknown>)?.[p as string],
+        },
+      ) as Window['talorAPI']['trace']
     }
     return undefined
   },

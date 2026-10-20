@@ -4,6 +4,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync, unlinkSync } from 'fs'
 import log from 'electron-log'
 import type { ModelInfo, ReasoningConfig } from '@shared/types/models'
+import { DEFAULT_TRACE_CONFIG, resolveTraceConfig, type TraceConfig } from '@shared/types/trace'
 
 interface WindowBounds {
   width: number
@@ -43,6 +44,7 @@ interface AppConfig {
   default_summary_ratio?: number
   max_react_steps?: number
   delegation?: DelegationConfig
+  trace?: TraceConfig
 }
 
 export interface Provider {
@@ -122,6 +124,7 @@ const DEFAULT_CONFIG: AppConfig = {
   default_recent_ratio: 0.05,
   default_summary_ratio: 0.05,
   delegation: DEFAULT_DELEGATION_CONFIG,
+  trace: { ...DEFAULT_TRACE_CONFIG },
 }
 
 export class ConfigStore {
@@ -206,6 +209,16 @@ export class ConfigStore {
   setDelegation(partial: Partial<DelegationConfig>): void {
     const current = this.getDelegation()
     this.set('delegation', { ...current, ...partial })
+  }
+
+  /** 读 trace 命名空间。非法或缺失字段回落默认值（不 throw）。 */
+  getTrace(): TraceConfig {
+    return resolveTraceConfig(this.get('trace'))
+  }
+
+  /** 写 trace 命名空间，merge 后再校验（非法值回落默认）。 */
+  setTrace(partial: Partial<TraceConfig>): void {
+    this.set('trace', resolveTraceConfig({ ...this.getTrace(), ...partial }))
   }
 
   private saveConfig(config: AppConfig): void {

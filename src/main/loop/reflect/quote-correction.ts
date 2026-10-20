@@ -23,6 +23,7 @@ export class QuoteCorrectionReflector implements Reflector {
   readonly capabilities: ReflectorCapabilities = {
     phases: ['turn-end'],
     maxPerTurn: 1,
+    usesLlm: true,
   }
 
   private readonly maskThreshold: number

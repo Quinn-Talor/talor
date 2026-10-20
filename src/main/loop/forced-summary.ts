@@ -18,6 +18,8 @@ import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { sideEffectLedger } from '../repos/side-effect-ledger'
 import { buildStreamSignal } from './stream-utils'
 import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
+import { recordUsage } from '../providers/usage-recorder'
+import { withGenerationName } from '../observe/trace-context'
 
 const SEPARATOR = '──────────────────────────────────────────'
 
@@ -181,21 +183,47 @@ export async function runForcedSummary(
       }
       messages = (await ctx.pipeline.build(summaryPipelineCtx)).messages as ModelMessage[]
     }
-    const summaryResult = streamText({
-      model: ctx.model,
-      // 64K = 现代 provider 安全交集 (Anthropic / Gemini 上限); 与主对话保持
-      // 一致避免兜底摘要被 max_tokens 截断。
-      maxOutputTokens: 64_000,
-      messages: [...messages, opts.guardrail],
-      abortSignal: buildStreamSignal(ctx.abortSignal),
-      allowSystemInMessages: true, // v7: system 走 messages 数组
-    })
+    const summaryResult = withGenerationName('llm:forced-summary', () =>
+      streamText({
+        model: ctx.model,
+        // 64K = 现代 provider 安全交集 (Anthropic / Gemini 上限); 与主对话保持
+        // 一致避免兜底摘要被 max_tokens 截断。
+        maxOutputTokens: 64_000,
+        messages: [...messages, opts.guardrail],
+        abortSignal: buildStreamSignal(ctx.abortSignal),
+        allowSystemInMessages: true, // v7: system 走 messages 数组
+      }),
+    )
 
     let summaryText = ''
     for await (const chunk of summaryResult.textStream) {
       summaryText += chunk
       ctx.callbacks.onTextDelta(chunk, stepIndex)
     }
+
+    // 兜底摘要也是一次计费的模型调用,与主对话同口径累加到 session。
+    // 流出错时 SDK 的 usage / providerMetadata promise 同因 reject:只记一条不带堆栈的 warn
+    // (流错误本身 SDK 已打印),按"无用量"处理,不改变后续分支。
+    const [usageRes, metaRes] = await Promise.allSettled([
+      summaryResult.usage,
+      summaryResult.providerMetadata,
+    ])
+    const rejected = [usageRes, metaRes].find(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    )
+    if (rejected) {
+      const reason: unknown = rejected.reason
+      log.warn(
+        `[ReactLoop]   ${opts.logName}: usage unavailable: ${reason instanceof Error ? reason.message : String(reason)}`,
+      )
+    }
+    recordUsage(
+      ctx.sessionId,
+      usageRes.status === 'fulfilled' ? usageRes.value : undefined,
+      metaRes.status === 'fulfilled'
+        ? (metaRes.value as Record<string, unknown> | undefined)
+        : undefined,
+    )
 
     const durationMs = Date.now() - summaryStart
 

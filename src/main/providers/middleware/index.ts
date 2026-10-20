@@ -5,16 +5,17 @@
 // 类型:
 //   - fetch 拦截型(disable-thinking):返回 fetch 替代函数,在 adapter.createModel 内
 //     传给 createOpenAI({ fetch }) 等 SDK provider 工厂
-//   - SDK middleware 型(cost-tracking, request-logging):返回 LanguageModelV3Middleware
-//     在 adapter.createModel 内用 wrapLanguageModel({ model, middleware: [...] })
+//   - SDK middleware 型(cost-tracking, request-logging):返回 LanguageModelMiddleware,
+//     由本文件的 wrapModel 统一包装(traceMiddleware 在最外层,其后是这些)
 //
 // 因为两类机制不同,registry 分两组导出。
 
 import log from 'electron-log'
-import type { LanguageModelMiddleware } from 'ai'
+import { wrapLanguageModel, type LanguageModel, type LanguageModelMiddleware } from 'ai'
 import { buildDisableThinkingFetch } from './disable-thinking'
 import { costTrackingMiddleware } from './cost-tracking'
 import { requestLoggingMiddleware } from './request-logging'
+import { traceMiddleware } from './trace'
 
 export { buildDisableThinkingFetch, costTrackingMiddleware, requestLoggingMiddleware }
 
@@ -54,6 +55,22 @@ export function buildSdkMiddlewares(names: string[] | undefined): LanguageModelM
     result.push(mw)
   }
   return result
+}
+
+type WrappableModel = Parameters<typeof wrapLanguageModel>[0]['model']
+
+/**
+ * 所有 adapter 创建模型的唯一包装口:traceMiddleware 在最外层(每次调用尝试都经过它),
+ * 其后是 provider.middleware 配置的 SDK 中间件。
+ */
+export function wrapModel(
+  base: WrappableModel,
+  middlewareNames: string[] | undefined,
+): LanguageModel {
+  return wrapLanguageModel({
+    model: base,
+    middleware: [traceMiddleware, ...buildSdkMiddlewares(middlewareNames)],
+  })
 }
 
 /**

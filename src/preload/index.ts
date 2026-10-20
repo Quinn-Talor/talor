@@ -1,6 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
 import type {
+  ScoreCreateInput,
+  ScoreCreateResult,
+  ToolDurationsResult,
+  TraceBlobResult,
+  TraceGetResult,
+  TraceListResult,
+} from '@shared/types/trace'
+import type {
   PermissionRequest,
   PermissionResponse,
   PermissionRuleView,
@@ -365,6 +373,20 @@ const talorAPI = {
   artifact: {
     read: (type: string, id: string): Promise<unknown> =>
       ipcRenderer.invoke('artifact:read', { type, id }),
+  },
+
+  // turn trace 检视:列表 / 详情 / 模型输入 blob / 评分 / 历史工具耗时。
+  trace: {
+    list: (sessionId: string, limit?: number): Promise<TraceListResult> =>
+      ipcRenderer.invoke('trace:list', { session_id: sessionId, limit }),
+    get: (traceId: string): Promise<TraceGetResult> =>
+      ipcRenderer.invoke('trace:get', { trace_id: traceId }),
+    getBlob: (traceId: string, hash: string): Promise<TraceBlobResult> =>
+      ipcRenderer.invoke('trace:blob:get', { trace_id: traceId, hash }),
+    createScore: (input: ScoreCreateInput): Promise<ScoreCreateResult> =>
+      ipcRenderer.invoke('trace:score:create', input),
+    toolDurations: (sessionId: string): Promise<ToolDurationsResult> =>
+      ipcRenderer.invoke('trace:tool-durations', { session_id: sessionId }),
   },
 }
 

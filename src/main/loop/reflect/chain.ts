@@ -12,14 +12,30 @@
 //
 // 第一个非 null 输出 wins, 后续 reflector 本次调用跳过 (返回结果带 from 标识)。
 //
-// 允许依赖: ./types, electron-log
+// 观测: 每个被评估的 reflector 记一条 guard observation (guard:<name>; capabilities.usesLlm
+// 为 EVALUATOR, 否则 GUARDRAIL), reflect() 内的模型调用挂在它下面; 因 maxPerTurn 跳过的
+// 记一条 DEBUG 级 guard.skipped 事件。
+//
+// 允许依赖: ./types, ../../observe/*, electron-log
 // 禁止依赖: ipc/*
 
 import log from 'electron-log'
 import type { Reflector, ReflectContext, ReflectorOutcome, ReflectPhase } from './types'
+import { withParent } from '../../observe/trace-context'
+import { traceRecorder } from '../../observe/trace-recorder'
+
+type OutcomeKind = 'none' | 'hint' | 'wrap_up' | 'internal_nudge' | 'user_output'
+
+function outcomeKind(out: ReflectorOutcome): OutcomeKind {
+  if (out.wrapUp) return 'wrap_up'
+  if (out.userOutput) return 'user_output'
+  if (out.internalNudge) return 'internal_nudge'
+  if (out.hint) return 'hint'
+  return 'none'
+}
 
 export interface ReflectorChainResult {
-  kind: 'none' | 'hint' | 'wrap_up' | 'internal_nudge' | 'user_output'
+  kind: OutcomeKind
   from?: string
   hint?: string
   wrapUp?: ReflectorOutcome['wrapUp']
@@ -40,6 +56,11 @@ export async function runReflectorChain(
   for (const r of candidates) {
     const used = perTurnCounters.get(r.name) ?? 0
     if (r.capabilities.maxPerTurn !== undefined && used >= r.capabilities.maxPerTurn) {
+      traceRecorder.event({
+        name: 'guard.skipped',
+        level: 'DEBUG',
+        metadata: { reflector: r.name, phase, used },
+      })
       continue
     }
 
@@ -50,11 +71,29 @@ export async function runReflectorChain(
       perTurnIndex: used + 1,
       perTurnLimit: r.capabilities.maxPerTurn,
     } as ReflectContext
-    const out = await r.reflect(ctxWithCounter).catch((err) => {
-      log.warn(`[Reflect/${r.name}] threw:`, err)
-      return null
+    const guard = traceRecorder.startObservation({
+      type: r.capabilities.usesLlm ? 'EVALUATOR' : 'GUARDRAIL',
+      name: `guard:${r.name}`,
+      metadata: { phase, per_turn_index: used + 1 },
     })
-    if (!out) continue
+    let out: ReflectorOutcome | null
+    try {
+      out = await withParent(guard.ref, () => r.reflect(ctxWithCounter))
+    } catch (err) {
+      log.warn(`[Reflect/${r.name}] threw:`, err)
+      guard.end({ level: 'ERROR', statusMessage: err instanceof Error ? err.message : String(err) })
+      continue
+    }
+    if (!out) {
+      guard.end({ level: 'DEBUG', metadata: { outcome: 'none' } })
+      continue
+    }
+    const kind = outcomeKind(out)
+    guard.end({
+      level: kind === 'wrap_up' || kind === 'user_output' ? 'WARNING' : 'DEFAULT',
+      output: out.userOutput?.text ?? out.internalNudge?.text ?? out.hint ?? null,
+      metadata: { outcome: kind },
+    })
 
     perTurnCounters.set(r.name, used + 1)
     if (out.wrapUp) return { kind: 'wrap_up', from: r.name, wrapUp: out.wrapUp }

@@ -6,16 +6,31 @@
 // v3.7.2: HIGH static 工具 (bash/write/edit) 的 confirm 逻辑已迁入 RiskGate
 // (路径 1 'high-static'),buildTools 不再嵌入 confirm 处理。所有路径统一在
 // Gate 内决策 → buildTools 只看 action='pass'/'deny'。
+//
+// 观测: 每次工具执行记一条 TOOL observation(父节点 = 调用 buildTools 时的 step),
+// 记 gate / 执行耗时与结果;工具在该 observation 的 scope 内执行,返回值不变。
+//
+// 允许依赖: tools/*, repos/side-effect-ledger, observe/*, shared/*, ipc/tool-confirm(仅类型),
+//          loop/stream-utils(仅 isErrorOutput:TOOL 观测的成败判定与落库 is_error 同口径)
+// 禁止依赖: ipc/* 运行时代码、loop/* 其余模块
 
 import { dynamicTool, jsonSchema } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
-import type { ToolExecuteContext, ToolMetadata, PermissionPort } from './types'
+import {
+  isToolErrorEnvelope,
+  type ToolExecuteContext,
+  type ToolMetadata,
+  type PermissionPort,
+} from './types'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
 import { RiskGate } from './risk-gate'
 import { sessionApprovalMemory } from './session-approval-memory'
 import { sideEffectLedger } from '../repos/side-effect-ledger'
 import type { TalorBlock } from '@shared/talor-blocks/talor-block-schema'
+import { currentParent, withParent } from '../observe/trace-context'
+import { NOOP_OBSERVATION, traceRecorder } from '../observe/trace-recorder'
+import { isErrorOutput } from '../loop/stream-utils'
 
 export async function buildTools(opts: {
   sessionId: string
@@ -59,6 +74,8 @@ export async function buildTools(opts: {
   parentSessionIdForLedger?: string | null
 }): Promise<Record<string, ReturnType<typeof dynamicTool>> | undefined> {
   const { sessionId, messageId, workspace, confirmTool, agent } = opts
+  // buildTools 调用时捕获 step 父引用;工具执行时不依赖 SDK 内部的异步上下文传播。
+  const toolParent = currentParent()
 
   const schemas = opts.toolSchemas ?? agent.toolRegistry.listTools()
   if (schemas.length === 0 && !workspace.trim()) return undefined
@@ -86,6 +103,21 @@ export async function buildTools(opts: {
       inputSchema: jsonSchema(schema.parameters),
       execute: async (input: unknown, options: { toolCallId?: string }) => {
         const toolCallIdForGate = options?.toolCallId ?? uuidv4()
+        const toolObs =
+          toolParent === null
+            ? NOOP_OBSERVATION
+            : traceRecorder.startObservation({
+                type: 'TOOL',
+                name: schema.name,
+                parent: toolParent,
+                input,
+                metadata: {
+                  tool_call_id: toolCallIdForGate,
+                  risk_level: schema.riskLevel ?? 'LOW',
+                  mcp_server: schema.provider ?? null,
+                },
+              })
+        const gateStart = Date.now()
         // 流式 getter 优先 — 取最新解析的 blocks; 静态 fallback 给测试 & 旧调用方
         const liveBlocks = opts.getCurrentStepBlocks?.() ?? opts.currentStepBlocks
         const execCtx: ToolExecuteContext = {
@@ -114,28 +146,70 @@ export async function buildTools(opts: {
         } catch (err) {
           // Gate 自身异常是 framework bug — 拒绝执行,返结构化错误信封
           log.error('[buildTools] RiskGate threw exception:', schema.name, err)
-          return {
+          const envelope = {
             __talor_error: true,
             code: 'RISK_GATE_ERROR',
             message: `Risk gate failed for ${schema.name}: ${err instanceof Error ? err.message : String(err)}`,
           }
+          toolObs.end({
+            level: 'ERROR',
+            statusMessage: 'RISK_GATE_ERROR',
+            output: envelope,
+            metadata: { gate_ms: Date.now() - gateStart },
+          })
+          return envelope
         }
+        const gateMs = Date.now() - gateStart
 
         if (gateDecision.action === 'deny') {
-          return {
+          const envelope = {
             __talor_error: true,
             code: 'USER_DENIED',
             message: `User denied the operation: ${gateDecision.summary ?? schema.name}`,
           }
+          toolObs.end({
+            level: 'WARNING',
+            statusMessage: 'USER_DENIED',
+            output: envelope,
+            metadata: { gate_ms: gateMs },
+          })
+          return envelope
         }
 
         // action === 'pass'
+        const execStart = Date.now()
         try {
-          const result = await agent.toolRegistry.execute(schema.name, input, execCtx)
-          return result.output ?? null
+          const result = await withParent(toolObs.ref, () =>
+            agent.toolRegistry.execute(schema.name, input, {
+              ...execCtx,
+              traceParent: toolObs.ref ?? undefined,
+            }),
+          )
+          const output = result.output ?? null
+          const timing = { gate_ms: gateMs, exec_ms: Date.now() - execStart }
+          if (isToolErrorEnvelope(output)) {
+            toolObs.end({ level: 'ERROR', statusMessage: output.code, output, metadata: timing })
+          } else if (isErrorOutput(output)) {
+            toolObs.end({
+              level: 'ERROR',
+              statusMessage: 'TOOL_ERROR_OUTPUT',
+              output,
+              metadata: timing,
+            })
+          } else {
+            toolObs.end({ output, metadata: timing })
+          }
+          return output
         } catch (err) {
           log.error('[buildTools] Tool execute exception:', schema.name, err)
-          return `Tool execution failed: ${err instanceof Error ? err.message : String(err)}`
+          const message = err instanceof Error ? err.message : String(err)
+          toolObs.end({
+            level: 'ERROR',
+            statusMessage: 'TOOL_EXCEPTION',
+            output: message,
+            metadata: { gate_ms: gateMs, exec_ms: Date.now() - execStart },
+          })
+          return `Tool execution failed: ${message}`
         }
       },
     })

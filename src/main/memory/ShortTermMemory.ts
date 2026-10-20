@@ -2,6 +2,7 @@ import { generateObject } from 'ai'
 import { z } from 'zod'
 import { getAdapter } from '../providers/model-adapter'
 import { recordUsage } from '../providers/usage-recorder'
+import { withGenerationName } from '../observe/trace-context'
 import { messageRepo } from '../repos/session-repo'
 import { getDb } from '../db/index'
 import log from 'electron-log'
@@ -386,17 +387,19 @@ async function generateSummary(
     `Respond in English. Total output ≤ ~${summaryBudgetChars} characters.`
 
   const model = getAdapter(config.provider.type).createModel(config.provider, 'default')
-  const { object, usage, providerMetadata } = await generateObject({
-    model,
-    schema: CompressionSchema,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userContent },
-    ],
-    maxOutputTokens: Math.ceil(summaryBudget),
-    abortSignal: AbortSignal.timeout(60_000),
-    allowSystemInMessages: true, // v7: system 走 messages 数组
-  })
+  const { object, usage, providerMetadata } = await withGenerationName('llm:compress', () =>
+    generateObject({
+      model,
+      schema: CompressionSchema,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+      maxOutputTokens: Math.ceil(summaryBudget),
+      abortSignal: AbortSignal.timeout(60_000),
+      allowSystemInMessages: true, // v7: system 走 messages 数组
+    }),
+  )
   recordUsage(sessionId, usage, providerMetadata as Record<string, unknown> | undefined)
 
   const text = renderCompressionAsText(object)

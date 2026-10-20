@@ -40,6 +40,8 @@ export interface TurnEndDecision {
   injectHint?: string
   /** 日志 / 审计用,描述决策来由 */
   reason: string
+  /** 产出该决策的 policy 名(runPolicyChain 填写);链的防御性兜底决策不带此字段 */
+  by?: string
 }
 
 /**

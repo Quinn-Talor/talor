@@ -1,10 +1,14 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { DEFAULT_TRACE_CONFIG, type ObservationRecord } from '@shared/types/trace'
 
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
 import { runReflectorChain } from './chain'
+import { traceRecorder } from '../../observe/trace-recorder'
+import { traceRepo } from '../../repos/trace-repo'
+import { runInScope } from '../../observe/trace-context'
 import type { Reflector, ReflectContext, ReflectorOutcome, ReflectPhase } from './types'
 
 function ctx(
@@ -184,5 +188,117 @@ describe('runReflectorChain — 输出形态', () => {
     })
     const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
     expect(res.kind).toBe('user_output')
+  })
+})
+
+// ── guard observation（turn-trace TASK-4）─────────────────────────────
+
+describe('runReflectorChain — guard observations', () => {
+  let rows: Map<string, ObservationRecord>
+
+  beforeEach(() => {
+    rows = new Map()
+    vi.spyOn(traceRepo, 'upsertBatch').mockImplementation((_t, observations) => {
+      for (const o of observations) rows.set(o.id, { ...o })
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  async function traced(id: string, fn: () => Promise<unknown>): Promise<ObservationRecord[]> {
+    const scope = traceRecorder.startTrace({
+      id,
+      sessionId: 's1',
+      name: 'turn',
+      input: 'x',
+      rootName: 'agent:test',
+      config: DEFAULT_TRACE_CONFIG,
+    })
+    await runInScope(scope, fn)
+    traceRecorder.endTrace(id, {})
+    return [...rows.values()].filter((o) => o.type !== 'AGENT')
+  }
+
+  it('one observation per evaluated reflector; level follows the outcome; type follows usesLlm', async () => {
+    const reflectors = [
+      mockReflector('quiet', ['post-step'], null, { priority: 1 }),
+      mockReflector(
+        'llm-judge',
+        ['post-step'],
+        { hint: 'look again' },
+        { priority: 2, usesLlm: true },
+      ),
+      mockReflector('never-reached', ['post-step'], { hint: 'x' }, { priority: 3 }),
+    ]
+    const obs = await traced('t-guards', () =>
+      runReflectorChain('post-step', reflectors, ctx('post-step'), new Map()),
+    )
+    expect(obs.map((o) => o.name)).toEqual(['guard:quiet', 'guard:llm-judge'])
+    expect(obs[0]).toMatchObject({ type: 'GUARDRAIL', level: 'DEBUG' })
+    expect(obs[0].metadata).toMatchObject({
+      phase: 'post-step',
+      outcome: 'none',
+      per_turn_index: 1,
+    })
+    expect(obs[1]).toMatchObject({ type: 'EVALUATOR', level: 'DEFAULT', output: 'look again' })
+    expect(obs[1].metadata.outcome).toBe('hint')
+  })
+
+  it('wrap_up / user_output outcomes are WARNING; a throwing reflector is ERROR', async () => {
+    const wrap = mockReflector('wrapper', ['post-step'], {
+      wrapUp: { runSummary: async () => {}, exitReason: 'repeated_error', markFinal: true },
+    } as ReflectorOutcome)
+    const obsWrap = await traced('t-wrap', () =>
+      runReflectorChain('post-step', [wrap], ctx('post-step'), new Map()),
+    )
+    expect(obsWrap[0]).toMatchObject({ level: 'WARNING' })
+    expect(obsWrap[0].metadata.outcome).toBe('wrap_up')
+
+    rows.clear()
+    const boom: Reflector = {
+      name: 'boom',
+      capabilities: { phases: ['post-step'] },
+      reflect: vi.fn().mockRejectedValue(new Error('reflect failed')),
+    }
+    const obsErr = await traced('t-throw', () =>
+      runReflectorChain('post-step', [boom], ctx('post-step'), new Map()),
+    )
+    expect(obsErr[0]).toMatchObject({ level: 'ERROR', status_message: 'reflect failed' })
+  })
+
+  it('a reflector over maxPerTurn emits a DEBUG guard.skipped event instead of a guard', async () => {
+    const capped = mockReflector('capped', ['post-step'], { hint: 'x' }, { maxPerTurn: 1 })
+    const obs = await traced('t-skip', () =>
+      runReflectorChain('post-step', [capped], ctx('post-step'), new Map([['capped', 1]])),
+    )
+    expect(obs).toHaveLength(1)
+    expect(obs[0]).toMatchObject({ type: 'EVENT', name: 'guard.skipped', level: 'DEBUG' })
+    expect(obs[0].metadata).toEqual({ reflector: 'capped', phase: 'post-step', used: 1 })
+  })
+
+  it('work done inside reflect() is parented to the guard observation', async () => {
+    const nested: Reflector = {
+      name: 'nested',
+      capabilities: { phases: ['post-step'] },
+      reflect: vi.fn(async () => {
+        traceRecorder.startObservation({ type: 'GENERATION', name: 'llm:reflect:x' }).end()
+        return null
+      }),
+    }
+    const obs = await traced('t-nested', () =>
+      runReflectorChain('post-step', [nested], ctx('post-step'), new Map()),
+    )
+    const guard = obs.find((o) => o.name === 'guard:nested')!
+    const gen = obs.find((o) => o.type === 'GENERATION')!
+    expect(gen.parent_observation_id).toBe(guard.id)
+  })
+
+  it('without a trace scope the chain behaves exactly as before', async () => {
+    const r = mockReflector('foo', ['post-step'], { hint: 'x' })
+    const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map())
+    expect(res).toEqual({ kind: 'hint', from: 'foo', hint: 'x' })
+    expect(traceRepo.upsertBatch).not.toHaveBeenCalled()
   })
 })

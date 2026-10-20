@@ -109,6 +109,8 @@ export interface ReflectorCapabilities {
   maxPerTurn?: number
   /** chain 内排序 (数字小先跑), 默认 100 */
   priority?: number
+  /** reflect() 内会调 LLM 做评估;trace 里记 EVALUATOR(缺省为 GUARDRAIL) */
+  usesLlm?: boolean
 }
 
 export interface Reflector {

@@ -12,6 +12,7 @@ import type { MCPServer, MCPServerInput } from '../../../preload/index'
 import { talorAPI } from '../../api/talorAPI'
 import { AgentsPage } from '../Agents'
 import { ContextSettings } from './ContextSettings'
+import { TraceSettings } from './TraceSettings'
 import { PermissionsSettings } from './PermissionsSettings'
 
 type Tab = 'common' | 'provider' | 'mcp' | 'agent' | 'account' | 'permissions'
@@ -230,6 +231,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           {activeTab === 'common' && (
             <div className="space-y-4">
               <ContextSettings />
+              <TraceSettings />
               <div
                 className="bg-white rounded-xl overflow-hidden"
                 style={{ border: '1px solid #e8eaed' }}
