@@ -268,6 +268,28 @@ describe('runReflectorChain — guard observations', () => {
     expect(obsErr[0]).toMatchObject({ level: 'ERROR', status_message: 'reflect failed' })
   })
 
+  it('pre-step guards record the context budget (estimated tokens vs context limit)', async () => {
+    const budget = mockReflector('context-budget', ['pre-step'], null)
+    const obs = await traced('t-budget', () =>
+      runReflectorChain(
+        'pre-step',
+        [budget],
+        ctx('pre-step', { estimatedTokens: 91_000, contextLimit: 128_000 }),
+        new Map(),
+      ),
+    )
+    expect(obs[0].metadata).toMatchObject({ estimated_tokens: 91_000, context_limit: 128_000 })
+  })
+
+  it('(no-trigger) post-step guards carry no context-budget fields', async () => {
+    const quiet = mockReflector('quiet', ['post-step'], null)
+    const obs = await traced('t-nobudget', () =>
+      runReflectorChain('post-step', [quiet], ctx('post-step'), new Map()),
+    )
+    expect(obs[0].metadata).not.toHaveProperty('estimated_tokens')
+    expect(obs[0].metadata).not.toHaveProperty('context_limit')
+  })
+
   it('a reflector over maxPerTurn emits a DEBUG guard.skipped event instead of a guard', async () => {
     const capped = mockReflector('capped', ['post-step'], { hint: 'x' }, { maxPerTurn: 1 })
     const obs = await traced('t-skip', () =>

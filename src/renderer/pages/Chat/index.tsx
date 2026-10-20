@@ -1987,9 +1987,14 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         )}
       </div>
 
-      {/* Trace 检视面板 — 右侧停靠,与聊天区同级(不覆盖) */}
+      {/* Trace 检视面板 — 右侧停靠,与聊天区同级(不覆盖);点另一轮的 Trace 入口时按 key 重挂载 */}
       {openTrace && openTrace.sessionId === currentSessionId && (
-        <TracePanel traceId={openTrace.traceId} onClose={() => setOpenTrace(null)} />
+        <TracePanel
+          key={openTrace.traceId}
+          sessionId={openTrace.sessionId}
+          traceId={openTrace.traceId}
+          onClose={() => setOpenTrace(null)}
+        />
       )}
 
       {/* Dialogs */}

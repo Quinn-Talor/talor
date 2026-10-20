@@ -183,6 +183,16 @@ export async function sendChat(
           provider_type: provider.type,
           model_id: effectiveModelId,
           reasoning: session?.reasoning ?? provider.reasoning ?? null,
+          // trace input 只存文本;附件只记摘要(不存内容),用于判断本轮是否带图 / 文件
+          ...(validated.length > 0
+            ? {
+                attachments: validated.map((a) => ({
+                  name: a.filename,
+                  mime_type: a.mime_type,
+                  size_bytes: a.size_bytes,
+                })),
+              }
+            : {}),
         },
       })
       if (apiKey) traceRecorder.addSecret(messageId, apiKey)

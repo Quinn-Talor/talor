@@ -360,6 +360,47 @@ describe('sendChat — turn trace（turn-trace AC-021）', () => {
     )
   })
 
+  it('attachments are summarized (name, type, size) in the trace metadata', async () => {
+    // clearAllMocks 不清实现:前面的视觉校验用例会让它保持抛错
+    hoisted.checkVisionSupport.mockImplementation(() => {})
+    hoisted.validateAttachment.mockResolvedValue({
+      path: '/p/chart.png',
+      mime_type: 'image/png',
+      filename: 'chart.png',
+      size_bytes: 2048,
+      base64_data: 'data:image/png;base64,x',
+    })
+    const { messageId } = await sendChat(
+      {
+        sessionId: 's1',
+        content: 'look',
+        attachments: [
+          { path: '/p/chart.png', mime_type: 'image/png', filename: 'chart.png', size_bytes: 2048 },
+        ],
+      },
+      makeCallbacks(),
+      makePorts(),
+    )
+    expect(traceRecorder.updateRoot).toHaveBeenCalledWith(
+      messageId,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          attachments: [{ name: 'chart.png', mime_type: 'image/png', size_bytes: 2048 }],
+        }),
+      }),
+    )
+  })
+
+  it('(no-trigger) a text-only turn has no attachments entry', async () => {
+    const { messageId } = await sendChat(
+      { sessionId: 's1', content: 'hi', attachments: [] },
+      makeCallbacks(),
+      makePorts(),
+    )
+    const call = vi.mocked(traceRecorder.updateRoot).mock.calls.find((c) => c[0] === messageId)!
+    expect(call[1].metadata).not.toHaveProperty('attachments')
+  })
+
   it('a loop that fell back to the forced summary (every model call failed) ends the trace as WARNING', async () => {
     // loop 自己兜底收尾、不抛错 → orchestrator 走成功路径;root 不能记成 DEFAULT
     hoisted.runReactLoop.mockResolvedValue({ ...LOOP_RESULT, exitReason: 'fallback_summary' })

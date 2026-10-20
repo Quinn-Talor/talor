@@ -1,8 +1,10 @@
 // src/main/providers/middleware/trace.ts —— 业务层: LLM 调用观测中间件
 //
 // 每次 doGenerate / doStream 尝试(含 SDK 重试)记一条 GENERATION observation:父节点与
-// 名称取自 trace scope;流式下首个输出 chunk 记 completion_start_time,finish chunk 给
-// usage 与 finishReason;异常记 ERROR,中止 / 取消记 WARNING + ABORTED。
+// 名称取自 trace scope;输入记 prompt 消息与本次提供的工具定义(均去重存 blob);输出记文本、
+// 推理文本与工具调用(含参数);流式下首个输出 chunk 记 completion_start_time,finish chunk 给
+// usage 与 finishReason,response-metadata / stream-start 给响应 id、实际模型与告警;
+// 异常记 ERROR,中止 / 取消记 WARNING + ABORTED。
 // 无 trace scope 时直接透传;chunk 原样透传,不改变模型行为。
 //
 // 允许依赖: ai(类型), ../../observe/*, ../usage-normalizer
@@ -110,33 +112,72 @@ function startGeneration(params: CallOptions, model: WrappedModel) {
     model: model.modelId,
     modelParameters: pickParams(params),
     promptMessages: params.prompt,
+    toolDefinitions: params.tools,
   })
 }
 
-function generateOutput(content: readonly unknown[]): {
-  text: string
-  tool_calls: Array<{ toolCallId: string; toolName: string }>
-} {
+interface ToolCallRecord {
+  toolCallId: string
+  toolName: string
+  /** 模型给出的原始参数(JSON 字符串,不解析,保留畸形参数供排查) */
+  input: string
+}
+
+/** GENERATION output:文本、推理文本(有才记)、工具调用及参数。 */
+function generationOutput(
+  text: string,
+  reasoning: string,
+  toolCalls: ToolCallRecord[],
+): Record<string, unknown> {
+  return { text, ...(reasoning.length > 0 ? { reasoning } : {}), tool_calls: toolCalls }
+}
+
+/** GENERATION metadata:结束原因、provider,以及有值才记的响应 id / 实际模型 / 告警。 */
+function generationMetadata(
+  model: WrappedModel,
+  finishReason: string | null,
+  response: { id?: string; modelId?: string } | undefined,
+  warnings: readonly unknown[] | undefined,
+): Record<string, unknown> {
+  return {
+    finish_reason: finishReason,
+    provider: model.provider,
+    ...(response?.id !== undefined ? { response_id: response.id } : {}),
+    ...(response?.modelId !== undefined ? { response_model_id: response.modelId } : {}),
+    ...(warnings !== undefined && warnings.length > 0 ? { warnings } : {}),
+  }
+}
+
+function generateOutput(content: readonly unknown[]): Record<string, unknown> {
   let text = ''
-  const toolCalls: Array<{ toolCallId: string; toolName: string }> = []
+  let reasoning = ''
+  const toolCalls: ToolCallRecord[] = []
   for (const part of content) {
     if (!isRecord(part)) continue
     if (part.type === 'text' && typeof part.text === 'string') text += part.text
+    if (part.type === 'reasoning' && typeof part.text === 'string') reasoning += part.text
     if (
       part.type === 'tool-call' &&
       typeof part.toolCallId === 'string' &&
       typeof part.toolName === 'string'
     ) {
-      toolCalls.push({ toolCallId: part.toolCallId, toolName: part.toolName })
+      toolCalls.push({
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        input: typeof part.input === 'string' ? part.input : String(part.input),
+      })
     }
   }
-  return { text, tool_calls: toolCalls }
+  return generationOutput(text, reasoning, toolCalls)
 }
 
 interface StreamAccumulator {
   firstOutputAt?: string
   text: string
-  toolCalls: Array<{ toolCallId: string; toolName: string }>
+  reasoning: string
+  toolCalls: ToolCallRecord[]
+  warnings?: readonly unknown[]
+  response?: { id?: string; modelId?: string }
   finish?: FinishPart
   hasError: boolean
   error?: unknown
@@ -147,11 +188,24 @@ function observeChunk(acc: StreamAccumulator, chunk: StreamPart): void {
     acc.firstOutputAt = new Date().toISOString()
   }
   switch (chunk.type) {
+    case 'stream-start':
+      acc.warnings = chunk.warnings
+      break
+    case 'response-metadata':
+      acc.response = { id: chunk.id, modelId: chunk.modelId }
+      break
     case 'text-delta':
       acc.text += chunk.delta
       break
+    case 'reasoning-delta':
+      acc.reasoning += chunk.delta
+      break
     case 'tool-call':
-      acc.toolCalls.push({ toolCallId: chunk.toolCallId, toolName: chunk.toolName })
+      acc.toolCalls.push({
+        toolCallId: chunk.toolCallId,
+        toolName: chunk.toolName,
+        input: chunk.input,
+      })
       break
     case 'finish':
       acc.finish = chunk
@@ -174,7 +228,12 @@ export const traceMiddleware: LanguageModelMiddleware = {
       h.end({
         output: generateOutput(result.content),
         usageDetails: toUsageDetails(result.usage, result.providerMetadata),
-        metadata: { finish_reason: result.finishReason?.unified ?? null, provider: model.provider },
+        metadata: generationMetadata(
+          model,
+          result.finishReason?.unified ?? null,
+          result.response,
+          result.warnings,
+        ),
       })
       return result
     } catch (e) {
@@ -201,7 +260,7 @@ export const traceMiddleware: LanguageModelMiddleware = {
     }
 
     const reader = result.stream.getReader()
-    const acc: StreamAccumulator = { text: '', toolCalls: [], hasError: false }
+    const acc: StreamAccumulator = { text: '', reasoning: '', toolCalls: [], hasError: false }
     const stream = new ReadableStream<StreamPart>({
       async pull(controller) {
         let next: Awaited<ReturnType<typeof reader.read>>
@@ -217,14 +276,16 @@ export const traceMiddleware: LanguageModelMiddleware = {
           detach()
           h.end({
             completionStartTime: acc.firstOutputAt,
-            output: { text: acc.text, tool_calls: acc.toolCalls },
+            output: generationOutput(acc.text, acc.reasoning, acc.toolCalls),
             usageDetails: toUsageDetails(acc.finish?.usage, acc.finish?.providerMetadata),
             level: acc.hasError ? 'ERROR' : 'DEFAULT',
             statusMessage: acc.hasError ? errorMessage(acc.error) : undefined,
-            metadata: {
-              finish_reason: acc.finish?.finishReason.unified ?? null,
-              provider: model.provider,
-            },
+            metadata: generationMetadata(
+              model,
+              acc.finish?.finishReason.unified ?? null,
+              acc.response,
+              acc.warnings,
+            ),
           })
           controller.close()
           return

@@ -1,10 +1,21 @@
 // src/renderer/components/trace/TraceTree.tsx — 渲染层: observation 树
-// (节点可折叠;点击行展开 input / output / metadata;隐藏 DEBUG 时其可见后代仍保留)
+// (节点可折叠;点击行展开 input / output / metadata;GENERATION 输入按消息与工具定义拆出字节占比;
+// 隐藏 DEBUG 时其可见后代仍保留)
 
 import { useEffect, useMemo, useState } from 'react'
 import { talorAPI } from '../../api/talorAPI'
 import type { ObservationLevel, ObservationRecord } from '@shared/types/trace'
-import { buildObservationTree, displayName, visibleTree, type DisplayNode } from './trace-tree'
+import {
+  buildObservationTree,
+  displayName,
+  formatBytes,
+  parsePromptIndex,
+  promptComposition,
+  toolDefinitionSizes,
+  visibleTree,
+  type DisplayNode,
+  type PromptIndex,
+} from './trace-tree'
 
 export interface TraceTreeProps {
   traceId: string
@@ -35,35 +46,26 @@ function pretty(raw: string | null): string {
   }
 }
 
-interface PromptIndexEntry {
-  role: string
-  hash: string
+const PRE_CLASS =
+  'max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-surface p-1.5 text-[11px]'
+
+function percent(share: number): string {
+  return `${Math.round(share * 100)}%`
 }
 
-/** GENERATION 的 input 若是 { messages: [{ role, hash }] } 索引则返回它,否则 null。 */
-function promptIndex(o: ObservationRecord): PromptIndexEntry[] | null {
-  if (o.type !== 'GENERATION' || o.input === null) return null
-  try {
-    const v: unknown = JSON.parse(o.input)
-    const messages = (v as { messages?: unknown }).messages
-    if (!Array.isArray(messages)) return null
-    return messages.filter(
-      (m): m is PromptIndexEntry =>
-        typeof (m as PromptIndexEntry).role === 'string' &&
-        typeof (m as PromptIndexEntry).hash === 'string',
-    )
-  } catch {
-    // 非索引形状的输入按普通 input 展示
-    return null
-  }
-}
-
-function PromptMessages({ traceId, index }: { traceId: string; index: PromptIndexEntry[] }) {
+/**
+ * GENERATION 输入构成:每条消息(字节 / 占比 + 内容)与工具定义(点开才拉 blob,
+ * 按单个工具定义字节从大到小列出 —— 工具定义常是模型输入的大头)。
+ */
+function PromptMessages({ traceId, index }: { traceId: string; index: PromptIndex }) {
+  const parts = useMemo(() => promptComposition(index), [index])
   const [contents, setContents] = useState<Record<string, string>>({})
+  const [showTools, setShowTools] = useState(false)
+  const [toolSizes, setToolSizes] = useState<Array<{ name: string; bytes: number }> | null>(null)
   useEffect(() => {
     let alive = true
     void Promise.all(
-      index.map(async (m) => {
+      index.messages.map(async (m) => {
         const r = await talorAPI.trace.getBlob(traceId, m.hash)
         return [m.hash, r.status === 'success' ? pretty(r.content) : r.error_code] as const
       }),
@@ -74,29 +76,66 @@ function PromptMessages({ traceId, index }: { traceId: string; index: PromptInde
       alive = false
     }
   }, [traceId, index])
+
+  const toggleTools = () => {
+    setShowTools((v) => !v)
+    if (toolSizes === null && index.tools) {
+      void talorAPI.trace.getBlob(traceId, index.tools.hash).then((r) => {
+        setToolSizes(r.status === 'success' ? toolDefinitionSizes(r.content) : [])
+      })
+    }
+  }
+
+  const total = parts.reduce((sum, p) => sum + p.bytes, 0)
   return (
     <div className="space-y-1">
-      {index.map((m, i) => (
-        <div key={`${m.hash}-${i}`}>
-          <div className="text-[10px] uppercase text-mute">{m.role}</div>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-surface p-1.5 text-[11px]">
-            {contents[m.hash] ?? '…'}
-          </pre>
-        </div>
-      ))}
+      <div className="text-[10px] uppercase text-mute">input · {formatBytes(total)}</div>
+      {parts.map((p, i) =>
+        p.kind === 'message' ? (
+          <div key={`${p.hash}-${i}`}>
+            <div className="text-[10px] text-mute">
+              <span className="uppercase">{p.label}</span> · {formatBytes(p.bytes)} ·{' '}
+              {percent(p.share)}
+            </div>
+            <pre className={PRE_CLASS}>{contents[p.hash] ?? '…'}</pre>
+          </div>
+        ) : (
+          <div key={`tools-${p.hash}`}>
+            <button
+              type="button"
+              onClick={toggleTools}
+              aria-expanded={showTools}
+              className="text-[10px] text-mute hover:text-text"
+            >
+              {showTools ? '▾' : '▸'} <span className="uppercase">{p.label}</span> ·{' '}
+              {formatBytes(p.bytes)} · {percent(p.share)}
+            </button>
+            {showTools && (
+              <div className={PRE_CLASS}>
+                {toolSizes === null && '…'}
+                {toolSizes?.length === 0 && '(工具定义无法解析)'}
+                {toolSizes?.map((t) => (
+                  <div key={t.name} className="flex justify-between gap-2 tabular-nums">
+                    <span className="truncate">{t.name}</span>
+                    <span className="shrink-0 text-mute">{formatBytes(t.bytes)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ),
+      )}
     </div>
   )
 }
 
 function Detail({ traceId, o }: { traceId: string; o: ObservationRecord }) {
-  const index = useMemo(() => promptIndex(o), [o])
+  const index = useMemo(() => (o.type === 'GENERATION' ? parsePromptIndex(o.input) : null), [o])
   const section = (label: string, body: string) =>
     body ? (
       <div>
         <div className="text-[10px] uppercase text-mute">{label}</div>
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-surface p-1.5 text-[11px]">
-          {body}
-        </pre>
+        <pre className={PRE_CLASS}>{body}</pre>
       </div>
     ) : null
   return (

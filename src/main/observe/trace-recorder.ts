@@ -54,6 +54,8 @@ export interface StartObservationInput {
   modelParameters?: Record<string, unknown>
   /** 模型输入消息;按内容去重存 blob,observation.input 只存 { role, hash, bytes } 列表。 */
   promptMessages?: unknown[]
+  /** 本次调用提供给模型的工具定义;整组去重存一个 blob,索引里记 { hash, bytes, count }。 */
+  toolDefinitions?: unknown[]
 }
 
 export interface EndObservationInput {
@@ -179,24 +181,37 @@ function serialize(
   return truncateUtf8(s, buf.config.maxPayloadBytes)
 }
 
-/** 模型输入消息 → blob(按内容 sha256 去重);返回 observation.input 的索引 JSON。 */
-function serializePrompt(buf: TraceBuffer, messages: unknown[]): string {
-  const index = messages.map((m) => {
-    const role = isRecord(m) && typeof m.role === 'string' ? m.role : 'unknown'
-    const content = toJson(buf, isRecord(m) && 'content' in m ? m.content : m)
-    const hash = createHash('sha256').update(content).digest('hex').slice(0, HASH_CHARS)
-    const bytes = Buffer.byteLength(content, 'utf8')
-    if (!buf.blobs.has(hash)) {
-      buf.blobs.set(hash, {
-        trace_id: buf.trace.id,
-        hash,
-        bytes,
-        content: truncateUtf8(redact(content, buf.secrets), buf.config.maxPayloadBytes),
-      })
-    }
-    return { role, hash, bytes }
-  })
-  return JSON.stringify({ messages: index })
+/** 内容按 sha256 在 trace 内去重存 blob(脱敏 + 截断);返回引用。bytes 为原始字节数。 */
+function storeBlob(buf: TraceBuffer, content: string): { hash: string; bytes: number } {
+  const hash = createHash('sha256').update(content).digest('hex').slice(0, HASH_CHARS)
+  const bytes = Buffer.byteLength(content, 'utf8')
+  if (!buf.blobs.has(hash)) {
+    buf.blobs.set(hash, {
+      trace_id: buf.trace.id,
+      hash,
+      bytes,
+      content: truncateUtf8(redact(content, buf.secrets), buf.config.maxPayloadBytes),
+    })
+  }
+  return { hash, bytes }
+}
+
+/**
+ * 模型输入 → blob 引用;返回 observation.input 的索引 JSON:
+ * { messages: [{ role, hash, bytes }], tools?: { hash, bytes, count } }。
+ */
+function serializePrompt(buf: TraceBuffer, messages: unknown[], tools?: unknown[]): string {
+  const index: Record<string, unknown> = {
+    messages: messages.map((m) => {
+      const role = isRecord(m) && typeof m.role === 'string' ? m.role : 'unknown'
+      const ref = storeBlob(buf, toJson(buf, isRecord(m) && 'content' in m ? m.content : m))
+      return { role, ...ref }
+    }),
+  }
+  if (tools !== undefined && tools.length > 0) {
+    index.tools = { ...storeBlob(buf, toJson(buf, tools)), count: tools.length }
+  }
+  return JSON.stringify(index)
 }
 
 function createObservation(
@@ -220,7 +235,7 @@ function createObservation(
     model_parameters: input.modelParameters ?? null,
     input:
       input.promptMessages !== undefined
-        ? serializePrompt(buf, input.promptMessages)
+        ? serializePrompt(buf, input.promptMessages, input.toolDefinitions)
         : serialize(buf, input.input, 'input', metadata),
     output: null,
     metadata,

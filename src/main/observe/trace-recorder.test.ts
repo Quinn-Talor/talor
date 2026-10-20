@@ -225,6 +225,56 @@ describe('traceRecorder observations', () => {
     expect(blobCount).toBe(2)
   })
 
+  it('stores offered tool definitions as one deduped blob indexed with count and bytes', async () => {
+    const scope = start('t-tools')!
+    const prompt = [{ role: 'user', content: 'hi' }]
+    const tools = [
+      { type: 'function', name: 'read', inputSchema: { type: 'object' } },
+      { type: 'function', name: 'bash', inputSchema: { type: 'object' } },
+    ]
+    await runInScope(scope, async () => {
+      for (const name of ['g1', 'g2']) {
+        traceRecorder
+          .startObservation({
+            type: 'GENERATION',
+            name,
+            promptMessages: prompt,
+            toolDefinitions: tools,
+          })
+          .end()
+      }
+    })
+    traceRecorder.flush('t-tools')
+    const [i1, i2] = ['g1', 'g2'].map(
+      (n) =>
+        JSON.parse(rows('t-tools').find((r) => r.name === n)!.input!) as {
+          tools: { hash: string; bytes: number; count: number }
+        },
+    )
+    expect(i1.tools.count).toBe(2)
+    expect(i1.tools.bytes).toBe(Buffer.byteLength(JSON.stringify(tools), 'utf8'))
+    // 同一工具集跨步只存一份
+    expect(i2.tools.hash).toBe(i1.tools.hash)
+    expect(traceRepo.getBlob('t-tools', i1.tools.hash)).toBe(JSON.stringify(tools))
+  })
+
+  it('(no-trigger) a generation without tool definitions has no tools entry in its index', async () => {
+    const scope = start('t-notools')!
+    await runInScope(scope, async () => {
+      traceRecorder
+        .startObservation({
+          type: 'GENERATION',
+          name: 'g',
+          promptMessages: [{ role: 'user', content: 'hi' }],
+          toolDefinitions: [],
+        })
+        .end()
+    })
+    traceRecorder.flush('t-notools')
+    const index = JSON.parse(rows('t-notools')[1].input!) as Record<string, unknown>
+    expect(index).not.toHaveProperty('tools')
+  })
+
   it('records environment from configureEnvironment', async () => {
     traceRecorder.configureEnvironment({ environment: 'production', release: '9.9.9' })
     expect(traceRecorder.getEnvironment()).toBe('production')

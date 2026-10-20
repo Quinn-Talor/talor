@@ -3,7 +3,14 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import Database from 'better-sqlite3'
-import { APICallError, generateText, simulateReadableStream, streamText } from 'ai'
+import {
+  APICallError,
+  generateText,
+  jsonSchema,
+  simulateReadableStream,
+  streamText,
+  tool,
+} from 'ai'
 import { MockLanguageModelV4 } from 'ai/test'
 import { DEFAULT_TRACE_CONFIG } from '@shared/types/trace'
 
@@ -127,7 +134,72 @@ describe('traceMiddleware — stream', () => {
     })
     expect(g.metadata.finish_reason).toBe('stop')
     expect(g.level).toBe('DEFAULT')
+    // (不触发)无推理、无工具、无响应元数据/告警时,这些字段不出现
     expect(JSON.parse(g.output!)).toEqual({ text: 'hi', tool_calls: [] })
+    expect(g.metadata).not.toHaveProperty('response_id')
+    expect(g.metadata).not.toHaveProperty('warnings')
+    expect(JSON.parse(g.input!)).not.toHaveProperty('tools')
+  })
+
+  it('records offered tools, reasoning text, tool-call arguments, response id and warnings', async () => {
+    const model = wrapModel(
+      new MockLanguageModelV4({
+        modelId: 'mock-model',
+        doStream: async () => ({
+          stream: simulateReadableStream({
+            chunks: [
+              {
+                type: 'stream-start' as const,
+                warnings: [{ type: 'unsupported' as const, feature: 'topK' }],
+              },
+              { type: 'response-metadata' as const, id: 'resp-1', modelId: 'mock-model-0601' },
+              { type: 'reasoning-start' as const, id: 'r' },
+              { type: 'reasoning-delta' as const, id: 'r', delta: 'think ' },
+              { type: 'reasoning-delta' as const, id: 'r', delta: 'hard' },
+              { type: 'reasoning-end' as const, id: 'r' },
+              {
+                type: 'tool-call' as const,
+                toolCallId: 'c1',
+                toolName: 'echo',
+                input: '{"x":1}',
+              },
+              {
+                type: 'finish' as const,
+                usage: USAGE,
+                finishReason: { unified: 'tool-calls' as const, raw: 'tool_calls' },
+              },
+            ],
+          }),
+        }),
+      }),
+      undefined,
+    )
+    await inStep('t-rich', async () => {
+      const result = streamText({
+        model,
+        prompt: 'hello',
+        tools: {
+          echo: tool({ description: 'echo back', inputSchema: jsonSchema({ type: 'object' }) }),
+        },
+      })
+      await result.consumeStream()
+    })
+    traceRecorder.endTrace('t-rich', {})
+
+    const [g] = generations('t-rich')
+    expect(JSON.parse(g.output!)).toEqual({
+      text: '',
+      reasoning: 'think hard',
+      tool_calls: [{ toolCallId: 'c1', toolName: 'echo', input: '{"x":1}' }],
+    })
+    expect(g.metadata).toMatchObject({
+      response_id: 'resp-1',
+      response_model_id: 'mock-model-0601',
+      warnings: [{ type: 'unsupported', feature: 'topK' }],
+    })
+    const index = JSON.parse(g.input!) as { tools: { hash: string; count: number } }
+    expect(index.tools.count).toBe(1)
+    expect(traceRepo.getBlob('t-rich', index.tools.hash)).toContain('echo back')
   })
 
   it('AC-011: every retry attempt is its own GENERATION (ERROR then DEFAULT)', async () => {
@@ -253,12 +325,41 @@ describe('traceMiddleware — generate', () => {
     expect(g.provided_model_name).toBe('gen-model')
     expect(JSON.parse(g.output!)).toEqual({
       text: 'ok',
-      tool_calls: [{ toolCallId: 'c1', toolName: 'echo' }],
+      tool_calls: [{ toolCallId: 'c1', toolName: 'echo', input: '{}' }],
     })
     expect(g.metadata.finish_reason).toBe('tool-calls')
     expect(g.usage_details?.total).toBe(17)
     const prompt = JSON.parse(g.input!) as { messages: Array<{ role: string }> }
     expect(prompt.messages.map((m) => m.role)).toEqual(['user'])
+  })
+
+  it('records reasoning, response id and warnings from a generate result', async () => {
+    const model = wrapModel(
+      new MockLanguageModelV4({
+        doGenerate: async () => ({
+          content: [
+            { type: 'reasoning', text: 'because' },
+            { type: 'text', text: 'ok' },
+          ],
+          finishReason: { unified: 'stop', raw: 'stop' },
+          usage: USAGE,
+          response: { id: 'gen-resp', modelId: 'gen-model-0601' },
+          warnings: [{ type: 'other', message: 'heads up' }],
+        }),
+      }),
+      undefined,
+    )
+    await inStep('t-generate-rich', async () => {
+      await generateText({ model, prompt: 'hello' })
+    })
+    traceRecorder.endTrace('t-generate-rich', {})
+    const [g] = generations('t-generate-rich')
+    expect(JSON.parse(g.output!)).toEqual({ text: 'ok', reasoning: 'because', tool_calls: [] })
+    expect(g.metadata).toMatchObject({
+      response_id: 'gen-resp',
+      response_model_id: 'gen-model-0601',
+      warnings: [{ type: 'other', message: 'heads up' }],
+    })
   })
 
   it('marks a thrown generate error as ERROR and rethrows it', async () => {

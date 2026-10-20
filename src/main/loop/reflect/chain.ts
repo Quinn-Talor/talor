@@ -34,6 +34,13 @@ function outcomeKind(out: ReflectorOutcome): OutcomeKind {
   return 'none'
 }
 
+/** pre-step 守卫额外记上下文预算(估算 token / 上限),用于分析压缩与超限;其余 phase 不记。 */
+function budgetMetadata(ctx: ReflectContext): Record<string, unknown> {
+  return ctx.phase === 'pre-step'
+    ? { estimated_tokens: ctx.estimatedTokens, context_limit: ctx.contextLimit }
+    : {}
+}
+
 export interface ReflectorChainResult {
   kind: OutcomeKind
   from?: string
@@ -74,7 +81,7 @@ export async function runReflectorChain(
     const guard = traceRecorder.startObservation({
       type: r.capabilities.usesLlm ? 'EVALUATOR' : 'GUARDRAIL',
       name: `guard:${r.name}`,
-      metadata: { phase, per_turn_index: used + 1 },
+      metadata: { phase, per_turn_index: used + 1, ...budgetMetadata(ctx) },
     })
     let out: ReflectorOutcome | null
     try {

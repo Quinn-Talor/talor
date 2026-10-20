@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import type { ObservationRecord } from '@shared/types/trace'
-import { buildObservationTree, displayName, usageTotals, visibleTree } from './trace-tree'
+import {
+  buildObservationTree,
+  displayName,
+  formatBytes,
+  formatTraceDuration,
+  parsePromptIndex,
+  promptComposition,
+  toolDefinitionSizes,
+  usageInOut,
+  usageTotals,
+  visibleTree,
+} from './trace-tree'
 
 function obs(
   id: string,
@@ -174,5 +185,87 @@ describe('usageTotals', () => {
       cache_creation_input_tokens: 1,
       output_reasoning_tokens: 2,
     })
+  })
+})
+
+describe('parsePromptIndex', () => {
+  it('reads the messages index and the optional tools entry of a GENERATION input', () => {
+    const input = JSON.stringify({
+      messages: [{ role: 'system', hash: 'h1', bytes: 300 }],
+      tools: { hash: 'ht', bytes: 700, count: 2 },
+    })
+    expect(parsePromptIndex(input)).toEqual({
+      messages: [{ role: 'system', hash: 'h1', bytes: 300 }],
+      tools: { hash: 'ht', bytes: 700, count: 2 },
+    })
+  })
+
+  it('(no-trigger) returns null for non-index input and drops malformed entries', () => {
+    expect(parsePromptIndex(null)).toBeNull()
+    expect(parsePromptIndex('plain text')).toBeNull()
+    expect(parsePromptIndex(JSON.stringify({ text: 'x' }))).toBeNull()
+    expect(
+      parsePromptIndex(
+        JSON.stringify({ messages: [{ role: 'user' }, { role: 'user', hash: 'h', bytes: 1 }] }),
+      ),
+    ).toEqual({ messages: [{ role: 'user', hash: 'h', bytes: 1 }] })
+  })
+})
+
+describe('promptComposition', () => {
+  it('lists every message and the tool definitions with their share of the prompt bytes', () => {
+    const parts = promptComposition({
+      messages: [
+        { role: 'system', hash: 'h1', bytes: 200 },
+        { role: 'user', hash: 'h2', bytes: 100 },
+      ],
+      tools: { hash: 'ht', bytes: 700, count: 3 },
+    })
+    expect(parts.map((p) => [p.kind, p.label, p.bytes, p.share])).toEqual([
+      ['message', 'system', 200, 0.2],
+      ['message', 'user', 100, 0.1],
+      ['tools', 'tools ×3', 700, 0.7],
+    ])
+  })
+
+  it('(no-trigger) without tools or bytes the shares stay finite', () => {
+    const parts = promptComposition({ messages: [{ role: 'user', hash: 'h', bytes: 0 }] })
+    expect(parts).toEqual([{ kind: 'message', label: 'user', hash: 'h', bytes: 0, share: 0 }])
+  })
+})
+
+describe('toolDefinitionSizes', () => {
+  it('sizes each tool definition and sorts the heaviest first', () => {
+    const big = { type: 'function', name: 'big', inputSchema: { description: 'x'.repeat(100) } }
+    const small = { type: 'function', name: 'small', inputSchema: {} }
+    const sizes = toolDefinitionSizes(JSON.stringify([small, big, { nameless: true }]))
+    expect(sizes.map((s) => s.name)).toEqual(['big', 'small'])
+    expect(sizes[0].bytes).toBe(JSON.stringify(big).length)
+  })
+
+  it('(no-trigger) unparsable or non-array content yields no rows', () => {
+    expect(toolDefinitionSizes('not json')).toEqual([])
+    expect(toolDefinitionSizes(JSON.stringify({ name: 'x' }))).toEqual([])
+  })
+})
+
+describe('formatBytes / formatTraceDuration / usageInOut', () => {
+  it('formats bytes, trace durations and folds cache / reasoning into in / out totals', () => {
+    expect(formatBytes(512)).toBe('512 B')
+    expect(formatBytes(2048)).toBe('2.0 KB')
+    expect(formatBytes(1_572_864)).toBe('1.5 MB')
+    expect(formatTraceDuration('2026-10-19T10:00:00.000Z', '2026-10-19T10:00:21.700Z')).toBe(
+      '21.7s',
+    )
+    expect(formatTraceDuration('2026-10-19T10:00:00.000Z', null)).toBe('running')
+    expect(
+      usageInOut({
+        input: 10,
+        output: 5,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 1,
+        output_reasoning_tokens: 2,
+      }),
+    ).toEqual({ input: 111, output: 7 })
   })
 })

@@ -96,3 +96,115 @@ export function usageTotals(observations: ObservationRecord[]): UsageTotals {
   }
   return totals
 }
+
+/** "输入 = 非缓存 + 缓存读 + 缓存写,输出 = 文本 + 推理"(列表行与头部的合计口径)。 */
+export function usageInOut(u: UsageTotals): { input: number; output: number } {
+  return {
+    input: u.input + u.cache_read_input_tokens + u.cache_creation_input_tokens,
+    output: u.output + u.output_reasoning_tokens,
+  }
+}
+
+/** trace 总耗时;未结束为 running。 */
+export function formatTraceDuration(timestamp: string, endTime: string | null): string {
+  if (endTime === null) return 'running'
+  const ms = Date.parse(endTime) - Date.parse(timestamp)
+  return Number.isFinite(ms) ? `${(ms / 1000).toFixed(1)}s` : '—'
+}
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+export interface PromptRef {
+  hash: string
+  bytes: number
+}
+
+/** GENERATION input 的索引形状(见 traceRecorder.serializePrompt)。 */
+export interface PromptIndex {
+  messages: Array<PromptRef & { role: string }>
+  tools?: PromptRef & { count: number }
+}
+
+function isRef(v: unknown): v is PromptRef {
+  return (
+    v !== null &&
+    typeof v === 'object' &&
+    typeof (v as PromptRef).hash === 'string' &&
+    typeof (v as PromptRef).bytes === 'number'
+  )
+}
+
+/** 解析 GENERATION input 为索引;不是索引形状(普通 input / 非 JSON)返回 null。 */
+export function parsePromptIndex(input: string | null): PromptIndex | null {
+  if (input === null) return null
+  let v: unknown
+  try {
+    v = JSON.parse(input)
+  } catch {
+    // 非 JSON 的 input 不是索引
+    return null
+  }
+  const raw = (v as { messages?: unknown; tools?: unknown } | null) ?? {}
+  if (!Array.isArray(raw.messages)) return null
+  const messages = raw.messages.filter(
+    (m): m is PromptRef & { role: string } =>
+      isRef(m) && typeof (m as { role?: unknown }).role === 'string',
+  )
+  const tools = raw.tools
+  return isRef(tools) && typeof (tools as { count?: unknown }).count === 'number'
+    ? { messages, tools: tools as PromptRef & { count: number } }
+    : { messages }
+}
+
+export interface PromptPart {
+  kind: 'message' | 'tools'
+  label: string
+  hash: string
+  bytes: number
+  /** 占本次模型输入(消息 + 工具定义)总字节的比例,0–1 */
+  share: number
+}
+
+/** 模型输入构成:逐条消息 + 工具定义,各自字节与占比(工具定义常是大头)。 */
+export function promptComposition(index: PromptIndex): PromptPart[] {
+  const parts: Array<Omit<PromptPart, 'share'>> = index.messages.map((m) => ({
+    kind: 'message',
+    label: m.role,
+    hash: m.hash,
+    bytes: m.bytes,
+  }))
+  if (index.tools) {
+    parts.push({
+      kind: 'tools',
+      label: `tools ×${index.tools.count}`,
+      hash: index.tools.hash,
+      bytes: index.tools.bytes,
+    })
+  }
+  const total = parts.reduce((sum, p) => sum + p.bytes, 0)
+  return parts.map((p) => ({ ...p, share: total > 0 ? p.bytes / total : 0 }))
+}
+
+/** 工具定义 blob → 每个工具定义的字节数,大的在前(看哪些工具最占 token)。 */
+export function toolDefinitionSizes(content: string): Array<{ name: string; bytes: number }> {
+  let v: unknown
+  try {
+    v = JSON.parse(content)
+  } catch {
+    // 截断或损坏的 blob 不展示明细
+    return []
+  }
+  if (!Array.isArray(v)) return []
+  const encoder = new TextEncoder()
+  return v
+    .filter(
+      (d): d is { name: string } =>
+        d !== null && typeof d === 'object' && typeof (d as { name?: unknown }).name === 'string',
+    )
+    .map((d) => ({ name: d.name, bytes: encoder.encode(JSON.stringify(d)).length }))
+    .sort((a, b) => b.bytes - a.bytes)
+}
