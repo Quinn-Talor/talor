@@ -151,6 +151,7 @@ export function TracePanel({ sessionId, traceId, onClose }: TracePanelProps) {
   // 切换 trace 后、新数据到达前不展示上一条的内容
   const current = data && data.trace.id === activeId ? data : null
   const usage = current ? usageTotals(current.observations) : null
+  const io = usage ? usageInOut(usage) : null
   const exitReason = current?.trace.metadata.exit_reason
 
   return (
@@ -183,7 +184,7 @@ export function TracePanel({ sessionId, traceId, onClose }: TracePanelProps) {
       {view === 'detail' && !error && !current && (
         <div className="px-3 py-4 text-[12px] text-mute">Loading…</div>
       )}
-      {view === 'detail' && current && usage && (
+      {view === 'detail' && current && usage && io && (
         <>
           <div className="space-y-1 border-b border-line px-3 py-2 text-[11px] text-mute">
             <div className="flex flex-wrap gap-x-3">
@@ -192,13 +193,16 @@ export function TracePanel({ sessionId, traceId, onClose }: TracePanelProps) {
                 duration: {formatTraceDuration(current.trace.timestamp, current.trace.end_time)}
               </span>
             </div>
+            {/* 与列表行同口径:in 含缓存读写,out 含推理;括号内给拆分 */}
             <div className="flex flex-wrap gap-x-3 tabular-nums">
-              <span>in {formatTokens(usage.input)}</span>
-              <span>out {formatTokens(usage.output)}</span>
-              <span>reasoning {formatTokens(usage.output_reasoning_tokens)}</span>
               <span>
-                cache {formatTokens(usage.cache_read_input_tokens)} /{' '}
-                {formatTokens(usage.cache_creation_input_tokens)}
+                in {formatTokens(io.input)} (cache read{' '}
+                {formatTokens(usage.cache_read_input_tokens)} · write{' '}
+                {formatTokens(usage.cache_creation_input_tokens)})
+              </span>
+              <span>
+                out {formatTokens(io.output)} (reasoning{' '}
+                {formatTokens(usage.output_reasoning_tokens)})
               </span>
             </div>
           </div>

@@ -208,3 +208,29 @@ export function toolDefinitionSizes(content: string): Array<{ name: string; byte
     .map((d) => ({ name: d.name, bytes: encoder.encode(JSON.stringify(d)).length }))
     .sort((a, b) => b.bytes - a.bytes)
 }
+
+/** 展示 payload:JSON 字符串值按原文(去引号、真换行),对象 / 数组缩进,非 JSON 原样。 */
+export function prettyPayload(raw: string | null): string {
+  if (raw === null) return ''
+  let v: unknown
+  try {
+    v = JSON.parse(raw)
+  } catch {
+    // 非 JSON 文本原样展示
+    return raw
+  }
+  return typeof v === 'string' ? v : JSON.stringify(v, null, 2)
+}
+
+/** GENERATION 行上的 token 徽标:输入含缓存,输出含推理;其余类型或无用量时 null。 */
+export function generationTokens(o: ObservationRecord): { input: number; output: number } | null {
+  if (o.type !== 'GENERATION' || o.usage_details === null) return null
+  const u = o.usage_details
+  return usageInOut({
+    input: u.input ?? 0,
+    output: u.output ?? 0,
+    cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+    cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+    output_reasoning_tokens: u.output_reasoning_tokens ?? 0,
+  })
+}

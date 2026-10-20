@@ -18,12 +18,20 @@
 // 允许依赖: loop/*, repos/*, observe/*, shared/*
 // 禁止依赖: ipc/*
 
-import { streamText, isStepCount, type LanguageModel, type StepResult, type ToolSet } from 'ai'
+import {
+  streamText,
+  isStepCount,
+  type LanguageModel,
+  type ModelMessage,
+  type StepResult,
+  type ToolSet,
+} from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { buildStreamTimeout } from './stream-utils'
 import { buildTools } from '../tools/build-tools'
+import type { ToolMetadata } from '../tools/types'
 import { estimate } from '../memory/types'
 import type { ReactLoopOptions, ReactLoopCallbacks, LoopExitReason, LoopResult } from './types'
 import type { ObservationLevel } from '@shared/types/trace'
@@ -123,6 +131,39 @@ interface StepRunResult {
   sdkSignals?: PolicyContext['sdkSignals']
   /** 上步输入 tokens (用于下步 context 预算精算) */
   lastInputTokens?: number
+  /** 上步输入(消息 + 工具定义)的字符估算,与 lastInputTokens 成对,用于校准下步估算 */
+  promptEstimate?: number
+}
+
+/** 按字符估算一次模型输入的 token:消息 + 本次提供的工具定义(工具定义常是大头)。 */
+function estimatePromptTokens(messages: ModelMessage[], tools: ToolMetadata[]): number {
+  let total = 0
+  for (const m of messages) {
+    total += estimate(typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+  }
+  return tools.length > 0 ? total + estimate(JSON.stringify(tools)) : total
+}
+
+/** 校准比例的上下限:单次异常(如 base64 图片撑大字符数)不致让估算整体失真。 */
+const CALIBRATION_MIN = 0.5
+const CALIBRATION_MAX = 2
+
+/**
+ * 上下文预算估算:本次输入的字符估算 × 上一次调用的"实际 input token / 上次字符估算"比例。
+ * 按比例而非差值校准:字符估算对工具定义 JSON 的偏差与其体量成正比,工具集变化时
+ * (如 MCP 全量 294 个工具 → 14 个)差值会把旧工具集的偏差带到新调用上(实测高估 2.5×),
+ * 比例则随体量缩放(同一数据回算误差 +9% / +0.9%)。首次调用没有实际值,直接用字符估算。
+ */
+function calibratedContextEstimate(
+  promptEstimate: number,
+  last: { inputTokens?: number; promptEstimate?: number },
+): number {
+  if (!last.inputTokens || !last.promptEstimate) return promptEstimate
+  const ratio = Math.min(
+    CALIBRATION_MAX,
+    Math.max(CALIBRATION_MIN, last.inputTokens / last.promptEstimate),
+  )
+  return Math.round(promptEstimate * ratio)
 }
 
 // ── runReactLoop ────────────────────────────────────────────────────────
@@ -225,6 +266,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
   let exitReason: LoopExitReason = 'no_tool_calls'
   let nextPolicyHint: CarriedHint | null = null
   let lastInputTokens: number | undefined
+  let lastPromptEstimate: number | undefined
   let lastPolicyExit: LoopExitReason | null = null
   const traceId = currentTraceId()
 
@@ -263,6 +305,7 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
             mcpExpand,
             mcpUsed,
             lastInputTokens,
+            lastPromptEstimate,
             persistUserOutput: (sIdx, from, u) => persistUserOutput(opts, sIdx, from, u),
             persistInternalNudge: (sIdx, from, n) => persistInternalNudge(opts, sIdx, from, n),
           }),
@@ -289,7 +332,11 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
         break
       }
 
-      if (stepResult.lastInputTokens) lastInputTokens = stepResult.lastInputTokens
+      // 实际 input token 与同一次调用的字符估算成对携带,供下步校准预算估算
+      if (stepResult.lastInputTokens) {
+        lastInputTokens = stepResult.lastInputTokens
+        lastPromptEstimate = stepResult.promptEstimate
+      }
 
       const outcome = outcomeFromStep(stepResult.step, stepResult.durationMs)
       accumulator.observe(outcome)
@@ -583,6 +630,7 @@ async function runReactStep(
     mcpExpand: boolean
     mcpUsed: string[]
     lastInputTokens?: number
+    lastPromptEstimate?: number
     persistUserOutput: (
       stepIdx: number,
       from: string,
@@ -629,15 +677,13 @@ async function runReactStep(
   // 2. Pre-step Reflector chain (context-budget + 未来 pre-step reflectors)
   const limit = ctx.providerConfig.context_limit
   let estimatedTokens = 0
+  let promptEstimate: number | undefined
   if (limit > 0) {
-    if (state.lastInputTokens && state.lastInputTokens > 0) {
-      estimatedTokens = state.lastInputTokens
-    } else {
-      for (const m of messages) {
-        const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-        estimatedTokens += estimate(text)
-      }
-    }
+    promptEstimate = estimatePromptTokens(messages, toolSchemas)
+    estimatedTokens = calibratedContextEstimate(promptEstimate, {
+      inputTokens: state.lastInputTokens,
+      promptEstimate: state.lastPromptEstimate,
+    })
   }
   const preOut = await runReflectorChain(
     'pre-step',
@@ -877,6 +923,7 @@ async function runReactStep(
       durationMs,
       sdkSignals: { finishReason, usage, providerMetadata, warnings },
       lastInputTokens: usage?.inputTokens,
+      promptEstimate,
     }
     return stepResult
   } catch (err) {

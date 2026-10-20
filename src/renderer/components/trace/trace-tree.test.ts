@@ -5,7 +5,9 @@ import {
   displayName,
   formatBytes,
   formatTraceDuration,
+  generationTokens,
   parsePromptIndex,
+  prettyPayload,
   promptComposition,
   toolDefinitionSizes,
   usageInOut,
@@ -267,5 +269,38 @@ describe('formatBytes / formatTraceDuration / usageInOut', () => {
         output_reasoning_tokens: 2,
       }),
     ).toEqual({ input: 111, output: 7 })
+  })
+})
+
+describe('prettyPayload', () => {
+  it('shows a JSON string value as its plain text (no quotes, real newlines)', () => {
+    expect(prettyPayload(JSON.stringify('# Title\n\n1. rule'))).toBe('# Title\n\n1. rule')
+  })
+
+  it('(no-trigger) pretty-prints objects, keeps non-JSON text, empties null', () => {
+    expect(prettyPayload('{"a":1}')).toBe('{\n  "a": 1\n}')
+    expect(prettyPayload('plain text')).toBe('plain text')
+    expect(prettyPayload(null)).toBe('')
+  })
+})
+
+describe('generationTokens', () => {
+  it('sums a GENERATION’s input (incl. cache) and output (incl. reasoning) tokens for its tree row', () => {
+    const g = obs('g', null, 'a', 'b', {
+      type: 'GENERATION',
+      usage_details: {
+        input: 885,
+        cache_read_input_tokens: 105_472,
+        cache_creation_input_tokens: 0,
+        output: 195,
+        output_reasoning_tokens: 5,
+      },
+    })
+    expect(generationTokens(g)).toEqual({ input: 106_357, output: 200 })
+  })
+
+  it('(no-trigger) other observation types, or a GENERATION without usage, have no token badge', () => {
+    expect(generationTokens(obs('s', null, 'a', 'b', { usage_details: { input: 1 } }))).toBeNull()
+    expect(generationTokens(obs('g', null, 'a', 'b', { type: 'GENERATION' }))).toBeNull()
   })
 })

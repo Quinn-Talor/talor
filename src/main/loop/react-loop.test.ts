@@ -108,6 +108,7 @@ import { EscalationReflector } from './reflect/escalation'
 import { JudgeCompletionReflector } from './reflect/judge-completion'
 import { QuoteCorrectionReflector } from './reflect/quote-correction'
 import { ExplicitTerminationBlockPolicy } from './turn-end-policies/explicit-termination'
+import { estimate } from '../memory/types'
 
 // ── 测试 helpers ───────────────────────────────────────────────────────
 
@@ -875,5 +876,81 @@ describe('runReactLoop — turn trace', () => {
       totalToolCalls: 0,
     })
     expect(rows.size).toBe(0)
+  })
+})
+
+describe('runReactLoop — context budget estimate', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  // 第 1 步提供 40 个大工具定义(MCP 全量),第 2 步工具集清空、多了一条工具结果 —— 与实测 294 → 14 同形
+  const bigTools = Array.from({ length: 40 }, (_, i) => ({
+    name: `mcp_tool_${i}`,
+    description: 'x'.repeat(2000),
+    parameters: { type: 'object' },
+  }))
+  const step2Messages = [
+    { role: 'user', content: 'hello' },
+    { role: 'user', content: 'y'.repeat(4000) },
+  ]
+
+  /** 跑两步,第 1 步的实际 input = 第 1 步估算 × actualRatio;返回两步的预算估算。 */
+  async function runTwoSteps(actualRatio: number): Promise<number[]> {
+    const seen: number[] = []
+    vi.spyOn(ContextBudgetReflector.prototype, 'reflect').mockImplementation(async (ctx) => {
+      if (ctx.phase === 'pre-step') seen.push(ctx.estimatedTokens)
+      return null
+    })
+    const build = vi
+      .fn()
+      .mockResolvedValueOnce({ messages: [{ role: 'user', content: 'hello' }], tools: bigTools })
+      .mockResolvedValue({ messages: step2Messages, tools: [] })
+    let stepIdx = 0
+    mockStreamText.mockImplementation((params) => {
+      stepIdx++
+      // pre-step 守卫先于模型调用运行:此时 seen[0] 即第 1 步估算
+      const inputTokens = Math.round(seen[0] * actualRatio)
+      return mockSingleStep(
+        stepIdx === 1
+          ? {
+              toolCalls: [{ toolCallId: 'tc1', toolName: 'read', input: { path: 'a' } }],
+              toolResults: [{ toolCallId: 'tc1', toolName: 'read', output: 'ok' }],
+              usage: { inputTokens, outputTokens: 10, totalTokens: inputTokens + 10 },
+            }
+          : { text: 'done', finishReason: 'stop' },
+      )(params as never) as unknown as ReturnType<typeof mockStreamText>
+    })
+    await runReactLoop(
+      makeOpts({
+        pipeline: { build } as unknown as ReactLoopOptions['pipeline'],
+        providerConfig: { context_limit: 1_000_000 } as ReactLoopOptions['providerConfig'],
+        agent: {
+          id: '__chat__',
+          toolRegistry: {
+            listTools: () => [],
+            getToolNames: () => ['read'],
+            listMcpTools: () => [],
+          },
+        } as unknown as ReactLoopOptions['agent'],
+      }),
+    )
+    return seen
+  }
+
+  const step1Estimate = estimate('hello') + estimate(JSON.stringify(bigTools))
+  const step2Estimate = step2Messages.reduce((sum, m) => sum + estimate(m.content), 0)
+
+  it('scales the next estimate by the previous call’s actual/estimate ratio, so a shrinking tool set shrinks it', async () => {
+    const [first, second] = await runTwoSteps(1.25)
+    // (不触发)首次调用无实际值可校准:纯字符估算,且计入工具定义
+    expect(first).toBe(step1Estimate)
+    // 旧逻辑直接复用上次实际值(≈ first × 1.25),工具集清空后严重高估
+    expect(second).toBe(Math.round(step2Estimate * 1.25))
+  })
+
+  it('clamps the calibration ratio to 2× when one call’s actual is far off its estimate', async () => {
+    const [, second] = await runTwoSteps(10)
+    expect(second).toBe(Math.round(step2Estimate * 2))
   })
 })
