@@ -20,17 +20,30 @@ export function registerSessionHandlers(): void {
       let modelId = params.model_id
 
       if (!modelId) {
-        const providers = ConfigStore.getInstance().get('providers') as Record<
-          string,
-          { id: string; base_url: string; type: string }
-        >
+        const providers = ConfigStore.getInstance().get('providers')
         const provider = providers?.[params.provider_id]
         if (provider) {
-          const models = await getProviderModels(
-            provider as Parameters<typeof getProviderModels>[0],
-          )
-          modelId = models[0]?.id ?? undefined
-          log.info('[session:create] fetched model:', modelId, 'from provider:', params.provider_id)
+          try {
+            const models = await getProviderModels(provider)
+            modelId = models[0]?.id ?? undefined
+            log.info(
+              '[session:create] fetched model:',
+              modelId,
+              'from provider:',
+              params.provider_id,
+            )
+          } catch (err) {
+            // 拉模型列表失败(key 失效 / 断网)不能阻断建会话:回落到 provider 已配置的模型;
+            // 仍无则留空,发送时由 orchestrator 的 model fallback 链兜底,真实错误回到对话里。
+            modelId = provider.models?.[0]?.id
+            log.warn(
+              '[session:create] model fetch failed, fallback model:',
+              modelId ?? '(none)',
+              'provider:',
+              params.provider_id,
+              err,
+            )
+          }
         }
       }
 
