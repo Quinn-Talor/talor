@@ -6,10 +6,15 @@ import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
 
 const EditInput = z.object({
-  path: z.string()
+  path: z
+    .string()
     .describe('File path to edit (relative to workspace or absolute)')
-    .refine(p => p.trim().length > 0, 'Missing required parameter: "path" must be a non-empty string.'),
-  old: z.string()
+    .refine(
+      (p) => p.trim().length > 0,
+      'Missing required parameter: "path" must be a non-empty string.',
+    ),
+  old: z
+    .string()
     .describe('The exact string to find and replace')
     .min(1, 'Missing required parameter: "old" must be a non-empty string.'),
   new: z.string().describe('The string to replace old with'),
@@ -19,7 +24,8 @@ type EditInputT = z.infer<typeof EditInput>
 
 const editTool = {
   name: 'edit',
-  description: 'Edit a file by replacing a specific string. Use to make targeted changes to a file.',
+  description:
+    'Edit a file by replacing a specific string. Use to make targeted changes to a file.',
   riskLevel: 'HIGH' as const,
   zodSchema: EditInput,
   parameters: z.toJSONSchema(EditInput) as Record<string, unknown>,
@@ -64,16 +70,14 @@ const editTool = {
       const content = readFileSync(resolvedPath, 'utf-8')
 
       if (!content.includes(params.old)) {
-        const preview = params.old.length > 50
-          ? `${params.old.substring(0, 50)}...`
-          : params.old
+        const preview = params.old.length > 50 ? `${params.old.substring(0, 50)}...` : params.old
         return { output: `String not found in file: ${preview}` }
       }
 
       const occurrences = content.split(params.old).length - 1
 
       // 多处匹配但未指定 replaceAll → 拒绝。默认静默替换第一处会在代码库里留下
-      // "随便改了哪一处没法解释"的炸弹;要求模型扩展 old_str 的上下文,或显式 replaceAll。
+      // "随便改了哪一处没法解释"的炸弹;要求模型扩展 old 的上下文,或显式 replaceAll。
       if (occurrences > 1 && params.replaceAll !== true) {
         const envelope: ToolErrorEnvelope = {
           __talor_error: true,
@@ -92,7 +96,8 @@ const editTool = {
         replacedCount = occurrences
       } else {
         const idx = content.indexOf(params.old)
-        newContent = content.substring(0, idx) + params.new + content.substring(idx + params.old.length)
+        newContent =
+          content.substring(0, idx) + params.new + content.substring(idx + params.old.length)
         replacedCount = 1
       }
 
@@ -105,7 +110,12 @@ const editTool = {
         output: `Edited ${params.path} (${replacedCount} replacement${replacedCount > 1 ? 's' : ''}, ${oldLines}→${newLines} lines)`,
       }
     } catch (err) {
-      return { output: err instanceof Error ? err.message : String(err) }
+      const envelope: ToolErrorEnvelope = {
+        __talor_error: true,
+        code: 'FS_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      }
+      return { output: envelope }
     }
   },
 }

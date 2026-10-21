@@ -64,11 +64,18 @@ export function buildInputSummary(toolName: string, input: unknown): string {
     return `文件: ${obj.path}\n\n${lines.join('\n')}`.slice(0, MAX)
   }
   if (toolName === 'edit') {
-    const lines = String(obj.old_str ?? '')
-      .split('\n')
-      .slice(0, 10)
-      .map((l) => l.slice(0, 80))
-    return `文件: ${obj.path}\n旧内容:\n${lines.join('\n')}`.slice(0, MAX)
+    // 新旧片段各自截断,保证两段都能进入 MAX 预算
+    const excerpt = (v: unknown) =>
+      String(v ?? '')
+        .split('\n')
+        .slice(0, 8)
+        .map((l) => l.slice(0, 80))
+        .join('\n')
+        .slice(0, 200)
+    return `文件: ${obj.path}\n旧内容:\n${excerpt(obj.old)}\n新内容:\n${excerpt(obj.new)}`.slice(
+      0,
+      MAX,
+    )
   }
   return JSON.stringify(input).slice(0, MAX)
 }

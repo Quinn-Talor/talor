@@ -329,3 +329,33 @@ describe('__TEST__.stripSqlNoise', () => {
     expect(__TEST__.stripSqlNoise("SELECT 'DROP'")).toBe("SELECT ''")
   })
 })
+
+describe('RiskGate.decide — edit 确认摘要', () => {
+  const gate = new RiskGate(new SessionApprovalMemory(), {
+    record: vi.fn(),
+  } as unknown as SideEffectLedger)
+
+  it('edit: 摘要包含 old 与 new 片段', () => {
+    const tool = makeTool({ name: 'edit', riskLevel: 'HIGH' })
+    const decision = gate.decide(tool, { path: 'src/a.ts', old: 'OLD_SNIPPET', new: 'NEW_SNIPPET' })
+    expect(decision.needsApproval).toBe(true)
+    expect(decision.summary).toContain('src/a.ts')
+    expect(decision.summary).toContain('OLD_SNIPPET')
+    expect(decision.summary).toContain('NEW_SNIPPET')
+  })
+
+  it('edit: old 很长时 new 片段仍可见且总长不超 500', () => {
+    const tool = makeTool({ name: 'edit', riskLevel: 'HIGH' })
+    const decision = gate.decide(tool, { path: 'a.ts', old: 'x'.repeat(2000), new: 'NEW_MARKER' })
+    expect(decision.summary!.length).toBeLessThanOrEqual(500)
+    expect(decision.summary).toContain('NEW_MARKER')
+  })
+
+  it('write: 摘要不含 edit 的新旧片段标签', () => {
+    const tool = makeTool({ name: 'write', riskLevel: 'HIGH' })
+    const decision = gate.decide(tool, { path: 'a.ts', content: 'hello' })
+    expect(decision.summary).toContain('hello')
+    expect(decision.summary).not.toContain('Old content')
+    expect(decision.summary).not.toContain('New content')
+  })
+})

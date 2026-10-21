@@ -19,6 +19,7 @@ import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import {
   isToolErrorEnvelope,
+  type ToolErrorEnvelope,
   type ToolExecuteContext,
   type ToolMetadata,
   type PermissionPort,
@@ -176,7 +177,21 @@ export async function buildTools(opts: {
           return envelope
         }
 
-        // action === 'pass'
+        // action === 'pass'。确认弹窗可能等了很久:期间用户已停止本轮,则不再执行(副作用不可撤销)
+        if (opts.abortSignal?.aborted) {
+          const envelope: ToolErrorEnvelope = {
+            __talor_error: true,
+            code: 'ABORTED',
+            message: `Turn was stopped before ${schema.name} could run.`,
+          }
+          toolObs.end({
+            level: 'WARNING',
+            statusMessage: 'ABORTED',
+            output: envelope,
+            metadata: { gate_ms: gateMs },
+          })
+          return envelope
+        }
         const execStart = Date.now()
         try {
           const result = await withParent(toolObs.ref, () =>
@@ -202,14 +217,18 @@ export async function buildTools(opts: {
           return output
         } catch (err) {
           log.error('[buildTools] Tool execute exception:', schema.name, err)
-          const message = err instanceof Error ? err.message : String(err)
+          const envelope: ToolErrorEnvelope = {
+            __talor_error: true,
+            code: 'TOOL_EXCEPTION',
+            message: `Tool execution failed: ${err instanceof Error ? err.message : String(err)}`,
+          }
           toolObs.end({
             level: 'ERROR',
             statusMessage: 'TOOL_EXCEPTION',
-            output: message,
+            output: envelope,
             metadata: { gate_ms: gateMs, exec_ms: Date.now() - execStart },
           })
-          return `Tool execution failed: ${message}`
+          return envelope
         }
       },
     })

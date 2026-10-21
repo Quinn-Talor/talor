@@ -43,8 +43,13 @@ function makeGate(decision: 'pass' | 'deny' | 'throw'): RiskGate {
   } as unknown as RiskGate
 }
 
-async function runEcho(execute: Execute, decision: 'pass' | 'deny' | 'throw'): Promise<unknown> {
+async function runEcho(
+  execute: Execute,
+  decision: 'pass' | 'deny' | 'throw',
+  abortSignal?: AbortSignal,
+): Promise<unknown> {
   const tools = await buildTools({
+    abortSignal,
     sessionId: 's-1',
     messageId: 'm-1',
     workspace: '/tmp',
@@ -134,7 +139,27 @@ describe('buildTools — TOOL observation', () => {
     expect(outputs[0]).toBe('ok')
     expect(outputs[1]).toMatchObject({ code: 'X_FAIL' })
     expect(outputs[2]).toMatchObject({ __talor_error: true, code: 'USER_DENIED' })
-    expect(outputs[3]).toBe('Tool execution failed: crash')
+    expect(outputs[3]).toMatchObject({
+      __talor_error: true,
+      code: 'TOOL_EXCEPTION',
+      message: 'Tool execution failed: crash',
+    })
+  })
+
+  it('a gate pass after the turn was stopped does not execute the tool', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const execute = vi.fn(async () => ({ output: 'wrote file' }))
+    const out = await runEcho(execute, 'pass', controller.signal)
+    expect(execute).not.toHaveBeenCalled()
+    expect(out).toMatchObject({ __talor_error: true, code: 'ABORTED' })
+  })
+
+  it('a gate pass on a live turn executes the tool', async () => {
+    const execute = vi.fn(async () => ({ output: 'ok' }))
+    const out = await runEcho(execute, 'pass', new AbortController().signal)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(out).toBe('ok')
   })
 
   it('a RiskGate exception is recorded as ERROR / RISK_GATE_ERROR', async () => {

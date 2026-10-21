@@ -2,29 +2,97 @@ import { readdirSync, existsSync, realpathSync } from 'fs'
 import { join, relative } from 'path'
 import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
-import { isPathSensitive } from '../path-guard'
+import type { ToolExecuteContext, ToolErrorEnvelope } from '../types'
+import { isPathSensitive, isWithin } from '../path-guard'
 
 const GlobInput = z.object({
-  pattern: z.string()
+  pattern: z
+    .string()
     .describe('Glob pattern (e.g., "*.ts", "src/**/*.tsx")')
-    .refine(p => p.trim().length > 0, 'Pattern cannot be empty'),
+    .refine((p) => p.trim().length > 0, 'Pattern cannot be empty'),
 })
 type GlobInputT = z.infer<typeof GlobInput>
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.cache', 'dist', 'build', '.venv', 'venv'])
 const MAX_RESULTS = 200
 
-function globToRegex(pattern: string): RegExp {
-  // Replace glob metacharacters before escaping regex specials
-  // Order matters: ** before *
-  const regexStr = pattern
-    .replace(/\*\*/g, '{{GLOBSTAR}}')
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]')
-    .replace(/{{GLOBSTAR}}/g, '.*')
-  return new RegExp(`^${regexStr}$`)
+/**
+ * 花括号展开：`*.{ts,tsx}` → [`*.ts`, `*.tsx`]，支持嵌套与多组。
+ * 无逗号的 `{x}` 视为字面量。
+ */
+export function expandBraces(pattern: string): string[] {
+  let depth = 0
+  let start = -1
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i]
+    if (c === '{') {
+      if (depth === 0) start = i
+      depth++
+    } else if (c === '}' && depth > 0) {
+      depth--
+      if (depth === 0) {
+        const body = pattern.slice(start + 1, i)
+        const alternatives = splitTopLevelCommas(body)
+        if (alternatives.length < 2) continue
+        const head = pattern.slice(0, start)
+        const tail = pattern.slice(i + 1)
+        return alternatives.flatMap((alt) => expandBraces(head + alt + tail))
+      }
+    }
+  }
+  return [pattern]
+}
+
+function splitTopLevelCommas(body: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let last = 0
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i]
+    if (c === '{') depth++
+    else if (c === '}') depth--
+    else if (c === ',' && depth === 0) {
+      parts.push(body.slice(last, i))
+      last = i + 1
+    }
+  }
+  parts.push(body.slice(last))
+  return parts
+}
+
+// 单个（已展开花括号的）glob 转正则源码。
+// `**` 后接 `/` 时匹配零或多层目录；单独 `**` 匹配任意字符；`*` / `?` 不跨 `/`。
+function globSegmentToRegexSource(pattern: string): string {
+  let out = ''
+  let i = 0
+  while (i < pattern.length) {
+    const c = pattern[i]
+    if (c === '*') {
+      if (pattern[i + 1] === '*') {
+        if (pattern[i + 2] === '/') {
+          out += '(?:.*/)?'
+          i += 3
+        } else {
+          out += '.*'
+          i += 2
+        }
+        continue
+      }
+      out += '[^/]*'
+    } else if (c === '?') {
+      out += '[^/]'
+    } else {
+      out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    }
+    i++
+  }
+  return out
+}
+
+/** glob → 正则（整串匹配）。支持 `**`、`*`、`?`、`{a,b}`。 */
+export function globToRegex(pattern: string): RegExp {
+  const sources = expandBraces(pattern).map(globSegmentToRegexSource)
+  return new RegExp(`^(?:${sources.join('|')})$`)
 }
 
 function searchRecursive(
@@ -51,7 +119,7 @@ function searchRecursive(
       } catch {
         continue
       }
-      if (!realFull.startsWith(realWorkspace)) continue
+      if (!isWithin(realFull, realWorkspace)) continue
 
       const relativePath = relative(workspace, fullPath)
 
@@ -113,7 +181,12 @@ const globTool = {
           : results,
       }
     } catch (err) {
-      return { output: err instanceof Error ? err.message : String(err) }
+      const envelope: ToolErrorEnvelope = {
+        __talor_error: true,
+        code: 'FS_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      }
+      return { output: envelope }
     }
   },
 }

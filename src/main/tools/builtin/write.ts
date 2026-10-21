@@ -2,14 +2,18 @@ import { writeFileSync, existsSync, mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
+import type { ToolExecuteContext, ToolErrorEnvelope } from '../types'
 import { DEFAULT_MAX_WRITE_SIZE_BYTES } from '../types'
 import { resolveToolPath } from '../path-guard'
 
 const WriteInput = z.object({
-  path: z.string()
+  path: z
+    .string()
     .describe('File path relative to workspace or absolute path')
-    .refine(p => p.trim().length > 0, 'Missing required parameter: "path" must be a non-empty string.'),
+    .refine(
+      (p) => p.trim().length > 0,
+      'Missing required parameter: "path" must be a non-empty string.',
+    ),
   content: z.string().describe('Content to write to the file'),
 })
 type WriteInputT = z.infer<typeof WriteInput>
@@ -63,7 +67,12 @@ const writeTool = {
         output: `${action} ${params.path} (${lines} lines, ${contentBytes} bytes)`,
       }
     } catch (err) {
-      return { output: err instanceof Error ? err.message : String(err) }
+      const envelope: ToolErrorEnvelope = {
+        __talor_error: true,
+        code: 'FS_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      }
+      return { output: envelope }
     }
   },
 }

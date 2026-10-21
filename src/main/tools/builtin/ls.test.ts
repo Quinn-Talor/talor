@@ -5,6 +5,7 @@ import { toolRegistry } from '../registry'
 import { registerBuiltinTools } from './ls'
 
 const TMP = join(__dirname, '__tmp_ls_test__')
+const OUTSIDE = join(__dirname, '__tmp_ls_test__-outside')
 
 function makeContext(workspace = TMP) {
   return { sessionId: 'test-session', workspace }
@@ -20,6 +21,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(TMP, { recursive: true, force: true })
+  rmSync(OUTSIDE, { recursive: true, force: true })
   toolRegistry.clear()
 })
 
@@ -76,7 +78,60 @@ describe('ls tool', () => {
       return
     }
     const result = await toolRegistry.execute('ls', { path: 'evil_link' }, makeContext())
+    expect(result.output).toBe('Cannot access sensitive system path')
+  })
+
+  it('同前缀兄弟目录不视为 workspace 内(需授权)', async () => {
+    mkdirSync(OUTSIDE, { recursive: true })
+    const result = await toolRegistry.execute('ls', { path: OUTSIDE }, makeContext())
     expect(result.output).toContain('Cannot access path outside workspace')
+  })
+
+  it('workspace 内 symlink 指向同前缀兄弟目录 → 列表中不展开', async () => {
+    const { symlinkSync } = await import('fs')
+    mkdirSync(OUTSIDE, { recursive: true })
+    writeFileSync(join(OUTSIDE, 'secret.txt'), 's')
+    symlinkSync(OUTSIDE, join(TMP, 'sib_link'))
+    const result = await toolRegistry.execute('ls', { path: '.', depth: 2 }, makeContext())
+    expect(result.output).not.toContain('sib_link')
+    expect(result.output).not.toContain('secret.txt')
+  })
+
+  describe('已授权的 workspace 外目录', () => {
+    const OTHER = `${OUTSIDE}-other`
+
+    beforeEach(() => {
+      mkdirSync(join(OUTSIDE, 'inner'), { recursive: true })
+      writeFileSync(join(OUTSIDE, 'ext.md'), 'x')
+      mkdirSync(OTHER, { recursive: true })
+    })
+
+    afterEach(() => {
+      rmSync(OTHER, { recursive: true, force: true })
+    })
+
+    it('用户批准后列出外部目录内容', async () => {
+      const result = await toolRegistry.execute(
+        'ls',
+        { path: OUTSIDE },
+        { ...makeContext(), requestPermission: async () => true },
+      )
+      expect(result.output).toContain('ext.md')
+      expect(result.output).toContain('inner/')
+    })
+
+    it('外部目录内 symlink 逃逸到其他目录 → 不列出;指向自身子目录 → 列出', async () => {
+      const { symlinkSync } = await import('fs')
+      symlinkSync(OTHER, join(OUTSIDE, 'escape_link'))
+      symlinkSync(join(OUTSIDE, 'inner'), join(OUTSIDE, 'inner_link'))
+      const result = await toolRegistry.execute(
+        'ls',
+        { path: OUTSIDE },
+        { ...makeContext(), requestPermission: async () => true },
+      )
+      expect(result.output).not.toContain('escape_link')
+      expect(result.output).toContain('inner_link')
+    })
   })
 
   it('caps depth at 10 to prevent excessive recursion', async () => {

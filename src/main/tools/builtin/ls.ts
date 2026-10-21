@@ -2,19 +2,22 @@ import { readdirSync, existsSync, statSync, realpathSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext } from '../types'
-import { resolveToolPath } from '../path-guard'
+import type { ToolExecuteContext, ToolErrorEnvelope } from '../types'
+import { resolveToolPath, isPathSensitive, isWithin } from '../path-guard'
 
 const LsInput = z.object({
-  path: z.string()
+  path: z
+    .string()
     .describe('Directory path to list (relative to workspace or absolute, default: workspace root)')
     .default('.'),
-  depth: z.number().int().min(1).max(10)
+  depth: z
+    .number()
+    .int()
+    .min(1)
+    .max(10)
     .describe('Depth of recursive listing (1 = current dir only)')
     .default(1),
-  showHidden: z.boolean()
-    .describe('Whether to show hidden files (starting with .)')
-    .default(false),
+  showHidden: z.boolean().describe('Whether to show hidden files (starting with .)').default(false),
 })
 type LsInputT = z.infer<typeof LsInput>
 
@@ -30,21 +33,22 @@ function formatSize(size: number): string {
 function formatMode(mode: number): string {
   const isDir = (mode & 0o40000) !== 0
   let perms = isDir ? 'd' : '-'
-  perms += (mode & 0o400) ? 'r' : '-'
-  perms += (mode & 0o200) ? 'w' : '-'
-  perms += (mode & 0o100) ? 'x' : '-'
-  perms += (mode & 0o040) ? 'r' : '-'
-  perms += (mode & 0o020) ? 'w' : '-'
-  perms += (mode & 0o010) ? 'x' : '-'
-  perms += (mode & 0o004) ? 'r' : '-'
-  perms += (mode & 0o002) ? 'w' : '-'
-  perms += (mode & 0o001) ? 'x' : '-'
+  perms += mode & 0o400 ? 'r' : '-'
+  perms += mode & 0o200 ? 'w' : '-'
+  perms += mode & 0o100 ? 'x' : '-'
+  perms += mode & 0o040 ? 'r' : '-'
+  perms += mode & 0o020 ? 'w' : '-'
+  perms += mode & 0o010 ? 'x' : '-'
+  perms += mode & 0o004 ? 'r' : '-'
+  perms += mode & 0o002 ? 'w' : '-'
+  perms += mode & 0o001 ? 'x' : '-'
   return perms
 }
 
 const lsTool = {
   name: 'ls',
-  description: 'List directory contents. Shows files and subdirectories with permissions, size, and modification time.',
+  description:
+    'List directory contents. Shows files and subdirectories with permissions, size, and modification time.',
   zodSchema: LsInput,
   parameters: z.toJSONSchema(LsInput) as Record<string, unknown>,
 
@@ -87,11 +91,12 @@ const lsTool = {
       const showHidden = params.showHidden
       const entries: string[] = []
 
-      let realWorkspace: string
+      // 遍历只列出真实位置仍在「被访问根」或 workspace 内的条目，防 symlink 逃逸
+      const allowedRoots = [realpathSync(resolvedPath)]
       try {
-        realWorkspace = realpathSync(workspace)
+        allowedRoots.push(realpathSync(workspace))
       } catch {
-        realWorkspace = workspace
+        // workspace 不可解析时只认被访问根
       }
 
       function collectEntries(dir: string, currentDepth: number): void {
@@ -111,7 +116,8 @@ const lsTool = {
             } catch {
               continue
             }
-            if (!realFull.startsWith(realWorkspace)) continue
+            if (isPathSensitive(realFull)) continue
+            if (!allowedRoots.some((root) => isWithin(realFull, root))) continue
 
             try {
               const stat = statSync(fullPath)
@@ -141,7 +147,12 @@ const lsTool = {
 
       return { output: entries.join('\n') }
     } catch (err) {
-      return { output: err instanceof Error ? err.message : String(err) }
+      const envelope: ToolErrorEnvelope = {
+        __talor_error: true,
+        code: 'FS_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      }
+      return { output: envelope }
     }
   },
 }

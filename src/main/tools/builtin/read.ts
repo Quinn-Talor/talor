@@ -1,15 +1,19 @@
 import { readFileSync, existsSync, statSync } from 'fs'
 import { z } from 'zod'
 import { toolRegistry } from '../registry'
-import type { ToolExecuteContext, VerifyResult } from '../types'
-import { DEFAULT_MAX_READ_SIZE_BYTES } from '../types'
+import type { ToolExecuteContext, ToolErrorEnvelope, VerifyResult } from '../types'
+import { DEFAULT_MAX_READ_SIZE_BYTES, isToolErrorEnvelope } from '../types'
 import { resolveToolPath } from '../path-guard'
 
 const ReadInput = z.object({
-  path: z.string()
+  path: z
+    .string()
     .describe('File path relative to workspace or absolute path')
-    .refine(p => p.trim().length > 0, 'Missing required parameter: "path" must be a non-empty string.')
-    .refine(p => !p.includes('\0'), 'Invalid path: contains null byte.'),
+    .refine(
+      (p) => p.trim().length > 0,
+      'Missing required parameter: "path" must be a non-empty string.',
+    )
+    .refine((p) => !p.includes('\0'), 'Invalid path: contains null byte.'),
 })
 type ReadInputT = z.infer<typeof ReadInput>
 
@@ -21,7 +25,7 @@ function isBinaryFile(content: Buffer): boolean {
     [0xca, 0xfe, 0xba, 0xbe],
     [0x7f, 0x45, 0x4c, 0x46],
   ]
-  return signatures.some(sig => content.slice(0, 4).equals(Buffer.from(sig)))
+  return signatures.some((sig) => content.slice(0, 4).equals(Buffer.from(sig)))
 }
 
 const readTool = {
@@ -33,6 +37,7 @@ const readTool = {
   parameters: z.toJSONSchema(ReadInput) as Record<string, unknown>,
 
   verify(output: unknown): VerifyResult {
+    if (isToolErrorEnvelope(output)) return { ok: true, output }
     const raw = String(output ?? '')
     if (raw.startsWith('File not found:')) {
       return { ok: true, output: `${raw}\n[hint: use ls or glob to find the correct path]` }
@@ -61,7 +66,7 @@ const readTool = {
       })
       if (!approved) return { output: 'Cannot access path outside workspace (user denied).' }
     }
-    const resolvedPath = guard.status === 'allowed' ? guard.absPath : guard.absPath
+    const resolvedPath = guard.absPath
 
     if (!existsSync(resolvedPath)) {
       return { output: `File not found: ${params.path}` }
@@ -80,7 +85,12 @@ const readTool = {
 
       return { output: content.toString('utf-8') }
     } catch (err) {
-      return { output: err instanceof Error ? err.message : String(err) }
+      const envelope: ToolErrorEnvelope = {
+        __talor_error: true,
+        code: 'FS_ERROR',
+        message: err instanceof Error ? err.message : String(err),
+      }
+      return { output: envelope }
     }
   },
 }

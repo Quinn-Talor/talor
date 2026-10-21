@@ -78,7 +78,7 @@ export interface RiskDecision {
  * HIGH 静态工具的 input summary 生成器。
  *
  * v3.7.2 从 buildTools 内移入 RiskGate 内部。对 LLM 来说,bash 命令 / write 文件
- * 内容 / edit old_str 是模型自己写的,系统不需要 LLM 再额外声明 — 系统直接从 input
+ * 内容 / edit old+new 是模型自己写的,系统不需要 LLM 再额外声明 — 系统直接从 input
  * 提取一份摘要弹给用户 confirm。
  *
  * MAX 500 字符截断,跟其他 confirm preview 一致。
@@ -98,11 +98,18 @@ function buildHighStaticSummary(toolName: string, input: unknown): string {
     return `File: ${obj.path}\n\n${lines.join('\n')}`.slice(0, MAX)
   }
   if (toolName === 'edit') {
-    const lines = String(obj.old_str ?? '')
-      .split('\n')
-      .slice(0, 10)
-      .map((l) => l.slice(0, 80))
-    return `File: ${obj.path}\nOld content:\n${lines.join('\n')}`.slice(0, MAX)
+    // 新旧片段各自截断,保证两段都能进入 MAX 预算
+    const excerpt = (v: unknown) =>
+      String(v ?? '')
+        .split('\n')
+        .slice(0, 8)
+        .map((l) => l.slice(0, 80))
+        .join('\n')
+        .slice(0, 200)
+    return `File: ${obj.path}\nOld content:\n${excerpt(obj.old)}\nNew content:\n${excerpt(obj.new)}`.slice(
+      0,
+      MAX,
+    )
   }
   // 其他 HIGH 工具(未来扩展):JSON 摘要。空对象给可读提示。
   const json = JSON.stringify(input ?? {})

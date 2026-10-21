@@ -44,7 +44,11 @@ describe('read tool', () => {
   })
 
   it('returns error when workspace not set', async () => {
-    const result = await toolRegistry.execute('read', { path: 'file.txt' }, { sessionId: 'x', workspace: '' })
+    const result = await toolRegistry.execute(
+      'read',
+      { path: 'file.txt' },
+      { sessionId: 'x', workspace: '' },
+    )
     expect(result.output).toContain('Workspace not set')
   })
 
@@ -130,13 +134,18 @@ describe('read tool', () => {
       const result = await toolRegistry.execute(
         'read',
         { path: '/tmp/anywhere.md' },
-        makeContext(),   // no requestPermission
+        makeContext(), // no requestPermission
       )
       expect(result.output).toContain('Cannot access path outside workspace')
     })
 
     it('requestPermission is invoked with absPath + summary', async () => {
-      interface Captured { toolName: string; absPath?: string; inputSummary: string; reason: string }
+      interface Captured {
+        toolName: string
+        absPath?: string
+        inputSummary: string
+        reason: string
+      }
       let captured: Captured | null = null
       const requestPermission = async (input: Captured): Promise<boolean> => {
         captured = input
@@ -145,13 +154,30 @@ describe('read tool', () => {
       await toolRegistry.execute(
         'read',
         { path: '/tmp/peek.md' },
-        { ...makeContext(), requestPermission } as any,   // cast: ctx extends ToolConfig; extra requestPermission allowed
+        { ...makeContext(), requestPermission } as any, // cast: ctx extends ToolConfig; extra requestPermission allowed
       )
       expect(captured).not.toBeNull()
       expect(captured!.toolName).toBe('read')
       expect(captured!.reason).toBe('path_outside_workspace')
       expect(captured!.absPath).toBe('/tmp/peek.md')
       expect(captured!.inputSummary).toBe('/tmp/peek.md')
+    })
+  })
+
+  describe('文件系统错误返回 ToolErrorEnvelope', () => {
+    it('读取目录 → FS_ERROR 信封(含 EISDIR)', async () => {
+      mkdirSync(join(TMP, 'adir'))
+      const result = await toolRegistry.execute('read', { path: 'adir' }, makeContext())
+      const env = result.output as { __talor_error?: boolean; code?: string; message?: string }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('FS_ERROR')
+      expect(env.message).toContain('EISDIR')
+    })
+
+    it('正常文件 → 返回字符串,不是信封', async () => {
+      writeFileSync(join(TMP, 'ok.txt'), 'ok')
+      const result = await toolRegistry.execute('read', { path: 'ok.txt' }, makeContext())
+      expect(result.output).toBe('ok')
     })
   })
 })

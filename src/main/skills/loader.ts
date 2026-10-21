@@ -93,19 +93,30 @@ export function loadSkillsFromDir(skillsDir: string): ParsedSkill[] {
     return []
   }
 
-  const entries = readdirSync(skillsDir)
+  let entries: string[]
+  try {
+    entries = readdirSync(skillsDir)
+  } catch (err) {
+    log.warn('[SkillLoader] Cannot read skills dir, skipping:', skillsDir, err)
+    return []
+  }
   const skills: ParsedSkill[] = []
 
+  // 单个坏条目(悬空 symlink、无权限目录等)只跳过,不中断整体加载
   for (const entry of entries) {
     const entryPath = join(skillsDir, entry)
-    if (!statSync(entryPath).isDirectory()) continue
+    try {
+      if (!statSync(entryPath).isDirectory()) continue
 
-    const skillMdPath = join(entryPath, 'SKILL.md')
-    if (!existsSync(skillMdPath)) continue
+      const skillMdPath = join(entryPath, 'SKILL.md')
+      if (!existsSync(skillMdPath)) continue
 
-    const parsed = parseSkillMd(skillMdPath)
-    if (parsed) {
-      skills.push(parsed)
+      const parsed = parseSkillMd(skillMdPath)
+      if (parsed) {
+        skills.push(parsed)
+      }
+    } catch (err) {
+      log.warn('[SkillLoader] Skipping unreadable skill entry:', entryPath, err)
     }
   }
 

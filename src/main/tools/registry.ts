@@ -86,94 +86,107 @@ export const toolRegistry = {
   ): Promise<ToolResult> {
     const tool = tools.get(toolName)
     if (!tool) throw new Error(`Tool not found: ${toolName}`)
+    return runToolPipeline(tool, input, context)
+  },
+}
 
-    const toolCallId = uuidv4()
-    const ctx = applyContextDefaults(context)
-    const startTime = Date.now()
+/**
+ * 单个工具的 4 阶段执行管线:参数校验 → tool.validate → execute → tool.verify。
+ * 生产路径(agent/agent-toolset.ts)与本注册中心共用,保证 Zod 默认值/约束、
+ * bash 危险命令黑名单等前置拦截在任何调用入口都生效。
+ */
+export async function runToolPipeline(
+  tool: ToolDefinition,
+  input: unknown,
+  context: ToolExecuteContext,
+): Promise<ToolResult> {
+  const toolName = tool.name
+  const toolCallId = uuidv4()
+  const ctx = applyContextDefaults(context)
+  const startTime = Date.now()
 
-    // Phase 1: 参数校验。两条路径(二选一)
-    //
-    //   (A) Zod 路径:工具定义 zodSchema → safeParse,失败格式化诊断,
-    //       成功时把 parsed data 作为 input 继续下发(包含 trim/default 变换)。
-    //   (B) 手写路径:fallback 到 validateRequiredFields + checkSchema。
-    //       MCP 工具走这条,因为 schema 来自远端 JSON Schema,没法 Zod 化。
-    let validatedInput: unknown = input
-    if (tool.zodSchema) {
-      const parsed = tool.zodSchema.safeParse(input)
-      if (!parsed.success) {
-        const msg = formatZodError(tool.name, tool.parameters, input, parsed.error)
-        log.warn(`[Registry] Zod validation failed: ${toolName} — ${msg}`)
-        return { toolCallId, toolName, output: msg, durationMs: Date.now() - startTime }
-      }
-      validatedInput = parsed.data
-    } else {
-      const schemaError = validateRequiredFields(tool, input)
-      if (schemaError) {
-        log.warn(`[Registry] Schema validation failed: ${toolName} — ${schemaError}`)
-        return { toolCallId, toolName, output: schemaError, durationMs: Date.now() - startTime }
-      }
-      const typeError = checkSchema(tool.name, tool.parameters as SchemaParams, input)
-      if (typeError) {
-        log.warn(`[Registry] Schema type check failed: ${toolName} — ${typeError}`)
-        return { toolCallId, toolName, output: typeError, durationMs: Date.now() - startTime }
-      }
+  // Phase 1: 参数校验。两条路径(二选一)
+  //
+  //   (A) Zod 路径:工具定义 zodSchema → safeParse,失败格式化诊断,
+  //       成功时把 parsed data 作为 input 继续下发(包含 trim/default 变换)。
+  //   (B) 手写路径:fallback 到 validateRequiredFields + checkSchema。
+  //       MCP 工具走这条,因为 schema 来自远端 JSON Schema,没法 Zod 化。
+  let validatedInput: unknown = input
+  if (tool.zodSchema) {
+    const parsed = tool.zodSchema.safeParse(input)
+    if (!parsed.success) {
+      const msg = formatZodError(tool.name, tool.parameters, input, parsed.error)
+      log.warn(`[Registry] Zod validation failed: ${toolName} — ${msg}`)
+      return { toolCallId, toolName, output: msg, durationMs: Date.now() - startTime }
     }
-
-    // Phase 2: tool.validate (tool-level business rules, synchronous)
-    if (tool.validate) {
-      const vr = tool.validate(validatedInput, ctx)
-      if (!vr.ok) {
-        log.warn(`[Registry] Validate failed: ${toolName} — ${vr.error}`)
-        return { toolCallId, toolName, output: vr.error!, durationMs: Date.now() - startTime }
-      }
+    validatedInput = parsed.data
+  } else {
+    const schemaError = validateRequiredFields(tool, input)
+    if (schemaError) {
+      log.warn(`[Registry] Schema validation failed: ${toolName} — ${schemaError}`)
+      return { toolCallId, toolName, output: schemaError, durationMs: Date.now() - startTime }
     }
+    const typeError = checkSchema(tool.name, tool.parameters as SchemaParams, input)
+    if (typeError) {
+      log.warn(`[Registry] Schema type check failed: ${toolName} — ${typeError}`)
+      return { toolCallId, toolName, output: typeError, durationMs: Date.now() - startTime }
+    }
+  }
 
-    // Phase 3: execute
-    let rawOutput: unknown
+  // Phase 2: tool.validate (tool-level business rules, synchronous)
+  if (tool.validate) {
+    const vr = tool.validate(validatedInput, ctx)
+    if (!vr.ok) {
+      log.warn(`[Registry] Validate failed: ${toolName} — ${vr.error}`)
+      return { toolCallId, toolName, output: vr.error!, durationMs: Date.now() - startTime }
+    }
+  }
+
+  // Phase 3: execute
+  let rawOutput: unknown
+  try {
+    const result = await tool.execute(validatedInput, ctx)
+    rawOutput = result.output
+  } catch (err) {
+    return {
+      toolCallId,
+      toolName,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startTime,
+    }
+  }
+
+  // Phase 4: tool.verify (output post-processing, may be async)
+  if (tool.verify) {
     try {
-      const result = await tool.execute(validatedInput, ctx)
-      rawOutput = result.output
-    } catch (err) {
-      return {
-        toolCallId,
-        toolName,
-        error: err instanceof Error ? err.message : String(err),
-        durationMs: Date.now() - startTime,
-      }
-    }
-
-    // Phase 4: tool.verify (output post-processing, may be async)
-    if (tool.verify) {
-      try {
-        const vr = await tool.verify(rawOutput, validatedInput, ctx)
-        // severity='block' + !ok 时,verify 主动判定输出不合格 → 强制转换为错误信封,
-        // 不能静默回退 rawOutput 否则幻觉检测/用户提示都被绕过。
-        if (vr.severity === 'block' && !vr.ok) {
-          const envelope: ToolErrorEnvelope = {
-            __talor_error: true,
-            code: 'VERIFY_BLOCKED',
-            message: vr.warning ?? 'Output failed verification',
-          }
-          log.warn(`[Registry] Verify blocked: ${toolName} — ${envelope.message}`)
-          return { toolCallId, toolName, output: envelope, durationMs: Date.now() - startTime }
-        }
-        if (vr.warning) log.warn(`[Registry] Verify warning: ${toolName} — ${vr.warning}`)
-        return { toolCallId, toolName, output: vr.output, durationMs: Date.now() - startTime }
-      } catch (err) {
-        // verify 抛异常 = 验证逻辑本身崩了,不能假装原输出是好的。
-        // 旧行为"回退 rawOutput"会掩盖 verify 已经发现的问题。
-        log.error(`[Registry] Verify threw: ${toolName}`, err)
+      const vr = await tool.verify(rawOutput, validatedInput, ctx)
+      // severity='block' + !ok 时,verify 主动判定输出不合格 → 强制转换为错误信封,
+      // 不能静默回退 rawOutput 否则幻觉检测/用户提示都被绕过。
+      if (vr.severity === 'block' && !vr.ok) {
         const envelope: ToolErrorEnvelope = {
           __talor_error: true,
-          code: 'VERIFY_CRASH',
-          message: err instanceof Error ? err.message : String(err),
+          code: 'VERIFY_BLOCKED',
+          message: vr.warning ?? 'Output failed verification',
         }
+        log.warn(`[Registry] Verify blocked: ${toolName} — ${envelope.message}`)
         return { toolCallId, toolName, output: envelope, durationMs: Date.now() - startTime }
       }
+      if (vr.warning) log.warn(`[Registry] Verify warning: ${toolName} — ${vr.warning}`)
+      return { toolCallId, toolName, output: vr.output, durationMs: Date.now() - startTime }
+    } catch (err) {
+      // verify 抛异常 = 验证逻辑本身崩了,不能假装原输出是好的。
+      // 旧行为"回退 rawOutput"会掩盖 verify 已经发现的问题。
+      log.error(`[Registry] Verify threw: ${toolName}`, err)
+      const envelope: ToolErrorEnvelope = {
+        __talor_error: true,
+        code: 'VERIFY_CRASH',
+        message: err instanceof Error ? err.message : String(err),
+      }
+      return { toolCallId, toolName, output: envelope, durationMs: Date.now() - startTime }
     }
+  }
 
-    return { toolCallId, toolName, output: rawOutput, durationMs: Date.now() - startTime }
-  },
+  return { toolCallId, toolName, output: rawOutput, durationMs: Date.now() - startTime }
 }
 
 function validateRequiredFields(tool: ToolDefinition, input: unknown): string | null {

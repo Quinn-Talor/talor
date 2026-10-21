@@ -26,6 +26,7 @@
 // "No MCP tools available" 的死工具。
 
 import type { ToolMetadata, ToolDefinition, ToolExecuteContext } from '../tools/types'
+import { runToolPipeline } from '../tools/registry'
 import type { BuiltinToolRegistry } from './builtin-registry'
 
 /**
@@ -205,11 +206,14 @@ export class ToolRegistry {
     input: unknown,
     context: ToolExecuteContext,
   ): Promise<{ output: unknown }> {
-    const agentTool = this.agentToolMap.get(name)
-    if (agentTool) return agentTool.execute(input, context)
-
-    const builtinTool = this.builtinRegistry.getTool(name)
-    if (builtinTool) return builtinTool.execute(input, context)
+    // builtin / agent 私有工具走 Zod → validate → execute → verify 完整管线;
+    // MCP 工具的入参由远端 server 按其 JSON Schema 校验。
+    const localTool = this.agentToolMap.get(name) ?? this.builtinRegistry.getTool(name)
+    if (localTool) {
+      const result = await runToolPipeline(localTool, input, context)
+      if (result.error !== undefined) throw new Error(result.error)
+      return { output: result.output }
+    }
 
     if (this.mcpRegistry) {
       return this.mcpRegistry.execute(name, input, context)

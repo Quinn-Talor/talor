@@ -22,20 +22,32 @@ afterEach(() => {
 
 describe('write tool', () => {
   it('creates new file with content', async () => {
-    const result = await toolRegistry.execute('write', { path: 'newfile.txt', content: 'hello world' }, makeContext())
+    const result = await toolRegistry.execute(
+      'write',
+      { path: 'newfile.txt', content: 'hello world' },
+      makeContext(),
+    )
     expect(result.output).toContain('Created')
     expect(readFileSync(join(TMP, 'newfile.txt'), 'utf-8')).toBe('hello world')
   })
 
   it('overwrites existing file', async () => {
     writeFileSync(join(TMP, 'existing.txt'), 'old content')
-    const result = await toolRegistry.execute('write', { path: 'existing.txt', content: 'new content' }, makeContext())
+    const result = await toolRegistry.execute(
+      'write',
+      { path: 'existing.txt', content: 'new content' },
+      makeContext(),
+    )
     expect(result.output).toContain('Updated')
     expect(readFileSync(join(TMP, 'existing.txt'), 'utf-8')).toBe('new content')
   })
 
   it('creates parent directories if not exist', async () => {
-    const result = await toolRegistry.execute('write', { path: 'nested/dir/file.txt', content: 'nested' }, makeContext())
+    const result = await toolRegistry.execute(
+      'write',
+      { path: 'nested/dir/file.txt', content: 'nested' },
+      makeContext(),
+    )
     expect(result.output).toContain('Created')
     expect(readFileSync(join(TMP, 'nested/dir/file.txt'), 'utf-8')).toBe('nested')
   })
@@ -51,17 +63,29 @@ describe('write tool', () => {
   })
 
   it('returns error for path outside workspace', async () => {
-    const result = await toolRegistry.execute('write', { path: '../outside.txt', content: 'test' }, makeContext())
+    const result = await toolRegistry.execute(
+      'write',
+      { path: '../outside.txt', content: 'test' },
+      makeContext(),
+    )
     expect(result.output).toContain('Cannot access path outside workspace')
   })
 
   it('returns error when workspace not set', async () => {
-    const result = await toolRegistry.execute('write', { path: 'file.txt', content: 'test' }, { sessionId: 'x', workspace: '' })
+    const result = await toolRegistry.execute(
+      'write',
+      { path: 'file.txt', content: 'test' },
+      { sessionId: 'x', workspace: '' },
+    )
     expect(result.output).toContain('Workspace not set')
   })
 
   it('returns error for sensitive path', async () => {
-    const result = await toolRegistry.execute('write', { path: '/etc/passwd', content: 'test' }, makeContext())
+    const result = await toolRegistry.execute(
+      'write',
+      { path: '/etc/passwd', content: 'test' },
+      makeContext(),
+    )
     expect(result.output).toBe('Cannot access sensitive system path')
   })
 
@@ -73,7 +97,35 @@ describe('write tool', () => {
     } catch {
       return
     }
-    const result = await toolRegistry.execute('write', { path: 'evil_link/injected.txt', content: 'pwned' }, makeContext())
+    const result = await toolRegistry.execute(
+      'write',
+      { path: 'evil_link/injected.txt', content: 'pwned' },
+      makeContext(),
+    )
     expect(result.output).toContain('Cannot access')
+  })
+
+  describe('文件系统错误返回 ToolErrorEnvelope', () => {
+    it('目标是已存在目录 → FS_ERROR 信封(含 EISDIR)', async () => {
+      mkdirSync(join(TMP, 'adir'))
+      const result = await toolRegistry.execute(
+        'write',
+        { path: 'adir', content: 'x' },
+        makeContext(),
+      )
+      const env = result.output as { __talor_error?: boolean; code?: string; message?: string }
+      expect(env.__talor_error).toBe(true)
+      expect(env.code).toBe('FS_ERROR')
+      expect(env.message).toContain('EISDIR')
+    })
+
+    it('正常写入 → 返回字符串,不是信封', async () => {
+      const result = await toolRegistry.execute(
+        'write',
+        { path: 'ok.txt', content: 'x' },
+        makeContext(),
+      )
+      expect(typeof result.output).toBe('string')
+    })
   })
 })

@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import { z } from 'zod'
 import { BuiltinToolRegistry } from './builtin-registry'
 import { ToolRegistry } from './agent-toolset'
 import type { ToolDefinition, ToolMetadata } from '../tools/types'
@@ -124,6 +125,76 @@ describe('ToolRegistry', () => {
     const registry = new ToolRegistry(builtinRegistry, makeMcpSource(mcpTools), new Set())
     const result = await registry.execute('sqlite_query', {}, { sessionId: 's', workspace: '' })
     expect(result.output).toBe('mcp:sqlite_query result')
+  })
+
+  describe('execute runs the Zod → validate → execute → verify pipeline', () => {
+    const Input = z.object({
+      cmd: z.string().refine((c) => !c.includes('sudo'), 'Dangerous command not allowed.'),
+      limit: z.number().default(10),
+    })
+    function makeGuardedTool(execute: ToolDefinition['execute']): ToolDefinition {
+      return {
+        name: 'guarded',
+        description: 'guarded tool',
+        parameters: z.toJSONSchema(Input) as Record<string, unknown>,
+        zodSchema: Input,
+        riskLevel: 'HIGH',
+        validate: (_input, ctx) =>
+          ctx.workspace ? { ok: true } : { ok: false, error: 'Workspace not set.' },
+        verify: async (output) => ({ ok: true, output: `verified:${String(output)}` }),
+        execute,
+      }
+    }
+    const ctx = { sessionId: 's', workspace: '/ws' }
+
+    it('Zod refine rejection never reaches execute (trigger)', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran' }))
+      const registry = new ToolRegistry(
+        new BuiltinToolRegistry([makeGuardedTool(execute)]),
+        null,
+        new Set(),
+      )
+      const result = await registry.execute('guarded', { cmd: 'sudo rm -rf /' }, ctx)
+      expect(execute).not.toHaveBeenCalled()
+      expect(String(result.output)).toContain('Dangerous command not allowed.')
+    })
+
+    it('validate rejection never reaches execute (trigger)', async () => {
+      const execute = vi.fn(async () => ({ output: 'ran' }))
+      const registry = new ToolRegistry(
+        new BuiltinToolRegistry([makeGuardedTool(execute)]),
+        null,
+        new Set(),
+      )
+      const result = await registry.execute('guarded', { cmd: 'ls' }, { ...ctx, workspace: '' })
+      expect(execute).not.toHaveBeenCalled()
+      expect(result.output).toBe('Workspace not set.')
+    })
+
+    it('valid input gets Zod defaults, executes, then verify post-processes (no trigger)', async () => {
+      const execute = vi.fn(async (input: unknown) => ({ output: JSON.stringify(input) }))
+      const registry = new ToolRegistry(
+        new BuiltinToolRegistry([makeGuardedTool(execute)]),
+        null,
+        new Set(),
+      )
+      const result = await registry.execute('guarded', { cmd: 'ls' }, ctx)
+      expect(execute).toHaveBeenCalledWith({ cmd: 'ls', limit: 10 }, expect.anything())
+      expect(result.output).toBe('verified:{"cmd":"ls","limit":10}')
+    })
+
+    it('execute exception surfaces as a thrown error', async () => {
+      const registry = new ToolRegistry(
+        new BuiltinToolRegistry([
+          makeGuardedTool(async () => {
+            throw new Error('boom')
+          }),
+        ]),
+        null,
+        new Set(),
+      )
+      await expect(registry.execute('guarded', { cmd: 'ls' }, ctx)).rejects.toThrow('boom')
+    })
   })
 
   it('execute throws for unknown tool', async () => {

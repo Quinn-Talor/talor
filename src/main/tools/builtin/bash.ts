@@ -86,6 +86,8 @@ function checkWritePaths(command: string, workspace: string): string | null {
 const STDOUT_THRESHOLD_BYTES = 10 * 1024
 const STDOUT_PREVIEW_BYTES = 2048
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024
+// 终止后等待管道关闭的宽限期
+const KILL_GRACE_MS = 300
 
 // 静态校验(不依赖 context):长度 + 危险命令黑名单。
 // 需要 workspace 的规则(checkWritePaths 必须引用 context.workspace)
@@ -175,9 +177,12 @@ const bashTool = {
     const params = input as BashInputT
 
     return new Promise((resolve) => {
+      // detached: 子进程自成进程组，终止时按组发信号，连带 `cmd &`、`npm run dev`
+      // 等派生的孙进程一起结束
       const child = spawn('/bin/bash', ['-c', params.command], {
         cwd: workspace,
         env: process.env,
+        detached: true,
       })
 
       let stdout = ''
@@ -187,22 +192,42 @@ const bashTool = {
       let killed: 'timeout' | 'abort' | 'oversize' | null = null
       let settled = false
 
-      const hardKill = () => {
+      const signalGroup = (sig: NodeJS.Signals) => {
         try {
-          child.kill('SIGKILL')
+          if (child.pid) {
+            process.kill(-child.pid, sig)
+            return
+          }
+        } catch {
+          /* 进程组已不存在,回退到单进程 */
+        }
+        try {
+          child.kill(sig)
         } catch {
           /* already exited */
         }
       }
+      // 被终止后,残留的孙进程可能仍持有 stdout/stderr 管道使 'close' 迟迟不来;
+      // bash 退出后给短暂宽限期,到期直接收尾并释放管道
+      let graceScheduled = false
+      const scheduleGraceFinish = () => {
+        if (graceScheduled) return
+        graceScheduled = true
+        setTimeout(() => {
+          if (settled) return
+          child.stdout.destroy()
+          child.stderr.destroy()
+          finishKilled()
+        }, KILL_GRACE_MS).unref()
+      }
+      const hasExited = () => child.exitCode !== null || child.signalCode !== null
+
       const terminate = (reason: 'timeout' | 'abort' | 'oversize') => {
         if (killed) return
         killed = reason
-        try {
-          child.kill('SIGTERM')
-        } catch {
-          /* ignore */
-        }
-        setTimeout(hardKill, 2000).unref()
+        signalGroup('SIGTERM')
+        setTimeout(() => signalGroup('SIGKILL'), 2000).unref()
+        if (hasExited()) scheduleGraceFinish()
       }
 
       child.stdout.on('data', (chunk: Buffer) => {
@@ -236,14 +261,35 @@ const bashTool = {
         finish({ output: `[exit: non-zero]\nFailed to spawn: ${err.message}` })
       })
 
-      child.on('close', (code) => {
-        if (killed === 'timeout')
-          return finish({ output: `Command timed out after ${toolTimeoutMs}ms` })
-        if (killed === 'abort') return finish({ output: `[aborted] Command was cancelled.` })
-        if (killed === 'oversize')
-          return finish({
+      const finishKilled = (): boolean => {
+        if (killed === 'timeout') {
+          finish({ output: `Command timed out after ${toolTimeoutMs}ms` })
+          return true
+        }
+        if (killed === 'abort') {
+          const envelope: ToolErrorEnvelope = {
+            __talor_error: true,
+            code: 'BASH_ABORTED',
+            message: '[aborted] Command was cancelled.',
+          }
+          finish({ output: envelope })
+          return true
+        }
+        if (killed === 'oversize') {
+          finish({
             output: `[exit: non-zero]\nCommand output exceeded ${MAX_BUFFER_BYTES} bytes and was terminated.`,
           })
+          return true
+        }
+        return false
+      }
+
+      child.on('exit', () => {
+        if (killed) scheduleGraceFinish()
+      })
+
+      child.on('close', (code) => {
+        if (finishKilled()) return
         if (code !== 0) {
           // Principle 3(逐字报告失败):非零退出要把命令实际输出原样带回。只取 stderr
           // 会丢两类常见情形 —— (1) CLI 把错误打到 stdout;(2) 模型用 `2>&1` 把 stderr

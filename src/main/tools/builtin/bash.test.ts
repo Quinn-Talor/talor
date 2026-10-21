@@ -160,9 +160,75 @@ describe('bash tool', () => {
     setTimeout(() => controller.abort(), 200)
     const result = await pending
     const elapsed = Date.now() - start
-    expect(String(result.output)).toContain('[aborted]')
+    const env = result.output as { __talor_error?: boolean; code?: string; message?: string }
+    expect(env.__talor_error).toBe(true)
+    expect(env.code).toBe('BASH_ABORTED')
+    expect(env.message).toContain('[aborted]')
     expect(elapsed).toBeLessThan(5000)
   }, 10000)
+
+  // ── 进程组终止:孙进程持有管道时工具仍能及时返回 ──────────────────────
+  function isAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  it('超时:前台孙进程(sleep 100; echo x)被连带终止并及时返回', async () => {
+    const start = Date.now()
+    const result = await run('sleep 100; echo x', makeCtx({ toolTimeoutMs: 300 }))
+    expect(String(result.output)).toContain('Command timed out after 300ms')
+    expect(Date.now() - start).toBeLessThan(3000)
+  }, 10000)
+
+  it('超时:后台孙进程(&)持有管道时及时返回,且孙进程被杀', async () => {
+    const { mkdtempSync, readFileSync, rmSync } = await import('fs')
+    const { tmpdir } = await import('os')
+    const { join } = await import('path')
+    const dir = mkdtempSync(join(tmpdir(), 'talor-bash-bg-'))
+    const start = Date.now()
+    const result = await run(
+      'sleep 100 & echo $! > bg.pid; echo started',
+      makeCtx({ workspace: dir, toolTimeoutMs: 500 }),
+    )
+    expect(String(result.output)).toContain('Command timed out')
+    expect(Date.now() - start).toBeLessThan(3000)
+    const pid = Number(readFileSync(join(dir, 'bg.pid'), 'utf8').trim())
+    await new Promise((r) => setTimeout(r, 200))
+    expect(isAlive(pid)).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  }, 10000)
+
+  it('中止:前台孙进程被连带终止并及时返回 BASH_ABORTED', async () => {
+    const controller = new AbortController()
+    const start = Date.now()
+    const pending = run(
+      'sleep 30; echo x',
+      makeCtx({ toolTimeoutMs: 60_000, abortSignal: controller.signal }),
+    )
+    setTimeout(() => controller.abort(), 200)
+    const result = await pending
+    expect((result.output as { code?: string }).code).toBe('BASH_ABORTED')
+    expect(Date.now() - start).toBeLessThan(3000)
+  }, 10000)
+
+  it('终止后孙进程忽略 SIGTERM 仍持有管道:宽限期到即返回,不等 SIGKILL', async () => {
+    const start = Date.now()
+    const result = await run(
+      "(trap '' TERM; exec sleep 100) & exec sleep 100",
+      makeCtx({ toolTimeoutMs: 200 }),
+    )
+    expect(String(result.output)).toContain('Command timed out')
+    expect(Date.now() - start).toBeLessThan(1500)
+  }, 10000)
+
+  it('未超时的命令不受影响:正常返回输出', async () => {
+    const result = await run('sleep 0.1; echo done', makeCtx({ toolTimeoutMs: 5000 }))
+    expect(String(result.output)).toBe('done')
+  })
 
   // ── stderr 语义化 ──────────────────────────────────────────────────
   it('exit=0 with informational stderr is labelled, not flagged as error', async () => {
