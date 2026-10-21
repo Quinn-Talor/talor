@@ -10,6 +10,10 @@ interface AgentsPageProps {
   onNavigateChat: (sessionId: string) => void
 }
 
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 export function AgentsPage({ onNavigateChat }: AgentsPageProps) {
   const [agents, setAgents] = useState<AgentCardData[]>([])
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
@@ -40,6 +44,7 @@ export function AgentsPage({ onNavigateChat }: AgentsPageProps) {
       onNavigateChat(session_id)
     } catch (err) {
       console.error('Failed to create agent session:', err)
+      alert(`启动对话失败:${errorText(err)}`)
     }
   }
 
@@ -49,6 +54,7 @@ export function AgentsPage({ onNavigateChat }: AgentsPageProps) {
       await loadAgents()
     } catch (err) {
       console.error('Failed to enable agent:', err)
+      alert(`启用失败:${errorText(err)}`)
     }
   }
 
@@ -60,6 +66,7 @@ export function AgentsPage({ onNavigateChat }: AgentsPageProps) {
       await loadAgents()
     } catch (err) {
       console.error('Failed to delete agent:', err)
+      alert(`删除失败:${errorText(err)}`)
     }
   }
 

@@ -86,6 +86,8 @@ export function SessionItem({
             onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
+              // 输入法组合中(中文选词回车)不提交
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return
               if (e.key === 'Enter') {
                 e.preventDefault()
                 committedRef.current = true

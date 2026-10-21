@@ -105,7 +105,11 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
 
   const errors = validatorIssues.filter((i) => i.severity === 'error')
   const warnings = validatorIssues.filter((i) => i.severity === 'warn')
-  const canSave = parsed !== null && parseError === null && errors.length === 0
+  // 编辑已有 agent 时 id 即磁盘目录名,不允许在 JSON 里改
+  const parsedId =
+    parsed && typeof parsed === 'object' ? (parsed as { id?: unknown }).id : undefined
+  const idChanged = !!agentId && parsed !== null && parsedId !== agentId
+  const canSave = parsed !== null && parseError === null && errors.length === 0 && !idChanged
   const canPreview = parsed !== null && parseError === null
 
   const handlePreview = async () => {
@@ -141,7 +145,12 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
   const handleLoadTemplate = (tplId: string) => {
     const tpl = templates.find((t) => t.id === tplId)
     if (!tpl) return
-    setJson(JSON.stringify(tpl.profile, null, 2))
+    // 编辑态载入模板只替换内容,保留当前 agent 的 id
+    const profile =
+      agentId && tpl.profile && typeof tpl.profile === 'object'
+        ? { ...(tpl.profile as Record<string, unknown>), id: agentId }
+        : tpl.profile
+    setJson(JSON.stringify(profile, null, 2))
   }
 
   const summary = useMemo(() => {
@@ -220,6 +229,11 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
 
         <footer className="border-t border-gray-700 bg-gray-800 px-4 py-2 max-h-48 overflow-y-auto">
           {parseError && <div className="text-xs text-red-400">JSON 解析错误: {parseError}</div>}
+          {idChanged && (
+            <div className="text-xs text-red-400">
+              不能修改 id(当前 agent: {agentId});如需新 agent 请走沉淀流程
+            </div>
+          )}
           {!parseError && errors.length === 0 && warnings.length === 0 && (
             <div className="text-xs text-green-400">✓ 校验通过 (rules 1~9)</div>
           )}
@@ -301,7 +315,7 @@ export function AgentEditPage({ agentId, onClose }: AgentEditPageProps) {
         </div>
       </aside>
 
-      {showDryRun && parsed && (
+      {showDryRun && parsed !== null && (
         <DryRunModal profile={parsed} onClose={() => setShowDryRun(false)} />
       )}
     </div>

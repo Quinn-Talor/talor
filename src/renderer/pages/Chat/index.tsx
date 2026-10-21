@@ -14,16 +14,21 @@ import { ToolCallLog } from '../../components/ToolCallLog'
 import { ToolDispatch } from '../../components/tool-calls/ToolDispatch'
 import { TraceChip } from '../../components/trace/TraceChip'
 import { TracePanel } from '../../components/trace/TracePanel'
-// ToolConfirmDialog 和 PermissionDialog 已下线到 PermissionsPopover 内嵌渲染,
-// UX 统一为 popover 卡片。两个组件源码保留(可能的全屏 agent 模式备用),
-// 但 Chat 页面不再消费它们。
 import { PermissionsPopover } from '../../components/PermissionsPopover'
+import { PendingApprovals } from '../../components/PendingApprovals'
 import { CrystallizeSeparator } from '../../components/CrystallizeSeparator'
 import { WorkbenchAgentList } from '../../components/WorkbenchAgentList'
 import { DraftReviewModal } from '../../components/DraftReviewModal'
 import { AgentPreviewModal } from '../../components/AgentPreviewModal'
 import { useCrystallizeWorkbench } from '../../hooks/useCrystallizeWorkbench'
-import type { Attachment } from '../../types/chat'
+import type { Attachment, ChatMessage } from '../../types/chat'
+import {
+  countPersistedUserMessages,
+  friendlyChatError,
+  isHiddenChatMessage,
+  isImeComposing,
+  pickDefaultSession,
+} from './chat-helpers'
 import type { ModelInfo, ReasoningConfig } from '@shared/types/models'
 import type { AgentCardData } from '../../components/AgentCard'
 
@@ -80,9 +85,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     setCurrentSession,
     setMessages,
     addMessage,
-    clearStreaming,
     setAttachments,
     removeAttachment,
+    turns,
   } = useChatStore()
 
   const [input, setInput] = useState('')
@@ -95,7 +100,13 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const [currentModelId, setCurrentModelId] = useState<string | undefined>()
   const [currentReasoning, setCurrentReasoning] = useState<ReasoningConfig | undefined>()
   const [currentWorkspace, setCurrentWorkspace] = useState<string | undefined>()
-  const [currentAgentId, setCurrentAgentId] = useState<string | undefined>()
+  const [currentAgentId, setCurrentAgentIdState] = useState<string | undefined>()
+  // 异步回调(定时刷新、listTools 返回)读最新的 agent,避免旧请求覆盖当前 agent 的工具列表
+  const currentAgentIdRef = useRef<string | undefined>(undefined)
+  const setCurrentAgentId = useCallback((id: string | undefined) => {
+    currentAgentIdRef.current = id
+    setCurrentAgentIdState(id)
+  }, [])
   const [agentTools, setAgentTools] = useState<
     Array<{ name: string; description: string; provider?: string; riskLevel?: string }>
   >([])
@@ -125,7 +136,12 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const [previewAgentId, setPreviewAgentId] = useState<string | null>(null)
   // Trace 检视:当前打开的 trace(连同所属 session,切走会话后不再显示)
   // + 历史工具耗时(toolCallId → ms,来自 trace 的 TOOL observation)
-  const [openTrace, setOpenTrace] = useState<{ sessionId: string; traceId: string } | null>(null)
+  // openSeq 每次点击 Trace 入口递增:即使再点同一轮,面板也会切回该轮详情
+  const [openTrace, setOpenTrace] = useState<{
+    sessionId: string
+    traceId: string
+    openSeq: number
+  } | null>(null)
   const [toolDurations, setToolDurations] = useState<Record<string, number>>({})
 
   useStreamingMessage(currentSessionId)
@@ -138,37 +154,52 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }, [setSessions])
 
+  const loadAgents = useCallback(async () => {
+    try {
+      setAgents((await talorAPI.agents.list()) as AgentCardData[])
+    } catch (e) {
+      console.error('Failed to load agents', e)
+    }
+  }, [])
+
   // 启动 agent 会话：从工作台 list 行 / preview modal / Agents 页 共用同一逻辑。
-  // 流程：关工作台（如果开着）→ createSession → reload sessions list → 切到新 session
-  // 必须放在 loadSessions 之后 —— deps 数组引用 loadSessions，hoisting 不允许前置。
+  // 流程：关工作台（如果开着）→ createSession → reload sessions / agents → 切到新 session
+  // 必须放在 loadSessions / loadAgents 之后 —— deps 数组引用它们，hoisting 不允许前置。
   const startAgentSession = useCallback(
     async (agentId: string) => {
       try {
         const result = await talorAPI.agents.createSession(agentId)
         if (ws.isOpen) await ws.close()
         setPreviewAgentId(null)
-        await loadSessions()
+        // 工作台刚生成的 agent 不在已加载列表里,先刷新,新会话才能解析到它
+        await Promise.all([loadSessions(), loadAgents()])
         setCurrentSession(result.session_id)
       } catch (err) {
         alert(`启动失败: ${err instanceof Error ? err.message : err}`)
       }
     },
-    [ws, loadSessions, setCurrentSession],
+    [ws, loadSessions, loadAgents, setCurrentSession],
   )
 
+  // 拉取并展示某 session 的消息;返回拉到的消息(失败为 null)。
+  // 请求返回时用户可能已切到别的会话,只有仍是当前会话时才写入视图。
   const loadMessages = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<ChatMessage[] | null> => {
+      const isCurrent = () => useChatStore.getState().currentSessionId === id
+      let msgs: ChatMessage[] | null = null
       try {
-        setMessages(await talorAPI.session.getMessages(id))
+        msgs = await talorAPI.session.getMessages(id)
+        if (isCurrent()) setMessages(msgs)
       } catch (e) {
         console.error('Failed to load messages', e)
       }
       try {
         const durations = await talorAPI.trace.toolDurations(id)
-        setToolDurations(durations.status === 'success' ? durations.durations : {})
+        if (isCurrent()) setToolDurations(durations.status === 'success' ? durations.durations : {})
       } catch (e) {
         console.error('Failed to load tool durations', e)
       }
+      return msgs
     },
     [setMessages],
   )
@@ -196,22 +227,15 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }, [])
 
-  const loadAgents = useCallback(async () => {
-    try {
-      setAgents((await talorAPI.agents.list()) as AgentCardData[])
-    } catch (e) {
-      console.error('Failed to load agents', e)
-    }
-  }, [])
-
+  // agentId undefined = 平台 agent(__chat__)。返回时 agent 已切换则丢弃结果。
   const loadAgentTools = useCallback(async (agentId: string | undefined) => {
-    // undefined = platform agent (__chat__), use __chat__ id
     const id = agentId ?? '__chat__'
+    const stillCurrent = () => (currentAgentIdRef.current ?? '__chat__') === id
     try {
       const tools = await talorAPI.agents.listTools(id)
-      setAgentTools(tools)
+      if (stillCurrent()) setAgentTools(tools)
     } catch {
-      setAgentTools([])
+      if (stillCurrent()) setAgentTools([])
     }
   }, [])
 
@@ -219,9 +243,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     loadSessions()
     loadModelOptions()
     loadAgents()
-    loadAgentTools(undefined)
+    loadAgentTools(currentAgentIdRef.current)
     // MCP 启动比 UI mount 慢约 2 秒。延迟再刷一次,让 MCP 工具及时进入 badge 计数。
-    const t = setTimeout(() => loadAgentTools(undefined), 3000)
+    const t = setTimeout(() => loadAgentTools(currentAgentIdRef.current), 3000)
     return () => clearTimeout(t)
   }, [loadSessions, loadModelOptions, loadAgents, loadAgentTools])
 
@@ -255,7 +279,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       <TraceChip
         key={`trace-${traceId}-${idx}`}
         traceId={traceId}
-        onOpen={(id) => setOpenTrace({ sessionId, traceId: id })}
+        onOpen={(id) =>
+          setOpenTrace((prev) => ({ sessionId, traceId: id, openSeq: (prev?.openSeq ?? 0) + 1 }))
+        }
       />
     )
     const nodes = messages.reduce((acc, msg, idx) => {
@@ -263,7 +289,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       if (prev?.trace_id && prev.trace_id !== msg.trace_id) {
         acc.push(traceChip(prev.trace_id, prev.session_id, idx))
       }
-      if (msg.role === 'tool') return acc
+      if (isHiddenChatMessage(msg)) return acc
       if (msg.role === 'assistant') {
         try {
           const blocks = JSON.parse(msg.content) as Array<{
@@ -359,7 +385,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
 
   // Auto-select most recent session
   useEffect(() => {
-    if (!currentSessionId && sessions.length > 0) setCurrentSession(sessions[0].id)
+    if (currentSessionId) return
+    const def = pickDefaultSession(sessions)
+    if (def) setCurrentSession(def.id)
   }, [sessions, currentSessionId, setCurrentSession])
 
   const resolveAgentId = useCallback(
@@ -378,9 +406,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       setCurrentModelId(s?.model_id)
       setCurrentReasoning(s?.reasoning)
       setCurrentWorkspace(s?.workspace ?? undefined)
-      const resolvedId = resolveAgentId(s?.agent_id)
-      setCurrentAgentId(resolvedId)
-      loadAgentTools(resolvedId)
+      setCurrentAgentId(resolveAgentId(s?.agent_id))
       setModelUnavailable(false)
       if (s?.model_id) {
         talorAPI.session
@@ -401,16 +427,21 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }, [currentSessionId]) // eslint-disable-line
 
+  // resolveAgentId 依赖 agents:agents 刷新后(如工作台新建了 agent)重新解析当前会话的 agent
   useEffect(() => {
     if (currentSessionId) {
       const s = sessions.find((s) => s.id === currentSessionId)
       setCurrentModelId(s?.model_id)
       setCurrentReasoning(s?.reasoning)
       setCurrentWorkspace(s?.workspace ?? undefined)
-      const resolvedId = resolveAgentId(s?.agent_id)
-      setCurrentAgentId(resolvedId)
+      setCurrentAgentId(resolveAgentId(s?.agent_id))
     }
-  }, [sessions, currentSessionId])
+  }, [sessions, currentSessionId, resolveAgentId, setCurrentAgentId])
+
+  // 工具列表跟随当前会话解析出的 agent
+  useEffect(() => {
+    if (currentSessionId) loadAgentTools(currentAgentId)
+  }, [currentSessionId, currentAgentId, loadAgentTools])
 
   useEffect(() => {
     if (streamState === 'done' && currentSessionId) {
@@ -420,30 +451,27 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }, [streamState, currentSessionId]) // eslint-disable-line
 
-  // v3.6 事件驱动: 主进程一条 message 落库后,通过 chat:message-persisted
-  // 事件通知 renderer 立即刷新本 session — 替代旧 3s polling。
+  // 事件驱动刷新: 主进程一条 message 落库后通过 chat:message-persisted 通知,
+  // renderer 立即刷新本 session。
   //
-  // 配套两件事:
-  //   1. loadMessages — 拉取最新 messages,renderedMessages 显示新落库内容
-  //   2. dropStreamItemsUpToStep — 清掉对应 step 的 streamItems,避免
-  //      ToolCallMessage (持久) 与 ToolCallLog (流式) 同时渲染同一步工具调用
-  //      列表 (1:1 视觉重复 — 事件驱动放大了 race,3s polling 不显眼)
+  // 配套两件事(顺序固定):
+  //   1. await loadMessages — 拉取最新 messages,renderedMessages 显示新落库内容
+  //   2. dropStreamItemsUpToStep — 新消息已进入列表后再清掉对应 step 的 streamItems;
+  //      先清会出现"流式内容已消失、持久内容未到"的闪烁,不清则 ToolCallMessage
+  //      (持久) 与 ToolCallLog (流式) 重复渲染同一步
   //
-  // 配套保留 30s 兜底 polling: 万一主进程事件丢 (IPC 罕见但可能),loadMessages
-  // 仍能补齐。兜底间隔比旧值长 10×,几乎无 CPU 开销。
-  //
-  // 历史背景: 旧实现是 streaming 期间每 3 秒 polling,因为只在 streamState='done'
-  // 时 loadMessages 会导致长任务期间"消息丢失" (commit 3d38945)。事件驱动
-  // 把延迟从秒级降到 IPC RTT (<50ms),同时保留兜底防回归。
+  // 进入 streaming 时不立即拉取:发起即进入 streaming,此时用户消息可能尚未落库,
+  // 立即拉取会把乐观插入的用户消息冲掉;切换会话时的拉取由 currentSessionId effect 负责。
+  // 保留 30s 兜底 polling: 主进程事件丢失(IPC 异常)时 loadMessages 仍能补齐。
   useEffect(() => {
     if (streamState !== 'streaming' || !currentSessionId) return
-    // 立即刷一次,让首批 persist 的 message 立刻进入 messages 列表
-    loadMessages(currentSessionId)
     // 主事件订阅: 仅当通知的 session 是当前 session 时刷新 + 清流式残留
     const unsubscribe = talorAPI.chat.onMessagePersisted((ev) => {
       if (ev.session_id !== currentSessionId) return
-      loadMessages(currentSessionId)
-      useChatStore.getState().dropStreamItemsUpToStep(ev.step_index)
+      void loadMessages(currentSessionId).then(() => {
+        if (useChatStore.getState().currentSessionId !== currentSessionId) return
+        useChatStore.getState().dropStreamItemsUpToStep(ev.step_index)
+      })
     })
     // 兜底 polling: 30s 间隔(事件丢/IPC 异常时仍能补齐)
     const interval = setInterval(() => {
@@ -546,6 +574,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     setCurrentReasoning(reasoning)
     try {
       await talorAPI.session.updateReasoning({ session_id: currentSessionId, reasoning })
+      // 推理深度存在 session 行上:刷新列表,切走再切回时读到的是新值
+      await loadSessions()
     } catch (e) {
       console.error('Failed to update reasoning', e)
     }
@@ -596,56 +626,87 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     }
   }
 
+  // 发送目标:工作台打开时发往工作台 session,否则当前会话
+  const targetSessionId = ws.workbenchSessionId ?? currentSessionId
+  // 目标 session 有未返回的 chat:send(含已点停止、等待主进程收尾的轮次)时不允许再发
+  const isBusy =
+    streamState === 'streaming' || (targetSessionId != null && !!turns[targetSessionId])
+
   // Send arbitrary text as a user message — shared by handleSend and block CTAs
-  // (need_input choice, proposal emit / CTA). Skips empty content + streaming guard.
+  // (need_input choice, proposal emit / CTA).
+  // 返回值:'sent' 已发出;'skipped' 未发出(空内容 / 上一轮未结束);
+  // 'unpersisted' 该轮在用户消息落库前就失败(如附件校验),调用方可恢复输入。
   const sendAsUser = useCallback(
-    async (content: string, opts?: { attach?: Attachment[] }) => {
-      if (!content.trim() || !currentSessionId || streamState === 'streaming') return
-      clearStreaming()
+    async (
+      content: string,
+      opts?: { attach?: Attachment[] },
+    ): Promise<'sent' | 'skipped' | 'unpersisted'> => {
+      const attach = opts?.attach ?? []
+      if ((!content.trim() && attach.length === 0) || !currentSessionId) return 'skipped'
+      const sid = currentSessionId
+      const target = ws.workbenchSessionId ?? sid
+      const routedToWorkbench = target !== sid
+      const st = useChatStore.getState()
+      if (st.streamState === 'streaming' || st.turns[target]) return 'skipped'
 
-      const targetSessionId = ws.workbenchSessionId ?? currentSessionId
-      const routedToWorkbench = targetSessionId !== currentSessionId
-
+      const userCountBefore = countPersistedUserMessages(st.messages)
+      // 主进程整轮结束才返回 chat:send,首个流事件前可能长时间无事件:
+      // 发起即进入 streaming,期间禁止重复发送
+      st.beginTurn(target)
       if (!routedToWorkbench) {
         addMessage({
           id: `temp-${Date.now()}`,
-          session_id: currentSessionId,
+          session_id: sid,
           role: 'user',
           content,
           created_at: new Date().toISOString(),
         })
       }
+      const isStillCurrent = () => useChatStore.getState().currentSessionId === sid
+      let outcome: 'sent' | 'unpersisted' = 'sent'
       try {
         await talorAPI.chat.send({
-          session_id: targetSessionId,
+          session_id: target,
           content,
-          attachments: opts?.attach && opts.attach.length > 0 ? opts.attach : undefined,
+          attachments: attach.length > 0 ? attach : undefined,
         })
-        if (routedToWorkbench) await ws.refresh()
-        else await loadMessages(currentSessionId)
+        if (routedToWorkbench) {
+          await ws.refresh()
+        } else if (isStillCurrent()) {
+          // 业务错误不 reject,经流 error 事件到达(已在 chat:send 返回前写入 store)
+          const failed = useChatStore.getState().streamState === 'error'
+          const msgs = await loadMessages(sid)
+          if (failed && msgs && countPersistedUserMessages(msgs) <= userCountBefore) {
+            outcome = 'unpersisted'
+          }
+        }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        if (msg.includes('FILE_TOO_LARGE')) alert('文件大小超过限制（最大 50MB）')
-        else if (msg.includes('UNSUPPORTED_FILE_TYPE')) alert('不支持的文件类型')
-        else if (msg.includes('FILE_NOT_FOUND')) alert('文件不存在或无法访问')
-        else if (msg.includes('PROVIDER_NO_VISION')) alert('当前模型不支持图片识别')
-        else alert(`发送失败: ${msg}`)
+        // chat:send 仅在入口层异常(如主窗口不存在)时 reject,此时用户消息未落库
+        console.error('chat:send failed', e)
+        alert(`发送失败: ${e instanceof Error ? e.message : String(e)}`)
+        outcome = 'unpersisted'
+        if (!routedToWorkbench && isStillCurrent()) await loadMessages(sid)
+      } finally {
+        useChatStore.getState().finishTurn(target)
       }
+      return outcome
     },
-    [currentSessionId, streamState, clearStreaming, ws, addMessage, loadMessages],
+    [currentSessionId, ws, addMessage, loadMessages],
   )
 
   const handleSend = async () => {
-    if (
-      (!input.trim() && attachments.length === 0) ||
-      !currentSessionId ||
-      streamState === 'streaming'
-    )
-      return
     const content = input.trim()
+    const attach = attachments
+    if ((!content && attach.length === 0) || !currentSessionId || isBusy) return
+    const sid = currentSessionId
+    // 发起即清空:chat:send 要等整轮结束才返回,不能等它返回后再清
     setInput('')
-    await sendAsUser(content, { attach: attachments })
     setAttachments([])
+    const outcome = await sendAsUser(content, { attach })
+    if (outcome === 'sent' || useChatStore.getState().currentSessionId !== sid) return
+    // 未发出 / 落库前失败:恢复输入,但不覆盖用户在等待期间新输入的内容
+    setInput((cur) => cur || content)
+    if (useChatStore.getState().attachments.length === 0) setAttachments(attach)
   }
 
   // Block CTAs all route through sendAsUser. Phase 8.3: proposal CTA constructs
@@ -698,6 +759,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   }, [onPickChoice, onConfirmProposal, onEmit])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isImeComposing(e)) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -706,12 +768,20 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
 
   const handleStop = async () => {
     if (!currentSessionId) return
-    clearStreaming()
-    clearStreaming()
+    const sid = currentSessionId
+    const s = useChatStore.getState()
+    s.stopTurn(sid)
+    // 本轮(含子 agent)挂起的工具确认随停止失效:立即回复拒绝,不让主进程等到超时
+    for (const req of s.takeToolConfirmsForRoot(sid)) {
+      talorAPI.chat.sendToolConfirmResponse({ toolCallId: req.toolCallId, decision: 'rejected' })
+    }
+    for (const req of s.takePermissionsForRoot(sid)) {
+      talorAPI.chat.sendPermissionResponse({ requestId: req.requestId, decision: 'rejected' })
+    }
     try {
-      await talorAPI.chat.abort(currentSessionId)
-    } catch {
-      /* noop */
+      await talorAPI.chat.abort(sid)
+    } catch (e) {
+      console.warn('chat:abort failed', e)
     }
   }
 
@@ -1248,7 +1318,12 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                       </svg>
                       <div>
                         <div className="font-mono text-[11px] text-[#991b1b]">{error.code}</div>
-                        <div>{error.message}</div>
+                        {friendlyChatError(error.code) && (
+                          <div>{friendlyChatError(error.code)}</div>
+                        )}
+                        {error.message && error.message !== error.code && (
+                          <div className="text-[12px] opacity-80 break-words">{error.message}</div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1271,14 +1346,16 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                                 Crystallizer 提议草稿。
                               </div>
                             ) : (
-                              ws.workbenchMessages.map((m) => (
-                                <MessageBubble
-                                  key={m.id}
-                                  message={m}
-                                  variant="crystallize"
-                                  onReviewDraft={(profile) => setReviewProfile(profile)}
-                                />
-                              ))
+                              ws.workbenchMessages
+                                .filter((m) => m.role !== 'system')
+                                .map((m) => (
+                                  <MessageBubble
+                                    key={m.id}
+                                    message={m}
+                                    variant="crystallize"
+                                    onReviewDraft={(profile) => setReviewProfile(profile)}
+                                  />
+                                ))
                             )}
                             {/* 流式 token 增量：done 之前的内容渲染成临时
                                 assistant bubble；done 后 hook 的 refresh()
@@ -1418,6 +1495,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   </div>
                 )
               })()}
+              {/* 待确认的工具调用 / 授权请求 —— 与 workspace 无关,有请求就显示 */}
+              <PendingApprovals />
               {/* Attachment previews */}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -1491,7 +1570,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   {/* Attachment */}
                   <button
                     onClick={handleAttachmentClick}
-                    disabled={streamState === 'streaming'}
+                    disabled={isBusy}
                     title="添加附件"
                     className="flex items-center justify-center w-7 h-7 rounded-[7px] transition-colors hover:bg-[#f1f5f9] disabled:opacity-40"
                   >
@@ -1838,7 +1917,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                   ) : (
                     <button
                       onClick={handleSend}
-                      disabled={!input.trim() && attachments.length === 0}
+                      disabled={isBusy || (!input.trim() && attachments.length === 0)}
                       className="flex items-center justify-center rounded-[8px] transition-all hover:opacity-90 disabled:opacity-30"
                       style={{
                         width: 30,
@@ -1872,6 +1951,9 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         ) : (
           /* ── Empty state ── */
           <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+            <div className="w-full" style={{ maxWidth: 620 }}>
+              <PendingApprovals />
+            </div>
             <div className="text-center">
               <div
                 className="flex items-center justify-center mx-auto mb-4 rounded-[16px]"
@@ -1987,12 +2069,13 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         )}
       </div>
 
-      {/* Trace 检视面板 — 右侧停靠,与聊天区同级(不覆盖);点另一轮的 Trace 入口时按 key 重挂载 */}
+      {/* Trace 检视面板 — 右侧停靠,与聊天区同级(不覆盖);点任一轮的 Trace 入口都切回该轮详情 */}
       {openTrace && openTrace.sessionId === currentSessionId && (
         <TracePanel
-          key={openTrace.traceId}
+          key={openTrace.sessionId}
           sessionId={openTrace.sessionId}
           traceId={openTrace.traceId}
+          openSeq={openTrace.openSeq}
           onClose={() => setOpenTrace(null)}
         />
       )}
@@ -2016,6 +2099,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           onClose={() => setReviewProfile(null)}
           onSaved={() => {
             void ws.refresh()
+            void loadAgents()
           }}
         />
       )}
@@ -2027,9 +2111,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           onStart={startAgentSession}
         />
       )}
-      {/* ToolConfirmDialog 和 PermissionDialog 都已迁移到 PermissionsPopover
-          内嵌卡片展示,授权 UX 统一为 popover。两个独立对话框组件源码保留,
-          未来若引入全屏 agent 模式再复用。 */}
       {modelSwitchedToast && (
         <div
           className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl text-[13px] text-white shadow-lg z-50 pointer-events-none"

@@ -4,7 +4,8 @@
 //   详情 —— 头部:结束原因 / 总耗时 / GENERATION 用量;工具栏:Show debug 开关 + 👍👎 反馈
 //          (user_feedback 评分);主体:observation 树
 //   列表 —— 本会话每轮 trace:时间、输入预览、结束原因、模型 / 工具 / 错误数、用量、耗时,点击进入详情
-// 数据经 talorAPI.trace 拉取,失败时显示错误码。
+// 数据经 talorAPI.trace 拉取,失败时显示错误码。进行中的轮次(end_time 为空)定时重新拉取,
+// 直到结束或面板关闭。
 
 import { useEffect, useState } from 'react'
 import { talorAPI } from '../../api/talorAPI'
@@ -17,8 +18,13 @@ import { formatTraceDuration, usageInOut, usageTotals } from './trace-tree'
 export interface TracePanelProps {
   sessionId: string
   traceId: string
+  /** 每次从外部打开(点 Trace 入口)递增;再次点同一轮也会切回它的详情 */
+  openSeq?: number
   onClose: () => void
 }
+
+/** 进行中 trace 的刷新间隔 */
+export const RUNNING_TRACE_POLL_MS = 2000
 
 type LoadedTrace = Extract<TraceGetResult, { status: 'success' }>
 
@@ -39,6 +45,8 @@ function TraceList({
   const [traces, setTraces] = useState<TraceSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [reloadKey, setReloadKey] = useState(0)
+
   useEffect(() => {
     let alive = true
     void talorAPI.trace.list(sessionId).then((r) => {
@@ -54,7 +62,14 @@ function TraceList({
     return () => {
       alive = false
     }
-  }, [sessionId])
+  }, [sessionId, reloadKey])
+
+  const anyRunning = !!traces?.some((t) => t.end_time === null)
+  useEffect(() => {
+    if (!anyRunning) return
+    const t = setTimeout(() => setReloadKey((k) => k + 1), RUNNING_TRACE_POLL_MS)
+    return () => clearTimeout(t)
+  }, [anyRunning, traces])
 
   if (error) return <div className="px-3 py-4 text-[12px] text-err">{error}</div>
   if (!traces) return <div className="px-3 py-4 text-[12px] text-mute">Loading…</div>
@@ -99,15 +114,21 @@ function TraceList({
   )
 }
 
-export function TracePanel({ sessionId, traceId, onClose }: TracePanelProps) {
+export function TracePanel({ sessionId, traceId, openSeq, onClose }: TracePanelProps) {
   const [activeId, setActiveId] = useState(traceId)
   const [view, setView] = useState<'detail' | 'list'>('detail')
+
+  useEffect(() => {
+    setActiveId(traceId)
+    setView('detail')
+  }, [traceId, openSeq])
+
   const [data, setData] = useState<LoadedTrace | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [scoreError, setScoreError] = useState<string | null>(null)
   const showDebug = useUIStore((s) => s.showTraceDebug)
   const toggleShowDebug = useUIStore((s) => s.toggleShowTraceDebug)
-  // 评分成功后 +1 触发重新拉取
+  // 评分成功 / 进行中轮次定时刷新时 +1 触发重新拉取
   const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
@@ -150,6 +171,13 @@ export function TracePanel({ sessionId, traceId, onClose }: TracePanelProps) {
 
   // 切换 trace 后、新数据到达前不展示上一条的内容
   const current = data && data.trace.id === activeId ? data : null
+  const running = current?.trace.end_time === null
+
+  useEffect(() => {
+    if (!running) return
+    const t = setTimeout(() => setReloadKey((k) => k + 1), RUNNING_TRACE_POLL_MS)
+    return () => clearTimeout(t)
+  }, [running, data])
   const usage = current ? usageTotals(current.observations) : null
   const io = usage ? usageInOut(usage) : null
   const exitReason = current?.trace.metadata.exit_reason

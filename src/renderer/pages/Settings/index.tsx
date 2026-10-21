@@ -47,6 +47,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     openCreateForm,
     openEditForm,
     closeForm,
+    error: providerError,
+    clearError: clearProviderError,
   } = useConfigStore()
 
   const [activeTab, setActiveTab] = useState<Tab>('provider')
@@ -86,7 +88,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   const editingProvider = editingProviderId
     ? providers.find((p) => p.id === editingProviderId)
     : undefined
-  const existingNames = providers.map((p) => p.name)
+  const existingNames = providers.filter((p) => p.id !== editingProviderId).map((p) => p.name)
 
   const handleSubmit = async (data: ProviderInput) => {
     if (formMode === 'creating') await createProvider(data)
@@ -116,7 +118,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
       setMcpEditingId(null)
     } catch (error) {
       console.error('Failed to save MCP server:', error)
-      alert('Failed to save MCP server')
+      alert(`保存 MCP Server 失败:${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
@@ -245,6 +247,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
           {/* Provider */}
           {activeTab === 'provider' && (
             <div className="space-y-4">
+              {providerError && (
+                <div className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-600">
+                  <span className="break-all">操作失败:{providerError}</span>
+                  <button type="button" onClick={clearProviderError} className="shrink-0 underline">
+                    关闭
+                  </button>
+                </div>
+              )}
               {(formMode === 'creating' || formMode === 'editing') && (
                 <div className="bg-white rounded-xl p-5" style={{ border: '1px solid #e8eaed' }}>
                   <ProviderForm

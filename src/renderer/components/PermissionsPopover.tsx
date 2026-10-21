@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { talorAPI } from '../api/talorAPI'
-import { useChatStore } from '../store/chatStore'
 import type {
   PermissionRule,
   PermissionRuleView,
@@ -15,35 +14,17 @@ interface Props {
 }
 
 /**
- * 输入框上方的权限入口。集合三件事：
- *   1. 当前 workspace 的所有规则（Allowed / Denied 分组，支持删除）
- *   2. **待授权请求 Permission pending**——agent 调用 workspace 外路径时弹到这里
- *   3. **待确认工具执行 Tool-confirm pending**——高风险工具(bash/write/edit)
- *      执行前的二次确认。早期版本用独立的 ToolConfirmDialog 模态,UX 与
- *      PermissionDialog 割裂;现在统一走 popover,用户视线不被打断。
+ * 输入框上方的权限规则入口：当前 workspace 的已授权规则（支持删除 / 清空会话规则）。
  *
- * 两种 pending 同时存在时(罕见但可能): permission 优先(它是阻塞整个工具
- * 链的),tool-confirm 等 permission 处理完再显示。
- *
- * Auto-open: pendingPermission 或 pendingToolConfirm 从 null → 非 null 时
- * 自动展开;决策后自动收起。
+ * 待处理的授权请求与高风险工具确认不在这里展示 —— 它们与 workspace 无关
+ * （无 workspace 的会话同样会触发工具确认），由 PendingApprovals 常驻渲染；
+ * 本文件只导出两种卡片组件供其复用。
  */
 export function PermissionsPopover({ workspacePath }: Props) {
-  const pendingPermission = useChatStore((s) => s.pendingPermission)
-  const setPendingPermission = useChatStore((s) => s.setPendingPermission)
-  const pendingToolConfirm = useChatStore((s) => s.pendingToolConfirm)
-  const setPendingToolConfirm = useChatStore((s) => s.setPendingToolConfirm)
-  const autoOpenTick = useChatStore((s) => s.permissionAutoOpenTick)
-
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<PermissionRuleView>({ session: [], persisted: [] })
   const [loading, setLoading] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-
-  // 两种 pending 的整合视图。permission 优先于 tool-confirm。
-  const hasPendingPermission = !!pendingPermission
-  const hasPendingToolConfirm = !!pendingToolConfirm && !hasPendingPermission
-  const hasAnyPending = hasPendingPermission || hasPendingToolConfirm
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -63,25 +44,16 @@ export function PermissionsPopover({ workspacePath }: Props) {
     if (open) refresh()
   }, [open, refresh])
 
-  // 任意 pending(permission 或 tool-confirm)到达 → 自动展开 popover
-  useEffect(() => {
-    if (autoOpenTick > 0 && hasAnyPending) {
-      setOpen(true)
-    }
-  }, [autoOpenTick, hasAnyPending])
-
-  // 点外部收起——但有 pending 时不允许关闭（强制用户处理）
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (hasAnyPending) return // 待处理时点外面不关，避免"遗忘"一个阻塞的请求
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [open, hasAnyPending])
+  }, [open])
 
   const handleRemove = async (ruleId: string) => {
     await talorAPI.permissions.remove(workspacePath, ruleId)
@@ -93,31 +65,6 @@ export function PermissionsPopover({ workspacePath }: Props) {
     await refresh()
   }
 
-  const handlePermissionDecide = (resp: Omit<PermissionResponse, 'requestId'>) => {
-    if (!pendingPermission) return
-    talorAPI.chat.sendPermissionResponse({ requestId: pendingPermission.requestId, ...resp })
-    setPendingPermission(null)
-    // 决策后自动收起(与"新请求自动展开"对称);tool-confirm pending 仍保留 open,
-    // popover 下一帧会换成 tool-confirm 卡片。
-    if (!pendingToolConfirm) setOpen(false)
-    // 规则可能被新增 → 后台刷新,下次展开时看到最新列表。
-    setTimeout(() => {
-      refresh()
-    }, 100)
-  }
-
-  const handleToolConfirmDecide = (decision: 'approved' | 'rejected', remember?: boolean) => {
-    if (!pendingToolConfirm) return
-    talorAPI.chat.sendToolConfirmResponse({
-      toolCallId: pendingToolConfirm.toolCallId,
-      decision,
-      ...(remember ? { remember: true } : {}),
-    })
-    setPendingToolConfirm(null)
-    // 决策后自动收起(与 handlePermissionDecide 对称)。
-    setOpen(false)
-  }
-
   // Deny 规则在当前 UX 里不产生——Pending 的 Deny 按钮只拒绝本次不落库——
   // 所以这里仅展示 allow 规则，避免出现永远为 0 的 Denied 分组。
   const allRules = [...view.session, ...view.persisted]
@@ -126,14 +73,10 @@ export function PermissionsPopover({ workspacePath }: Props) {
   const hasSessionRules = view.session.some((r) => r.effect === 'allow')
 
   const buttonStyle: React.CSSProperties = {
-    background: hasAnyPending
-      ? 'rgba(234,179,8,0.15)' // 待处理时金色提示
-      : open
-        ? 'rgba(59,130,246,0.12)'
-        : 'transparent',
-    color: hasAnyPending ? '#a16207' : open ? '#2563eb' : totalCount > 0 ? '#64748b' : '#94a3b8',
+    background: open ? 'rgba(59,130,246,0.12)' : 'transparent',
+    color: open ? '#2563eb' : totalCount > 0 ? '#64748b' : '#94a3b8',
     border: '1px solid',
-    borderColor: hasAnyPending ? 'rgba(234,179,8,0.4)' : open ? 'rgba(59,130,246,0.3)' : '#e2e8f0',
+    borderColor: open ? 'rgba(59,130,246,0.3)' : '#e2e8f0',
   }
 
   return (
@@ -155,10 +98,7 @@ export function PermissionsPopover({ workspacePath }: Props) {
           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
         </svg>
         <span>Permissions</span>
-        {hasAnyPending && <span className="font-semibold text-[10px]">· needs review</span>}
-        {!hasAnyPending && totalCount > 0 && (
-          <span className="font-mono text-[10px] opacity-80">· {totalCount}</span>
-        )}
+        {totalCount > 0 && <span className="font-mono text-[10px] opacity-80">· {totalCount}</span>}
         <span className="text-[9px] opacity-60">{open ? '▲' : '▼'}</span>
       </button>
 
@@ -169,18 +109,10 @@ export function PermissionsPopover({ workspacePath }: Props) {
         >
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex items-baseline justify-between">
-              <p className="text-sm font-semibold text-gray-900">
-                {hasPendingPermission
-                  ? 'Permission required'
-                  : hasPendingToolConfirm
-                    ? 'Confirm tool execution'
-                    : 'Permissions'}
+              <p className="text-sm font-semibold text-gray-900">Permissions</p>
+              <p className="text-xs text-gray-400">
+                {totalCount} rule{totalCount === 1 ? '' : 's'}
               </p>
-              {!hasAnyPending && (
-                <p className="text-xs text-gray-400">
-                  {totalCount} rule{totalCount === 1 ? '' : 's'}
-                </p>
-              )}
             </div>
             <p className="text-xs font-mono text-gray-500 truncate mt-0.5" title={workspacePath}>
               {workspacePath}
@@ -188,23 +120,15 @@ export function PermissionsPopover({ workspacePath }: Props) {
           </div>
 
           <div className="max-h-[480px] overflow-y-auto">
-            {hasPendingPermission ? (
-              // 有待授权时只展示请求卡片，隐藏现有规则列表——避免用户被
-              // 已有规则分散注意力，同时也节省纵向空间。
-              <PendingRequestCard request={pendingPermission!} onDecide={handlePermissionDecide} />
-            ) : hasPendingToolConfirm ? (
-              <ToolConfirmCard request={pendingToolConfirm!} onDecide={handleToolConfirmDecide} />
-            ) : (
-              <RuleGroup
-                title="Allowed"
-                rules={allowedRules}
-                effect="allow"
-                onRemove={handleRemove}
-              />
-            )}
+            <RuleGroup
+              title="Allowed"
+              rules={allowedRules}
+              effect="allow"
+              onRemove={handleRemove}
+            />
           </div>
 
-          {(hasSessionRules || totalCount === 0) && !hasAnyPending && (
+          {(hasSessionRules || totalCount === 0) && (
             <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 text-xs text-gray-500">
               {totalCount === 0 && !loading && (
                 <p>
@@ -230,7 +154,7 @@ export function PermissionsPopover({ workspacePath }: Props) {
 
 // ── Tool-confirm card (高风险工具执行前二次确认) ───────────────────
 
-interface ToolConfirmCardProps {
+export interface ToolConfirmCardProps {
   request: ToolConfirmRequest
   onDecide: (decision: 'approved' | 'rejected', remember?: boolean) => void
 }
@@ -243,7 +167,7 @@ interface ToolConfirmCardProps {
  *   - allowRemember=true 时展示"Remember for this session"复选框
  *   - destructive 强制隐藏 remember 复选框
  */
-function ToolConfirmCard({ request, onDecide }: ToolConfirmCardProps) {
+export function ToolConfirmCard({ request, onDecide }: ToolConfirmCardProps) {
   const [remember, setRemember] = useState(false)
 
   const isDestructive = request.riskLevel === 'destructive'
@@ -328,12 +252,12 @@ function ToolConfirmCard({ request, onDecide }: ToolConfirmCardProps) {
 
 type ScopeChoice = 'once' | PatternSuggestion['id']
 
-interface PendingRequestCardProps {
+export interface PendingRequestCardProps {
   request: PermissionRequest
   onDecide: (resp: Omit<PermissionResponse, 'requestId'>) => void
 }
 
-function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
+export function PendingRequestCard({ request, onDecide }: PendingRequestCardProps) {
   const [scope, setScope] = useState<ScopeChoice>('once')
   const [remember, setRemember] = useState(false)
   const [bulkTools, setBulkTools] = useState<string[]>(

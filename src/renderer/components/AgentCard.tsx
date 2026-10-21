@@ -2,7 +2,6 @@ export interface AgentCardData {
   id: string
   name: string
   description: string
-  version: string
   status: 'disabled' | 'ready' | 'dependency_missing' | 'running'
   avatar?: string
   /** true = 内置 Feature agent(只读:不可编辑/删除/启用,随 Feature 提供)。 */
@@ -61,7 +60,6 @@ export function AgentCard({
             )}
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5 line-clamp-2">{agent.description}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">v{agent.version}</p>
         </div>
       </div>
 

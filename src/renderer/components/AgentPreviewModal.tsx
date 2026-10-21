@@ -18,7 +18,6 @@ interface AgentDetail {
   id: string
   name: string
   description?: string
-  version?: string
   status?: string
   dirPath?: string
   profile: Record<string, unknown>
@@ -77,11 +76,12 @@ export function AgentPreviewModal({
   const tools = Array.isArray(profile.tools)
     ? (profile.tools as unknown[]).filter((t): t is string => typeof t === 'string')
     : []
+  // skills / mcpServers 是平台资源的 name 引用(string[])
   const skills = Array.isArray(profile.skills)
-    ? (profile.skills as Array<{ name?: string; required?: boolean; purpose?: string }>)
+    ? (profile.skills as unknown[]).filter((s): s is string => typeof s === 'string')
     : []
   const mcpServers = Array.isArray(profile.mcpServers)
-    ? (profile.mcpServers as Array<{ name?: string }>)
+    ? (profile.mcpServers as unknown[]).filter((m): m is string => typeof m === 'string')
     : []
   const cli = Array.isArray(profile.cli)
     ? (profile.cli as Array<{ command?: string; version?: string }>)
@@ -154,7 +154,6 @@ export function AgentPreviewModal({
               <ReadField label="Agent ID" value={detail.id} mono />
               <ReadField label="名称" value={detail.name} />
               {detail.description && <ReadField label="描述" value={detail.description} />}
-              <ReadField label="版本" value={detail.version ?? '—'} mono />
               {detail.status && <ReadField label="状态" value={detail.status} mono />}
               {detail.dirPath && <ReadField label="文件路径" value={detail.dirPath} mono />}
 
@@ -180,20 +179,9 @@ export function AgentPreviewModal({
 
               {/* dependency manifests */}
               {tools.length > 0 && <ReadList label="工具 (tools)" items={tools} />}
-              {skills.length > 0 && (
-                <ReadList
-                  label="Skill 依赖 (skills)"
-                  items={skills.map(
-                    (s) =>
-                      `${s.name ?? '(unknown)'}${s.required ? ' · required' : ' · optional'}${s.purpose ? ' — ' + s.purpose : ''}`,
-                  )}
-                />
-              )}
+              {skills.length > 0 && <ReadList label="Skill 依赖 (skills)" items={skills} />}
               {mcpServers.length > 0 && (
-                <ReadList
-                  label="外部服务 (mcpServers)"
-                  items={mcpServers.map((m) => m.name ?? '(unknown)')}
-                />
+                <ReadList label="外部服务 (mcpServers)" items={mcpServers} />
               )}
               {cli.length > 0 && (
                 <ReadList

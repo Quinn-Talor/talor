@@ -7,12 +7,12 @@ export interface ValidationError {
 
 const URL_REGEX = /^https?:\/\//
 
-export function validateProviderName(name: string, existingNames: string[], selfId?: string): ValidationError | null {
+/** otherNames:除正在编辑的 provider 自身之外的已有名称 */
+export function validateProviderName(name: string, otherNames: string[]): ValidationError | null {
   if (!name.trim()) {
     return { field: 'name', message: '名称不能为空' }
   }
-  const others = existingNames.filter((n) => n !== selfId)
-  if (others.includes(name.trim())) {
+  if (otherNames.includes(name.trim())) {
     return { field: 'name', message: '该名称已存在，请使用其他名称' }
   }
   return null
@@ -28,9 +28,14 @@ export function validateBaseUrl(url: string): ValidationError | null {
   return null
 }
 
-export function validateApiKeyRequired(type: ProviderType, apiKey: string): ValidationError | null {
+/** hasStoredKey:编辑已有 provider 时 key 已存于主进程,留空表示保持不变 */
+export function validateApiKeyRequired(
+  type: ProviderType,
+  apiKey: string,
+  hasStoredKey = false,
+): ValidationError | null {
   const requiresKey = type === 'openai' || type === 'anthropic' || type === 'google'
-  if (requiresKey && !apiKey.trim()) {
+  if (requiresKey && !hasStoredKey && !apiKey.trim()) {
     return { field: 'api_key', message: 'API Key 为必填项' }
   }
   return null
@@ -41,18 +46,18 @@ export function validateProviderForm(
   type: ProviderType,
   baseUrl: string,
   apiKey: string,
-  existingNames: string[],
-  selfId?: string
+  otherNames: string[],
+  hasStoredKey = false,
 ): ValidationError[] {
   const errors: ValidationError[] = []
 
-  const nameErr = validateProviderName(name, existingNames, selfId)
+  const nameErr = validateProviderName(name, otherNames)
   if (nameErr) errors.push(nameErr)
 
   const urlErr = validateBaseUrl(baseUrl)
   if (urlErr) errors.push(urlErr)
 
-  const keyErr = validateApiKeyRequired(type, apiKey)
+  const keyErr = validateApiKeyRequired(type, apiKey, hasStoredKey)
   if (keyErr) errors.push(keyErr)
 
   return errors

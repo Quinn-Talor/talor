@@ -44,6 +44,7 @@ declare global {
           type: ProviderType
           base_url: string
           api_key?: string
+          provider_id?: string
         }) => Promise<ConnectionTestResult>
         getModels: (providerId: string, forceRefresh?: boolean) => Promise<ProviderModelResponse>
         refreshModels: (providerId: string) => Promise<ProviderModelResponse>

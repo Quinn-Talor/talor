@@ -8,7 +8,10 @@ interface ConfigStore {
   error: string | null
   formMode: FormMode
   editingProviderId: string | null
-  testStatus: Record<string, { status: 'idle' | 'testing' | 'success' | 'failure'; result?: ConnectionTestResult }>
+  testStatus: Record<
+    string,
+    { status: 'idle' | 'testing' | 'success' | 'failure'; result?: ConnectionTestResult }
+  >
 
   fetchProviders: () => Promise<void>
   createProvider: (provider: ProviderInput) => Promise<void>
@@ -17,7 +20,7 @@ interface ConfigStore {
   setDefault: (id: string) => Promise<void>
   testConnection: (
     id: string,
-    config: { type: Provider['type']; base_url: string; api_key?: string }
+    config: { type: Provider['type']; base_url: string; api_key?: string; provider_id?: string },
   ) => Promise<void>
 
   openCreateForm: () => void
@@ -58,7 +61,7 @@ export const useConfigStore = create<ConfigStore>((set) => ({
             ...newProvider,
             models: modelResponse.models,
             models_last_updated: modelResponse.refreshed_at,
-            models_cache_ttl: modelResponse.cache_ttl
+            models_cache_ttl: modelResponse.cache_ttl,
           }
         } catch {
           providerWithModels = newProvider
@@ -69,7 +72,7 @@ export const useConfigStore = create<ConfigStore>((set) => ({
         providers: [providerWithModels, ...state.providers],
         loading: false,
         formMode: 'closed',
-        editingProviderId: null
+        editingProviderId: null,
       }))
     } catch (err) {
       set({ error: String(err), loading: false })
@@ -84,7 +87,7 @@ export const useConfigStore = create<ConfigStore>((set) => ({
         providers: state.providers.map((p) => (p.id === id ? updated : p)),
         loading: false,
         formMode: 'closed',
-        editingProviderId: null
+        editingProviderId: null,
       }))
     } catch (err) {
       set({ error: String(err), loading: false })
@@ -97,7 +100,7 @@ export const useConfigStore = create<ConfigStore>((set) => ({
       await talorAPI.providers.delete(id)
       set((state) => ({
         providers: state.providers.filter((p) => p.id !== id),
-        loading: false
+        loading: false,
       }))
     } catch (err) {
       set({ error: String(err), loading: false })
@@ -110,8 +113,8 @@ export const useConfigStore = create<ConfigStore>((set) => ({
       set((state) => ({
         providers: state.providers.map((p) => ({
           ...p,
-          is_default: p.id === id
-        }))
+          is_default: p.id === id,
+        })),
       }))
     } catch (err) {
       set({ error: String(err) })
@@ -122,8 +125,8 @@ export const useConfigStore = create<ConfigStore>((set) => ({
     set((state) => ({
       testStatus: {
         ...state.testStatus,
-        [id]: { status: 'testing' }
-      }
+        [id]: { status: 'testing' },
+      },
     }))
     try {
       const result = await talorAPI.providers.testConnection(config)
@@ -138,7 +141,7 @@ export const useConfigStore = create<ConfigStore>((set) => ({
           modelsUpdate = {
             models: refreshed.models,
             models_last_updated: refreshed.refreshed_at,
-            models_cache_ttl: refreshed.cache_ttl
+            models_cache_ttl: refreshed.cache_ttl,
           }
         } catch {
           modelsUpdate = undefined
@@ -146,23 +149,22 @@ export const useConfigStore = create<ConfigStore>((set) => ({
       }
 
       set((state) => ({
-        providers:
-          modelsUpdate
-            ? state.providers.map((p) =>
-                p.id === id
-                  ? {
-                      ...p,
-                      models: modelsUpdate.models,
-                      models_last_updated: modelsUpdate.models_last_updated,
-                      models_cache_ttl: modelsUpdate.models_cache_ttl
-                    }
-                  : p
-              )
-            : state.providers,
+        providers: modelsUpdate
+          ? state.providers.map((p) =>
+              p.id === id
+                ? {
+                    ...p,
+                    models: modelsUpdate.models,
+                    models_last_updated: modelsUpdate.models_last_updated,
+                    models_cache_ttl: modelsUpdate.models_cache_ttl,
+                  }
+                : p,
+            )
+          : state.providers,
         testStatus: {
           ...state.testStatus,
-          [id]: { status: result.status === 'success' ? 'success' : 'failure', result }
-        }
+          [id]: { status: result.status === 'success' ? 'success' : 'failure', result },
+        },
       }))
     } catch (err) {
       set((state) => ({
@@ -175,10 +177,10 @@ export const useConfigStore = create<ConfigStore>((set) => ({
               latency_ms: undefined,
               models_count: undefined,
               error_code: 'UNKNOWN',
-              message: String(err)
-            }
-          }
-        }
+              message: String(err),
+            },
+          },
+        },
       }))
     }
   },
@@ -186,5 +188,5 @@ export const useConfigStore = create<ConfigStore>((set) => ({
   openCreateForm: () => set({ formMode: 'creating', editingProviderId: null }),
   openEditForm: (id) => set({ formMode: 'editing', editingProviderId: id }),
   closeForm: () => set({ formMode: 'closed', editingProviderId: null }),
-  clearError: () => set({ error: null })
+  clearError: () => set({ error: null }),
 }))

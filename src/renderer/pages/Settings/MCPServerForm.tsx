@@ -1,34 +1,36 @@
 import { useState } from 'react'
-import type { MCPServer, MCPServerInput, MCPServerType, MCPAuthConfig } from '../../../preload/index'
+import type {
+  MCPServer,
+  MCPServerInput,
+  MCPServerType,
+  MCPAuthConfig,
+} from '../../../preload/index'
 
 interface MCPServerFormProps {
   server?: MCPServer
   existingNames: string[]
-  onSubmit: (data: MCPServerInput) => void
+  onSubmit: (data: MCPServerInput) => void | Promise<void>
   onCancel: () => void
 }
 
-export function MCPServerForm({
-  server,
-  existingNames,
-  onSubmit,
-  onCancel
-}: MCPServerFormProps) {
+export function MCPServerForm({ server, existingNames, onSubmit, onCancel }: MCPServerFormProps) {
   const [type, setType] = useState<MCPServerType>(server?.type ?? 'stdio')
   const [name, setName] = useState(server?.name ?? '')
   const [enabled, setEnabled] = useState(server?.enabled ?? true)
-  
+
   const [command, setCommand] = useState(server?.command ?? '')
   const [argsStr, setArgsStr] = useState(server?.args?.join('\n') ?? '')
-  const [envPairs, setEnvPairs] = useState<{key: string, value: string}[]>(
-    server?.env ? Object.entries(server.env).map(([k, v]) => ({ key: k, value: v })) : []
+  const [envPairs, setEnvPairs] = useState<{ key: string; value: string }[]>(
+    server?.env ? Object.entries(server.env).map(([k, v]) => ({ key: k, value: v })) : [],
   )
 
   const [url, setUrl] = useState(server?.url ?? '')
   const [authType, setAuthType] = useState<MCPAuthConfig['type']>(server?.auth?.type ?? 'none')
-  const [authToken, setAuthToken] = useState(server?.auth?.token ?? '')
-  
+  const [authToken, setAuthToken] = useState(server?.auth?.token ?? server?.auth?.apiKey ?? '')
+
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // 保存要等 stdio 进程连上才返回,期间禁用按钮防重复提交
+  const [submitting, setSubmitting] = useState(false)
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {}
@@ -50,34 +52,46 @@ export function MCPServerForm({
     return Object.keys(newErrors).length === 0
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validate()) return
+    if (submitting || !validate()) return
 
     const input: MCPServerInput = {
       name: name.trim(),
       type,
-      enabled
+      enabled,
     }
 
     if (type === 'stdio') {
       input.command = command.trim()
-      input.args = argsStr.split('\n').map(a => a.trim()).filter(a => a)
-      
+      input.args = argsStr
+        .split('\n')
+        .map((a) => a.trim())
+        .filter((a) => a)
+
       const envObj: Record<string, string> = {}
-      envPairs.forEach(p => {
+      envPairs.forEach((p) => {
         if (p.key.trim()) envObj[p.key.trim()] = p.value
       })
-      input.env = Object.keys(envObj).length > 0 ? envObj : undefined
+      // 空对象而非 undefined:编辑时删光所有行要能清掉已存的 env
+      input.env = envObj
     } else {
       input.url = url.trim()
       input.auth = { type: authType }
-      if (authType !== 'none' && authToken.trim()) {
+      // 凭证字段按认证类型区分:bearer 读 token,apiKey 读 apiKey(见 mcp/transport/http.ts)
+      if (authType === 'bearer' && authToken.trim()) {
         input.auth.token = authToken.trim()
+      } else if (authType === 'apiKey' && authToken.trim()) {
+        input.auth.apiKey = authToken.trim()
       }
     }
 
-    onSubmit(input)
+    setSubmitting(true)
+    try {
+      await onSubmit(input)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleAddEnv = () => {
@@ -160,7 +174,9 @@ export function MCPServerForm({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">参数 - 每行一个</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                参数 - 每行一个
+              </label>
               <textarea
                 value={argsStr}
                 onChange={(e) => setArgsStr(e.target.value)}
@@ -181,7 +197,7 @@ export function MCPServerForm({
                   + 添加变量
                 </button>
               </div>
-              
+
               <div className="space-y-2 mt-2">
                 {envPairs.map((pair, index) => (
                   <div key={index} className="flex items-center gap-2">
@@ -248,7 +264,9 @@ export function MCPServerForm({
 
             {authType !== 'none' && (
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">凭证 (Token / API Key)</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  凭证 (Token / API Key)
+                </label>
                 <input
                   type="password"
                   value={authToken}
@@ -269,7 +287,9 @@ export function MCPServerForm({
             onChange={(e) => setEnabled(e.target.checked)}
             className="w-4 h-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500"
           />
-          <label htmlFor="enabled" className="text-sm text-gray-600">启用该服务</label>
+          <label htmlFor="enabled" className="text-sm text-gray-600">
+            启用该服务
+          </label>
         </div>
 
         <div className="flex gap-3 pt-2">
@@ -282,9 +302,10 @@ export function MCPServerForm({
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 transition-colors"
+            disabled={submitting}
+            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-primary-500 rounded-lg hover:bg-primary-600 transition-colors disabled:opacity-50"
           >
-            保存
+            {submitting ? '保存中…' : '保存'}
           </button>
         </div>
       </form>

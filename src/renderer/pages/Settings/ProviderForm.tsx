@@ -7,10 +7,16 @@ import { talorAPI } from '../../api/talorAPI'
 
 interface ProviderFormProps {
   provider?: Provider
+  /** 除正在编辑的 provider 自身之外的已有名称 */
   existingNames: string[]
   onSubmit: (data: ProviderInput) => void
   onCancel: () => void
-  onTest: (config: { type: ProviderType; base_url: string; api_key?: string }) => void
+  onTest: (config: {
+    type: ProviderType
+    base_url: string
+    api_key?: string
+    provider_id?: string
+  }) => void
   testStatus: 'idle' | 'testing' | 'success' | 'failure'
   testResult?: { message?: string; models_count?: number; latency_ms?: number }
 }
@@ -33,7 +39,9 @@ export function ProviderForm({
 }: ProviderFormProps) {
   const [type, setType] = useState<ProviderType>(provider?.type ?? 'ollama')
   const [name, setName] = useState(provider?.name ?? '')
-  const [baseUrl, setBaseUrl] = useState(provider?.base_url ?? '')
+  const [baseUrl, setBaseUrl] = useState(
+    provider?.base_url ?? PROVIDER_TYPE_OPTIONS.find((o) => o.value === 'ollama')?.defaultUrl ?? '',
+  )
   const [apiKey, setApiKey] = useState(provider?.api_key ?? '')
   const [enabled, setEnabled] = useState(provider?.enabled ?? true)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -43,12 +51,6 @@ export function ProviderForm({
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(
     provider?.models_last_updated ?? null,
   )
-
-  useEffect(() => {
-    if (!provider && type === 'ollama' && !baseUrl) {
-      setBaseUrl('http://localhost:11434')
-    }
-  }, [type, provider, baseUrl])
 
   // Fetch models when editing an existing provider
   useEffect(() => {
@@ -99,7 +101,7 @@ export function ProviderForm({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault()
-      const errs = validateProviderForm(name, type, baseUrl, apiKey, existingNames, provider?.id)
+      const errs = validateProviderForm(name, type, baseUrl, apiKey, existingNames, !!provider)
       if (errs.length > 0) {
         setErrors(Object.fromEntries(errs.map((err) => [err.field, err.message])))
         return
@@ -112,10 +114,9 @@ export function ProviderForm({
         api_key: apiKey.trim(),
         enabled,
         is_default: provider?.is_default ?? false,
-        models: models,
       })
     },
-    [name, type, baseUrl, apiKey, enabled, existingNames, provider, onSubmit, models],
+    [name, type, baseUrl, apiKey, enabled, existingNames, provider, onSubmit],
   )
 
   const handleKeyDown = useCallback(
@@ -188,7 +189,7 @@ export function ProviderForm({
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
+              placeholder={provider ? '留空则保持已保存的 Key' : 'sk-...'}
               className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 ${
                 errors.api_key ? 'border-red-400' : 'border-gray-200'
               }`}
@@ -204,7 +205,12 @@ export function ProviderForm({
             type="button"
             onClick={() => {
               if (baseUrl) {
-                onTest({ type, base_url: baseUrl, api_key: apiKey || undefined })
+                onTest({
+                  type,
+                  base_url: baseUrl,
+                  api_key: apiKey || undefined,
+                  provider_id: provider?.id,
+                })
               }
             }}
             disabled={!baseUrl || testStatus === 'testing'}

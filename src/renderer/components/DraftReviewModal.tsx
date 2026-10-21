@@ -439,15 +439,12 @@ function extractDeclaredDeps(profile: Record<string, unknown>): DeclaredDeps {
   const tools = Array.isArray(profile.tools)
     ? (profile.tools as unknown[]).filter((t): t is string => typeof t === 'string')
     : []
+  // skills / mcpServers 是平台资源的 name 引用(string[])
   const skills = Array.isArray(profile.skills)
-    ? (profile.skills as Array<{ name?: string }>)
-        .map((s) => (typeof s.name === 'string' ? s.name : ''))
-        .filter(Boolean)
+    ? (profile.skills as unknown[]).filter((s): s is string => typeof s === 'string')
     : []
   const mcps = Array.isArray(profile.mcpServers)
-    ? (profile.mcpServers as Array<{ name?: string }>)
-        .map((m) => (typeof m.name === 'string' ? m.name : ''))
-        .filter(Boolean)
+    ? (profile.mcpServers as unknown[]).filter((m): m is string => typeof m === 'string')
     : []
   const cli = Array.isArray(profile.cli)
     ? (profile.cli as Array<{ command?: string }>)

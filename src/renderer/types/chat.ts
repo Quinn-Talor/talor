@@ -68,6 +68,8 @@ export interface ChatToolCallEvent {
   tool_call_id: string
   tool_name: string
   input: Record<string, unknown>
+  step_index: number
+  started_at: number
 }
 
 export interface ChatToolResultEvent {
@@ -116,6 +118,8 @@ export interface ChatStreamEvent {
   message_id: string
   delta: string
   done: boolean
+  /** ReAct 步序号;done 事件为 -1 */
+  step_index: number
   error_code?: ChatErrorCode
   error_message?: string
 }

@@ -8,9 +8,10 @@ interface AgentDetail {
   id: string
   name: string
   description?: string
-  version?: string
   status?: string
   dirPath?: string
+  /** feature agent(内存注册)只读:无磁盘条目,不能编辑/安装依赖 */
+  readonly?: boolean
   profile: Record<string, unknown>
 }
 
@@ -58,11 +59,12 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
   const tools = Array.isArray(profile.tools)
     ? (profile.tools as unknown[]).filter((t): t is string => typeof t === 'string')
     : []
+  // skills / mcpServers 是平台资源的 name 引用(string[])
   const skills = Array.isArray(profile.skills)
-    ? (profile.skills as Array<{ name?: string; required?: boolean; purpose?: string }>)
+    ? (profile.skills as unknown[]).filter((s): s is string => typeof s === 'string')
     : []
   const mcpServers = Array.isArray(profile.mcpServers)
-    ? (profile.mcpServers as Array<{ name?: string }>)
+    ? (profile.mcpServers as unknown[]).filter((m): m is string => typeof m === 'string')
     : []
   const cli = Array.isArray(profile.cli)
     ? (profile.cli as Array<{ command?: string; version?: string }>)
@@ -98,7 +100,7 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
           {detail?.name ? `${detail.name} 详情` : 'Agent 详情'}
         </span>
         <div className="flex gap-2">
-          {detail && (
+          {detail && !detail.readonly && (
             <button
               type="button"
               onClick={async () => {
@@ -151,7 +153,7 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
               {copied ? '✓ 已复制' : '复制 JSON'}
             </button>
           )}
-          {onEdit && detail && (
+          {onEdit && detail && !detail.readonly && (
             <button
               type="button"
               onClick={() => onEdit(detail.id)}
@@ -216,7 +218,6 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
                 <ReadField label="Agent ID" value={detail.id} mono />
                 <ReadField label="名称" value={detail.name} />
                 {detail.description && <ReadField label="描述" value={detail.description} />}
-                <ReadField label="版本" value={detail.version ?? '—'} mono />
                 {detail.status && <ReadField label="状态" value={detail.status} mono />}
                 {detail.dirPath && <ReadField label="文件路径" value={detail.dirPath} mono />}
               </Section>
@@ -247,20 +248,9 @@ export function AgentDetailPage({ agentId, onBack, onStart, onEdit }: AgentDetai
 
               <Section title="Dependencies">
                 {tools.length > 0 && <ReadList label="工具 (tools)" items={tools} />}
-                {skills.length > 0 && (
-                  <ReadList
-                    label="Skill 依赖 (skills)"
-                    items={skills.map(
-                      (s) =>
-                        `${s.name ?? '?'}${s.required ? ' · required' : ' · optional'}${s.purpose ? ' — ' + s.purpose : ''}`,
-                    )}
-                  />
-                )}
+                {skills.length > 0 && <ReadList label="Skill 依赖 (skills)" items={skills} />}
                 {mcpServers.length > 0 && (
-                  <ReadList
-                    label="外部服务 (mcpServers)"
-                    items={mcpServers.map((m) => m.name ?? '(unknown)')}
-                  />
+                  <ReadList label="外部服务 (mcpServers)" items={mcpServers} />
                 )}
                 {cli.length > 0 && (
                   <ReadList
