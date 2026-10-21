@@ -14,6 +14,7 @@ vi.mock('../forced-summary', () => ({
 }))
 
 import { FailureStreakReflector } from './failure-streak'
+import { runReflectorChain } from './chain'
 import type { OutcomeFacts } from '../outcome-facts'
 import type { ReflectContext } from './types'
 import type { ForcedSummaryCtx } from '../forced-summary'
@@ -104,5 +105,42 @@ describe('FailureStreakReflector', () => {
     const out = await r.reflect(postCtx(facts({ allToolsFailed: true })))
     await out!.wrapUp!.runSummary()
     expect(mockRunForcedSummary).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('FailureStreakReflector — 经 chain 的配额语义', () => {
+  const fail = facts({ allToolsFailed: true })
+  const ok = facts({ allToolsFailed: false })
+
+  it('两次警告 hint 用完配额后, 失败链再达 limit 仍 wrapUp', async () => {
+    const r = new FailureStreakReflector(stubCtx)
+    const counters = new Map<string, number>()
+    const seq = [fail, fail, ok, fail, fail, ok, fail, fail, fail]
+    const kinds: string[] = []
+    for (const [i, f] of seq.entries()) {
+      const res = await runReflectorChain('post-step', [r], postCtx(f, i), counters)
+      kinds.push(res.kind)
+    }
+    expect(kinds).toEqual([
+      'none',
+      'hint',
+      'none',
+      'none',
+      'hint',
+      'none',
+      'none',
+      'none', // 第三次警告超出 maxPerTurn=2, 被丢弃
+      'wrap_up',
+    ])
+  })
+
+  it('(不触发) 失败链被成功打断 → 不 wrapUp', async () => {
+    const r = new FailureStreakReflector(stubCtx)
+    const counters = new Map<string, number>()
+    const kinds: string[] = []
+    for (const [i, f] of [fail, fail, ok, fail, fail, ok].entries()) {
+      kinds.push((await runReflectorChain('post-step', [r], postCtx(f, i), counters)).kind)
+    }
+    expect(kinds).not.toContain('wrap_up')
   })
 })

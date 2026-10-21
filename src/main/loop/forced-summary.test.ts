@@ -219,6 +219,34 @@ describe('runForcedSummary', () => {
     })
   })
 
+  describe('引用校验语料 (applyVerification=true 路径)', () => {
+    it('DB 真实格式的 tool result 作为语料传给 verifyQuotedFacts', async () => {
+      mockMessageListBySession.mockReturnValueOnce([
+        {
+          role: 'tool',
+          content: JSON.stringify([
+            {
+              type: 'tool-result',
+              toolCallId: 'c1',
+              toolName: 'read',
+              output: { type: 'text', value: 'file body' },
+            },
+          ]),
+        },
+      ])
+      mockTextStream('summary')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+      expect(vi.mocked(verifyQuotedFacts)).toHaveBeenCalledWith('summary', ['file body'])
+    })
+
+    it('(不触发) 无 tool 消息 → 语料为空', async () => {
+      mockMessageListBySession.mockReturnValueOnce([])
+      mockTextStream('summary')
+      await runForcedSummary(makeCtx(), 0, FALLBACK_SUMMARY_OPTS)
+      expect(vi.mocked(verifyQuotedFacts)).toHaveBeenCalledWith('summary', [])
+    })
+  })
+
   describe('Verify tag 拼接 (applyVerification=true 路径)', () => {
     it('unverifiedCount > 0 → label 含 "N unverifiable quote(s) masked"', async () => {
       vi.mocked(verifyQuotedFacts).mockReturnValueOnce({

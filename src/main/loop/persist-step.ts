@@ -8,6 +8,8 @@
 //     否则下次 rebuild prompt 时 SDK 抛 "Every tool_use must have a tool_result"
 //     破坏 session 不变量
 //   - tool result 落库前要 wrapToolOutput + truncate (skill 1MB / 其他 8KB)
+//   - reasoning part 连同 providerOptions (Anthropic signature / redactedData) 原样落库,
+//     置于 assistant content 开头 — 开启推理时 provider 要求回传的 thinking 块带签名
 //
 // 允许依赖: ./stream-utils, ../repos/session-repo, ./step-adapter
 // 禁止依赖: ipc/*, ai/* (除 type)
@@ -19,7 +21,7 @@ import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { extractOutputText, truncateOutput, wrapToolOutput, isErrorOutput } from './stream-utils'
 import {
   extractTextFromStep,
-  extractReasoningFromStep,
+  reasoningPartsFromStep,
   toolCallsFromStep,
   toolResultsFromStep,
 } from './step-adapter'
@@ -56,7 +58,7 @@ export async function persistStepFromResult(
   toolId?: string
 }> {
   const text = extractTextFromStep(step)
-  const reasoning = extractReasoningFromStep(step)
+  const reasoning = reasoningPartsFromStep(step)
   const toolCalls = toolCallsFromStep(step)
   const toolResults = toolResultsFromStep(step)
 
@@ -67,8 +69,7 @@ export async function persistStepFromResult(
 
   // 无工具 + 有文本 — 落一条 assistant
   if (toolCalls.length === 0) {
-    const parts: AssistantContent = []
-    if (reasoning) parts.push({ type: 'reasoning', text: reasoning })
+    const parts: AssistantContent = [...reasoning]
     parts.push({ type: 'text', text })
     const id = opts.isMidTurnText ? uuidv4() : (opts.finalMessageId ?? uuidv4())
     messageRepo.create({
@@ -83,8 +84,7 @@ export async function persistStepFromResult(
   }
 
   // 有工具调用 — assistant(tool_use) + tool(result) 配对事务
-  const assistantParts: AssistantContent = []
-  if (reasoning) assistantParts.push({ type: 'reasoning', text: reasoning })
+  const assistantParts: AssistantContent = [...reasoning]
   if (text) assistantParts.push({ type: 'text', text })
   for (const tc of toolCalls) {
     assistantParts.push({

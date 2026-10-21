@@ -21,6 +21,8 @@ vi.mock('../repos/session-repo', () => ({
 }))
 
 import { persistStepFromResult } from './persist-step'
+import { dbToModelMessages } from '../memory/types'
+import type { ChatMessage } from '../repos/session-repo'
 import type { StepResult, ToolSet } from 'ai'
 
 interface CapturedRecord {
@@ -177,5 +179,144 @@ describe('persistStepFromResult — tool_use/tool_result 配对守门', () => {
     expect(result.kind).toBe('empty')
     expect(mockCreate).not.toHaveBeenCalled()
     expect(mockCreateBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('persistStepFromResult — reasoning 连同 providerOptions 落库', () => {
+  beforeEach(() => {
+    mockCreateBatch.mockReset()
+    mockCreate.mockReset()
+    mockTouch.mockReset()
+  })
+
+  const signed = {
+    type: 'reasoning',
+    text: 'let me think',
+    providerMetadata: { anthropic: { signature: 'sig-abc' } },
+  }
+  const redacted = {
+    type: 'reasoning',
+    text: '',
+    providerMetadata: { anthropic: { redactedData: 'opaque' } },
+  }
+
+  function stepWithContent(o: {
+    text?: string
+    content: unknown[]
+    toolCalls?: Array<{ toolCallId: string; toolName: string; input: unknown }>
+    toolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>
+  }): StepResult<ToolSet> {
+    return {
+      ...fakeStep({
+        text: o.text,
+        toolCalls: o.toolCalls ?? [],
+        toolResults: o.toolResults ?? [],
+      }),
+      reasoningText: 'let me think',
+      content: o.content,
+    } as unknown as StepResult<ToolSet>
+  }
+
+  /** 把 createBatch / create 捕获的记录转成 DB 行再经 dbToModelMessages 还原。 */
+  function roundTrip(records: Array<{ role: string; content: unknown }>) {
+    const rows = records.map(
+      (r, i) =>
+        ({
+          id: String(i),
+          session_id: 's1',
+          role: r.role,
+          content: JSON.stringify(r.content),
+        }) as unknown as ChatMessage,
+    )
+    return dbToModelMessages(rows)
+  }
+
+  it('工具步: 多个 reasoning part 保序落在 assistant 开头, signature / redactedData 经 DB 原样还原', async () => {
+    await persistStepFromResult(
+      stepWithContent({
+        content: [signed, redacted],
+        toolCalls: [{ toolCallId: 'c1', toolName: 'read', input: {} }],
+        toolResults: [{ toolCallId: 'c1', toolName: 'read', output: 'x' }],
+      }),
+      { sessionId: 's1', agentId: 'a' },
+    )
+    const records = mockCreateBatch.mock.calls[0][0] as Array<{ role: string; content: unknown }>
+    const [assistant] = roundTrip(records)
+    expect(assistant.role).toBe('assistant')
+    const parts = assistant.content as Array<Record<string, unknown>>
+    expect(parts[0]).toEqual({
+      type: 'reasoning',
+      text: 'let me think',
+      providerOptions: { anthropic: { signature: 'sig-abc' } },
+    })
+    expect(parts[1]).toEqual({
+      type: 'reasoning',
+      text: '',
+      providerOptions: { anthropic: { redactedData: 'opaque' } },
+    })
+    expect(parts[2]).toMatchObject({ type: 'tool-call', toolCallId: 'c1' })
+  })
+
+  it('纯文本步: 带 signature 的 reasoning 同样保留', async () => {
+    await persistStepFromResult(stepWithContent({ text: 'answer', content: [signed] }), {
+      sessionId: 's1',
+      agentId: 'a',
+    })
+    const record = mockCreate.mock.calls[0][0] as { role: string; content: unknown }
+    const [assistant] = roundTrip([record])
+    expect(assistant.content).toEqual([
+      {
+        type: 'reasoning',
+        text: 'let me think',
+        providerOptions: { anthropic: { signature: 'sig-abc' } },
+      },
+      { type: 'text', text: 'answer' },
+    ])
+  })
+
+  it('(不触发) 无 providerMetadata 的 reasoning 不附 providerOptions; content 缺失时退回 reasoningText', async () => {
+    await persistStepFromResult(
+      {
+        ...fakeStep({ text: 'a', toolCalls: [], toolResults: [] }),
+        reasoningText: 'plain',
+      } as never,
+      { sessionId: 's1', agentId: 'a' },
+    )
+    const record = mockCreate.mock.calls[0][0] as { content: unknown[] }
+    expect(record.content[0]).toEqual({ type: 'reasoning', text: 'plain' })
+  })
+})
+
+describe('persistStepFromResult — SDK tool-error 落为真实错误原因', () => {
+  beforeEach(() => {
+    mockCreateBatch.mockReset()
+    mockCreate.mockReset()
+  })
+
+  it('未知工具的 tool-error → SDK_TOOL_ERROR 信封 (含 SDK 文本), 不再是笼统占位', async () => {
+    const step = {
+      ...fakeStep({
+        toolCalls: [{ toolCallId: 'b1', toolName: 'ghost', input: {} }],
+        toolResults: [],
+      }),
+      content: [
+        { type: 'tool-call', toolCallId: 'b1', toolName: 'ghost', input: {}, invalid: true },
+        {
+          type: 'tool-error',
+          toolCallId: 'b1',
+          toolName: 'ghost',
+          input: {},
+          error: "Model tried to call unavailable tool 'ghost'. Available tools: read.",
+        },
+      ],
+    } as unknown as StepResult<ToolSet>
+    await persistStepFromResult(step, { sessionId: 's1', agentId: 'a' })
+    const records = mockCreateBatch.mock.calls[0][0] as CapturedRecord[]
+    const part = records.find((r) => r.role === 'tool')!.content[0]
+    expect(part.isError).toBe(true)
+    const value = (part.output as { value: string }).value
+    expect(value).toContain('SDK_TOOL_ERROR')
+    expect(value).toContain("unavailable tool 'ghost'")
+    expect(value).not.toContain('SDK_TOOL_MISSING_RESULT')
   })
 })

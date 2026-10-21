@@ -28,8 +28,9 @@ export class ToolOnlyLoopReflector implements Reflector {
     this.counter = new StreakCounter(opts.hintAt ?? 3)
   }
 
-  async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
-    if (ctx.phase !== 'post-step') return null
+  /** 每步计数 (chain 保证调用), 排在其他 reflector 之后也不漏步。 */
+  track(ctx: ReflectContext): void {
+    if (ctx.phase !== 'post-step') return
     const { facts } = ctx
     if (facts.hasToolCall && !facts.hasText) {
       this.counter.bump()
@@ -39,6 +40,10 @@ export class ToolOnlyLoopReflector implements Reflector {
     } else if (facts.hasText) {
       this.counter.reset()
     }
+  }
+
+  async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
+    if (ctx.phase !== 'post-step') return null
     if (this.counter.value < this.counter.limit) return null
     return {
       hint:

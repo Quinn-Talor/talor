@@ -107,6 +107,95 @@ describe('runReflectorChain — maxPerTurn 上限', () => {
   })
 })
 
+describe('runReflectorChain — maxPerTurn 只限 advisory 产出', () => {
+  it('配额用尽后 wrapUp 仍生效 (终止产出不受限)', async () => {
+    const wrapUp = { exitReason: 'repeated_error' as const, runSummary: vi.fn() }
+    const r = mockReflector('cap-w', ['post-step'], { wrapUp }, { maxPerTurn: 1 })
+    const counters = new Map([['cap-w', 1]])
+    const res = await runReflectorChain('post-step', [r], ctx('post-step'), counters)
+    expect(res.kind).toBe('wrap_up')
+    expect(res.from).toBe('cap-w')
+  })
+
+  it('配额用尽后 userOutput 仍生效 (pre-step halt 场景)', async () => {
+    const r = mockReflector(
+      'cap-u',
+      ['pre-step'],
+      { userOutput: { text: 'halt', label: '[auto-halt]', reason: 'r' } },
+      { maxPerTurn: 1 },
+    )
+    const res = await runReflectorChain('pre-step', [r], ctx('pre-step'), new Map([['cap-u', 1]]))
+    expect(res.kind).toBe('user_output')
+  })
+
+  it('配额用尽后被丢弃的 hint 让位给后续 reflector', async () => {
+    const capped = mockReflector('capped', ['post-step'], { hint: 'old' }, { maxPerTurn: 1 })
+    const next = mockReflector('next', ['post-step'], { hint: 'new' })
+    const res = await runReflectorChain(
+      'post-step',
+      [capped, next],
+      ctx('post-step'),
+      new Map([['capped', 1]]),
+    )
+    expect(res).toMatchObject({ kind: 'hint', from: 'next', hint: 'new' })
+  })
+
+  it('usesLlm 的 reflector 配额用尽 → 不调用 reflect (不花 LLM)', async () => {
+    const r = mockReflector('llm', ['post-step'], { hint: 'x' }, { maxPerTurn: 1, usesLlm: true })
+    const res = await runReflectorChain('post-step', [r], ctx('post-step'), new Map([['llm', 1]]))
+    expect(res.kind).toBe('none')
+    expect(r.reflect).not.toHaveBeenCalled()
+  })
+
+  it('终止产出不占配额', async () => {
+    const wrapUp = { exitReason: 'repeated_error' as const, runSummary: vi.fn() }
+    const r = mockReflector('w', ['post-step'], { wrapUp }, { maxPerTurn: 2 })
+    const counters = new Map<string, number>()
+    await runReflectorChain('post-step', [r], ctx('post-step'), counters)
+    expect(counters.get('w')).toBeUndefined()
+  })
+})
+
+describe('runReflectorChain — track 每步观测', () => {
+  it('前序 reflector 已产出时, 后续 reflector 的 track 仍被调用', async () => {
+    const first = mockReflector('first', ['post-step'], { hint: 'a' })
+    const tracked = { ...mockReflector('tracked', ['post-step'], { hint: 'b' }), track: vi.fn() }
+    const res = await runReflectorChain('post-step', [first, tracked], ctx('post-step'), new Map())
+    expect(res.from).toBe('first')
+    expect(tracked.track).toHaveBeenCalledTimes(1)
+    expect(tracked.reflect).not.toHaveBeenCalled()
+  })
+
+  it('其他 phase 的 reflector 不被 track', async () => {
+    const other = { ...mockReflector('other', ['turn-end'], null), track: vi.fn() }
+    await runReflectorChain('post-step', [other], ctx('post-step'), new Map())
+    expect(other.track).not.toHaveBeenCalled()
+  })
+
+  it('track 先于任何 reflect 调用', async () => {
+    const order: string[] = []
+    const a: Reflector = {
+      name: 'a',
+      capabilities: { phases: ['post-step'] },
+      reflect: vi.fn(async () => {
+        order.push('reflect:a')
+        return null
+      }),
+    }
+    const b: Reflector = {
+      name: 'b',
+      capabilities: { phases: ['post-step'] },
+      track: () => order.push('track:b'),
+      reflect: vi.fn(async () => {
+        order.push('reflect:b')
+        return null
+      }),
+    }
+    await runReflectorChain('post-step', [a, b], ctx('post-step'), new Map())
+    expect(order).toEqual(['track:b', 'reflect:a', 'reflect:b'])
+  })
+})
+
 describe('runReflectorChain — priority 排序', () => {
   it('priority 数字小先跑, 第一个非 null wins', async () => {
     const r1 = mockReflector('first', ['post-step'], { hint: 'A' }, { priority: 100 })
@@ -290,14 +379,31 @@ describe('runReflectorChain — guard observations', () => {
     expect(obs[0].metadata).not.toHaveProperty('context_limit')
   })
 
-  it('a reflector over maxPerTurn emits a DEBUG guard.skipped event instead of a guard', async () => {
-    const capped = mockReflector('capped', ['post-step'], { hint: 'x' }, { maxPerTurn: 1 })
+  it('an LLM reflector over maxPerTurn emits a DEBUG guard.skipped event instead of a guard', async () => {
+    const capped = mockReflector(
+      'capped',
+      ['post-step'],
+      { hint: 'x' },
+      { maxPerTurn: 1, usesLlm: true },
+    )
     const obs = await traced('t-skip', () =>
       runReflectorChain('post-step', [capped], ctx('post-step'), new Map([['capped', 1]])),
     )
     expect(obs).toHaveLength(1)
     expect(obs[0]).toMatchObject({ type: 'EVENT', name: 'guard.skipped', level: 'DEBUG' })
     expect(obs[0].metadata).toEqual({ reflector: 'capped', phase: 'post-step', used: 1 })
+  })
+
+  it('a code reflector over maxPerTurn is still evaluated; its suppressed hint is a DEBUG guard + guard.skipped', async () => {
+    const capped = mockReflector('capped', ['post-step'], { hint: 'x' }, { maxPerTurn: 1 })
+    const obs = await traced('t-suppress', () =>
+      runReflectorChain('post-step', [capped], ctx('post-step'), new Map([['capped', 1]])),
+    )
+    expect(obs).toHaveLength(2)
+    const guard = obs.find((o) => o.name === 'guard:capped')
+    expect(guard).toMatchObject({ level: 'DEBUG' })
+    expect(guard?.metadata).toMatchObject({ outcome: 'hint', suppressed: true })
+    expect(obs.find((o) => o.name === 'guard.skipped')).toMatchObject({ level: 'DEBUG' })
   })
 
   it('work done inside reflect() is parented to the guard observation', async () => {

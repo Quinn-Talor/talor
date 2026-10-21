@@ -18,21 +18,13 @@
 // 允许依赖: loop/*, repos/*, observe/*, shared/*
 // 禁止依赖: ipc/*
 
-import {
-  streamText,
-  isStepCount,
-  type LanguageModel,
-  type ModelMessage,
-  type StepResult,
-  type ToolSet,
-} from 'ai'
+import { streamText, isStepCount, type LanguageModel, type StepResult, type ToolSet } from 'ai'
 import { v4 as uuidv4 } from 'uuid'
 import log from 'electron-log'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { buildStreamTimeout } from './stream-utils'
 import { buildTools } from '../tools/build-tools'
-import type { ToolMetadata } from '../tools/types'
-import { estimate } from '../memory/types'
+import { estimatePromptTokens, calibratedContextEstimate } from './prompt-estimate'
 import type { ReactLoopOptions, ReactLoopCallbacks, LoopExitReason, LoopResult } from './types'
 import type { ObservationLevel } from '@shared/types/trace'
 import type { PromptPipeline } from '../prompt/PromptPipeline'
@@ -62,7 +54,13 @@ import {
   type TurnEndPolicy,
   type PolicyContext,
 } from './turn-end-policies'
-import { factsFromStep, outcomeFromStep, extractTextFromStep } from './step-adapter'
+import {
+  factsFromStep,
+  outcomeFromStep,
+  extractTextFromStep,
+  invalidToolCallsFromStep,
+  toolResultsFromStep,
+} from './step-adapter'
 import { persistStepFromResult, persistAbortedStep } from './persist-step'
 import { recordUsage } from '../providers/usage-recorder'
 import { currentTraceId, withGenerationName, withParent } from '../observe/trace-context'
@@ -72,6 +70,16 @@ import { traceRecorder } from '../observe/trace-recorder'
 interface CarriedHint {
   text: string
   source: string
+}
+
+/** 单步结果落库失败。本轮必须中止并把错误上抛给调用方, 不能继续下一步。 */
+class StepPersistError extends Error {
+  constructor(cause: unknown) {
+    super(`step persist failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
+      cause,
+    })
+    this.name = 'StepPersistError'
+  }
 }
 
 const DEFAULT_MAX_STEPS = 1000
@@ -135,37 +143,6 @@ interface StepRunResult {
   promptEstimate?: number
 }
 
-/** 按字符估算一次模型输入的 token:消息 + 本次提供的工具定义(工具定义常是大头)。 */
-function estimatePromptTokens(messages: ModelMessage[], tools: ToolMetadata[]): number {
-  let total = 0
-  for (const m of messages) {
-    total += estimate(typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
-  }
-  return tools.length > 0 ? total + estimate(JSON.stringify(tools)) : total
-}
-
-/** 校准比例的上下限:单次异常(如 base64 图片撑大字符数)不致让估算整体失真。 */
-const CALIBRATION_MIN = 0.5
-const CALIBRATION_MAX = 2
-
-/**
- * 上下文预算估算:本次输入的字符估算 × 上一次调用的"实际 input token / 上次字符估算"比例。
- * 按比例而非差值校准:字符估算对工具定义 JSON 的偏差与其体量成正比,工具集变化时
- * (如 MCP 全量 294 个工具 → 14 个)差值会把旧工具集的偏差带到新调用上(实测高估 2.5×),
- * 比例则随体量缩放(同一数据回算误差 +9% / +0.9%)。首次调用没有实际值,直接用字符估算。
- */
-function calibratedContextEstimate(
-  promptEstimate: number,
-  last: { inputTokens?: number; promptEstimate?: number },
-): number {
-  if (!last.inputTokens || !last.promptEstimate) return promptEstimate
-  const ratio = Math.min(
-    CALIBRATION_MAX,
-    Math.max(CALIBRATION_MIN, last.inputTokens / last.promptEstimate),
-  )
-  return Math.round(promptEstimate * ratio)
-}
-
 // ── runReactLoop ────────────────────────────────────────────────────────
 
 /**
@@ -178,6 +155,7 @@ function calibratedContextEstimate(
  *   d. turn-end policy 判 final (无 tool + 有 text)
  *   e. empty_text (无 tool + 无 text)
  *   f. context_overflow (prompt 估算 ≥ 100% halt)
+ *   g. step 抛错 (step_error; 落盘失败则直接上抛给调用方)
  *
  * 兜底: 循环结束后, 若 accumulator.needsFallback() 且非 abort/context_overflow,
  * 调一次 runForcedSummary 让用户至少看到一段文本。
@@ -237,16 +215,21 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
 
   const preStepReflectors: Reflector[] = [new ContextBudgetReflector()]
 
+  // 同 priority 按数组顺序评估, 第一个被采纳的产出 wins:
+  //   - 能收尾的 (failure-streak wrapUp) 排在纯 hint 之前, 不被 hint 抢先
+  //   - LLM 升级 / 周期反思排在 tool-only-loop 之前: tool-only-loop 连击期间每步都出 hint,
+  //     排在它后面就永远轮不到; 它们达条件时的 LLM 指引顶替本步的 L1 hint
+  //   - 有状态的 escalation / tool-only-loop 用 track() 逐步计数, 不因排序漏步
   const postStepReflectors: Reflector[] = [
     // 混合体先跑, 复用 detector state (priority=20 < 默认 100)
     sharedSignatureDeadLoop,
     sharedLengthTruncation,
     new FailureStreakReflector(ctx),
-    new ToolOnlyLoopReflector(),
-    new PeriodicReflector({ every: 5 }),
     new EscalationReflector({
       wasPreviousStepL1Hinted: () => lastL1Hinted,
     }),
+    new PeriodicReflector({ every: 5 }),
+    new ToolOnlyLoopReflector(),
   ]
 
   const turnEndReflectors: Reflector[] = [
@@ -270,7 +253,8 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
   let lastPolicyExit: LoopExitReason | null = null
   const traceId = currentTraceId()
 
-  for (let step = 0; step < maxSteps; step++) {
+  let step = 0
+  for (; step < maxSteps; step++) {
     if (opts.abortSignal.aborted) {
       exitReason = 'abort'
       break
@@ -314,7 +298,14 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
         log.error(`[ReactLoop] step ${step} threw:`, err)
         stepLevel = 'ERROR'
         stepStatus = err instanceof Error ? err.message : String(err)
-        exitReason = stepExit(opts.abortSignal.aborted ? 'abort' : 'fallback_summary')
+        // 落盘失败: 工具副作用已发生但下一步 prompt 看不到, 继续只会重复执行 → 中止本轮,
+        // 错误交给 orchestrator 经 onDone 回报
+        if (err instanceof StepPersistError) {
+          stepExit('step_error')
+          throw err
+        }
+        // 兜底摘要是否真跑由循环后 needsFallback 决定, 届时改记 fallback_summary
+        exitReason = stepExit(opts.abortSignal.aborted ? 'abort' : 'step_error')
         break
       }
 
@@ -439,7 +430,8 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
       // ── Turn-end policy (无 tool 时) ──
       let policyDecision: 'final' | 'continue' | null = null
       if (outcome.toolNames.length === 0) {
-        if (!outcome.stepText) {
+        // finishReason='length' 的空输出是截断 (推理耗尽输出预算), 交给 policy 链续写
+        if (!outcome.stepText && outcome.finishReason !== 'length') {
           log.info(`[ReactLoop]   → empty (no text, no tools)`)
           exitReason = stepExit('empty_text')
           break
@@ -519,17 +511,26 @@ export async function runReactLoop(opts: ReactLoopOptions): Promise<LoopResult> 
         break
       }
 
-      // mid-reflector advisor hint 仅在没有 policy hint 时注入下步
-      if (midOut.hint && nextPolicyHint === null) {
-        nextPolicyHint = { text: midOut.hint, source: midOut.from ?? 'unknown' }
+      // mid-reflector advisor hint 与 policy hint 合并注入下步 (两者针对不同问题, 都要送达)
+      if (midOut.hint) {
+        const midHint: CarriedHint = { text: midOut.hint, source: midOut.from ?? 'unknown' }
+        nextPolicyHint = nextPolicyHint
+          ? {
+              text: `${nextPolicyHint.text}\n\n${midHint.text}`,
+              source: `${nextPolicyHint.source}+${midHint.source}`,
+            }
+          : midHint
       }
-
-      if (step === maxSteps - 1) exitReason = stepExit('max_steps')
     } finally {
+      // 末步未自行结束本轮 (含 internalNudge / policy continue 等 continue 分支) → 步数上限收尾
+      if (step === maxSteps - 1 && stepMeta.exit === undefined) stepMeta.exit = 'max_steps'
+
       stepObs.end({ level: stepLevel, statusMessage: stepStatus, metadata: stepMeta })
       if (traceId !== null) traceRecorder.flush(traceId)
     }
   }
+
+  if (step === maxSteps) exitReason = 'max_steps'
 
   // 兜底摘要 (整轮零文本) — 仅非 abort / context_overflow 触发
   if (accumulator.needsFallback() && exitReason !== 'abort' && exitReason !== 'context_overflow') {
@@ -657,6 +658,7 @@ async function runReactStep(
     events: ctx.events,
     mcpExpandThisStep: state.mcpExpand,
     usedMcpToolNames: state.mcpUsed,
+    abortSignal: ctx.abortSignal,
   }
   const built = await traceRecorder.withObservation(
     { type: 'SPAN', name: 'prompt.build' },
@@ -870,6 +872,20 @@ async function runReactStep(
 
     const durationMs = Date.now() - stepStart
 
+    // 7.5 SDK 判无效的工具调用 (未知工具 / 入参非法) 不进入执行, 不触发 onToolExecution*;
+    //     补发调用与结果事件, UI 才能看到这次失败的调用及原因
+    const invalidCalls = invalidToolCallsFromStep(step)
+    if (invalidCalls.length > 0) {
+      const outputs = new Map(toolResultsFromStep(step).map((r) => [r.toolCallId, r.output]))
+      for (const tc of invalidCalls) {
+        log.warn(
+          `[ReactLoop]   ⊘ invalid tool call: ${tc.toolName} id=${tc.toolCallId.slice(0, 12)}`,
+        )
+        ctx.callbacks.onToolCall(tc.toolCallId, tc.toolName, tc.input, stepIndex, Date.now())
+        ctx.callbacks.onToolResult(tc.toolCallId, tc.toolName, outputs.get(tc.toolCallId), 0)
+      }
+    }
+
     // 8. 持久化 (persistStepFromResult: tool-pair createBatch 或 text-only create)
     const persistObs = traceRecorder.startObservation({ type: 'SPAN', name: 'react.persist' })
     try {
@@ -888,6 +904,7 @@ async function runReactStep(
         level: 'ERROR',
         statusMessage: `PERSIST_FAILED: ${err instanceof Error ? err.message : String(err)}`,
       })
+      throw new StepPersistError(err)
     }
 
     // 8.5 统计本步 token 用量(主对话) — usage/providerMetadata 来自 SDK, 累加到 session
@@ -927,6 +944,7 @@ async function runReactStep(
     }
     return stepResult
   } catch (err) {
+    if (err instanceof StepPersistError) throw err
     // streamText / consumeStream 异常 — 兜底落 aborted, 上抛给主循环
     log.error('[ReactLoop]   consumeStream failed:', err)
     if (!persisted) {

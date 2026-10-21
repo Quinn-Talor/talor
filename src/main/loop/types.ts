@@ -74,6 +74,8 @@ export interface ReactLoopOptions {
  *   - 'fallback_summary':  整轮空文本兜底
  *   - 'repeated_error':    死循环 / 失败连击触发
  *   - 'context_overflow':  prompt 估算 >= context_limit, 提交前短路
+ *   - 'step_error':        某步 streamText 抛错 (非 abort) 且本轮已有文本, 未跑兜底摘要;
+ *                          本轮零文本时兜底摘要接手, 记 'fallback_summary'
  *
  * Turn-end policy 决策:
  *   - 'declared_final':         LLM emit done/need_input/blocked block
@@ -97,6 +99,7 @@ export type LoopExitReason =
   | 'truncated'
   | 'content_filter'
   | 'continuation_chain'
+  | 'step_error'
 
 /**
  * runReactLoop 的返回值。

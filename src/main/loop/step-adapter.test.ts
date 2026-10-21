@@ -9,6 +9,8 @@ import {
   extractTextFromStep,
   toolCallsFromStep,
   toolResultsFromStep,
+  reasoningPartsFromStep,
+  invalidToolCallsFromStep,
   deriveAllToolsFailed,
   factsFromStep,
   outcomeFromStep,
@@ -251,5 +253,102 @@ describe('outcomeFromStep — 派生 StepOutcome', () => {
     const o = outcomeFromStep(makeStep({ text: 'hello' }))
     expect(o.shouldContinue).toBe(false)
     expect(o.stepText).toBe('hello')
+  })
+})
+
+function withContent(step: StepResult<ToolSet>, content: unknown[]): StepResult<ToolSet> {
+  return { ...step, content } as unknown as StepResult<ToolSet>
+}
+
+describe('reasoningPartsFromStep', () => {
+  it('从 content 逐个取 reasoning, providerMetadata → providerOptions, 保序', () => {
+    const parts = reasoningPartsFromStep(
+      withContent(makeStep({ reasoningText: 'ab' }), [
+        { type: 'reasoning', text: 'a', providerMetadata: { anthropic: { signature: 's1' } } },
+        { type: 'text', text: 'ignored' },
+        { type: 'reasoning', text: 'b', providerMetadata: { anthropic: { signature: 's2' } } },
+      ]),
+    )
+    expect(parts).toEqual([
+      { type: 'reasoning', text: 'a', providerOptions: { anthropic: { signature: 's1' } } },
+      { type: 'reasoning', text: 'b', providerOptions: { anthropic: { signature: 's2' } } },
+    ])
+  })
+
+  it('redacted thinking (空 text + redactedData) 保留', () => {
+    const parts = reasoningPartsFromStep(
+      withContent(makeStep({}), [
+        { type: 'reasoning', text: '', providerMetadata: { anthropic: { redactedData: 'x' } } },
+      ]),
+    )
+    expect(parts).toHaveLength(1)
+  })
+
+  it('(不触发) 无 reasoning → 空数组', () => {
+    expect(reasoningPartsFromStep(makeStep({ text: 'hi' }))).toEqual([])
+  })
+})
+
+describe('toolResultsFromStep — 合并 SDK tool-error', () => {
+  const errorPart = {
+    type: 'tool-error',
+    toolCallId: 'e1',
+    toolName: 'ghost',
+    input: {},
+    error: 'Model tried to call unavailable tool',
+  }
+
+  it('tool-error → SDK_TOOL_ERROR 信封, 计为失败', () => {
+    const step = withContent(
+      makeStep({ toolCalls: [{ toolCallId: 'e1', toolName: 'ghost', input: {} }] }),
+      [errorPart],
+    )
+    const tr = toolResultsFromStep(step)
+    expect(tr).toEqual([
+      {
+        toolCallId: 'e1',
+        toolName: 'ghost',
+        output: {
+          __talor_error: true,
+          code: 'SDK_TOOL_ERROR',
+          message: 'Model tried to call unavailable tool',
+        },
+      },
+    ])
+    expect(factsFromStep(step).allToolsFailed).toBe(true)
+  })
+
+  it('Error 实例取 message', () => {
+    const tr = toolResultsFromStep(
+      withContent(makeStep({}), [{ ...errorPart, error: new Error('bad json input') }]),
+    )
+    expect((tr[0].output as { message: string }).message).toBe('bad json input')
+  })
+
+  it('(不触发) 已有同 id 的 tool-result 时不重复追加', () => {
+    const tr = toolResultsFromStep(
+      withContent(
+        makeStep({ toolResults: [{ toolCallId: 'e1', toolName: 'ghost', output: 'ok' }] }),
+        [errorPart],
+      ),
+    )
+    expect(tr).toHaveLength(1)
+    expect(tr[0].output).toBe('ok')
+  })
+})
+
+describe('invalidToolCallsFromStep', () => {
+  it('只取 invalid=true 的 tool-call', () => {
+    const step = withContent(makeStep({}), [
+      { type: 'tool-call', toolCallId: 'a', toolName: 'read', input: {} },
+      { type: 'tool-call', toolCallId: 'b', toolName: 'ghost', input: { x: 1 }, invalid: true },
+    ])
+    expect(invalidToolCallsFromStep(step)).toEqual([
+      { toolCallId: 'b', toolName: 'ghost', input: { x: 1 } },
+    ])
+  })
+
+  it('(不触发) 无 invalid 调用 → 空', () => {
+    expect(invalidToolCallsFromStep(makeStep({}))).toEqual([])
   })
 })

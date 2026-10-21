@@ -6,11 +6,12 @@
 //   StepOutcome。本模块负责单向转换 + 暴露纯函数 helper (签名 hash / 错误判定)
 //   供 react-loop 与单元测试共享。
 //
-// 允许依赖: ./types, ./outcome-facts, ./stream-utils (isErrorOutput / extractOutputText)
+// 允许依赖: ./types, ./outcome-facts, ./stream-utils (isErrorOutput / extractOutputText), ../tools/types (类型)
 // 禁止依赖: ipc/*, ../repos/*
 
 import { createHash } from 'crypto'
-import type { StepResult, ToolSet } from 'ai'
+import type { ProviderMetadata, StepResult, ToolSet } from 'ai'
+import type { ToolErrorEnvelope } from '../tools/types'
 import type { OutcomeFacts } from './outcome-facts'
 import type { StepOutcome } from './types'
 import { isErrorOutput } from './stream-utils'
@@ -102,9 +103,36 @@ export function extractTextFromStep(step: StepResult<ToolSet>): string {
   return step.text ?? ''
 }
 
-/** 从 step.reasoning[] 拼接 reasoning text。 */
-export function extractReasoningFromStep(step: StepResult<ToolSet>): string {
-  return step.reasoningText ?? ''
+/** 落库用的 reasoning part:SDK ModelMessage 原生 ReasoningPart 形态。 */
+export interface ReasoningMessagePart {
+  type: 'reasoning'
+  text: string
+  /** 与 SDK ReasoningPart.providerOptions 同形;取自输出侧 providerMetadata 原样回传 */
+  providerOptions?: ProviderMetadata
+}
+
+/**
+ * 从 step.content 取 reasoning part,逐个保序,其 providerMetadata 作为 providerOptions 带上。
+ *
+ * providerOptions 不能丢:Anthropic 的 thinking 块靠 anthropic.signature / redactedData
+ * 回传,provider 转换时缺它就丢弃该块;开启推理时工具回合下一步的 assistant 消息必须以
+ * thinking 块开头,丢了直接 400。redacted thinking 的 text 为空但 metadata 有值,同样保留。
+ * content 缺失(部分 provider / 测试替身)时退回 reasoningText 单个 part。
+ */
+export function reasoningPartsFromStep(step: StepResult<ToolSet>): ReasoningMessagePart[] {
+  const parts: ReasoningMessagePart[] = []
+  for (const p of step.content ?? []) {
+    if (p.type !== 'reasoning') continue
+    if (!p.text && !p.providerMetadata) continue
+    parts.push(
+      p.providerMetadata
+        ? { type: 'reasoning', text: p.text, providerOptions: p.providerMetadata }
+        : { type: 'reasoning', text: p.text },
+    )
+  }
+  if (parts.length > 0) return parts
+  const text = step.reasoningText ?? ''
+  return text ? [{ type: 'reasoning', text }] : []
 }
 
 /** SDK toolCalls → Talor 内部精简形态 (toolCallId / toolName / input)。 */
@@ -118,15 +146,62 @@ export function toolCallsFromStep(
   }))
 }
 
-/** SDK toolResults → Talor 内部精简形态。 */
+/** SDK tool-error 的 error 字段 → 可读文本(原样保留 SDK 给出的原因)。 */
+function sdkErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+/**
+ * SDK toolResults + tool-error → Talor 内部精简形态。
+ *
+ * tool-error 来自 SDK 层(模型调了未注册的工具 / 入参 JSON 非法 / execute 抛出),
+ * 不在 step.toolResults 里。转成 SDK_TOOL_ERROR 信封并保留 SDK 错误文本:落库后模型
+ * 能看到真实原因自行纠正,也让 failure-streak 把它计为失败。
+ */
 export function toolResultsFromStep(
   step: StepResult<ToolSet>,
 ): Array<{ toolCallId: string; toolName: string; output: unknown }> {
-  return (step.toolResults ?? []).map((tr) => ({
+  const results: Array<{ toolCallId: string; toolName: string; output: unknown }> = (
+    step.toolResults ?? []
+  ).map((tr) => ({
     toolCallId: tr.toolCallId,
     toolName: tr.toolName,
     output: tr.output,
   }))
+  const seen = new Set(results.map((r) => r.toolCallId))
+  for (const p of step.content ?? []) {
+    if (p.type !== 'tool-error' || seen.has(p.toolCallId)) continue
+    seen.add(p.toolCallId)
+    const envelope: ToolErrorEnvelope = {
+      __talor_error: true,
+      code: 'SDK_TOOL_ERROR',
+      message: sdkErrorText(p.error),
+    }
+    results.push({ toolCallId: p.toolCallId, toolName: p.toolName, output: envelope })
+  }
+  return results
+}
+
+/**
+ * 本步被 SDK 判为无效、未进入执行的工具调用(未知工具 / 入参非法)。
+ * 它们不触发 onToolExecutionStart/End,UI 需由主循环在步后补发调用与结果事件。
+ */
+export function invalidToolCallsFromStep(
+  step: StepResult<ToolSet>,
+): Array<{ toolCallId: string; toolName: string; input: unknown }> {
+  const out: Array<{ toolCallId: string; toolName: string; input: unknown }> = []
+  for (const p of step.content ?? []) {
+    if (p.type === 'tool-call' && 'invalid' in p && p.invalid === true) {
+      out.push({ toolCallId: p.toolCallId, toolName: p.toolName, input: p.input })
+    }
+  }
+  return out
 }
 
 /**

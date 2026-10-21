@@ -17,6 +17,7 @@ vi.mock('ai', async () => {
 })
 
 import { ContextBudgetReflector } from './context-budget'
+import { runReflectorChain } from './chain'
 import type { ReflectContext } from './types'
 
 function preCtx(overrides: Partial<ReflectContext> = {}): ReflectContext {
@@ -75,5 +76,40 @@ describe('ContextBudgetReflector', () => {
     const r = new ContextBudgetReflector({ warnRatio: 0.5 })
     const out = await r.reflect(preCtx({ estimatedTokens: 60, contextLimit: 100 }))
     expect(out?.hint).toBeDefined()
+  })
+})
+
+describe('ContextBudgetReflector — 经 chain 的配额语义', () => {
+  it('hint 档用掉配额后, 下一步越线仍 halt', async () => {
+    const r = new ContextBudgetReflector()
+    const counters = new Map<string, number>()
+    const first = await runReflectorChain(
+      'pre-step',
+      [r],
+      preCtx({ estimatedTokens: 99, contextLimit: 100 }),
+      counters,
+    )
+    expect(first.kind).toBe('hint')
+    const second = await runReflectorChain(
+      'pre-step',
+      [r],
+      preCtx({ estimatedTokens: 100, contextLimit: 100 }),
+      counters,
+    )
+    expect(second.kind).toBe('user_output')
+    expect(second.userOutput?.exitReason).toBe('context_overflow')
+  })
+
+  it('(不触发) hint 配额用完后再次落在告警带 → 不再重复告警', async () => {
+    const r = new ContextBudgetReflector()
+    const counters = new Map<string, number>()
+    await runReflectorChain('pre-step', [r], preCtx({ estimatedTokens: 99 }), counters)
+    const again = await runReflectorChain(
+      'pre-step',
+      [r],
+      preCtx({ estimatedTokens: 99 }),
+      counters,
+    )
+    expect(again.kind).toBe('none')
   })
 })

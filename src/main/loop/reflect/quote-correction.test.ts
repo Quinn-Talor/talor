@@ -68,7 +68,14 @@ beforeEach(() => {
   mockListBySession.mockReturnValue([
     {
       role: 'tool',
-      content: JSON.stringify([{ type: 'tool_result', output: 'real data here' }]),
+      content: JSON.stringify([
+        {
+          type: 'tool-result',
+          toolCallId: 'c1',
+          toolName: 'read',
+          output: { type: 'text', value: 'real data here' },
+        },
+      ]),
     },
   ])
   mockVerifyQuoted.mockReturnValue({ cleaned: 'final answer', unverifiedCount: 0 })
@@ -92,6 +99,19 @@ describe('QuoteCorrectionReflector', () => {
     mockListBySession.mockReturnValueOnce([])
     const r = new QuoteCorrectionReflector()
     expect(await r.reflect(turnEndCtx())).toBeNull()
+  })
+
+  it('DB 真实格式的 tool result 作为校验语料传给 verifier', async () => {
+    const r = new QuoteCorrectionReflector()
+    await r.reflect(turnEndCtx())
+    expect(mockVerifyQuoted).toHaveBeenCalledWith('final answer', ['real data here'])
+  })
+
+  it('(不触发) session 无 tool result → 不校验', async () => {
+    mockListBySession.mockReturnValue([])
+    const r = new QuoteCorrectionReflector()
+    expect(await r.reflect(turnEndCtx())).toBeNull()
+    expect(mockVerifyQuoted).not.toHaveBeenCalled()
   })
 
   it('mask < 阈值 返 null', async () => {

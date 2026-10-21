@@ -7,14 +7,20 @@
 //
 // Capability 驱动调度:
 //   - phases 过滤: 不声明 phase 的 reflector 跳过
-//   - maxPerTurn 检查: perTurnCounters 跟踪本 turn 已触发次数
+//   - track: 先对本 phase 全部 reflector 调 track() 更新内部状态 — 有状态的 reflector
+//     (escalation / tool-only-loop) 每步都要看到, 不能因排在后面被前序产出饿死
+//   - maxPerTurn: 只限 advisory 产出 (hint / internalNudge); 终止产出 (wrapUp / userOutput)
+//     不受限 — 配额被告警用完后, 真正越线时仍须能收尾 / halt
 //   - priority 排序: 数字小先跑 (默认 100)
 //
-// 第一个非 null 输出 wins, 后续 reflector 本次调用跳过 (返回结果带 from 标识)。
+// 第一个被采纳的输出 wins, 后续 reflector 本次调用跳过 (返回结果带 from 标识)。
+//
+// 配额用尽时: usesLlm 的 reflector 直接跳过 (不花 LLM 调用); 纯代码 reflector 照常评估
+// (计数类状态在 reflect 内推进), 其 advisory 产出被丢弃, 终止产出照常生效。
 //
 // 观测: 每个被评估的 reflector 记一条 guard observation (guard:<name>; capabilities.usesLlm
-// 为 EVALUATOR, 否则 GUARDRAIL), reflect() 内的模型调用挂在它下面; 因 maxPerTurn 跳过的
-// 记一条 DEBUG 级 guard.skipped 事件。
+// 为 EVALUATOR, 否则 GUARDRAIL), reflect() 内的模型调用挂在它下面; 因 maxPerTurn 跳过或
+// 丢弃 advisory 产出时记一条 DEBUG 级 guard.skipped 事件。
 //
 // 允许依赖: ./types, ../../observe/*, electron-log
 // 禁止依赖: ipc/*
@@ -61,8 +67,18 @@ export async function runReflectorChain(
     .sort((a, b) => (a.capabilities.priority ?? 100) - (b.capabilities.priority ?? 100))
 
   for (const r of candidates) {
+    if (!r.track) continue
+    try {
+      r.track(ctx)
+    } catch (err) {
+      log.warn(`[Reflect/${r.name}] track threw:`, err)
+    }
+  }
+
+  for (const r of candidates) {
     const used = perTurnCounters.get(r.name) ?? 0
-    if (r.capabilities.maxPerTurn !== undefined && used >= r.capabilities.maxPerTurn) {
+    const exhausted = r.capabilities.maxPerTurn !== undefined && used >= r.capabilities.maxPerTurn
+    if (exhausted && r.capabilities.usesLlm) {
       traceRecorder.event({
         name: 'guard.skipped',
         level: 'DEBUG',
@@ -96,13 +112,27 @@ export async function runReflectorChain(
       continue
     }
     const kind = outcomeKind(out)
+    if (kind === 'none') {
+      guard.end({ level: 'DEBUG', metadata: { outcome: 'none' } })
+      continue
+    }
+    const terminal = kind === 'wrap_up' || kind === 'user_output'
+    if (exhausted && !terminal) {
+      guard.end({ level: 'DEBUG', metadata: { outcome: kind, suppressed: true } })
+      traceRecorder.event({
+        name: 'guard.skipped',
+        level: 'DEBUG',
+        metadata: { reflector: r.name, phase, used },
+      })
+      continue
+    }
     guard.end({
-      level: kind === 'wrap_up' || kind === 'user_output' ? 'WARNING' : 'DEFAULT',
+      level: terminal ? 'WARNING' : 'DEFAULT',
       output: out.userOutput?.text ?? out.internalNudge?.text ?? out.hint ?? null,
       metadata: { outcome: kind },
     })
 
-    perTurnCounters.set(r.name, used + 1)
+    if (!terminal) perTurnCounters.set(r.name, used + 1)
     if (out.wrapUp) return { kind: 'wrap_up', from: r.name, wrapUp: out.wrapUp }
     if (out.userOutput) {
       return { kind: 'user_output', from: r.name, userOutput: out.userOutput }

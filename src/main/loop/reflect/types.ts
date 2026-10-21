@@ -2,7 +2,8 @@
 //
 // Reflector 是反思的统一入口, 跟 Detector (硬切断) 互补。
 // 三个 phase: pre-step / post-step / turn-end, 用 discriminated union 类型守卫保证字段安全。
-// Capabilities 元数据驱动主循环调度 (phases 过滤 / maxPerTurn 上限 / priority 排序)。
+// Capabilities 元数据驱动主循环调度 (phases 过滤 / maxPerTurn 上限 / priority 排序);
+// 可选 track() 让有状态的 reflector 每步观测, 与是否轮到它产出解耦。
 //
 // 四态输出 (按 "谁来看 + 是否结束 turn" 区分):
 //   hint:          内部引导 (临时) — 注入下一步 messages, 不落库, UI 不渲染
@@ -105,7 +106,10 @@ export interface ReflectorOutcome {
 export interface ReflectorCapabilities {
   /** 哪些 phase 触发本 reflector */
   phases: ReadonlyArray<ReflectPhase>
-  /** 每 turn 触发上限 */
+  /**
+   * 每 turn advisory 产出 (hint / internalNudge) 的上限。终止产出 (wrapUp / userOutput)
+   * 不计入、不受限。用尽后 usesLlm 的 reflector 不再评估, 纯代码 reflector 仍评估。
+   */
   maxPerTurn?: number
   /** chain 内排序 (数字小先跑), 默认 100 */
   priority?: number
@@ -116,6 +120,11 @@ export interface ReflectorCapabilities {
 export interface Reflector {
   readonly name: string
   readonly capabilities: ReflectorCapabilities
+  /**
+   * 每步对本 phase 全部 reflector 先调用, 只更新内部状态、不产出。chain 选中前序产出后会
+   * 跳过后续 reflect(), 依赖逐步观测的状态 (连击计数等) 放这里才不会漏步。
+   */
+  track?(ctx: ReflectContext): void
   reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null>
 }
 

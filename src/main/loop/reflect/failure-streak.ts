@@ -25,7 +25,8 @@ export class FailureStreakReflector implements Reflector {
   readonly name = 'failure-streak'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['post-step'],
-    // 2 = 允许一次 hint (chain==limit-1 警告) + 一次 wrapUp (chain==limit 触发)
+    // 只限 limit-1 警告 hint 的次数; wrapUp 是终止产出, 不受此上限约束 — 警告用完后
+    // 失败链再次达到 limit 仍会收尾
     maxPerTurn: 2,
   }
 

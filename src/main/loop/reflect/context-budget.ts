@@ -24,6 +24,7 @@ export class ContextBudgetReflector implements Reflector {
   readonly name = 'context-budget'
   readonly capabilities: ReflectorCapabilities = {
     phases: ['pre-step'],
+    // 只限 hint 档 (每 turn 一次告警); halt 档是终止产出, chain 不受此上限约束
     maxPerTurn: 1,
     priority: 10,
   }

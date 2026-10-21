@@ -8,7 +8,7 @@
 //   - failureStreakSummaryOpts(N):         连续 N 次工具失败时兜底
 //   - signatureDeadLoopSummaryOpts(...):   同 tool+input+output 重复 N 次时兜底
 //
-// 允许依赖: ./types, ../repos/session-repo, ./quote-verifier
+// 允许依赖: ./types, ../repos/session-repo, ./quote-verifier, ./reflect/tool-outputs
 // 禁止依赖: ipc/*
 
 import { v4 as uuidv4 } from 'uuid'
@@ -18,36 +18,11 @@ import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { sideEffectLedger } from '../repos/side-effect-ledger'
 import { buildStreamSignal } from './stream-utils'
 import { verifyQuotedFacts, verifyEntityGrounding } from './quote-verifier'
+import { collectRecentToolOutputs } from './reflect/tool-outputs'
 import { recordUsage } from '../providers/usage-recorder'
 import { withGenerationName } from '../observe/trace-context'
 
 const SEPARATOR = '──────────────────────────────────────────'
-
-/**
- * 收集最近 k 条 tool 角色消息的 raw output 文本, 供 verifyQuotedFacts 比对。
- *
- * 为什么从后往前扫: 兜底摘要最相关的证据是"刚跑过的工具", 越早的越次要;
- * 取 k 条后就停, 避免对已存档的历史 session 做全量读取。
- */
-function collectRecentToolOutputs(sessionId: string, k: number): string[] {
-  const all = messageRepo.listBySession(sessionId)
-  const outputs: string[] = []
-  for (let i = all.length - 1; i >= 0 && outputs.length < k; i--) {
-    if (all[i].role !== 'tool') continue
-    try {
-      const blocks = JSON.parse(all[i].content) as Array<{ type: string; output?: string }>
-      for (const b of blocks) {
-        if (b.type === 'tool_result' && typeof b.output === 'string' && b.output.length > 0) {
-          outputs.push(b.output)
-          if (outputs.length >= k) break
-        }
-      }
-    } catch {
-      // 非 blocks 格式的旧消息, 跳过
-    }
-  }
-  return outputs
-}
 
 /**
  * 清洗 fallback / failure-recovery / forced-closure 输出中泄漏的工具调用 markup。

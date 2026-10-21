@@ -22,7 +22,15 @@ vi.mock('../../repos/reflection-ledger', () => ({
 }))
 
 import { EscalationReflector } from './escalation'
-import type { ReflectContext } from './types'
+import { ToolOnlyLoopReflector } from './tool-only-loop'
+import { runReflectorChain } from './chain'
+import type { Reflector, ReflectContext } from './types'
+
+/** chain 的调用顺序: 先 track 推进状态, 再 reflect 产出。 */
+function observeAndReflect(r: Reflector, c: ReflectContext) {
+  r.track?.(c)
+  return r.reflect(c)
+}
 
 function postCtx(stepIndex: number): ReflectContext {
   return {
@@ -52,7 +60,7 @@ describe('EscalationReflector', () => {
       wasPreviousStepL1Hinted: () => hinted,
     })
     hinted = true
-    expect(await r.reflect(postCtx(0))).toBeNull() // streak=1
+    expect(await observeAndReflect(r, postCtx(0))).toBeNull() // streak=1
   })
 
   it('L1 streak == threshold → 触发 LLM', async () => {
@@ -70,8 +78,8 @@ describe('EscalationReflector', () => {
       threshold: 2,
       wasPreviousStepL1Hinted: () => hinted,
     })
-    await r.reflect(postCtx(0)) // streak=1
-    const out = await r.reflect(postCtx(1)) // streak=2 触发
+    await observeAndReflect(r, postCtx(0)) // streak=1
+    const out = await observeAndReflect(r, postCtx(1)) // streak=2 触发
     expect(out?.hint).toBeDefined()
     expect(out!.hint!).toMatch(/L1 hints ignored 2×/)
   })
@@ -91,9 +99,9 @@ describe('EscalationReflector', () => {
       threshold: 2,
       wasPreviousStepL1Hinted: () => hinted,
     })
-    await r.reflect(postCtx(0)) // streak=1
-    await r.reflect(postCtx(1)) // streak=2 触发, reset
-    expect(await r.reflect(postCtx(2))).toBeNull() // streak=1 again, not triggered
+    await observeAndReflect(r, postCtx(0)) // streak=1
+    await observeAndReflect(r, postCtx(1)) // streak=2 触发, reset
+    expect(await observeAndReflect(r, postCtx(2))).toBeNull() // streak=1 again, not triggered
   })
 
   it('上步无 L1 hint → streak reset 为 0', async () => {
@@ -102,11 +110,11 @@ describe('EscalationReflector', () => {
       threshold: 2,
       wasPreviousStepL1Hinted: () => hinted,
     })
-    await r.reflect(postCtx(0)) // streak=1
+    await observeAndReflect(r, postCtx(0)) // streak=1
     hinted = false
-    await r.reflect(postCtx(1)) // reset
+    await observeAndReflect(r, postCtx(1)) // reset
     hinted = true
-    expect(await r.reflect(postCtx(2))).toBeNull() // streak=1, not triggered
+    expect(await observeAndReflect(r, postCtx(2))).toBeNull() // streak=1, not triggered
   })
 
   it('confidence < 0.5 → null (但 ledger 记)', async () => {
@@ -124,8 +132,61 @@ describe('EscalationReflector', () => {
       threshold: 2,
       wasPreviousStepL1Hinted: () => hinted,
     })
-    await r.reflect(postCtx(0))
-    expect(await r.reflect(postCtx(1))).toBeNull()
+    await observeAndReflect(r, postCtx(0))
+    expect(await observeAndReflect(r, postCtx(1))).toBeNull()
     expect(mockLedgerRecord).toHaveBeenCalled()
+  })
+})
+
+describe('EscalationReflector — 与 tool-only-loop 同链 (react-loop 排序)', () => {
+  function toolOnlyCtx(stepIndex: number, hasText = false): ReflectContext {
+    return {
+      ...(postCtx(stepIndex) as Extract<ReflectContext, { phase: 'post-step' }>),
+      facts: {
+        hasToolCall: true,
+        hasText,
+        allToolsFailed: false,
+        isSubagentFailure: false,
+        signature: `s${stepIndex}`,
+      },
+    }
+  }
+
+  /** 模拟 react-loop: 每步跑 chain, 据产出来源更新 lastL1Hinted。 */
+  async function runSteps(n: number, withText: boolean): Promise<string[]> {
+    let lastL1Hinted = false
+    const chain = [
+      new EscalationReflector({ wasPreviousStepL1Hinted: () => lastL1Hinted }),
+      new ToolOnlyLoopReflector({ hintAt: 3 }),
+    ]
+    const counters = new Map<string, number>()
+    const froms: string[] = []
+    for (let i = 0; i < n; i++) {
+      const res = await runReflectorChain('post-step', chain, toolOnlyCtx(i, withText), counters)
+      froms.push(res.from ?? '-')
+      lastL1Hinted = res.kind === 'hint' && res.from === 'tool-only-loop'
+    }
+    return froms
+  }
+
+  it('tool-only-loop 每步出 hint 期间, L1 hint 连续 2 步被忽略 → escalation 升级顶替', async () => {
+    mockGenerateText.mockResolvedValue({
+      text: JSON.stringify({
+        progressSoFar: 'p',
+        blockerIdentified: null,
+        strategyShift: 'continue',
+        nextStepGuidance: 'g',
+        confidence: 0.8,
+      }),
+    })
+    const froms = await runSteps(6, false)
+    // step2/3: L1 hint; step4: 上两步均 L1 hinted → 升级
+    expect(froms.slice(0, 5)).toEqual(['-', '-', 'tool-only-loop', 'tool-only-loop', 'escalation'])
+  })
+
+  it('(不触发) 每步都有文本 → 无 L1 hint, escalation 不调 LLM', async () => {
+    const froms = await runSteps(6, true)
+    expect(froms.every((f) => f === '-')).toBe(true)
+    expect(mockGenerateText).not.toHaveBeenCalled()
   })
 })

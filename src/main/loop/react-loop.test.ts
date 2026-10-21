@@ -123,6 +123,7 @@ function makeStepResult(o: {
   toolResults?: Array<{ toolCallId: string; toolName: string; output: unknown }>
   finishReason?: import('ai').FinishReason
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+  content?: unknown[]
 }): StepResult<ToolSet> {
   return {
     text: o.text ?? '',
@@ -134,7 +135,7 @@ function makeStepResult(o: {
     usage: (o.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 }) as never,
     warnings: undefined as never,
     providerMetadata: undefined as never,
-    content: [],
+    content: o.content ?? [],
     files: [],
     sources: [],
     staticToolCalls: [],
@@ -163,6 +164,7 @@ type StepDef = {
   }>
   finishReason?: import('ai').FinishReason
   usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number }
+  content?: unknown[]
 }
 
 function mockSingleStep(step: StepDef) {
@@ -952,5 +954,264 @@ describe('runReactLoop — context budget estimate', () => {
   it('clamps the calibration ratio to 2× when one call’s actual is far off its estimate', async () => {
     const [, second] = await runTwoSteps(10)
     expect(second).toBe(Math.round(step2Estimate * 2))
+  })
+})
+
+// ── 执行层边界: 估算 / tool-error / 截断 / hint 合并 / 落盘失败 / 退出原因 ──
+
+describe('runReactLoop — execution edge cases', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** 按调用序号脚本化主路径 step; 兜底摘要 (无 onChunk) 走 mockSingleStep 的 textStream 分支。 */
+  function script(defs: Array<StepDef | Error>) {
+    let i = 0
+    mockStreamText.mockImplementation((params: { onChunk?: unknown }) => {
+      if (!params.onChunk) return mockSingleStep({ text: 'summary' })(params as never)
+      const def = defs[Math.min(i++, defs.length - 1)]
+      if (def instanceof Error) {
+        return {
+          consumeStream: vi.fn().mockRejectedValue(def),
+          steps: Promise.reject(def),
+        }
+      }
+      return mockSingleStep(def)(params as never)
+    })
+  }
+
+  function mainCalls(): Array<{ messages: Array<{ role: string; content: unknown }> }> {
+    return mockStreamText.mock.calls
+      .map(
+        (c) => c[0] as { onChunk?: unknown; messages: Array<{ role: string; content: unknown }> },
+      )
+      .filter((p) => p.onChunk)
+  }
+
+  function systemTexts(call: { messages: Array<{ role: string; content: unknown }> }): string {
+    return call.messages
+      .filter((m) => m.role === 'system')
+      .map((m) => String(m.content))
+      .join('\n')
+  }
+
+  it('历史里的大图片 base64 不按文本估算 → 不误判超限', async () => {
+    script([{ text: 'I see a cat' }])
+    const opts = makeOpts({
+      pipeline: {
+        build: vi.fn().mockResolvedValue({
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'what is this?' },
+                { type: 'image', image: 'data:image/png;base64,' + 'A'.repeat(2_000_000) },
+              ],
+            },
+          ],
+          tools: [],
+        }),
+      } as unknown as ReactLoopOptions['pipeline'],
+      providerConfig: { context_limit: 200_000 } as ReactLoopOptions['providerConfig'],
+    })
+    const result = await runReactLoop(opts)
+    expect(result.exitReason).not.toBe('context_overflow')
+    expect(mainCalls()).toHaveLength(1)
+  })
+
+  it('(不触发) 真正超长的文本仍 halt', async () => {
+    script([{ text: 'never' }])
+    const opts = makeOpts({
+      pipeline: {
+        build: vi.fn().mockResolvedValue({
+          messages: [{ role: 'user', content: 'x'.repeat(1_000_000) }],
+          tools: [],
+        }),
+      } as unknown as ReactLoopOptions['pipeline'],
+      providerConfig: { context_limit: 200_000 } as ReactLoopOptions['providerConfig'],
+    })
+    const result = await runReactLoop(opts)
+    expect(result.exitReason).toBe('context_overflow')
+    expect(mainCalls()).toHaveLength(0)
+  })
+
+  it('SDK 判无效的工具调用 → 补发 onToolCall/onToolResult, 带 SDK 错误原因', async () => {
+    const invalidCall = {
+      type: 'tool-call',
+      toolCallId: 'bad1',
+      toolName: 'no_such_tool',
+      input: {},
+      dynamic: true,
+      invalid: true,
+    }
+    script([
+      {
+        toolCalls: [{ toolCallId: 'bad1', toolName: 'no_such_tool', input: {} }],
+        content: [
+          invalidCall,
+          {
+            type: 'tool-error',
+            toolCallId: 'bad1',
+            toolName: 'no_such_tool',
+            input: {},
+            error: "Model tried to call unavailable tool 'no_such_tool'.",
+            dynamic: true,
+          },
+        ],
+        finishReason: 'tool-calls',
+      },
+      { text: 'ok, done' },
+    ])
+    const opts = makeOpts()
+    await runReactLoop(opts)
+    expect(opts.callbacks.onToolCall).toHaveBeenCalledWith(
+      'bad1',
+      'no_such_tool',
+      {},
+      0,
+      expect.any(Number),
+    )
+    expect(opts.callbacks.onToolResult).toHaveBeenCalledWith(
+      'bad1',
+      'no_such_tool',
+      expect.objectContaining({
+        __talor_error: true,
+        code: 'SDK_TOOL_ERROR',
+        message: expect.stringContaining('unavailable tool'),
+      }),
+      0,
+    )
+    const toolRecord = mockMessageCreateBatch.mock.calls[0][0][1]
+    expect(toolRecord.content[0].isError).toBe(true)
+    expect(toolRecord.content[0].output.value).toContain('unavailable tool')
+  })
+
+  it('(不触发) 正常工具调用不补发事件', async () => {
+    script([
+      {
+        toolCalls: [{ toolCallId: 't1', toolName: 'read', input: {} }],
+        toolResults: [{ toolCallId: 't1', toolName: 'read', output: 'content' }],
+        finishReason: 'tool-calls',
+      },
+      { text: 'done' },
+    ])
+    const opts = makeOpts()
+    await runReactLoop(opts)
+    expect(opts.callbacks.onToolResult).not.toHaveBeenCalled()
+  })
+
+  it("finishReason='length' 且无文本 → 交给 policy 续写 (注入截断 hint), 不当 empty_text", async () => {
+    script([{ text: '', finishReason: 'length' }, { text: 'final answer' }])
+    const result = await runReactLoop(makeOpts())
+    const calls = mainCalls()
+    expect(calls).toHaveLength(2)
+    expect(systemTexts(calls[1])).toMatch(/max_tokens limit/)
+    expect(result.exitReason).toBe('no_tool_calls')
+  })
+
+  it("(不触发) finishReason='stop' 且无文本 → 仍按空输出结束", async () => {
+    script([{ text: '', finishReason: 'stop' }, { text: 'never' }])
+    await runReactLoop(makeOpts())
+    expect(mainCalls()).toHaveLength(1)
+  })
+
+  it('纯文本截断时 length-truncation 的最后机会 hint 与 policy 截断 hint 一起注入', async () => {
+    script([
+      { text: 'part 1', finishReason: 'length' },
+      { text: 'part 2', finishReason: 'length' },
+      { text: 'done' },
+    ])
+    await runReactLoop(makeOpts())
+    const calls = mainCalls()
+    expect(calls).toHaveLength(3)
+    const injected = systemTexts(calls[2])
+    expect(injected).toMatch(/max_tokens limit/)
+    expect(injected).toMatch(/truncated by max_tokens 2 time\(s\) consecutively/)
+  })
+
+  it('(不触发) 首次截断只注入 policy 截断 hint', async () => {
+    script([{ text: 'part 1', finishReason: 'length' }, { text: 'done' }])
+    await runReactLoop(makeOpts())
+    const injected = systemTexts(mainCalls()[1])
+    expect(injected).toMatch(/max_tokens limit/)
+    expect(injected).not.toMatch(/consecutively/)
+  })
+
+  it('工具步落盘失败 → 中止本轮并抛错, 不再进入下一步', async () => {
+    mockMessageCreateBatch.mockImplementationOnce(() => {
+      throw new Error('SQLITE_BUSY')
+    })
+    script([
+      {
+        toolCalls: [{ toolCallId: 't1', toolName: 'write', input: { path: 'a' } }],
+        toolResults: [{ toolCallId: 't1', toolName: 'write', output: 'written' }],
+        finishReason: 'tool-calls',
+      },
+      { text: 'done' },
+    ])
+    await expect(runReactLoop(makeOpts())).rejects.toThrow(/SQLITE_BUSY/)
+    expect(mainCalls()).toHaveLength(1)
+    // 落盘失败不应再补写 "[step interrupted]" 消息
+    expect(mockMessageCreate).not.toHaveBeenCalled()
+  })
+
+  it('(不触发) 落盘成功 → 正常续做', async () => {
+    script([
+      {
+        toolCalls: [{ toolCallId: 't1', toolName: 'write', input: { path: 'a' } }],
+        toolResults: [{ toolCallId: 't1', toolName: 'write', output: 'written' }],
+        finishReason: 'tool-calls',
+      },
+      { text: 'done' },
+    ])
+    const result = await runReactLoop(makeOpts())
+    expect(result.exitReason).toBe('no_tool_calls')
+    expect(mainCalls()).toHaveLength(2)
+  })
+
+  it('末步走 internalNudge 续做分支 → exitReason=max_steps', async () => {
+    vi.spyOn(PeriodicReflector.prototype, 'reflect').mockResolvedValue({
+      internalNudge: { text: 'keep going', label: '[nudge]', reason: 'r', role: 'user' },
+    })
+    script([{ text: 'working' }])
+    const result = await runReactLoop(makeOpts({ maxSteps: 2 }))
+    expect(mainCalls()).toHaveLength(2)
+    expect(result.exitReason).toBe('max_steps')
+  })
+
+  it('(不触发) 末步自然 final → no_tool_calls', async () => {
+    script([
+      {
+        toolCalls: [{ toolCallId: 't1', toolName: 'read', input: {} }],
+        toolResults: [{ toolCallId: 't1', toolName: 'read', output: 'x' }],
+        finishReason: 'tool-calls',
+      },
+      { text: 'done' },
+    ])
+    const result = await runReactLoop(makeOpts({ maxSteps: 2 }))
+    expect(result.exitReason).toBe('no_tool_calls')
+  })
+
+  it('本轮已有文本后某步抛错 → step_error (未跑兜底摘要)', async () => {
+    script([
+      {
+        text: 'looking into it',
+        toolCalls: [{ toolCallId: 't1', toolName: 'read', input: {} }],
+        toolResults: [{ toolCallId: 't1', toolName: 'read', output: 'x' }],
+        finishReason: 'tool-calls',
+      },
+      new Error('provider 400'),
+    ])
+    const result = await runReactLoop(makeOpts())
+    expect(result.exitReason).toBe('step_error')
+    expect(
+      mockStreamText.mock.calls.filter((c) => !(c[0] as { onChunk?: unknown }).onChunk),
+    ).toHaveLength(0)
+  })
+
+  it('(不触发) 零文本时某步抛错 → 兜底摘要接手, 记 fallback_summary', async () => {
+    script([new Error('provider 400')])
+    const result = await runReactLoop(makeOpts())
+    expect(result.exitReason).toBe('fallback_summary')
   })
 })

@@ -4,9 +4,9 @@
 // 升级到 LLM reflect (复用 PeriodicReflectionAgent 同 schema, 但 prompt 标注
 // "L1 hints ignored")。
 //
-// 主循环通过 wasPreviousStepL1Hinted 回调告知本 reflector 上一步是否有 L1 hint
-// 激活。当前 react-loop 暂未提供此回调, 此 reflector 留作扩展点 (后续可在
-// react-loop.ts 加 lastL1Hinted 跟踪)。
+// 主循环通过 wasPreviousStepL1Hinted 回调告知本 reflector 上一步是否有 L1 hint 被注入。
+// streak 在 track() 里逐步推进 (chain 每步保证调用), 不依赖本 reflector 是否轮到产出;
+// 主循环把它排在 tool-only-loop 之前, 达阈值时升级产出才能顶替被忽略的 L1 hint。
 
 import type { Reflector, ReflectorCapabilities, ReflectorOutcome, ReflectContext } from './types'
 import { summarizeTrajectory } from './trajectory'
@@ -38,12 +38,14 @@ export class EscalationReflector implements Reflector {
     this.wasPreviousStepL1Hinted = opts.wasPreviousStepL1Hinted ?? (() => false)
   }
 
-  async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
-    if (ctx.phase !== 'post-step') return null
-
+  track(ctx: ReflectContext): void {
+    if (ctx.phase !== 'post-step') return
     if (this.wasPreviousStepL1Hinted()) this.hintStreak++
     else this.hintStreak = 0
+  }
 
+  async reflect(ctx: ReflectContext): Promise<ReflectorOutcome | null> {
+    if (ctx.phase !== 'post-step') return null
     if (this.hintStreak < this.threshold) return null
     this.hintStreak = 0
 
