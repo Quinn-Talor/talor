@@ -190,7 +190,7 @@ ReAct 循环每步产出后,要回答两个问题:**这步该不该结束整轮?
 
 ### 决策优先级 + 收尾判定
 
-post-step 取第一个非空产出,优先级:`wrapUp > detectorBreak > userOutput > internalNudge(续做) > hint(续做)`。
+post-step 先让所有 reflector `track()` 观察本步(有状态计数不会因排在后面而漏步),再按顺序取第一个非空产出,优先级:`wrapUp > detectorBreak > userOutput > internalNudge(续做) > hint(续做)`。`maxPerTurn` 只限制 hint / internalNudge;wrapUp 与 userOutput(如 auto-halt)不受配额限制。
 
 「该不该结束」的总判定(`react-loop.ts` 决策级联):
 
@@ -208,15 +208,16 @@ post-step 取第一个非空产出,优先级:`wrapUp > detectorBreak > userOutpu
 
 ### Exit reasons
 
-| reason                | 触发                          | 兜底                        |
-| --------------------- | ----------------------------- | --------------------------- |
-| `no_tool_calls`       | policy 判自然收尾             | 健康停止                    |
-| `empty_text`          | 无工具且无文本                | 提示重输                    |
-| `repeated_error`      | 死循环 / 失败链阈值           | forced-summary + mark final |
-| `context_overflow`    | pre-step token 超 limit       | 友好 halt                   |
-| `continuation_chain`  | 截断链 ≥3                     | 硬停                        |
-| `fallback_summary`    | 整轮零文本(非 abort/overflow) | forced-summary              |
-| `abort` / `max_steps` | 用户停 / 步数上限             | 已有部分输出                |
+| reason                | 触发                          | 兜底                           |
+| --------------------- | ----------------------------- | ------------------------------ |
+| `no_tool_calls`       | policy 判自然收尾             | 健康停止                       |
+| `empty_text`          | 无工具且无文本                | 提示重输                       |
+| `repeated_error`      | 死循环 / 失败链阈值           | forced-summary + mark final    |
+| `context_overflow`    | pre-step token 超 limit       | 友好 halt                      |
+| `continuation_chain`  | 截断链 ≥3                     | 硬停                           |
+| `fallback_summary`    | 整轮零文本(非 abort/overflow) | forced-summary                 |
+| `step_error`          | 某步抛错但本轮已有文本        | 已有部分输出(trace 记 WARNING) |
+| `abort` / `max_steps` | 用户停 / 步数上限             | 已有部分输出                   |
 
 > 设计取舍:detector 把「明确该停」做成代码硬规则(零 LLM 成本、确定性);reflector 把「需要判断」的留给 LLM,但用代码 filter 卡在前面,避免每步都烧一次反思调用。详见 `standards.md §J-SHOULD-1`(硬规则优先代码强制)。
 
