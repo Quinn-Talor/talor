@@ -51,7 +51,7 @@
     "electron-log": "^5.2.4",
     "electron-store": "^11.0.2",
     "jsonc-parser": "^3.3.1",
-    "p-limit": "^6.2.0",
+    "p-limit": "^7.3.3",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-breaks": "^4.0.0",
