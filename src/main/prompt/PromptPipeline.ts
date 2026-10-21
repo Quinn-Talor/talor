@@ -9,6 +9,7 @@ import { ConfigStore } from '../store/config-store'
 import { MemoryManager } from '../memory/MemoryManager'
 import type { PipelineContext, ProviderContextConfig, PromptPlugin, StabilityLayer } from './types'
 import { applyAnthropicCacheBreakpoints } from './cache-breakpoints'
+import { estimateModelMessagesTokens, estimateToolDefinitionsTokens } from '../memory/types'
 import type { ToolMetadata } from '../tools/types'
 import type { Provider } from '../store/config-store'
 import type { ModelMessage } from 'ai'
@@ -29,14 +30,18 @@ const CRITICAL_PLUGIN_NAMES = new Set([
   'MessagePlugin',
 ])
 
-/** Merges provider-level overrides with global defaults from ConfigStore. */
-export function resolveProviderConfig(provider: Provider): ProviderContextConfig {
+/**
+ * Merges provider-level overrides with global defaults from ConfigStore.
+ * `modelId` 为会话实际使用的模型,供 memory 压缩等辅助调用沿用。
+ */
+export function resolveProviderConfig(provider: Provider, modelId?: string): ProviderContextConfig {
   const configStore = ConfigStore.getInstance()
   const defaultLimit = configStore.get('default_context_limit') as number | undefined
   const defaultRecent = configStore.get('default_recent_ratio') as number | undefined
   const defaultSummary = configStore.get('default_summary_ratio') as number | undefined
   return {
     provider,
+    ...(modelId ? { modelId } : {}),
     context_limit: provider.context_limit ?? defaultLimit ?? 1_000_000,
     recent_ratio: provider.recent_ratio ?? defaultRecent ?? 0.05,
     summary_ratio: provider.summary_ratio ?? defaultSummary ?? 0.05,
@@ -121,15 +126,22 @@ export class PromptPipeline {
     const allTools: ToolMetadata[] = []
     const degraded: string[] = []
 
+    // history 之前各层(system/agent/tools)已产出内容的估算,作为 memory 压缩判定的固定开销。
+    let fixedOverheadTokens = 0
     let order = 0
     for (const plugin of plugins) {
       const idx = order++
       try {
-        const result = await plugin.build(ctx)
+        const result = await plugin.build({ ...ctx, fixedOverheadTokens })
         if (result.messages.length > 0) {
           collected.push({ layer: plugin.layer, order: idx, messages: result.messages })
         }
         allTools.push(...result.tools)
+        if (LAYER_RANK[plugin.layer] < LAYER_RANK.history) {
+          fixedOverheadTokens +=
+            estimateModelMessagesTokens(result.messages) +
+            estimateToolDefinitionsTokens(result.tools)
+        }
       } catch (err) {
         if (CRITICAL_PLUGIN_NAMES.has(plugin.name)) {
           log.error(`[PromptPipeline] Critical plugin ${plugin.name} failed:`, err)

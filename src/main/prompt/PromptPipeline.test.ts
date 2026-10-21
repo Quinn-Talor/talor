@@ -19,7 +19,7 @@ function makeProvider(overrides: Partial<Provider> = {}): Provider {
   }
 }
 
-const mockGet = vi.fn((key: string) => (key === 'default_context_limit' ? undefined : undefined))
+const mockGet = vi.fn((_key: string): unknown => undefined)
 const mockInstance = { get: mockGet }
 
 vi.mock('../store/config-store', () => ({
@@ -27,8 +27,6 @@ vi.mock('../store/config-store', () => ({
     getInstance: vi.fn(() => mockInstance),
   },
 }))
-
-import { ConfigStore } from '../store/config-store'
 
 describe('resolveProviderConfig', () => {
   it('AC-002-01: provider.context_limit 优先', () => {
@@ -47,6 +45,16 @@ describe('resolveProviderConfig', () => {
     mockGet.mockReturnValue(undefined)
     const cfg = resolveProviderConfig(makeProvider())
     expect(cfg.context_limit).toBe(1_000_000)
+  })
+
+  it('传入 modelId 时随配置带出(供 memory 压缩沿用会话模型)', () => {
+    mockGet.mockReturnValue(undefined)
+    expect(resolveProviderConfig(makeProvider(), 'ollama/qwen3').modelId).toBe('ollama/qwen3')
+  })
+
+  it('未传 modelId 时不带该字段(不触发)', () => {
+    mockGet.mockReturnValue(undefined)
+    expect(resolveProviderConfig(makeProvider())).not.toHaveProperty('modelId')
   })
 
   it('recent_ratio 和 summary_ratio 使用默认值', () => {
@@ -270,5 +278,38 @@ describe('PromptPipeline.build', () => {
     ).toBe(false)
     expect(result.tools).toHaveLength(1)
     expect(result.degraded).toEqual([])
+  })
+
+  it('MemoryPlugin 收到 history 之前各层(system/agent/tools)的固定开销估算', async () => {
+    const pipeline = await mockAllPlugins({
+      SystemPlugin: {
+        messages: [{ role: 'system', content: 'a'.repeat(400) }],
+        tools: [],
+        tokenEstimate: 0,
+      },
+      ToolSelectionPlugin: {
+        messages: [],
+        tools: [{ name: 't1', description: 'b'.repeat(400), parameters: {} }],
+        tokenEstimate: 0,
+      },
+    })
+    await pipeline.build(makeCtx())
+    const { MemoryPlugin } = await import('./plugins/MemoryPlugin')
+    const { SystemPlugin } = await import('./plugins/SystemPlugin')
+    const memoryBuild = (
+      vi.mocked(MemoryPlugin).mock.instances.at(-1) as unknown as {
+        build: ReturnType<typeof vi.fn>
+      }
+    ).build
+    const systemBuild = (
+      vi.mocked(SystemPlugin).mock.instances.at(-1) as unknown as {
+        build: ReturnType<typeof vi.fn>
+      }
+    ).build
+    const overhead = memoryBuild.mock.calls[0][0].fixedOverheadTokens as number
+    // system 400 字符 ≈ 100 token + 工具定义 JSON ≈ 100+ token
+    expect(overhead).toBeGreaterThan(200)
+    // 第一个插件看到的固定开销为 0(其前无内容,不触发)
+    expect(systemBuild.mock.calls[0][0].fixedOverheadTokens).toBe(0)
   })
 })

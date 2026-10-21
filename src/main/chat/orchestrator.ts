@@ -25,7 +25,7 @@ import {
   checkVisionSupport,
   type ValidatedAttachment,
 } from './attachments'
-import { getDefaultProvider, getProviderById } from './provider-selector'
+import { resolveSessionProviderModel } from './provider-selector'
 import { streamRegistry } from './stream-registry'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
 import type { ToolConfirmPort } from '../ipc/tool-confirm'
@@ -45,6 +45,7 @@ const DEGRADED_EXITS: ReadonlySet<LoopExitReason> = new Set<LoopExitReason>([
   'repeated_error',
   'max_steps',
   'empty_text',
+  'step_error',
 ])
 
 // 单例：pipeline 和 memoryManager 按进程全局持有，避免每次请求重建插件链。
@@ -135,6 +136,9 @@ export async function sendChat(
   const sessionId = params.sessionId
   const userContent = params.content.trim()
   const attachments = params.attachments ?? []
+  // 只有本请求 register 成功后才负责清理注册项;register 之前失败的请求
+  // (空消息 / 附件不合法)不得触碰同 session 正在运行的请求条目。
+  let registered = false
 
   try {
     // 一轮一条 trace(id = messageId);观测关闭时 scope 为 null,下面的 trace 调用均为 no-op。
@@ -156,6 +160,7 @@ export async function sendChat(
 
       // Step 3: 注册流（若同 session 有未完成流，先 abort）
       const abortController = streamRegistry.register(sessionId, messageId)
+      registered = true
 
       // Step 4.5: 获取 Agent（通过 session.agent_id 查找，ADR-2 统一模型）
       if (!ports.agentManager) throw new Error('agentManager not injected')
@@ -164,17 +169,16 @@ export async function sendChat(
       const agent = ports.agentManager.getAgent(agentId) ?? ports.agentManager.getChatAgent()
 
       // Step 4: provider + model;预热 API key;视觉能力校验
-      // 极简:不再读 profile.preferences,直接走 session 或 default。
-      const provider =
-        (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
+      // 回落链见 resolveSessionProviderModel(session provider 被删/禁用时模型随 provider 回落)。
+      const { provider, modelId: effectiveModelId, fellBack } = resolveSessionProviderModel(session)
       const apiKey = SafeStorageService.getInstance().getApiKey(provider.id)
       if (validated.length > 0) checkVisionSupport(provider, validated)
 
+      // session 级推理配置针对原 provider;回落到默认 provider 时只用其自身配置。
+      const reasoning = fellBack ? provider.reasoning : (session?.reasoning ?? provider.reasoning)
+      const effectiveProvider = { ...provider, reasoning }
       const adapter = getAdapter(provider.type)
-      // model fallback 链: session.model_id → provider.models[0].id → 'default' 占位
-      const fallbackProviderModel = provider.models?.[0]?.id
-      const effectiveModelId = session?.model_id ?? fallbackProviderModel ?? 'default'
-      const model = adapter.createModel(provider, effectiveModelId)
+      const model = adapter.createModel(effectiveProvider, effectiveModelId)
       traceRecorder.updateRoot(messageId, {
         name: `agent:${agentId}`,
         metadata: {
@@ -182,7 +186,7 @@ export async function sendChat(
           provider_id: provider.id,
           provider_type: provider.type,
           model_id: effectiveModelId,
-          reasoning: session?.reasoning ?? provider.reasoning ?? null,
+          reasoning: reasoning ?? null,
           // trace input 只存文本;附件只记摘要(不存内容),用于判断本轮是否带图 / 文件
           ...(validated.length > 0
             ? {
@@ -256,7 +260,7 @@ export async function sendChat(
         abortSignal: abortController.signal,
         pipeline,
         provider,
-        providerConfig: resolveProviderConfig(provider),
+        providerConfig: resolveProviderConfig(provider, effectiveModelId),
         workspace,
         maxSteps:
           typeof maxReactSteps === 'number' && maxReactSteps > 0 ? maxReactSteps : undefined,
@@ -265,10 +269,7 @@ export async function sendChat(
         requestPermission,
         skillTracker,
         events,
-        streamOptions: resolveStreamOptions(adapter, {
-          ...provider,
-          reasoning: session?.reasoning ?? provider.reasoning,
-        }),
+        streamOptions: resolveStreamOptions(adapter, effectiveProvider, effectiveModelId),
         callbacks: {
           onTextDelta: (delta, stepIdx) => callbacks.onTextDelta(messageId, delta, stepIdx),
           onToolCall: (id, name, input, stepIdx, startedAt) =>
@@ -307,7 +308,7 @@ export async function sendChat(
     callbacks.onDone(messageId, { code, message })
     return { messageId }
   } finally {
-    // 无论成败都清理 stream 注册项（abort 已由 streamRegistry.abort 触发，不在此处）
-    streamRegistry.cleanup(sessionId)
+    // 无论成败都清理本请求的 stream 注册项（abort 已由 streamRegistry.abort 触发，不在此处）
+    if (registered) streamRegistry.cleanup(sessionId, messageId)
   }
 }

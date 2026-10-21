@@ -52,6 +52,14 @@ export interface PipelineContext {
    */
   mcpExpandThisStep?: boolean
   usedMcpToolNames?: string[]
+  /** 本轮请求的中止信号;透传给 memory 压缩等 prompt 构建期的 LLM 调用。 */
+  abortSignal?: AbortSignal
+  /**
+   * history 层之前已产出内容(system / agent / 工具定义)的 token 估算。
+   * 由 PromptPipeline 在构建过程中填入,MemoryPlugin 用它把固定开销计入压缩阈值;
+   * 调用方无需设置。
+   */
+  fixedOverheadTokens?: number
 }
 
 export interface PluginResult {
@@ -62,6 +70,8 @@ export interface PluginResult {
 
 export interface ProviderContextConfig {
   provider: Provider
+  /** 会话实际使用的模型 id;memory 压缩等辅助 LLM 调用沿用该模型。 */
+  modelId?: string
   context_limit: number
   recent_ratio: number
   summary_ratio: number

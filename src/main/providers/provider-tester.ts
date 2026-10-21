@@ -1,4 +1,5 @@
 import log from 'electron-log'
+import { buildAuthHeaders, modelsEndpoint } from './base-url'
 
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google'
 
@@ -32,12 +33,8 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
   const start = Date.now()
 
   try {
-    const endpoint = buildEndpoint(config)
-    const headers: Record<string, string> = {}
-
-    if (config.api_key) {
-      headers['Authorization'] = `Bearer ${config.api_key}`
-    }
+    const endpoint = modelsEndpoint(config.type, config.base_url)
+    const headers = buildAuthHeaders(config.type, config.api_key)
 
     const response = await fetch(endpoint, {
       method: 'GET',
@@ -114,19 +111,6 @@ export async function testConnection(config: TestConfig): Promise<ConnectionTest
   }
 }
 
-function buildEndpoint(config: TestConfig): string {
-  const base = config.base_url.replace(/\/$/, '')
-
-  switch (config.type) {
-    case 'ollama':
-      return `${base}/api/tags`
-    case 'openai':
-    case 'anthropic':
-    case 'google':
-      return `${base}/v1/models`
-  }
-}
-
 function extractModelsCount(type: ProviderType, data: unknown): number {
   if (!data || typeof data !== 'object') return 0
 
@@ -140,8 +124,8 @@ function extractModelsCount(type: ProviderType, data: unknown): number {
       return Array.isArray(d.data) ? d.data.length : 0
     }
     case 'anthropic': {
-      const d = data as { models?: unknown[] }
-      return Array.isArray(d.models) ? d.models.length : 0
+      const d = data as { data?: unknown[] }
+      return Array.isArray(d.data) ? d.data.length : 0
     }
     case 'google': {
       const d = data as { models?: unknown[] }

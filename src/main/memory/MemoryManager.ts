@@ -1,7 +1,6 @@
 import { ShortTermMemory } from './ShortTermMemory'
-import type { MemoryContext } from './types'
+import type { MemoryContext, MemoryRequestOptions } from './types'
 import type { ProviderContextConfig } from '../prompt/types'
-import type { ExecutionEventBus } from '../chat/events'
 
 export class MemoryManager {
   private shortTerm: ShortTermMemory
@@ -13,8 +12,8 @@ export class MemoryManager {
   async getContext(
     sessionId: string,
     config: ProviderContextConfig,
-    events?: ExecutionEventBus,
+    opts: MemoryRequestOptions = {},
   ): Promise<MemoryContext> {
-    return this.shortTerm.getContext(sessionId, config, events)
+    return this.shortTerm.getContext(sessionId, config, opts)
   }
 }

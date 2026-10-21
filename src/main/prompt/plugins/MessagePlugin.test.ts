@@ -18,6 +18,7 @@ function makeMsg(id: string, role: ChatMessage['role'], content: string): ChatMe
     session_id: 's1',
     role,
     content,
+    agent_id: '__chat__',
     created_at: `2026-04-29T00:00:00.${id.padStart(3, '0')}Z`,
   }
 }
@@ -29,7 +30,9 @@ function makeCtx(): PipelineContext {
     provider: { id: 'p1' } as Provider,
     providerConfig: {
       provider: { id: 'p1' } as Provider,
-      context_limit: 8000, recent_ratio: 0.05, summary_ratio: 0.05,
+      context_limit: 8000,
+      recent_ratio: 0.05,
+      summary_ratio: 0.05,
     },
     workspacePath: undefined,
   }
@@ -61,9 +64,13 @@ describe('MessagePlugin', () => {
   it('末尾是 assistant(tool_use) 消息,正确注入', async () => {
     const msgs = [
       makeMsg('m1', 'user', JSON.stringify([{ type: 'text', text: '查一下' }])),
-      makeMsg('m2', 'assistant', JSON.stringify([
-        { type: 'tool_use', toolCallId: 'tc1', toolName: 'bash', input: { command: 'ls' } },
-      ])),
+      makeMsg(
+        'm2',
+        'assistant',
+        JSON.stringify([
+          { type: 'tool_use', toolCallId: 'tc1', toolName: 'bash', input: { command: 'ls' } },
+        ]),
+      ),
     ]
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -75,12 +82,26 @@ describe('MessagePlugin', () => {
   it('末尾是 tool(result) 消息,正确注入', async () => {
     const msgs = [
       makeMsg('m1', 'user', JSON.stringify([{ type: 'text', text: '跑 ls' }])),
-      makeMsg('m2', 'assistant', JSON.stringify([
-        { type: 'tool_use', toolCallId: 'tc1', toolName: 'bash', input: { command: 'ls' } },
-      ])),
-      makeMsg('m3', 'tool', JSON.stringify([
-        { type: 'tool_result', toolCallId: 'tc1', toolName: 'bash', output: 'file1\nfile2', isError: false },
-      ])),
+      makeMsg(
+        'm2',
+        'assistant',
+        JSON.stringify([
+          { type: 'tool_use', toolCallId: 'tc1', toolName: 'bash', input: { command: 'ls' } },
+        ]),
+      ),
+      makeMsg(
+        'm3',
+        'tool',
+        JSON.stringify([
+          {
+            type: 'tool_result',
+            toolCallId: 'tc1',
+            toolName: 'bash',
+            output: 'file1\nfile2',
+            isError: false,
+          },
+        ]),
+      ),
     ]
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
@@ -90,9 +111,7 @@ describe('MessagePlugin', () => {
   })
 
   it('只有 1 条消息时也正常注入', async () => {
-    const msgs = [
-      makeMsg('m1', 'user', JSON.stringify([{ type: 'text', text: 'first question' }])),
-    ]
+    const msgs = [makeMsg('m1', 'user', JSON.stringify([{ type: 'text', text: 'first question' }]))]
     vi.mocked(messageRepo.listBySession).mockReturnValue(msgs)
 
     const result = await new MessagePlugin().build(makeCtx())

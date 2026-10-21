@@ -24,9 +24,55 @@ export function getDefaultProvider(): Provider {
   throw new Error('No provider available')
 }
 
+/** 按 id 取已启用的 provider;不存在或已禁用返回 null(禁用的 provider 不得被选用)。 */
 export function getProviderById(id: string): Provider | null {
   const providers = ConfigStore.getInstance().get('providers') as Record<string, Provider>
-  return providers[id] ?? null
+  const provider = providers[id]
+  return provider && provider.enabled ? provider : null
+}
+
+/** session 中与 provider/model 选择相关的字段(主会话与子 agent 的父会话共用)。 */
+export interface SessionModelRef {
+  provider_id?: string | null
+  model_id?: string | null
+}
+
+export interface ResolvedSessionModel {
+  provider: Provider
+  modelId: string
+  /** true = session 指定的 provider 不可用(被删 / 禁用),已回落到默认 provider。 */
+  fellBack: boolean
+}
+
+/**
+ * session → (provider, modelId) 回落链:
+ *   1. session.provider_id 指向的已启用 provider + session.model_id
+ *      (session 未记录模型时取该 provider.models[0])
+ *   2. 上述 provider 不可用 → 默认 provider;模型随之回落:session.model_id 恰在默认
+ *      provider 的模型列表里则沿用,否则取其 models[0] —— 旧 provider 的模型 id
+ *      发给新 provider 只会得到 model not found
+ *   3. 仍无可用模型 → throw,由上层分类为错误回给前端
+ */
+export function resolveSessionProviderModel(
+  session: SessionModelRef | null | undefined,
+): ResolvedSessionModel {
+  const sessionProvider = session?.provider_id ? getProviderById(session.provider_id) : null
+  const sessionModelId = session?.model_id ?? undefined
+
+  if (sessionProvider) {
+    const modelId = sessionModelId ?? sessionProvider.models?.[0]?.id
+    if (!modelId) throw new Error(`No model configured for provider ${sessionProvider.name}`)
+    return { provider: sessionProvider, modelId, fellBack: false }
+  }
+
+  const provider = getDefaultProvider()
+  const models = provider.models ?? []
+  const modelId =
+    sessionModelId && models.some((m) => m.id === sessionModelId || m.name === sessionModelId)
+      ? sessionModelId
+      : models[0]?.id
+  if (!modelId) throw new Error(`No model configured for provider ${provider.name}`)
+  return { provider, modelId, fellBack: Boolean(session?.provider_id) }
 }
 
 /**

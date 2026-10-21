@@ -10,13 +10,22 @@ import { openaiAdapter } from './adapters/openai-adapter'
 import { anthropicAdapter } from './adapters/anthropic-adapter'
 import { googleAdapter } from './adapters/google-adapter'
 import { ollamaAdapter } from './adapters/ollama-adapter'
+import { modelSupportsReasoning } from './capability/detector'
 
 export interface ModelAdapter {
   createModel(provider: Provider, modelId: string): LanguageModel
   fetchModels(provider: Provider): Promise<ModelInfo[]>
   buildStreamOptions(): Record<string, unknown>
-  /** 可选：把用户的 ReasoningConfig 翻译成该 provider 的 providerOptions 片段。 */
-  applyReasoningConfig?(config: ReasoningConfig, provider: Provider): Record<string, unknown>
+  /**
+   * 可选：把用户的 ReasoningConfig 翻译成该 provider 的调用参数片段 —— `providerOptions`
+   * 和/或 AI SDK 顶层 `reasoning`(由 SDK 按模型映射到 wire 字段)。modelId 为本次调用的
+   * 模型,用于按模型版本选字段。
+   */
+  applyReasoningConfig?(
+    config: ReasoningConfig,
+    provider: Provider,
+    modelId?: string,
+  ): Record<string, unknown>
 }
 
 /**
@@ -38,15 +47,25 @@ export function mergeProviderOptions(
   return { providerOptions: merged }
 }
 
-/** 组装最终 streamOptions：adapter 默认值 + reasoning 翻译（如有）。 */
+/**
+ * 组装最终 streamOptions：adapter 默认值 + reasoning 翻译（如有）。
+ *
+ * 提供 modelId 时按模型推理能力门控:不支持推理的模型不下发任何推理参数
+ * (给非推理模型发 reasoning_effort / thinking 会被 provider 以 400 拒绝)。
+ * 未提供 modelId 时无法判定,按配置原样翻译。
+ */
 export function resolveStreamOptions(
   adapter: ModelAdapter,
   provider: Provider,
+  modelId?: string,
 ): Record<string, unknown> {
   const base = adapter.buildStreamOptions()
   if (!provider.reasoning || !adapter.applyReasoningConfig) return base
-  const reasoningOpts = adapter.applyReasoningConfig(provider.reasoning, provider)
-  return mergeProviderOptions(base, reasoningOpts)
+  if (modelId && !modelSupportsReasoning(provider, modelId)) return base
+  const reasoningOpts = adapter.applyReasoningConfig(provider.reasoning, provider, modelId)
+  const { providerOptions: _baseProviderOptions, ...baseTop } = base
+  const { providerOptions: _reasoningProviderOptions, ...reasoningTop } = reasoningOpts
+  return { ...baseTop, ...reasoningTop, ...mergeProviderOptions(base, reasoningOpts) }
 }
 
 export function getAdapter(providerType: string): ModelAdapter {

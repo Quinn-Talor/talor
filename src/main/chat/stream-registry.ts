@@ -53,10 +53,13 @@ export const streamRegistry = {
   },
 
   /**
-   * 从注册表移除条目（不触发 abort）。
-   * 正常结束（流自然完成）时在 finally 中调用。幂等，重复调用安全。
+   * 从注册表移除条目（不触发 abort）。请求结束时在 finally 中调用。幂等，重复调用安全。
+   *
+   * 仅当条目仍属于 messageId 对应的请求时才删除：同 session 的新请求 register 后，
+   * 被它 abort 的旧请求随后走到 finally，不得删掉新请求的条目（否则"停止"失效）。
    */
-  cleanup(sessionId: string): void {
-    activeStreams.delete(sessionId)
+  cleanup(sessionId: string, messageId: string): void {
+    const stream = activeStreams.get(sessionId)
+    if (stream && stream.messageId === messageId) activeStreams.delete(sessionId)
   },
 }

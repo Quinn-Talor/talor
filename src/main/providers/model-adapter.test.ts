@@ -103,6 +103,68 @@ describe('resolveStreamOptions（AC-007）', () => {
   })
 })
 
+describe('resolveStreamOptions — 按模型推理能力门控', () => {
+  const adapter: ModelAdapter = {
+    createModel: () => ({}) as never,
+    fetchModels: async () => [],
+    buildStreamOptions: () => ({ providerOptions: { openai: { parallelToolCalls: true } } }),
+    applyReasoningConfig: () => ({ providerOptions: { openai: { reasoningEffort: 'high' } } }),
+  }
+
+  it('非推理模型(gpt-4o)→ 不下发推理参数', () => {
+    const provider = makeProvider({ reasoning: { enabled: true, effort: 'high' } })
+    expect(resolveStreamOptions(adapter, provider, 'openai/gpt-4o')).toEqual(
+      adapter.buildStreamOptions(),
+    )
+  })
+
+  it('推理模型(gpt-5)→ 下发推理参数(不触发门控)', () => {
+    const provider = makeProvider({ reasoning: { enabled: true, effort: 'high' } })
+    expect(resolveStreamOptions(adapter, provider, 'openai/gpt-5')).toEqual({
+      providerOptions: { openai: { parallelToolCalls: true, reasoningEffort: 'high' } },
+    })
+  })
+
+  it('模型列表里手动标记的 reasoning capability 优先于名称匹配', () => {
+    const provider = makeProvider({
+      reasoning: { enabled: true },
+      models: [
+        {
+          id: 'openai/my-thinker',
+          name: 'my-thinker',
+          provider_id: 'p1',
+          display_name: 'x',
+          capabilities: [
+            {
+              category: 'reasoning',
+              type: 'configurable_reasoning',
+              supported: true,
+              description: '',
+              source: 'manual',
+            },
+          ],
+        },
+      ],
+    })
+    expect(resolveStreamOptions(adapter, provider, 'openai/my-thinker')).toMatchObject({
+      providerOptions: { openai: { reasoningEffort: 'high' } },
+    })
+  })
+
+  it('adapter 返回顶层 reasoning 时保留在 streamOptions 顶层', () => {
+    const topLevel: ModelAdapter = {
+      ...adapter,
+      buildStreamOptions: () => ({}),
+      applyReasoningConfig: () => ({ reasoning: 'low' }),
+    }
+    const provider = makeProvider({ type: 'google', reasoning: { enabled: true, effort: 'low' } })
+    expect(resolveStreamOptions(topLevel, provider, 'google/gemini-2.5-flash')).toEqual({
+      reasoning: 'low',
+      providerOptions: {},
+    })
+  })
+})
+
 describe('wrapModel（turn-trace AC-013）', () => {
   afterEach(() => {
     currentDb.instance?.close()

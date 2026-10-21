@@ -42,13 +42,20 @@ import { sessionRepo } from './repos/session-repo'
 import { sharedPromptPipeline } from './chat/orchestrator'
 import { runReactLoop } from './loop/react-loop'
 import { getAdapter, resolveStreamOptions } from './providers/model-adapter'
-import { getDefaultProvider, getProviderById } from './chat/provider-selector'
+import { resolveSessionProviderModel } from './chat/provider-selector'
 import { resolveProviderConfig } from './prompt/PromptPipeline'
 import { SkillRegistry } from './skills/registry'
 import { SafeStorageService } from './services/safe-storage'
 import { safeStorage } from 'electron'
 
 log.initialize()
+
+// 单实例:第二个实例会把第一个实例进行中的 trace / 子会话标成中断、重复拉起 MCP 进程、
+// 并发写同一份 config.json。拿不到锁直接退出,由第一个实例经 second-instance 聚焦窗口。
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0)
+}
+
 log.info('[Main] Talor Desktop starting...')
 
 const agentManager = new AgentManager()
@@ -125,6 +132,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    setMainWindow(null)
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -220,15 +228,14 @@ app.whenReady().then(() => {
       // Mirror orchestrator's provider/model resolution path so subagent inherits
       // parent's provider config (provider, modelId, streamOptions).
       const session = sessionRepo.getById(parentSessionId)
-      const provider =
-        (session?.provider_id ? getProviderById(session.provider_id) : null) ?? getDefaultProvider()
+      const { provider, modelId } = resolveSessionProviderModel(session)
       const adapter = getAdapter(provider.type)
-      const model = adapter.createModel(provider, session?.model_id ?? 'default')
+      const model = adapter.createModel(provider, modelId)
       return {
         model,
         provider,
-        providerConfig: resolveProviderConfig(provider),
-        streamOptions: resolveStreamOptions(adapter, provider),
+        providerConfig: resolveProviderConfig(provider, modelId),
+        streamOptions: resolveStreamOptions(adapter, provider, modelId),
       }
     },
   }
@@ -277,6 +284,12 @@ app.whenReady().then(() => {
 // 所以 window-all-closed 里要在关库之前先写盘,否则 before-quit 时 DB 已关闭。
 app.on('before-quit', () => {
   traceRecorder.flushAll()
+  // stdio MCP server 是普通子进程,父进程退出不会带走它们
+  for (const id of mcpRegistry.getConnectedServers()) {
+    mcpRegistry.disconnectServer(id).catch((err) => {
+      log.warn('[Main] MCP disconnect on quit failed:', id, err)
+    })
+  }
 })
 
 app.on('window-all-closed', () => {

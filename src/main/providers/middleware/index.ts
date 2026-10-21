@@ -61,15 +61,17 @@ type WrappableModel = Parameters<typeof wrapLanguageModel>[0]['model']
 
 /**
  * 所有 adapter 创建模型的唯一包装口:traceMiddleware 在最外层(每次调用尝试都经过它),
- * 其后是 provider.middleware 配置的 SDK 中间件。
+ * 其后是 provider.middleware 配置的 SDK 中间件,最内层是 adapter 自带的协议适配中间件
+ * (`adapterMiddlewares`,如 Google 的 system 消息改写),紧贴底层模型生效。
  */
 export function wrapModel(
   base: WrappableModel,
   middlewareNames: string[] | undefined,
+  adapterMiddlewares: LanguageModelMiddleware[] = [],
 ): LanguageModel {
   return wrapLanguageModel({
     model: base,
-    middleware: [traceMiddleware, ...buildSdkMiddlewares(middlewareNames)],
+    middleware: [traceMiddleware, ...buildSdkMiddlewares(middlewareNames), ...adapterMiddlewares],
   })
 }
 

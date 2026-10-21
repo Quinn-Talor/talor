@@ -23,7 +23,10 @@ const { hoisted } = vi.hoisted(() => ({
     configGet: vi.fn(),
     configGetTrace: vi.fn(),
     getLastAssistantText: vi.fn(),
-    resolveStreamOptions: vi.fn((_adapter: unknown, _provider: { reasoning?: unknown }) => ({})),
+    resolveStreamOptions: vi.fn(
+      (_adapter: unknown, _provider: { reasoning?: unknown }, _modelId?: string) => ({}),
+    ),
+    fellBack: false,
   },
 }))
 
@@ -33,8 +36,14 @@ vi.mock('./attachments', () => ({
   checkVisionSupport: hoisted.checkVisionSupport,
 }))
 
+// 回落链本身在 provider-selector.test.ts 覆盖;这里让 provider 来自 getDefaultProvider mock,
+// 模型沿用 session.model_id,fellBack 由用例控制。
 vi.mock('./provider-selector', () => ({
-  getDefaultProvider: hoisted.getDefaultProvider,
+  resolveSessionProviderModel: (session: { model_id?: string } | null) => ({
+    provider: hoisted.getDefaultProvider(),
+    modelId: session?.model_id ?? 'm-default',
+    fellBack: hoisted.fellBack,
+  }),
 }))
 
 vi.mock('./stream-registry', () => ({
@@ -146,6 +155,7 @@ beforeEach(() => {
   hoisted.runReactLoop.mockResolvedValue(LOOP_RESULT)
   hoisted.configGet.mockReturnValue(undefined)
   hoisted.configGetTrace.mockReturnValue({ ...DEFAULT_TRACE_CONFIG })
+  hoisted.fellBack = false
 })
 
 describe('sendChat', () => {
@@ -246,10 +256,63 @@ describe('sendChat', () => {
     )
   })
 
-  it('成功完成时调用 streamRegistry.cleanup', async () => {
+  it('成功完成时按本请求的 messageId 调用 streamRegistry.cleanup', async () => {
+    const cb = makeCallbacks()
+    const { messageId } = await sendChat(
+      { sessionId: 's1', content: 'hi', attachments: [] },
+      cb,
+      makePorts(),
+    )
+    expect(hoisted.register).toHaveBeenCalledWith('s1', messageId)
+    expect(hoisted.cleanup).toHaveBeenCalledWith('s1', messageId)
+  })
+
+  it('register 之前失败(空消息)不清理注册项,避免删掉同 session 正在运行的请求', async () => {
+    const cb = makeCallbacks()
+    await sendChat({ sessionId: 's1', content: '  ', attachments: [] }, cb, makePorts())
+    expect(hoisted.register).not.toHaveBeenCalled()
+    expect(hoisted.cleanup).not.toHaveBeenCalled()
+  })
+
+  it('register 之后失败仍清理本请求的注册项', async () => {
+    hoisted.runReactLoop.mockRejectedValue(new Error('boom'))
+    const cb = makeCallbacks()
+    const { messageId } = await sendChat(
+      { sessionId: 's1', content: 'hi', attachments: [] },
+      cb,
+      makePorts(),
+    )
+    expect(hoisted.cleanup).toHaveBeenCalledWith('s1', messageId)
+  })
+
+  it('解析出的 modelId 传给 createModel / resolveProviderConfig / resolveStreamOptions', async () => {
     const cb = makeCallbacks()
     await sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts())
-    expect(hoisted.cleanup).toHaveBeenCalledWith('s1')
+    expect(hoisted.createModel).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }), 'm1')
+    expect(hoisted.resolveProviderConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p1' }),
+      'm1',
+    )
+    expect(hoisted.resolveStreamOptions.mock.calls[0][2]).toBe('m1')
+  })
+
+  it('provider 回落时忽略 session.reasoning,只用回落 provider 自身的配置', async () => {
+    hoisted.fellBack = true
+    hoisted.getDefaultProvider.mockReturnValue({
+      id: 'p2',
+      supports_vision: true,
+      reasoning: { enabled: false },
+    })
+    hoisted.sessionGetById.mockReturnValue({
+      id: 's1',
+      workspace: '/ws',
+      model_id: 'm1',
+      reasoning: { enabled: true, effort: 'high' },
+    })
+    const cb = makeCallbacks()
+    await sendChat({ sessionId: 's1', content: 'hi', attachments: [] }, cb, makePorts())
+    const [, providerArg] = hoisted.resolveStreamOptions.mock.calls[0]
+    expect(providerArg.reasoning).toEqual({ enabled: false })
   })
 
   it('runReactLoop 抛错时通过 onDone 回错，不 throw', async () => {
