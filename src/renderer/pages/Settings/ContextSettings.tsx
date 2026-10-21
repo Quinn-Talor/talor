@@ -14,7 +14,10 @@ function nearestStopIndex(value: number): number {
   let bestDiff = Infinity
   for (let i = 0; i < CONTEXT_LIMIT_STOPS.length; i++) {
     const d = Math.abs(CONTEXT_LIMIT_STOPS[i] - value)
-    if (d < bestDiff) { bestDiff = d; best = i }
+    if (d < bestDiff) {
+      bestDiff = d
+      best = i
+    }
   }
   return best
 }
@@ -27,7 +30,11 @@ export function ContextSettings() {
 
   useEffect(() => {
     talorAPI.config.get().then((cfg: unknown) => {
-      const c = cfg as { default_context_limit?: number; default_recent_ratio?: number; default_summary_ratio?: number }
+      const c = cfg as {
+        default_context_limit?: number
+        default_recent_ratio?: number
+        default_summary_ratio?: number
+      }
       if (typeof c.default_context_limit === 'number') setContextLimit(c.default_context_limit)
       if (typeof c.default_recent_ratio === 'number') setRecentRatio(c.default_recent_ratio)
       if (typeof c.default_summary_ratio === 'number') setSummaryRatio(c.default_summary_ratio)
@@ -46,7 +53,9 @@ export function ContextSettings() {
   return (
     <div className="bg-white rounded-xl p-5 space-y-5" style={{ border: '1px solid #e8eaed' }}>
       <div>
-        <div className="text-[13px] font-medium text-gray-700 mb-1">上下文窗口（Context Limit）</div>
+        <div className="text-[13px] font-medium text-gray-700 mb-1">
+          上下文窗口（Context Limit）
+        </div>
         <div className="text-[11px] text-gray-400 mb-2">
           Provider 未单独设置时使用此值。下次对话立即生效。
         </div>
@@ -87,7 +96,9 @@ export function ContextSettings() {
       </div>
 
       <div>
-        <div className="text-[13px] font-medium text-gray-700 mb-1">最近消息保留比例（Recent Ratio）</div>
+        <div className="text-[13px] font-medium text-gray-700 mb-1">
+          最近消息保留比例（Recent Ratio）
+        </div>
         <div className="text-[11px] text-gray-400 mb-2">
           压缩触发时，保留最近 {Math.round(recentRatio * 100)}% 窗口的原始消息不参与摘要。
         </div>
@@ -112,7 +123,9 @@ export function ContextSettings() {
       </div>
 
       <div>
-        <div className="text-[13px] font-medium text-gray-700 mb-1">摘要预算比例（Summary Ratio）</div>
+        <div className="text-[13px] font-medium text-gray-700 mb-1">
+          摘要预算比例（Summary Ratio）
+        </div>
         <div className="text-[11px] text-gray-400 mb-2">
           压缩后摘要占窗口 {Math.round(summaryRatio * 100)}%；过大会占用有效上下文，过小摘要不完整。
         </div>

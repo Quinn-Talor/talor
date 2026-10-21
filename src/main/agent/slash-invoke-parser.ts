@@ -11,10 +11,7 @@ export interface SlashInvokeResult {
   remainingText: string
 }
 
-export function parseSlashInvoke(
-  text: string,
-  loader: AgentLoader,
-): SlashInvokeResult | null {
+export function parseSlashInvoke(text: string, loader: AgentLoader): SlashInvokeResult | null {
   if (!text.startsWith('/')) return null
 
   const trimmed = text.slice(1)

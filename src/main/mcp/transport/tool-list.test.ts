@@ -19,15 +19,18 @@ vi.mock('child_process', () => {
     spawn: vi.fn(() => {
       const proc = new MockProcess()
       setTimeout(() => {
-        proc.stdout.emit('data', JSON.stringify({
-          jsonrpc: '2.0',
-          id: '1',
-          result: {
-            protocolVersion: '2024-11-05',
-            serverInfo: { name: 'test-server', version: '1.0' },
-            capabilities: { tools: true },
-          },
-        }) + '\n')
+        proc.stdout.emit(
+          'data',
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: '1',
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'test-server', version: '1.0' },
+              capabilities: { tools: true },
+            },
+          }) + '\n',
+        )
       }, 10)
       return proc
     }),
@@ -60,16 +63,19 @@ describe('AC-006-01: Tool Listing', () => {
     const listPromise = transport.listTools()
 
     setTimeout(() => {
-      mockProcess.stdout.emit('data', JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        result: {
-          tools: [
-            { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' } },
-            { name: 'write_file', description: 'Write a file', inputSchema: { type: 'object' } },
-          ],
-        },
-      }) + '\n')
+      mockProcess.stdout.emit(
+        'data',
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          result: {
+            tools: [
+              { name: 'read_file', description: 'Read a file', inputSchema: { type: 'object' } },
+              { name: 'write_file', description: 'Write a file', inputSchema: { type: 'object' } },
+            ],
+          },
+        }) + '\n',
+      )
     }, 10)
 
     const tools = await listPromise
@@ -88,11 +94,14 @@ describe('AC-006-01: Tool Listing', () => {
     const listPromise = transport.listTools()
 
     setTimeout(() => {
-      mockProcess.stdout.emit('data', JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        result: { tools: [] },
-      }) + '\n')
+      mockProcess.stdout.emit(
+        'data',
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          result: { tools: [] },
+        }) + '\n',
+      )
     }, 10)
 
     const tools = await listPromise
@@ -107,11 +116,14 @@ describe('AC-006-01: Tool Listing', () => {
     const listPromise = transport.listTools()
 
     setTimeout(() => {
-      mockProcess.stdout.emit('data', JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        result: {},
-      }) + '\n')
+      mockProcess.stdout.emit(
+        'data',
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          result: {},
+        }) + '\n',
+      )
     }, 10)
 
     const tools = await listPromise

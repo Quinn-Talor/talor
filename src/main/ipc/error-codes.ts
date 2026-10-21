@@ -10,16 +10,16 @@
  * 向前端暴露的错误枚举。新增码时保持稳定命名，前端按字面量匹配做文案/重试策略。
  */
 export type ChatErrorCode =
-  | 'LLM_CONNECTION_FAILED'   // 网络不通（fetch / ECONNREFUSED / ENOTFOUND）
-  | 'AUTH_FAILED'             // 401 / 403 / API key 无效
-  | 'RATE_LIMITED'            // 429 / rate limit / too many requests
-  | 'LLM_ERROR'               // 兜底：未分类的 LLM 错误
-  | 'LLM_TIMEOUT'             // AbortError / TimeoutError（含流超时和用户中止）
-  | 'FILE_TOO_LARGE'          // 附件大小超限（50MB）
-  | 'UNSUPPORTED_FILE_TYPE'   // 附件 mime 不在白名单
-  | 'FILE_NOT_FOUND'          // 附件路径不存在
-  | 'NETWORK_OFFLINE'         // 预留：离线检测（当前未使用）
-  | 'PROVIDER_NO_VISION'      // provider 不支持视觉但用户上传了图片
+  | 'LLM_CONNECTION_FAILED' // 网络不通（fetch / ECONNREFUSED / ENOTFOUND）
+  | 'AUTH_FAILED' // 401 / 403 / API key 无效
+  | 'RATE_LIMITED' // 429 / rate limit / too many requests
+  | 'LLM_ERROR' // 兜底：未分类的 LLM 错误
+  | 'LLM_TIMEOUT' // AbortError / TimeoutError（含流超时和用户中止）
+  | 'FILE_TOO_LARGE' // 附件大小超限（50MB）
+  | 'UNSUPPORTED_FILE_TYPE' // 附件 mime 不在白名单
+  | 'FILE_NOT_FOUND' // 附件路径不存在
+  | 'NETWORK_OFFLINE' // 预留：离线检测（当前未使用）
+  | 'PROVIDER_NO_VISION' // provider 不支持视觉但用户上传了图片
 
 /**
  * 把任意异常对象映射为 ChatErrorCode。
@@ -44,7 +44,11 @@ export function classifyLlmError(error: unknown): ChatErrorCode {
   if (msg.includes('fetch') || msg.includes('ECONNREFUSED') || msg.includes('ENOTFOUND')) {
     return 'LLM_CONNECTION_FAILED'
   }
-  if (msg.includes('429') || msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('too many requests')) {
+  if (
+    msg.includes('429') ||
+    msg.toLowerCase().includes('rate limit') ||
+    msg.toLowerCase().includes('too many requests')
+  ) {
     return 'RATE_LIMITED'
   }
   if (msg.includes('401') || msg.includes('403') || msg.includes('API key')) {

@@ -42,7 +42,9 @@ describe('ExecutionEventBus', () => {
 
   it('isolates listener errors — one throwing listener does not affect others', () => {
     const bus = new ExecutionEventBus()
-    const throwing = vi.fn(() => { throw new Error('listener failure') })
+    const throwing = vi.fn(() => {
+      throw new Error('listener failure')
+    })
     const healthy = vi.fn()
     bus.on('memory.compressed', throwing)
     bus.on('memory.compressed', healthy)

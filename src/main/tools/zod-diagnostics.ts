@@ -37,7 +37,10 @@ export function formatZodError(
     // 全是缺字段 → 走 diagnose 分支,保持与旧 diagnose 消息形态一致
     return diagnoseInputMismatch(
       toolName,
-      params as { required?: string[]; properties?: Record<string, { type?: string; description?: string }> },
+      params as {
+        required?: string[]
+        properties?: Record<string, { type?: string; description?: string }>
+      },
       input,
       missingFields,
     )

@@ -82,10 +82,14 @@ describe('createPermissionPort', () => {
 
     it('deny takes precedence over allow when both match', async () => {
       permissionStore.addPersistedRule(WS, {
-        tool: 'read', argPattern: '/Users/alice/Desktop/', effect: 'allow',
+        tool: 'read',
+        argPattern: '/Users/alice/Desktop/',
+        effect: 'allow',
       })
       permissionStore.addSessionRule(WS, {
-        tool: 'read', argPattern: '/Users/alice/Desktop/private/', effect: 'deny',
+        tool: 'read',
+        argPattern: '/Users/alice/Desktop/private/',
+        effect: 'deny',
       })
 
       const promptUI = vi.fn()
@@ -105,10 +109,12 @@ describe('createPermissionPort', () => {
 
   describe('UI prompt path', () => {
     it('prompts UI when no rule matches', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+        }),
+      )
 
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
@@ -129,10 +135,12 @@ describe('createPermissionPort', () => {
     })
 
     it('user rejection returns false', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'rejected',
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'rejected',
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       const ok = await port({
@@ -165,11 +173,13 @@ describe('createPermissionPort', () => {
 
   describe('rule writing on grant', () => {
     it('Allow once: no rule is written', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-        // grantPatternId undefined = "Allow once"
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+          // grantPatternId undefined = "Allow once"
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       await port({
@@ -185,12 +195,14 @@ describe('createPermissionPort', () => {
     })
 
     it('grantPatternId="exact" + no remember: writes session rule', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-        grantPatternId: 'exact',
-        rememberAcrossSessions: false,
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+          grantPatternId: 'exact',
+          rememberAcrossSessions: false,
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       await port({
@@ -208,12 +220,14 @@ describe('createPermissionPort', () => {
     })
 
     it('grantPatternId + rememberAcrossSessions: writes persisted rule', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-        grantPatternId: 'parent_dir',
-        rememberAcrossSessions: true,
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+          grantPatternId: 'parent_dir',
+          rememberAcrossSessions: true,
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       await port({
@@ -230,11 +244,13 @@ describe('createPermissionPort', () => {
     })
 
     it('bash same_subcommand writes regex pattern', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-        grantPatternId: 'same_subcommand',
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+          grantPatternId: 'same_subcommand',
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       await port({
@@ -288,13 +304,15 @@ describe('createPermissionPort', () => {
     })
 
     it('bulkGrantTools writes rules for each selected tool', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-        grantPatternId: 'parent_dir',
-        rememberAcrossSessions: false,
-        bulkGrantTools: ['read', 'ls', 'glob'],   // grep not included
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+          grantPatternId: 'parent_dir',
+          rememberAcrossSessions: false,
+          bulkGrantTools: ['read', 'ls', 'glob'], // grep not included
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       await port({
@@ -305,21 +323,21 @@ describe('createPermissionPort', () => {
       })
 
       const view = permissionStore.listAll(WS)
-      const tools = view.session.map(r => r.tool).sort()
+      const tools = view.session.map((r) => r.tool).sort()
       expect(tools).toEqual(['glob', 'ls', 'read'])
       // All share the same pattern
-      expect(new Set(view.session.map(r => r.argPattern))).toEqual(
-        new Set([`${HOME_DESKTOP}/`])
-      )
+      expect(new Set(view.session.map((r) => r.argPattern))).toEqual(new Set([`${HOME_DESKTOP}/`]))
     })
 
     it('bulkGrantTools that are not in the readonly group are ignored', async () => {
-      const promptUI = vi.fn(async (req: PermissionRequest): Promise<PermissionResponse> => ({
-        requestId: req.requestId,
-        decision: 'approved',
-        grantPatternId: 'parent_dir',
-        bulkGrantTools: ['read', 'write', 'edit'],   // write/edit should be rejected
-      }))
+      const promptUI = vi.fn(
+        async (req: PermissionRequest): Promise<PermissionResponse> => ({
+          requestId: req.requestId,
+          decision: 'approved',
+          grantPatternId: 'parent_dir',
+          bulkGrantTools: ['read', 'write', 'edit'], // write/edit should be rejected
+        }),
+      )
       const port = createPermissionPort({ workspacePath: WS, promptUI })
 
       await port({
@@ -330,7 +348,7 @@ describe('createPermissionPort', () => {
       })
 
       const view = permissionStore.listAll(WS)
-      const tools = view.session.map(r => r.tool).sort()
+      const tools = view.session.map((r) => r.tool).sort()
       // Only the primary tool (read) is granted; write/edit filtered out
       expect(tools).toEqual(['read'])
     })
@@ -366,7 +384,7 @@ describe('createPermissionPort', () => {
       })
 
       expect(ok2).toBe(true)
-      expect(promptCount).toBe(1)   // still 1 — rule hit, no re-prompt
+      expect(promptCount).toBe(1) // still 1 — rule hit, no re-prompt
     })
   })
 })

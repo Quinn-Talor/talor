@@ -38,15 +38,22 @@ vi.mock('../db/index', () => {
           }
           if (sql.includes('UPDATE mcp_servers SET enabled')) {
             const [enabled, updatedAt, id] = args as [number, string, string]
-            const s = mockServers.find(s => s.id === id)
-            if (s) { s.enabled = enabled; s.updated_at = updatedAt; return { changes: 1 } }
+            const s = mockServers.find((s) => s.id === id)
+            if (s) {
+              s.enabled = enabled
+              s.updated_at = updatedAt
+              return { changes: 1 }
+            }
             return { changes: 0 }
           }
           if (sql.includes('UPDATE mcp_servers SET') && sql.includes('name = ?')) {
             // Handle general UPDATE with multiple fields
             const updateStr = sql.split('SET')[1].split('WHERE')[0]
-            const [updatedAt, id] = [args[args.length - 2] as string, args[args.length - 1] as string]
-            const s = mockServers.find(s => s.id === id)
+            const [updatedAt, id] = [
+              args[args.length - 2] as string,
+              args[args.length - 1] as string,
+            ]
+            const s = mockServers.find((s) => s.id === id)
             if (s) {
               // Parse which fields are being updated based on position
               const setParts = updateStr.split(',').map((p: string) => p.trim())
@@ -68,18 +75,21 @@ vi.mock('../db/index', () => {
           }
           if (sql.includes('DELETE FROM mcp_servers')) {
             const id = args[0] as string
-            const idx = mockServers.findIndex(s => s.id === id)
-            if (idx >= 0) { mockServers.splice(idx, 1); return { changes: 1 } }
+            const idx = mockServers.findIndex((s) => s.id === id)
+            if (idx >= 0) {
+              mockServers.splice(idx, 1)
+              return { changes: 1 }
+            }
             return { changes: 0 }
           }
           return { changes: 1 }
         },
         get: (idOrName: string) => {
           if (sql.includes('WHERE id = ?')) {
-            return mockServers.find(s => s.id === idOrName)
+            return mockServers.find((s) => s.id === idOrName)
           }
           if (sql.includes('WHERE name = ?')) {
-            return mockServers.find(s => s.name === idOrName)
+            return mockServers.find((s) => s.name === idOrName)
           }
           return undefined
         },
@@ -109,7 +119,11 @@ describe('mcpServerRepo', () => {
       expect(result.name).toBe('文件系统')
       expect(result.type).toBe('stdio')
       expect(result.command).toBe('npx')
-      expect(result.args).toEqual(['-y', '@modelcontextprotocol/server-filesystem', '/Users/qunn/Desktop'])
+      expect(result.args).toEqual([
+        '-y',
+        '@modelcontextprotocol/server-filesystem',
+        '/Users/qunn/Desktop',
+      ])
       expect(result.enabled).toBe(true)
       expect(result.id).toBeDefined()
     })

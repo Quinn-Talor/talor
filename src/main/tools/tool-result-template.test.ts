@@ -4,7 +4,17 @@ import { buildToolResultGuide } from './tool-result-template'
 describe('buildToolResultGuide', () => {
   describe('common guide (present for every tool)', () => {
     it('every guide starts with the common interpretation header', () => {
-      for (const tool of ['bash', 'read', 'write', 'edit', 'ls', 'glob', 'grep', 'skill', 'mcp_foo']) {
+      for (const tool of [
+        'bash',
+        'read',
+        'write',
+        'edit',
+        'ls',
+        'glob',
+        'grep',
+        'skill',
+        'mcp_foo',
+      ]) {
         const g = buildToolResultGuide(tool)
         expect(g.startsWith('[How to interpret this result]')).toBe(true)
       }

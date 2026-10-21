@@ -20,17 +20,24 @@ function createTestDb() {
 describe('session_summaries table', () => {
   let db: ReturnType<typeof createTestDb>
 
-  beforeEach(() => { db = createTestDb() })
-  afterEach(() => { db.close() })
+  beforeEach(() => {
+    db = createTestDb()
+  })
+  afterEach(() => {
+    db.close()
+  })
 
   it('inserts and retrieves a summary', () => {
     db.prepare(
       `INSERT INTO session_summaries (session_id, summary_text, covered_until, token_estimate, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?)`,
     ).run('s1', '摘要内容', 'msg-uuid-50', 10, '2026-04-25T00:00:00.000Z')
 
     const row = db.prepare('SELECT * FROM session_summaries WHERE session_id = ?').get('s1') as {
-      session_id: string; summary_text: string; covered_until: string; token_estimate: number
+      session_id: string
+      summary_text: string
+      covered_until: string
+      token_estimate: number
     }
     expect(row.summary_text).toBe('摘要内容')
     expect(row.covered_until).toBe('msg-uuid-50')
@@ -40,13 +47,14 @@ describe('session_summaries table', () => {
   it('INSERT OR REPLACE overwrites existing row', () => {
     const stmt = db.prepare(
       `INSERT OR REPLACE INTO session_summaries (session_id, summary_text, covered_until, token_estimate, created_at)
-       VALUES (?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?)`,
     )
     stmt.run('s1', '旧摘要', 'msg-50', 5, '2026-04-25T00:00:00.000Z')
     stmt.run('s1', '新摘要', 'msg-55', 8, '2026-04-25T01:00:00.000Z')
 
     const row = db.prepare('SELECT * FROM session_summaries WHERE session_id = ?').get('s1') as {
-      summary_text: string; covered_until: string
+      summary_text: string
+      covered_until: string
     }
     expect(row.summary_text).toBe('新摘要')
     expect(row.covered_until).toBe('msg-55')

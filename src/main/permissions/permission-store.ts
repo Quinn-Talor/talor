@@ -10,7 +10,15 @@
 // 允许依赖：shared/*
 // 禁止依赖：ipc/*
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, readdirSync, statSync } from 'fs'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  readdirSync,
+  statSync,
+} from 'fs'
 import { join } from 'path'
 import { createHash } from 'crypto'
 import { app } from 'electron'
@@ -62,7 +70,9 @@ export class PermissionStore {
     try {
       const raw = JSON.parse(readFileSync(file, 'utf-8')) as WorkspacePermissions
       if (raw.schemaVersion !== SCHEMA_VERSION) {
-        log.warn(`[PermissionStore] schemaVersion mismatch (expected ${SCHEMA_VERSION}, got ${raw.schemaVersion}) in ${file}, ignoring`)
+        log.warn(
+          `[PermissionStore] schemaVersion mismatch (expected ${SCHEMA_VERSION}, got ${raw.schemaVersion}) in ${file}, ignoring`,
+        )
         this.persistedCache.set(workspacePath, [])
         return []
       }
@@ -125,14 +135,14 @@ export class PermissionStore {
    */
   removeRule(workspacePath: string, ruleId: string): boolean {
     const session = this.sessionRules.get(workspacePath) ?? []
-    const sessionNext = session.filter(r => r.id !== ruleId)
+    const sessionNext = session.filter((r) => r.id !== ruleId)
     if (sessionNext.length !== session.length) {
       this.sessionRules.set(workspacePath, sessionNext)
       return true
     }
 
     const persisted = this.loadPersisted(workspacePath)
-    const persistedNext = persisted.filter(r => r.id !== ruleId)
+    const persistedNext = persisted.filter((r) => r.id !== ruleId)
     if (persistedNext.length !== persisted.length) {
       this.savePersisted(workspacePath, persistedNext)
       return true

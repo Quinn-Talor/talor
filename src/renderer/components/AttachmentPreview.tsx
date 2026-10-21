@@ -6,17 +6,23 @@ interface AttachmentPreviewProps {
   compact?: boolean
 }
 
-export function AttachmentPreview({ attachment, onRemove, compact = false }: AttachmentPreviewProps) {
+export function AttachmentPreview({
+  attachment,
+  onRemove,
+  compact = false,
+}: AttachmentPreviewProps) {
   const isImage = attachment.mime_type.startsWith('image/')
-  const isText = attachment.mime_type.startsWith('text/') || attachment.mime_type.includes('document')
+  const isText =
+    attachment.mime_type.startsWith('text/') || attachment.mime_type.includes('document')
   const isPdf = attachment.mime_type === 'application/pdf'
-  const isCode = attachment.mime_type.includes('javascript') || 
-                 attachment.mime_type.includes('typescript') ||
-                 attachment.mime_type.includes('python') ||
-                 attachment.mime_type.includes('java') ||
-                 attachment.mime_type.includes('c++') ||
-                 attachment.mime_type.includes('go') ||
-                 attachment.mime_type.includes('rust')
+  const isCode =
+    attachment.mime_type.includes('javascript') ||
+    attachment.mime_type.includes('typescript') ||
+    attachment.mime_type.includes('python') ||
+    attachment.mime_type.includes('java') ||
+    attachment.mime_type.includes('c++') ||
+    attachment.mime_type.includes('go') ||
+    attachment.mime_type.includes('rust')
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '未知大小'
@@ -43,7 +49,9 @@ export function AttachmentPreview({ attachment, onRemove, compact = false }: Att
 
   if (compact) {
     return (
-      <div className={`flex items-center gap-2 ${getFileTypeColor()} rounded-lg px-3 py-2 text-sm border`}>
+      <div
+        className={`flex items-center gap-2 ${getFileTypeColor()} rounded-lg px-3 py-2 text-sm border`}
+      >
         <span className="text-lg">{getFileIcon()}</span>
         <div className="flex-1 min-w-0">
           <div className="font-medium truncate max-w-[180px]">{attachment.filename}</div>
@@ -55,7 +63,17 @@ export function AttachmentPreview({ attachment, onRemove, compact = false }: Att
             className="text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded p-1 transition-colors"
             title="移除"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -81,8 +99,8 @@ export function AttachmentPreview({ attachment, onRemove, compact = false }: Att
             <div className="text-sm font-medium mb-1">图片预览:</div>
             <div className="bg-white border border-gray-200 rounded-lg p-2 inline-block">
               {attachment.base64_data ? (
-                <img 
-                  src={attachment.base64_data} 
+                <img
+                  src={attachment.base64_data}
                   alt={attachment.filename}
                   className="w-32 h-32 object-contain rounded"
                   onError={(e) => {
@@ -92,7 +110,8 @@ export function AttachmentPreview({ attachment, onRemove, compact = false }: Att
                     const parent = target.parentElement
                     if (parent) {
                       const placeholder = document.createElement('div')
-                      placeholder.className = 'w-32 h-32 flex items-center justify-center bg-gray-100 rounded'
+                      placeholder.className =
+                        'w-32 h-32 flex items-center justify-center bg-gray-100 rounded'
                       placeholder.innerHTML = '<span class="text-gray-400">图片加载失败</span>'
                       parent.appendChild(placeholder)
                     }
@@ -121,7 +140,17 @@ export function AttachmentPreview({ attachment, onRemove, compact = false }: Att
           className="text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg p-2 transition-colors"
           title="移除附件"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>

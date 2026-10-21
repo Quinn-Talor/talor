@@ -108,7 +108,7 @@ export function createPermissionPort(opts: CreatePermissionPortOpts): Permission
 
     // Step 3: 写规则（仅当用户选了 pattern，而非 "Allow once"）
     if (response.grantPatternId) {
-      const chosen = suggestions.find(s => s.id === response.grantPatternId)
+      const chosen = suggestions.find((s) => s.id === response.grantPatternId)
       if (chosen) {
         writeRuleForGrant({
           workspacePath,
@@ -120,8 +120,8 @@ export function createPermissionPort(opts: CreatePermissionPortOpts): Permission
         // Step 4: 批量授权：同 pattern 应用到用户勾选的工具组
         const bulk = response.bulkGrantTools ?? []
         for (const tool of bulk) {
-          if (tool === input.toolName) continue   // 主工具已写过
-          if (!readonlyGroup.includes(tool)) continue   // 防御性过滤
+          if (tool === input.toolName) continue // 主工具已写过
+          if (!readonlyGroup.includes(tool)) continue // 防御性过滤
           writeRuleForGrant({
             workspacePath,
             toolName: tool,

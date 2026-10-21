@@ -22,7 +22,14 @@ export function ConnectionTest({ status, result, onTest, disabled }: ConnectionT
         {status === 'testing' ? (
           <span className="flex items-center gap-1.5">
             <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              />
               <path
                 className="opacity-75"
                 fill="currentColor"
@@ -38,7 +45,14 @@ export function ConnectionTest({ status, result, onTest, disabled }: ConnectionT
 
       {status === 'success' && result && (
         <div className="flex items-center gap-1.5 text-xs text-green-600">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
             <polyline points="20,6 9,17 4,12" />
           </svg>
           <span>
@@ -52,7 +66,14 @@ export function ConnectionTest({ status, result, onTest, disabled }: ConnectionT
 
       {status === 'failure' && result && (
         <div className="flex items-center gap-1.5 text-xs text-red-500 max-w-xs">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
             <line x1="9" y1="9" x2="15" y2="15" />

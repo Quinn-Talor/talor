@@ -13,13 +13,16 @@ let tempDir: string
 function createSkillDir(baseDir: string, name: string, description: string, content: string): void {
   const dir = join(baseDir, name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'SKILL.md'), `---
+  writeFileSync(
+    join(dir, 'SKILL.md'),
+    `---
 name: ${name}
 description: "${description}"
 ---
 
 ${content}
-`)
+`,
+  )
 }
 
 beforeEach(() => {

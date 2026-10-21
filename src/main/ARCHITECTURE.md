@@ -4,12 +4,12 @@
 
 ## 层与目录
 
-| 层 | 目录 | 职责 | 允许依赖 | 禁止 |
-|----|------|------|---------|------|
-| 入口 | `ipc/` | IPC 协议注册、参数解包、事件转发、错误码映射、snake/camel 命名转换 | 业务层任意目录、`repos/*`、`shared/*` | 业务决策 |
-| 业务（按领域聚合） | `chat/`、`loop/`、`tools/`、`prompt/`、`memory/`、`mcp/`、`providers/` | `chat/` = chat 用例编排（orchestrator / attachments / provider-selector / stream-registry）；`loop/` = ReAct 引擎；其余为各自领域模块 | 业务层其他目录、`repos/*`、`store/*`（只读）、`shared/*` | `ipc/*` |
-| 仓储 | `repos/` | SQL CRUD，领域对象转换 | `db/*`、`shared/*` | 业务层以外的任何调用 |
-| 基础 | `db/`、`store/`、`services/*` | sqlite 连接、electron-store、OS keychain、provider-fetcher 等原子基础能力 | `shared/*` | — |
+| 层                 | 目录                                                                   | 职责                                                                                                                                  | 允许依赖                                                 | 禁止                 |
+| ------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | -------------------- |
+| 入口               | `ipc/`                                                                 | IPC 协议注册、参数解包、事件转发、错误码映射、snake/camel 命名转换                                                                    | 业务层任意目录、`repos/*`、`shared/*`                    | 业务决策             |
+| 业务（按领域聚合） | `chat/`、`loop/`、`tools/`、`prompt/`、`memory/`、`mcp/`、`providers/` | `chat/` = chat 用例编排（orchestrator / attachments / provider-selector / stream-registry）；`loop/` = ReAct 引擎；其余为各自领域模块 | 业务层其他目录、`repos/*`、`store/*`（只读）、`shared/*` | `ipc/*`              |
+| 仓储               | `repos/`                                                               | SQL CRUD，领域对象转换                                                                                                                | `db/*`、`shared/*`                                       | 业务层以外的任何调用 |
+| 基础               | `db/`、`store/`、`services/*`                                          | sqlite 连接、electron-store、OS keychain、provider-fetcher 等原子基础能力                                                             | `shared/*`                                               | —                    |
 
 **关键区分：** `chat/` 是**用例层**（怎么把一次 chat:send 跑完整），`loop/` 是**引擎层**（给定已就绪的 model/tools，怎么完成 ReAct）；编排调用引擎，未来可复用同一个 `loop/`。`services/` **不**作为"业务层容器"使用，只放原子基础能力。
 

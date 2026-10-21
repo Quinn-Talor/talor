@@ -19,7 +19,7 @@ describe('BuiltinToolRegistry', () => {
   it('lists all registered tools', () => {
     const all = registry.listAll()
     expect(all).toHaveLength(3)
-    expect(all.map(t => t.name)).toEqual(['read', 'write', 'bash'])
+    expect(all.map((t) => t.name)).toEqual(['read', 'write', 'bash'])
   })
 
   it('getTool returns a registered tool', () => {
@@ -47,8 +47,9 @@ describe('BuiltinToolRegistry', () => {
   })
 
   it('execute throws for unknown tool', async () => {
-    await expect(registry.execute('nope', {}, { sessionId: 's1', workspace: '' }))
-      .rejects.toThrow('Builtin tool not found: nope')
+    await expect(registry.execute('nope', {}, { sessionId: 's1', workspace: '' })).rejects.toThrow(
+      'Builtin tool not found: nope',
+    )
   })
 
   it('ignores duplicate tool names during construction', () => {

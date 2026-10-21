@@ -19,15 +19,18 @@ vi.mock('child_process', () => {
     spawn: vi.fn(() => {
       const proc = new MockProcess()
       setTimeout(() => {
-        proc.stdout.emit('data', JSON.stringify({
-          jsonrpc: '2.0',
-          id: '1',
-          result: {
-            protocolVersion: '2024-11-05',
-            serverInfo: { name: 'test-server', version: '1.0' },
-            capabilities: { tools: true },
-          },
-        }) + '\n')
+        proc.stdout.emit(
+          'data',
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: '1',
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'test-server', version: '1.0' },
+              capabilities: { tools: true },
+            },
+          }) + '\n',
+        )
       }, 10)
       return proc
     }),
@@ -60,13 +63,16 @@ describe('AC-005-01: MCP STDIO Tool Calling', () => {
     const toolCallPromise = transport.callTool('test_tool', { key: 'value' })
 
     setTimeout(() => {
-      mockProcess.stdout.emit('data', JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        result: {
-          content: [{ type: 'text', text: 'tool result' }],
-        },
-      }) + '\n')
+      mockProcess.stdout.emit(
+        'data',
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          result: {
+            content: [{ type: 'text', text: 'tool result' }],
+          },
+        }) + '\n',
+      )
     }, 10)
 
     const result = await toolCallPromise
@@ -121,13 +127,16 @@ describe('AC-005-01: MCP STDIO Tool Calling', () => {
     const callPromise = transport.callTool('read_file', { path: '/tmp/test.txt' })
 
     setTimeout(() => {
-      mockProcess.stdout.emit('data', JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        result: {
-          content: [{ type: 'text', text: 'file content here' }],
-        },
-      }) + '\n')
+      mockProcess.stdout.emit(
+        'data',
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          result: {
+            content: [{ type: 'text', text: 'file content here' }],
+          },
+        }) + '\n',
+      )
     }, 10)
 
     const result = await callPromise
@@ -144,11 +153,14 @@ describe('AC-005-01: MCP STDIO Tool Calling', () => {
     const callPromise = transport.callTool('bad_tool', {})
 
     setTimeout(() => {
-      mockProcess.stdout.emit('data', JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        error: { code: -32601, message: 'Method not found' },
-      }) + '\n')
+      mockProcess.stdout.emit(
+        'data',
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          error: { code: -32601, message: 'Method not found' },
+        }) + '\n',
+      )
     }, 10)
 
     await expect(callPromise).rejects.toThrow('Method not found')

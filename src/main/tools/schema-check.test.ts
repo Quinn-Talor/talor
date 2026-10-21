@@ -17,7 +17,14 @@ const params: SchemaParams = {
 describe('checkSchema', () => {
   it('returns null for valid input', () => {
     expect(
-      checkSchema('t', params, { name: 'alice', age: 30, mode: 'read', email: 'a@b', tags: ['x'], score: 1.5 }),
+      checkSchema('t', params, {
+        name: 'alice',
+        age: 30,
+        mode: 'read',
+        email: 'a@b',
+        tags: ['x'],
+        score: 1.5,
+      }),
     ).toBeNull()
   })
 

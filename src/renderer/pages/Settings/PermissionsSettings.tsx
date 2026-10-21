@@ -15,12 +15,12 @@ import type { PermissionRule, PermissionRuleView } from '@shared/types/permissio
 
 interface WorkspaceEntry {
   workspacePath: string
-  ruleCount: number   // persisted 规则数
+  ruleCount: number // persisted 规则数
 }
 
 export function PermissionsSettings() {
   const { currentSessionId, sessions } = useChatStore()
-  const currentSession = sessions.find(s => s.id === currentSessionId)
+  const currentSession = sessions.find((s) => s.id === currentSessionId)
   const currentWorkspacePath = currentSession?.workspace ?? ''
 
   const [workspaces, setWorkspaces] = useState<WorkspaceEntry[]>([])
@@ -31,7 +31,7 @@ export function PermissionsSettings() {
     if (currentWorkspacePath) {
       map.set(currentWorkspacePath, {
         workspacePath: currentWorkspacePath,
-        ruleCount: 0,   // 占位，会被后续合并覆盖
+        ruleCount: 0, // 占位，会被后续合并覆盖
       })
     }
     for (const ws of workspaces) {
@@ -50,7 +50,9 @@ export function PermissionsSettings() {
     setWorkspaces(list)
   }, [])
 
-  useEffect(() => { loadWorkspaces() }, [loadWorkspaces])
+  useEffect(() => {
+    loadWorkspaces()
+  }, [loadWorkspaces])
 
   if (workspaceList.length === 0) {
     return (
@@ -69,11 +71,12 @@ export function PermissionsSettings() {
       <div>
         <h2 className="text-lg font-semibold mb-1">Workspace Permissions</h2>
         <p className="text-xs text-gray-500">
-          Rules are stored per workspace at <code className="bg-gray-100 px-1 rounded">~/.talor/workspaces/</code>.
+          Rules are stored per workspace at{' '}
+          <code className="bg-gray-100 px-1 rounded">~/.talor/workspaces/</code>.
         </p>
       </div>
 
-      {workspaceList.map(ws => (
+      {workspaceList.map((ws) => (
         <WorkspaceSection
           key={ws.workspacePath}
           workspacePath={ws.workspacePath}
@@ -94,7 +97,12 @@ interface WorkspaceSectionProps {
   onAfterMutate: () => Promise<void>
 }
 
-function WorkspaceSection({ workspacePath, isCurrent, defaultExpanded, onAfterMutate }: WorkspaceSectionProps) {
+function WorkspaceSection({
+  workspacePath,
+  isCurrent,
+  defaultExpanded,
+  onAfterMutate,
+}: WorkspaceSectionProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [view, setView] = useState<PermissionRuleView>({ session: [], persisted: [] })
   const [loaded, setLoaded] = useState(false)
@@ -136,7 +144,7 @@ function WorkspaceSection({ workspacePath, isCurrent, defaultExpanded, onAfterMu
   return (
     <section className="border border-gray-200 rounded-lg overflow-hidden">
       <button
-        onClick={() => setExpanded(v => !v)}
+        onClick={() => setExpanded((v) => !v)}
         className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left"
       >
         <span className="text-gray-400 text-xs w-4">{expanded ? '▼' : '▶'}</span>
@@ -151,9 +159,7 @@ function WorkspaceSection({ workspacePath, isCurrent, defaultExpanded, onAfterMu
               </span>
             )}
           </div>
-          {loaded && (
-            <p className="text-xs text-gray-500">{countHint || `${total} rules`}</p>
-          )}
+          {loaded && <p className="text-xs text-gray-500">{countHint || `${total} rules`}</p>}
         </div>
       </button>
 
@@ -207,10 +213,7 @@ function RuleGroup({ title, subtitle, emptyText, rules, onRemove, extraAction }:
           <p className="text-xs text-gray-500">{subtitle}</p>
         </div>
         {extraAction && (
-          <button
-            onClick={extraAction.onClick}
-            className="text-xs text-red-600 hover:text-red-800"
-          >
+          <button onClick={extraAction.onClick} className="text-xs text-red-600 hover:text-red-800">
             {extraAction.label}
           </button>
         )}
@@ -222,7 +225,7 @@ function RuleGroup({ title, subtitle, emptyText, rules, onRemove, extraAction }:
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {rules.map(rule => (
+          {rules.map((rule) => (
             <RuleRow key={rule.id} rule={rule} onRemove={onRemove} />
           ))}
         </ul>
@@ -232,7 +235,8 @@ function RuleGroup({ title, subtitle, emptyText, rules, onRemove, extraAction }:
 }
 
 function RuleRow({ rule, onRemove }: { rule: PermissionRule; onRemove: (id: string) => void }) {
-  const effectColor = rule.effect === 'allow' ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
+  const effectColor =
+    rule.effect === 'allow' ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'
   const patternDisplay = renderPattern(rule)
   const createdShort = new Date(rule.createdAt).toLocaleDateString()
 

@@ -24,31 +24,72 @@ type BinaryClass = 'readonly' | 'subcommand_based' | 'danger'
 
 const BINARY_CLASS: Record<string, BinaryClass> = {
   // readonly: 可给 same-binary 档（即 ^<bin>( .*)?$）
-  ls: 'readonly', cat: 'readonly', head: 'readonly', tail: 'readonly',
-  grep: 'readonly', find: 'readonly', ps: 'readonly', df: 'readonly',
-  du: 'readonly', pwd: 'readonly', whoami: 'readonly', date: 'readonly',
-  echo: 'readonly', which: 'readonly', file: 'readonly',
-  wc: 'readonly', sort: 'readonly', uniq: 'readonly', tree: 'readonly',
-  stat: 'readonly', hostname: 'readonly', uptime: 'readonly',
+  ls: 'readonly',
+  cat: 'readonly',
+  head: 'readonly',
+  tail: 'readonly',
+  grep: 'readonly',
+  find: 'readonly',
+  ps: 'readonly',
+  df: 'readonly',
+  du: 'readonly',
+  pwd: 'readonly',
+  whoami: 'readonly',
+  date: 'readonly',
+  echo: 'readonly',
+  which: 'readonly',
+  file: 'readonly',
+  wc: 'readonly',
+  sort: 'readonly',
+  uniq: 'readonly',
+  tree: 'readonly',
+  stat: 'readonly',
+  hostname: 'readonly',
+  uptime: 'readonly',
 
   // subcommand-based: 给 same-subcommand 档（如 ^git log( .*)?$）
-  git: 'subcommand_based', npm: 'subcommand_based', yarn: 'subcommand_based',
-  pnpm: 'subcommand_based', cargo: 'subcommand_based', go: 'subcommand_based',
-  docker: 'subcommand_based', kubectl: 'subcommand_based', brew: 'subcommand_based',
-  pip: 'subcommand_based', pipx: 'subcommand_based',
-  python: 'subcommand_based', python3: 'subcommand_based', node: 'subcommand_based',
-  gh: 'subcommand_based', hg: 'subcommand_based',
+  git: 'subcommand_based',
+  npm: 'subcommand_based',
+  yarn: 'subcommand_based',
+  pnpm: 'subcommand_based',
+  cargo: 'subcommand_based',
+  go: 'subcommand_based',
+  docker: 'subcommand_based',
+  kubectl: 'subcommand_based',
+  brew: 'subcommand_based',
+  pip: 'subcommand_based',
+  pipx: 'subcommand_based',
+  python: 'subcommand_based',
+  python3: 'subcommand_based',
+  node: 'subcommand_based',
+  gh: 'subcommand_based',
+  hg: 'subcommand_based',
 
   // danger: 只给 exact 档
-  rm: 'danger', mv: 'danger', cp: 'danger',
-  chmod: 'danger', chown: 'danger',
-  dd: 'danger', mkfs: 'danger',
-  kill: 'danger', killall: 'danger', pkill: 'danger',
-  sudo: 'danger', su: 'danger', doas: 'danger',
-  curl: 'danger', wget: 'danger',                     // 网络
-  touch: 'danger', mkdir: 'danger', rmdir: 'danger',  // 写入类
+  rm: 'danger',
+  mv: 'danger',
+  cp: 'danger',
+  chmod: 'danger',
+  chown: 'danger',
+  dd: 'danger',
+  mkfs: 'danger',
+  kill: 'danger',
+  killall: 'danger',
+  pkill: 'danger',
+  sudo: 'danger',
+  su: 'danger',
+  doas: 'danger',
+  curl: 'danger',
+  wget: 'danger', // 网络
+  touch: 'danger',
+  mkdir: 'danger',
+  rmdir: 'danger', // 写入类
   ln: 'danger',
-  eval: 'danger', exec: 'danger', bash: 'danger', sh: 'danger', zsh: 'danger',
+  eval: 'danger',
+  exec: 'danger',
+  bash: 'danger',
+  sh: 'danger',
+  zsh: 'danger',
 }
 
 function classifyBinary(binary: string): BinaryClass {
@@ -118,10 +159,7 @@ export function suggestBashPatterns(command: string): PatternSuggestion[] {
           `${binary} ${subcommand} --verbose`,
           `${binary} ${subcommand} arg`,
         ],
-        doesNotMatch: [
-          `${binary} other-sub`,
-          `sudo ${binary} ${subcommand}`,
-        ],
+        doesNotMatch: [`${binary} other-sub`, `sudo ${binary} ${subcommand}`],
       },
     },
   ]
@@ -129,7 +167,7 @@ export function suggestBashPatterns(command: string): PatternSuggestion[] {
 
 /** 简单 tokenize：不处理引号嵌套，够本表的分类判断用。 */
 function tokenize(cmd: string): string[] {
-  return cmd.split(/\s+/).filter(t => t.length > 0)
+  return cmd.split(/\s+/).filter((t) => t.length > 0)
 }
 
 function containsComplexSyntax(cmd: string): boolean {
@@ -183,7 +221,7 @@ export function suggestPathPatterns(absPath: string): PatternSuggestion[] {
   switch (zone) {
     case 'home_subdir': {
       // home_subdir 的顶级目录（~/Desktop、~/Downloads 等）
-      const relFromHome = absPath.slice(home.length + 1)   // 去掉 "$HOME/"
+      const relFromHome = absPath.slice(home.length + 1) // 去掉 "$HOME/"
       const topName = relFromHome.split(sep)[0]
       const topDir = `${home}${sep}${topName}${sep}`
       const out: PatternSuggestion[] = [

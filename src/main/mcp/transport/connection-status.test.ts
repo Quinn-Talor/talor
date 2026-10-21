@@ -19,15 +19,18 @@ vi.mock('child_process', () => {
     spawn: vi.fn(() => {
       const proc = new MockProcess()
       setTimeout(() => {
-        proc.stdout.emit('data', JSON.stringify({
-          jsonrpc: '2.0',
-          id: '1',
-          result: {
-            protocolVersion: '2024-11-05',
-            serverInfo: { name: 'test-server', version: '1.0' },
-            capabilities: { tools: true },
-          },
-        }) + '\n')
+        proc.stdout.emit(
+          'data',
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id: '1',
+            result: {
+              protocolVersion: '2024-11-05',
+              serverInfo: { name: 'test-server', version: '1.0' },
+              capabilities: { tools: true },
+            },
+          }) + '\n',
+        )
       }, 10)
       return proc
     }),

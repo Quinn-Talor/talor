@@ -31,7 +31,7 @@ export function diagnoseInputMismatch(
   input: unknown,
   missingFields: string[],
 ): string {
-  const inputObj = (input && typeof input === 'object') ? input as Record<string, unknown> : {}
+  const inputObj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
   const providedFields = Object.keys(inputObj)
   const expectedFields = Object.keys(params.properties ?? {})
   const required = params.required ?? []
@@ -52,7 +52,7 @@ export function diagnoseInputMismatch(
 
   // 期望的 schema (精简,每字段单行)
   if (expectedFields.length > 0) {
-    const schemaLines = expectedFields.map(name => {
+    const schemaLines = expectedFields.map((name) => {
       const prop = params.properties?.[name]
       const type = prop?.type ?? 'any'
       const req = required.includes(name) ? 'required' : 'optional'
@@ -123,8 +123,8 @@ function levenshtein(a: string, b: string): number {
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1
       curr[j] = Math.min(
-        prev[j] + 1,      // deletion
-        curr[j - 1] + 1,  // insertion
+        prev[j] + 1, // deletion
+        curr[j - 1] + 1, // insertion
         prev[j - 1] + cost, // substitution
       )
     }

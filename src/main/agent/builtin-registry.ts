@@ -25,7 +25,7 @@ export class BuiltinToolRegistry {
   }
 
   listAll(): ToolMetadata[] {
-    return Array.from(this.tools.values()).map(t => ({
+    return Array.from(this.tools.values()).map((t) => ({
       name: t.name,
       description: t.description,
       parameters: t.parameters,
@@ -46,7 +46,11 @@ export class BuiltinToolRegistry {
     return this.tools.size
   }
 
-  async execute(name: string, input: unknown, context: ToolExecuteContext): Promise<{ output: unknown }> {
+  async execute(
+    name: string,
+    input: unknown,
+    context: ToolExecuteContext,
+  ): Promise<{ output: unknown }> {
     const tool = this.tools.get(name)
     if (!tool) throw new Error(`Builtin tool not found: ${name}`)
     return tool.execute(input, context)

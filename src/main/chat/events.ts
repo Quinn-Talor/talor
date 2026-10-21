@@ -11,8 +11,7 @@ import log from 'electron-log'
  * 执行期事件。使用命名空间前缀（memory.* / step.* / tool.* 等）分类。
  * 新增事件类型时追加到此 union，订阅方通过 type 自动获得精确类型收窄。
  */
-export type ExecutionEvent =
-  | { type: 'memory.compressed'; coveredUntilMessageId: string }
+export type ExecutionEvent = { type: 'memory.compressed'; coveredUntilMessageId: string }
 
 export type ExecutionEventType = ExecutionEvent['type']
 

@@ -37,12 +37,16 @@ describe('toolRegistry.register', () => {
 
   it('should require description field', () => {
     const noDesc = { ...mockTool, description: '' }
-    expect(() => toolRegistry.register(noDesc as ToolDefinition)).toThrow('Tool must have a description')
+    expect(() => toolRegistry.register(noDesc as ToolDefinition)).toThrow(
+      'Tool must have a description',
+    )
   })
 
   it('should require execute function', () => {
     const noExec = { name: 'test', description: 'desc', parameters: {}, execute: undefined }
-    expect(() => toolRegistry.register(noExec as unknown as ToolDefinition)).toThrow('Tool must have an execute function')
+    expect(() => toolRegistry.register(noExec as unknown as ToolDefinition)).toThrow(
+      'Tool must have an execute function',
+    )
   })
 })
 
@@ -179,7 +183,9 @@ describe('toolRegistry.execute Zod validation path', () => {
       command: z.string().trim().min(1),
       count: z.number().int().default(1),
     })
-    const execSpy = vi.fn(async (input: { command: string; count: number }) => ({ output: `${input.command} x${input.count}` }))
+    const execSpy = vi.fn(async (input: { command: string; count: number }) => ({
+      output: `${input.command} x${input.count}`,
+    }))
     toolRegistry.register({
       name: 'zod_ok',
       description: 'zod tool',
@@ -197,12 +203,18 @@ describe('toolRegistry.execute Zod validation path', () => {
     toolRegistry.register({
       name: 'zod_missing',
       description: 'zod tool',
-      parameters: { type: 'object', required: ['command'], properties: { command: { type: 'string' } } },
+      parameters: {
+        type: 'object',
+        required: ['command'],
+        properties: { command: { type: 'string' } },
+      },
       zodSchema: z.object({ command: z.string() }),
       execute: vi.fn(),
     })
     const result = await toolRegistry.execute('zod_missing', {}, mockContext)
-    expect(String(result.output)).toMatch(/^Invalid input for tool "zod_missing": missing required parameter/)
+    expect(String(result.output)).toMatch(
+      /^Invalid input for tool "zod_missing": missing required parameter/,
+    )
   })
 
   it('zod type mismatch → "Invalid input for tool" message with issue detail', async () => {
@@ -233,7 +245,7 @@ describe('toolRegistry.execute Zod validation path', () => {
 
   it('zod refine rule blocks bad input', async () => {
     const schema = z.object({
-      command: z.string().refine(c => !c.includes('rm -rf'), 'Dangerous command not allowed.'),
+      command: z.string().refine((c) => !c.includes('rm -rf'), 'Dangerous command not allowed.'),
     })
     toolRegistry.register({
       name: 'zod_refine',
@@ -259,7 +271,9 @@ describe('toolRegistry.execute Zod validation path', () => {
     })
     // 缺 required → legacy diagnose
     const missing = await toolRegistry.execute('legacy', {}, mockContext)
-    expect(String(missing.output)).toMatch(/^Invalid input for tool "legacy": missing required parameter/)
+    expect(String(missing.output)).toMatch(
+      /^Invalid input for tool "legacy": missing required parameter/,
+    )
     // enum 校验(通过 schema-check)
     const badEnum = await toolRegistry.execute('legacy', { path: '/x', mode: 'bad' }, mockContext)
     expect(String(badEnum.output)).toMatch(/^Invalid value for "mode"/)
@@ -271,7 +285,12 @@ describe('toolRegistry.execute verify behavior', () => {
     toolRegistry.register({
       ...mockTool,
       name: 'v_block',
-      verify: () => ({ ok: false, output: 'irrelevant', warning: 'hallucination suspected', severity: 'block' }),
+      verify: () => ({
+        ok: false,
+        output: 'irrelevant',
+        warning: 'hallucination suspected',
+        severity: 'block',
+      }),
     })
     const result = await toolRegistry.execute('v_block', { path: '/x' }, mockContext)
     expect(isToolErrorEnvelope(result.output)).toBe(true)
@@ -284,7 +303,9 @@ describe('toolRegistry.execute verify behavior', () => {
     toolRegistry.register({
       ...mockTool,
       name: 'v_crash',
-      verify: () => { throw new Error('verify exploded') },
+      verify: () => {
+        throw new Error('verify exploded')
+      },
     })
     const result = await toolRegistry.execute('v_crash', { path: '/x' }, mockContext)
     expect(isToolErrorEnvelope(result.output)).toBe(true)

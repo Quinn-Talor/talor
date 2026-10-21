@@ -11,7 +11,11 @@ describe('recordUsage', () => {
   beforeEach(() => mockAddUsage.mockClear())
 
   it('normalizes then adds to session', () => {
-    recordUsage('s1', { inputTokens: 1000, outputTokens: 100 }, { anthropic: { cacheReadInputTokens: 400 } })
+    recordUsage(
+      's1',
+      { inputTokens: 1000, outputTokens: 100 },
+      { anthropic: { cacheReadInputTokens: 400 } },
+    )
     expect(mockAddUsage).toHaveBeenCalledWith('s1', {
       inputTokens: 600,
       outputTokens: 100,

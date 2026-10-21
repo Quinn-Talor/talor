@@ -118,9 +118,17 @@ describe('PermissionStore', () => {
     })
 
     it('loadPersisted returns empty when file is corrupted (does not throw)', () => {
-      const newStore = new PermissionStore()   // 全新实例，无缓存
+      const newStore = new PermissionStore() // 全新实例，无缓存
       const file = workspaceFile(fakeHome, WS)
-      mkdirSync(join(fakeHome, '.talor', 'workspaces', createHash('sha1').update(WS).digest('hex').slice(0, 16)), { recursive: true })
+      mkdirSync(
+        join(
+          fakeHome,
+          '.talor',
+          'workspaces',
+          createHash('sha1').update(WS).digest('hex').slice(0, 16),
+        ),
+        { recursive: true },
+      )
       writeFileSync(file, '{ this is not valid JSON', 'utf-8')
       expect(newStore.loadPersisted(WS)).toEqual([])
     })
@@ -128,8 +136,33 @@ describe('PermissionStore', () => {
     it('loadPersisted rejects mismatched schemaVersion', () => {
       const newStore = new PermissionStore()
       const file = workspaceFile(fakeHome, WS)
-      mkdirSync(join(fakeHome, '.talor', 'workspaces', createHash('sha1').update(WS).digest('hex').slice(0, 16)), { recursive: true })
-      writeFileSync(file, JSON.stringify({ schemaVersion: 99, workspacePath: WS, rules: [{ id: 'x', tool: 'read', argPattern: '/a', effect: 'allow', scope: 'persisted', createdAt: 'x' }] }), 'utf-8')
+      mkdirSync(
+        join(
+          fakeHome,
+          '.talor',
+          'workspaces',
+          createHash('sha1').update(WS).digest('hex').slice(0, 16),
+        ),
+        { recursive: true },
+      )
+      writeFileSync(
+        file,
+        JSON.stringify({
+          schemaVersion: 99,
+          workspacePath: WS,
+          rules: [
+            {
+              id: 'x',
+              tool: 'read',
+              argPattern: '/a',
+              effect: 'allow',
+              scope: 'persisted',
+              createdAt: 'x',
+            },
+          ],
+        }),
+        'utf-8',
+      )
       expect(newStore.loadPersisted(WS)).toEqual([])
     })
 
@@ -182,7 +215,7 @@ describe('PermissionStore', () => {
       store.addPersistedRule('/ws/b', { tool: 'bash', argPattern: '^ls$', effect: 'allow' })
 
       const list = store.listWorkspacesWithPersistedRules()
-      const byPath = new Map(list.map(x => [x.workspacePath, x.ruleCount]))
+      const byPath = new Map(list.map((x) => [x.workspacePath, x.ruleCount]))
       expect(byPath.get('/ws/a')).toBe(2)
       expect(byPath.get('/ws/b')).toBe(1)
     })
@@ -190,7 +223,7 @@ describe('PermissionStore', () => {
     it('does not list workspaces that only had session rules', () => {
       store.addSessionRule('/ws/session-only', { tool: 'read', argPattern: '/x', effect: 'allow' })
       const list = store.listWorkspacesWithPersistedRules()
-      expect(list.find(x => x.workspacePath === '/ws/session-only')).toBeUndefined()
+      expect(list.find((x) => x.workspacePath === '/ws/session-only')).toBeUndefined()
     })
 
     it('skips corrupted JSON files', () => {
@@ -198,11 +231,15 @@ describe('PermissionStore', () => {
       // Corrupt another workspace's file directly
       const badHash = createHash('sha1').update('/ws/bad').digest('hex').slice(0, 16)
       mkdirSync(join(fakeHome, '.talor', 'workspaces', badHash), { recursive: true })
-      writeFileSync(join(fakeHome, '.talor', 'workspaces', badHash, 'permissions.json'), 'not valid', 'utf-8')
+      writeFileSync(
+        join(fakeHome, '.talor', 'workspaces', badHash, 'permissions.json'),
+        'not valid',
+        'utf-8',
+      )
 
       const list = store.listWorkspacesWithPersistedRules()
-      expect(list.some(x => x.workspacePath === '/ws/good')).toBe(true)
-      expect(list.some(x => x.workspacePath === '/ws/bad')).toBe(false)
+      expect(list.some((x) => x.workspacePath === '/ws/good')).toBe(true)
+      expect(list.some((x) => x.workspacePath === '/ws/bad')).toBe(false)
     })
   })
 

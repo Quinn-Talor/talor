@@ -49,12 +49,9 @@ export async function requestPermissionFromRenderer(
  * 独立注册函数，与 sendChat 无耦合，调用一次即可。
  */
 export function registerPermissionHandlers(): void {
-  ipcMain.handle(
-    'permissions:list',
-    (_event, workspacePath: string): PermissionRuleView => {
-      return permissionStore.listAll(workspacePath)
-    },
-  )
+  ipcMain.handle('permissions:list', (_event, workspacePath: string): PermissionRuleView => {
+    return permissionStore.listAll(workspacePath)
+  })
 
   ipcMain.handle(
     'permissions:remove',
@@ -63,12 +60,9 @@ export function registerPermissionHandlers(): void {
     },
   )
 
-  ipcMain.handle(
-    'permissions:clearSession',
-    (_event, workspacePath: string): void => {
-      permissionStore.clearSession(workspacePath)
-    },
-  )
+  ipcMain.handle('permissions:clearSession', (_event, workspacePath: string): void => {
+    permissionStore.clearSession(workspacePath)
+  })
 
   ipcMain.handle(
     'permissions:listWorkspaces',

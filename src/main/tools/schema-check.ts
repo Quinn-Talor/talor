@@ -30,13 +30,9 @@ export interface SchemaParams {
   properties?: Record<string, SchemaProp>
 }
 
-export function checkSchema(
-  toolName: string,
-  params: SchemaParams,
-  input: unknown,
-): string | null {
+export function checkSchema(toolName: string, params: SchemaParams, input: unknown): string | null {
   if (!params.properties) return null
-  const obj = (input && typeof input === 'object') ? (input as Record<string, unknown>) : {}
+  const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {}
 
   for (const [field, spec] of Object.entries(params.properties)) {
     const val = obj[field]
@@ -58,7 +54,7 @@ export function checkSchema(
 
     // ── enum ─────────────────────────────────────────────────────────
     if (spec.enum && spec.enum.length > 0 && !spec.enum.includes(val)) {
-      const allowed = spec.enum.map(e => JSON.stringify(e)).join(', ')
+      const allowed = spec.enum.map((e) => JSON.stringify(e)).join(', ')
       return `Invalid value for "${field}" on tool "${toolName}": ${safeJson(val).slice(0, 50)} is not in enum [${allowed}].`
     }
 
@@ -95,5 +91,9 @@ export function checkSchema(
 }
 
 function safeJson(v: unknown): string {
-  try { return JSON.stringify(v) } catch { return String(v) }
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return String(v)
+  }
 }
