@@ -7,35 +7,26 @@
 
 [English](../../README.md) · **中文**
 
-> 纯 Agent 平台 · 从你的对话沉淀出可复用的 AI 数字员工
+> 本地优先的桌面 Agent 平台 —— 运行时、工具、MCP、Skill 与多 agent 委托集于一个应用。
 
-Talor 是一款 Electron 桌面应用,自身**不含任何业务 agent**。它提供 agent 运行平台 + 工具栈,所有业务 agent 由用户通过对话历史自动沉淀(Crystallizer)产出。
-
----
-
-## 它解决什么问题
-
-跟 ChatGPT / Claude 跑了一段有用的对话后,这段经验通常就丢了 — 下次类似任务还要重头说一遍。Talor 让你:
-
-1. **跟 Talor 跑一段对话**(用平台内置工具 / MCP / Skill)
-2. **点 Crystallize**,Talor 把这段对话沉淀成一个**可复用 agent**(`prompt.md` + 工具配置)
-3. 下次类似任务,**直接 invoke 这个 agent**,它带着原来的工作流和知识
+Talor 是一款 Electron 桌面应用,自身**不含任何业务逻辑**。它提供 agent 运行时与工具栈;你运行的 agent 就是你自己掌握的普通文件——一个简短的 `agent.json` 加一个 `prompt.md`——所有数据都留在本机。
 
 ---
 
-## 关键特性
+## 你能得到什么
 
-- **极简 schema**:agent 只有 8 个字段(`id / name / description / agentPrompt / tools / skills / mcpServers / subagents`)
-- **prompt.md sibling**:行为定义在独立 markdown 文件,可单独编辑
-- **引用化架构**:skill 和 MCP 由平台统一管理,agent 仅按 name 引用,无副本
-- **subagent 委托**:agent 可调用其他 agent(`delegate_agent` 工具)
-- **Feature 扩展框架**:业务对象(如投研标的卡)以 Feature 接入——`ArtifactStore` 读写抽象 + `ArtifactUI` 独立渲染 + 工具操作,平台核心对业务无感知(见 [docs/talor-feature-architecture.md](../talor-feature-architecture.md))
-- **凭据安全**:MCP `envFromAccount` 引用 Account store,真值不进 prompt / 不进 IPC / 不进 LLM
-- **本地优先**:所有数据在 `~/.talor/` 下,无云端依赖
-- **跨模型**:Anthropic / OpenAI / Google / Ollama(通过 Vercel AI SDK v7)
-- **prompt 前缀缓存**:append-only 分层装配让稳定前缀连续可缓存,Anthropic 打 `cacheControl` 断点;deepseek 等自动缓存(实测命中 ~80%)
-- **token 用量统计**:跨厂商归一,会话级 input/output/缓存读写 落库 + UI 展示(k/M)
-- **跨 skill 库兼容**:`~/.talor/skills/` 是真相位置;若有 `~/.claude/skills/` 会自动 cp 兼容
+- **ReAct agent 运行时**:带工具的多步推理,外加代码层面的兜底——死循环与连续失败检测、上下文超限熔断、完成度核查,以及出问题时的强制总结。
+- **内置工具**:`bash` / `read` / `write` / `edit` / `glob` / `grep` / `ls`,带路径守卫(敏感路径硬拒绝,workspace 外的路径需你授权)和高风险调用确认。
+- **MCP**:接入 stdio 或 Streamable HTTP 的 MCP server,其工具经 `search_tool` 按需展开。
+- **Skill**:把 `SKILL.md` 放进 `~/.talor/skills/<name>/`,agent 用 `skill` 工具激活。
+- **agent 即文件**:极简 8 字段 schema(`id / name / description / agentPrompt / tools / skills / mcpServers / subagents`);行为写在同目录的 `prompt.md`,可直接编辑。skill 与 MCP 只按名称引用,不复制。
+- **子 agent 委托**:agent 可把子任务交给另一个 agent(`delegate_agent`),在隔离会话中执行,带并发上限、超时和防递归。
+- **多模型**:Anthropic / OpenAI(及 DeepSeek 等 OpenAI 兼容端点)/ Google / Ollama,基于 Vercel AI SDK v7,支持会话级推理深度。
+- **轮次追踪**:每一轮对话都记录为 Langfuse 风格的 trace(模型调用、工具、反思、token 用量),可在应用内查看。
+- **prompt 前缀缓存**:append-only 分层装配让可缓存前缀保持稳定,Anthropic 额外打 `cacheControl` 断点。
+- **token 用量统计**:会话级 input / output / 缓存读写,跨厂商归一。
+- **Feature 扩展框架**:业务对象以 Feature 接入(`ArtifactStore` + `ArtifactUI` + 工具),平台核心无需改动。见 [docs/talor-feature-architecture.md](../talor-feature-architecture.md)。
+- **本地优先、注重隐私**:数据在 `~/.talor/` 下;provider API Key 经系统钥匙串加密保存。
 
 ---
 
@@ -44,13 +35,13 @@ Talor 是一款 Electron 桌面应用,自身**不含任何业务 agent**。它�
 ```
 ~/.talor/
   agents/<agent-id>/
-    agent.json       # 元数据(7 字段,不含 agentPrompt)
+    agent.json       # 元数据(不含 agentPrompt)
     prompt.md        # agentPrompt 全文
-    README.md        # 派生
   skills/<skill-name>/
-    SKILL.md         # 平台 skill(被所有 agent 共享)
+    SKILL.md         # 平台 skill,所有 agent 共享
     ...
-  chat.db            # SQLite: sessions / messages / mcp_servers / account_keys
+  config.json        # provider 与应用设置
+  chat.db            # SQLite:会话、消息、MCP server、账户、trace
 ```
 
 ---
@@ -59,9 +50,9 @@ Talor 是一款 Electron 桌面应用,自身**不含任何业务 agent**。它�
 
 ### 前置
 
-- Node.js 22+ (Electron 41 native module 编译需要)
+- Node.js 22+(编译 Electron 41 原生模块需要)
 - npm 10+
-- macOS / Linux (Windows 未测试)
+- macOS / Linux(Windows 未测试)
 
 ### 开发模式
 
@@ -72,57 +63,59 @@ npm install
 npm run dev
 ```
 
-Vite HMR + Electron 主进程会同时启动。
+Vite HMR 与 Electron 主进程会同时启动。
 
 ### 打包
 
 ```bash
-npm run build       # electron-vite + electron-builder
+npm run build       # electron-vite + electron-builder → dist/
 ```
-
-输出在 `dist/`。
 
 ---
 
 ## 第一次使用
 
-1. 启动后默认进入 `__chat__`(主对话)
-2. 跟它跑一段你想沉淀的工作流(例:"帮我审一下 PR https://github.com/.../pull/123 …")
-3. 在对话末尾点 **Crystallize** 按钮
-4. Crystallizer 会引导你确认意图,然后产出 `agent.json` + `prompt.md` 草稿
-5. 审阅 → 保存,agent 出现在 `AgentsPage`
-6. 下次想做类似任务时,在 chat 里输入 `/<agent-name> …` 或在 AgentsPage 直接启动
+1. **添加模型 provider**:Settings → Provider(Anthropic / OpenAI / Google / Ollama,或任意 OpenAI 兼容的 base URL)。
+2. **与平台助手对话**:启动后进入默认助手,它可以使用内置工具、你配置的 MCP 与 skill,并委托给你的 agent。做文件和命令行相关的工作前先设置 workspace 目录。
+3. **添加你自己的 agent**:新建 `~/.talor/agents/<id>/agent.json` 和 `prompt.md`(最小示例见下)。重启 Talor 加载新 agent 后,它会出现在 Agents 页面,可在那里查看、编辑(带实时校验的 JSON 编辑器)并发起对话。
 
-### 配 MCP / Skill / Account
+```json
+{
+  "id": "pr-reviewer",
+  "name": "PR Reviewer",
+  "description": "Reviews pull requests for correctness and risk.",
+  "tools": ["bash", "read", "grep"]
+}
+```
 
-- **MCP**:Settings → MCP Servers,添加 stdio / http transport
-- **Skill**:把 `SKILL.md`(+ 附属文件)放到 `~/.talor/skills/<name>/`(若你已用 Claude Code,放在 `~/.claude/skills/` 也会被自动 cp 过来)
-- **Account**:Settings → Accounts,配 API key / envVar(如 `GITHUB_TOKEN`)
+### 配置 MCP / Skill / Account
+
+- **MCP**:Settings → MCP(stdio 启动命令,或带 bearer / API Key 认证的 HTTP URL)。
+- **Skill**:把 `SKILL.md`(及附属文件)放到 `~/.talor/skills/<name>/`。
+- **Account**:Settings → Account,配置第三方凭据(如 `GITHUB_TOKEN`)。
+- **Permissions**:Settings → Permissions 列出你按 workspace 授予过的路径规则。
 
 ---
 
 ## 架构
 
-完整架构与 agent 作业流程(检测 / 反思 / 收尾)见 [docs/engineering/overview.md](../../docs/engineering/overview.md)。
+完整架构与 agent 作业流程(检测 / 反思 / 收尾)见 [docs/engineering/overview.md](../engineering/overview.md)。
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Renderer (React 19 + Tailwind + Zustand)               │
-│  pages/Chat · pages/Agents · pages/Settings             │
-└───────────────────────────┬─────────────────────────────┘
-                            │ IPC
-┌───────────────────────────┴─────────────────────────────┐
-│  Main Process                                            │
-│  ipc/* ─── 入口层(IPC handler)                           │
-│  chat/orchestrator + loop/react-loop ─── ReAct 引擎       │
-│  prompt/PromptPipeline ─── 7 plugin append-only 装配      │
-│  agent/agent-manager ─── 平台 + 业务 agent 注册/装配      │
-│  mcp/client ─── MCP 协议(stdio + http)                   │
-│  skills/registry ─── 平台 SkillRegistry + filterByNames  │
-│  tools/* ─── 7 个 builtin(bash/read/write/edit/glob/…)   │
-│  repos/* + db/ ─── SQLite                                │
-│  accounts/account-store ─── 加密凭据                      │
-└─────────────────────────────────────────────────────────┘
+Renderer (React 19 + Tailwind + Zustand)
+   │ IPC(contextBridge,沙箱)
+Main Process
+   ipc/*                                 入口层
+   chat/orchestrator + loop/react-loop   ReAct 引擎 + 检测 / 反思
+   prompt/PromptPipeline                 分层、缓存友好的 prompt 装配
+   memory/ShortTermMemory                历史压缩(保留工具调用配对锚点)
+   agent/*                               agent 加载、工具集、委托
+   tools/*                               内置工具、路径守卫、风险门
+   mcp/*                                 MCP 客户端(stdio + Streamable HTTP)
+   skills/*                              平台 skill 注册表
+   providers/*                           模型适配、用量归一
+   observe/*                             轮次追踪
+   repos/* + db/                         SQLite
 ```
 
 ---
@@ -134,7 +127,7 @@ npm run build       # electron-vite + electron-builder
 - [SECURITY.md](../../SECURITY.md) — 安全漏洞私密报告
 - [CHANGELOG.md](../../CHANGELOG.md) — 变更记录
 
-工程规范见 [docs/engineering/](../../docs/engineering/);AI agent 协作指南见 [CLAUDE.md](../../CLAUDE.md)。欢迎 issue / PR,提交前请读 CONTRIBUTING。
+工程规范见 [docs/engineering/](../engineering/);AI agent 协作指南见 [CLAUDE.md](../../CLAUDE.md)。欢迎 issue / PR,提交前请先读 CONTRIBUTING。
 
 ---
 
