@@ -1,7 +1,5 @@
 # Session Token 统计 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把每个 session 消耗的 token(主对话 + reflect + memory 压缩)累计到 `sessions` 行上,并在 session UI 显示一个 token 统计。**不算成本、不新建表、不接外部价格源。**
 
 **Architecture:** token 用量是 session 级的累计状态 → 直接做成 `sessions` 表的列(与 opencode 同款),每次 LLM 调用 `UPDATE sessions SET input_tokens = input_tokens + ?`。用量数据来自 Vercel AI SDK 已返回的 `result.usage` + `result.providerMetadata`(react-loop 早就在读)。新增仅:① `sessions` 加 4 列(增量 ALTER,不丢历史);② 纯函数 `normalizeUsage`;③ 薄函数 `recordUsage`;在 3 个已有调用点各调一次。`session:get`/`session:list` 已把 session 对象返给 renderer → **无需新 IPC**,renderer 直接读列。
@@ -9,6 +7,7 @@
 **Tech Stack:** TypeScript, Electron main, AI SDK v6, better-sqlite3, vitest, electron-log。
 
 **关键事实:**
+
 - AI SDK v6 `usage.inputTokens` 已跨厂商归一为**含缓存**;缓存细分在 `providerMetadata`(各家 key 不同)→ 归一 = 从 input 减去缓存。
 - 3 个调用点(react-loop / runReflectAgent / ShortTermMemory)各自持有 `result.usage` 和所属 `sessionId` → 归因当参数传,**无需 AsyncLocalStorage**。
 - `sessions` 表有 `recreateSessionsIfOutdated` 的 drop-recreate 机制([db/index.ts:223](../../src/main/db/index.ts)),只在**必需列缺失**时触发。本方案用**增量 ALTER 加列、不进必需列清单** → 不触发 drop,**保留用户历史 session**。
@@ -20,10 +19,12 @@
 ## File Structure
 
 **新建:**
+
 - `src/main/providers/usage-normalizer.ts` + `.test.ts` — 纯函数 `normalizeUsage(usage, providerMetadata)`
 - `src/main/providers/usage-recorder.ts` + `.test.ts` — `recordUsage(sessionId, usage, providerMetadata)`(归一 + 调 repo,fail-open)
 
 **修改:**
+
 - `src/main/db/index.ts` — `sessions` 加 4 列 + 增量 ALTER
 - `src/main/repos/session-repo.ts` — `SessionRow`/`ChatSession`/`rowToSession` 加字段 + `addUsage()` 方法
 - `src/main/loop/react-loop.ts` — 主循环每步调 `recordUsage`
@@ -36,6 +37,7 @@
 ## Task 1: sessions 加 token 列(增量、不丢历史)
 
 **Files:**
+
 - Modify: `src/main/db/index.ts`
 
 - [ ] **Step 1: CREATE_SESSIONS 加列(供新 DB)**
@@ -78,7 +80,7 @@ function ensureSessionUsageColumns(db: Database.Database): void {
 在 `db.exec(CREATE_SESSIONS)`(约 db/index.ts:182)之后加:
 
 ```ts
-  ensureSessionUsageColumns(db)
+ensureSessionUsageColumns(db)
 ```
 
 - [ ] **Step 4: typecheck + 提交**
@@ -95,6 +97,7 @@ git commit -m "feat(db): add token usage columns to sessions (additive, preserve
 ## Task 2: session-repo 加字段 + addUsage
 
 **Files:**
+
 - Modify: `src/main/repos/session-repo.ts`
 
 - [ ] **Step 1: SessionRow 加列**
@@ -102,10 +105,10 @@ git commit -m "feat(db): add token usage columns to sessions (additive, preserve
 `SessionRow`(约 [session-repo.ts:9](../../src/main/repos/session-repo.ts))在 `updated_at: string` 后加:
 
 ```ts
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
+input_tokens: number
+output_tokens: number
+cache_read_tokens: number
+cache_write_tokens: number
 ```
 
 - [ ] **Step 2: ChatSession 加字段**
@@ -113,10 +116,10 @@ git commit -m "feat(db): add token usage columns to sessions (additive, preserve
 `ChatSession`(约 session-repo.ts:34)在 `updated_at: string` 后加:
 
 ```ts
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
+input_tokens: number
+output_tokens: number
+cache_read_tokens: number
+cache_write_tokens: number
 ```
 
 - [ ] **Step 3: rowToSession 映射(旧行可能无列 → 兜底 0)**
@@ -174,6 +177,7 @@ git commit -m "feat(db): add token usage columns to sessions (additive, preserve
 - [ ] **Step 6: typecheck + 提交**
 
 Run: `npm run typecheck`
+
 > 注:若 `rowToSession` 调用处别处有显式构造 ChatSession 的地方因新增必填字段报错,补 0 即可。
 
 ```bash
@@ -186,6 +190,7 @@ git commit -m "feat(repos): session token columns + addUsage incremental update"
 ## Task 3: usage 归一(纯函数)
 
 **Files:**
+
 - Create: `src/main/providers/usage-normalizer.ts`
 - Test: `src/main/providers/usage-normalizer.test.ts`
 
@@ -209,7 +214,10 @@ describe('normalizeUsage', () => {
   })
 
   it('reads openai cached tokens without needing providerType', () => {
-    const u = normalizeUsage({ inputTokens: 500, outputTokens: 50 }, { openai: { cachedPromptTokens: 200 } })
+    const u = normalizeUsage(
+      { inputTokens: 500, outputTokens: 50 },
+      { openai: { cachedPromptTokens: 200 } },
+    )
     expect(u.cacheReadTokens).toBe(200)
     expect(u.inputTokens).toBe(300)
   })
@@ -257,7 +265,10 @@ function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0
 }
 
-function extractCacheTokens(meta: Record<string, unknown> | undefined): { read: number; write: number } {
+function extractCacheTokens(meta: Record<string, unknown> | undefined): {
+  read: number
+  write: number
+} {
   if (!meta || typeof meta !== 'object') return { read: 0, write: 0 }
   for (const v of Object.values(meta)) {
     if (!v || typeof v !== 'object') continue
@@ -301,6 +312,7 @@ git commit -m "feat(providers): vendor-agnostic usage normalizer"
 ## Task 4: recordUsage(归一 + 累加到 session)
 
 **Files:**
+
 - Create: `src/main/providers/usage-recorder.ts`
 - Test: `src/main/providers/usage-recorder.test.ts`
 
@@ -319,9 +331,16 @@ describe('recordUsage', () => {
   beforeEach(() => mockAddUsage.mockClear())
 
   it('normalizes then adds to session', () => {
-    recordUsage('s1', { inputTokens: 1000, outputTokens: 100 }, { anthropic: { cacheReadInputTokens: 400 } })
+    recordUsage(
+      's1',
+      { inputTokens: 1000, outputTokens: 100 },
+      { anthropic: { cacheReadInputTokens: 400 } },
+    )
     expect(mockAddUsage).toHaveBeenCalledWith('s1', {
-      inputTokens: 600, outputTokens: 100, cacheReadTokens: 400, cacheWriteTokens: 0,
+      inputTokens: 600,
+      outputTokens: 100,
+      cacheReadTokens: 400,
+      cacheWriteTokens: 0,
     })
   })
 
@@ -331,7 +350,9 @@ describe('recordUsage', () => {
   })
 
   it('never throws', () => {
-    mockAddUsage.mockImplementation(() => { throw new Error('boom') })
+    mockAddUsage.mockImplementation(() => {
+      throw new Error('boom')
+    })
     expect(() => recordUsage('s1', { inputTokens: 1 }, undefined)).not.toThrow()
   })
 })
@@ -362,7 +383,13 @@ export function recordUsage(
   try {
     if (!usage) return
     const n = normalizeUsage(usage, providerMetadata)
-    if (n.inputTokens === 0 && n.outputTokens === 0 && n.cacheReadTokens === 0 && n.cacheWriteTokens === 0) return
+    if (
+      n.inputTokens === 0 &&
+      n.outputTokens === 0 &&
+      n.cacheReadTokens === 0 &&
+      n.cacheWriteTokens === 0
+    )
+      return
     sessionRepo.addUsage(sessionId, n)
   } catch (err) {
     log.warn('[usage-recorder] recordUsage failed:', err)
@@ -385,6 +412,7 @@ git commit -m "feat(providers): recordUsage — normalize and accumulate token u
 ## Task 5: 接入主循环
 
 **Files:**
+
 - Modify: `src/main/loop/react-loop.ts`
 
 - [ ] **Step 1: import + 每步落 usage**
@@ -394,7 +422,7 @@ git commit -m "feat(providers): recordUsage — normalize and accumulate token u
 在 `runReactStep` 内、usage/providerMetadata 已算出([react-loop.ts:681-688](../../src/main/loop/react-loop.ts))之后,持久化之后(约 line 705)加:
 
 ```ts
-    recordUsage(ctx.sessionId, usage, providerMetadata as Record<string, unknown> | undefined)
+recordUsage(ctx.sessionId, usage, providerMetadata as Record<string, unknown> | undefined)
 ```
 
 - [ ] **Step 2: typecheck + 提交**
@@ -411,6 +439,7 @@ git commit -m "feat(loop): accumulate main-loop token usage onto session"
 ## Task 6: 接入 reflect agents
 
 **Files:**
+
 - Modify: `src/main/loop/reflect/agents/types.ts`
 - Modify: `judge-completion.ts` / `quote-correction.ts` / `periodic.ts` / `escalation.ts`
 
@@ -450,6 +479,7 @@ export async function runReflectAgent<SNAPSHOT, RESULT>(
 - [ ] **Step 2: 4 个 reflector 传 sessionId**
 
 每个 `runReflectAgent(...)` 调用末尾(在 `ctx.abortSignal,` 后)加 `ctx.sessionId,`:
+
 - [judge-completion.ts:141](../../src/main/loop/reflect/judge-completion.ts)
 - [quote-correction.ts:52](../../src/main/loop/reflect/quote-correction.ts)
 - `periodic.ts` 的 runReflectAgent 调用
@@ -470,6 +500,7 @@ git commit -m "feat(loop): accumulate reflect-agent token usage onto session"
 ## Task 7: 接入 memory 压缩
 
 **Files:**
+
 - Modify: `src/main/memory/ShortTermMemory.ts`
 
 - [ ] **Step 1: 压缩 LLM 调用后落 usage**
@@ -479,7 +510,7 @@ git commit -m "feat(loop): accumulate reflect-agent token usage onto session"
 定位 `generateSummary`(约 [ShortTermMemory.ts:315-405](../../src/main/memory/ShortTermMemory.ts))里的 `generateObject`/`generateText` 调用,其作用域内有 `sessionId`。拿到结果后加:
 
 ```ts
-    recordUsage(sessionId, result.usage, result.providerMetadata as Record<string, unknown> | undefined)
+recordUsage(sessionId, result.usage, result.providerMetadata as Record<string, unknown> | undefined)
 ```
 
 > `result` / `sessionId` 用该方法内实际变量名;若 `generateSummary` 未持有 sessionId,从调用方 `getContext(sessionId, ...)` 透传进来。
@@ -501,6 +532,7 @@ git commit -m "feat(memory): accumulate compression token usage onto session"
 **确认的位置**:输入区容器 [Chat/index.tsx:1224](../../src/renderer/pages/Chat/index.tsx) `<div className="shrink-0 px-8 py-[14px] bg-canvas border-t border-line">` 内,作为**第一个子元素**(在附件预览 / composer 卡片之前),右对齐小字状态行;点击向上展开细分。在输入框**外面** → 不会被当成输入 token。
 
 **Files:**
+
 - Modify: renderer 的 session 类型定义(与主进程 `ChatSession` 对应处)
 - Modify: `src/renderer/pages/Chat/index.tsx`
 
@@ -509,10 +541,10 @@ git commit -m "feat(memory): accumulate compression token usage onto session"
 在 renderer 端 session 类型定义处(对应主进程 `ChatSession`,`sessions` state 的元素类型)加:
 
 ```ts
-  input_tokens: number
-  output_tokens: number
-  cache_read_tokens: number
-  cache_write_tokens: number
+input_tokens: number
+output_tokens: number
+cache_read_tokens: number
+cache_write_tokens: number
 ```
 
 > 若 renderer 直接 import 主进程 `ChatSession` 类型,则 Task 2 已自动覆盖,无需重复。
@@ -522,7 +554,7 @@ git commit -m "feat(memory): accumulate compression token usage onto session"
 在 `Chat/index.tsx` 组件内,与其它 popover 状态(如 `showToolsPopover`)同处加:
 
 ```tsx
-  const [showUsage, setShowUsage] = useState(false)
+const [showUsage, setShowUsage] = useState(false)
 ```
 
 - [ ] **Step 3: 接缝处插入状态行**
@@ -530,81 +562,99 @@ git commit -m "feat(memory): accumulate compression token usage onto session"
 在 [Chat/index.tsx:1224](../../src/renderer/pages/Chat/index.tsx) 的输入区容器内、附件预览块([:1226](../../src/renderer/pages/Chat/index.tsx))**之前**,插入(沿用文件内 inline-style + hex 配色惯例):
 
 ```tsx
-              {/* Session token usage — 消息区与输入框之间的接缝 */}
-              {(() => {
-                const s = sessions.find((x) => x.id === currentSessionId)
-                if (!s || s.input_tokens + s.output_tokens === 0) return null
-                const rows: Array<[string, number, string]> = [
-                  ['输入', s.input_tokens, '#334155'],
-                  ['输出', s.output_tokens, '#334155'],
-                  ['缓存读', s.cache_read_tokens, '#059669'],
-                  ['缓存写', s.cache_write_tokens, '#334155'],
-                ]
-                return (
-                  <div className="relative flex justify-end mb-2.5">
-                    {showUsage && (
-                      <div
-                        className="absolute bottom-full right-0 mb-1.5 rounded-[10px] overflow-hidden z-40"
-                        style={{
-                          width: 216,
-                          background: '#ffffff',
-                          border: '1px solid #e2e8f0',
-                          boxShadow: '0 6px 24px rgba(0,0,0,0.10)',
-                        }}
-                      >
-                        <div
-                          className="px-3 py-2 border-b"
-                          style={{
-                            borderColor: '#f1f5f9',
-                            fontSize: 10,
-                            letterSpacing: '0.03em',
-                            textTransform: 'uppercase',
-                            color: '#94a3b8',
-                          }}
-                        >
-                          本会话累计
-                        </div>
-                        <div className="px-3 py-2">
-                          {rows.map(([label, val, color]) => (
-                            <div
-                              key={label}
-                              className="flex justify-between py-0.5"
-                              style={{ fontSize: 12, color: '#64748b' }}
-                            >
-                              <span>{label}</span>
-                              <span style={{ color }}>{val.toLocaleString()}</span>
-                            </div>
-                          ))}
-                          <div
-                            className="mt-1.5 pt-1.5 border-t"
-                            style={{ borderColor: '#f1f5f9', fontSize: 11, color: '#94a3b8' }}
-                          >
-                            含 reflect / 压缩调用
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    <button
-                      onClick={() => setShowUsage((p) => !p)}
-                      className="inline-flex items-center gap-1.5"
-                      style={{ fontSize: 11, color: '#94a3b8' }}
-                    >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path d="M12 2 2 7l10 5 10-5-10-5z" />
-                        <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
-                      </svg>
-                      本会话{' '}
-                      <span style={{ color: '#64748b', fontWeight: 500 }}>
-                        {(s.input_tokens + s.output_tokens).toLocaleString()}
-                      </span>{' '}
-                      tokens
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
-                        <path d={showUsage ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
-                      </svg>
-                    </button>
-                  </div>
-                )
-              })()}
+{
+  /* Session token usage — 消息区与输入框之间的接缝 */
+}
+{
+  ;(() => {
+    const s = sessions.find((x) => x.id === currentSessionId)
+    if (!s || s.input_tokens + s.output_tokens === 0) return null
+    const rows: Array<[string, number, string]> = [
+      ['输入', s.input_tokens, '#334155'],
+      ['输出', s.output_tokens, '#334155'],
+      ['缓存读', s.cache_read_tokens, '#059669'],
+      ['缓存写', s.cache_write_tokens, '#334155'],
+    ]
+    return (
+      <div className="relative flex justify-end mb-2.5">
+        {showUsage && (
+          <div
+            className="absolute bottom-full right-0 mb-1.5 rounded-[10px] overflow-hidden z-40"
+            style={{
+              width: 216,
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 6px 24px rgba(0,0,0,0.10)',
+            }}
+          >
+            <div
+              className="px-3 py-2 border-b"
+              style={{
+                borderColor: '#f1f5f9',
+                fontSize: 10,
+                letterSpacing: '0.03em',
+                textTransform: 'uppercase',
+                color: '#94a3b8',
+              }}
+            >
+              本会话累计
+            </div>
+            <div className="px-3 py-2">
+              {rows.map(([label, val, color]) => (
+                <div
+                  key={label}
+                  className="flex justify-between py-0.5"
+                  style={{ fontSize: 12, color: '#64748b' }}
+                >
+                  <span>{label}</span>
+                  <span style={{ color }}>{val.toLocaleString()}</span>
+                </div>
+              ))}
+              <div
+                className="mt-1.5 pt-1.5 border-t"
+                style={{ borderColor: '#f1f5f9', fontSize: 11, color: '#94a3b8' }}
+              >
+                含 reflect / 压缩调用
+              </div>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setShowUsage((p) => !p)}
+          className="inline-flex items-center gap-1.5"
+          style={{ fontSize: 11, color: '#94a3b8' }}
+        >
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path d="M12 2 2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5M2 12l10 5 10-5" />
+          </svg>
+          本会话{' '}
+          <span style={{ color: '#64748b', fontWeight: 500 }}>
+            {(s.input_tokens + s.output_tokens).toLocaleString()}
+          </span>{' '}
+          tokens
+          <svg
+            width="9"
+            height="9"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={3}
+          >
+            <path d={showUsage ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+          </svg>
+        </button>
+      </div>
+    )
+  })()
+}
 ```
 
 - [ ] **Step 4: 一轮结束后刷新 token**
@@ -631,6 +681,7 @@ Run: `npm run dev`,发消息,跑完后查 DB:
 ```bash
 sqlite3 ~/.talor/chat.db "SELECT id, input_tokens, output_tokens, cache_read_tokens FROM sessions WHERE input_tokens > 0 ORDER BY updated_at DESC LIMIT 3;"
 ```
+
 Expected: 当前 session 的 token 列非零(且含 reflect/压缩的隐藏调用——比"只数主对话"偏大)。
 
 - [ ] **Step 2: UI 确认**
@@ -642,6 +693,7 @@ session 头部显示 token 数;再发一条消息后数字增长。
 ## Self-Review
 
 **Spec coverage:**
+
 - token 累计到 session(非新表)→ Task 1/2 ✅
 - 厂商无关归一(含缓存 input 减缓存,扫 providerMetadata)→ Task 3 ✅
 - 覆盖主对话 + reflect + 压缩 → Task 5/6/7 ✅

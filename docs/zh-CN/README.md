@@ -1,6 +1,6 @@
 # Talor
 
-[![License: Apache-2.0 + Commons Clause](https://img.shields.io/badge/license-Apache--2.0%20%2B%20Commons%20Clause-blue.svg)](../../LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 [![CI](https://github.com/Quinn-Talor/talor/actions/workflows/ci.yml/badge.svg)](https://github.com/Quinn-Talor/talor/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](#前置)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
@@ -103,7 +103,7 @@ npm run build       # electron-vite + electron-builder
 
 ## 架构
 
-完整架构与 agent 作业流程(检测 / 反思 / 收尾)见 [vibe/project/overview.md](../../vibe/project/overview.md)。
+完整架构与 agent 作业流程(检测 / 反思 / 收尾)见 [docs/engineering/overview.md](../../docs/engineering/overview.md)。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -134,10 +134,10 @@ npm run build       # electron-vite + electron-builder
 - [SECURITY.md](../../SECURITY.md) — 安全漏洞私密报告
 - [CHANGELOG.md](../../CHANGELOG.md) — 变更记录
 
-工程规范见 [vibe/project/](../../vibe/project/);AI agent 协作指南见 [CLAUDE.md](../../CLAUDE.md)。欢迎 issue / PR,提交前请读 CONTRIBUTING。
+工程规范见 [docs/engineering/](../../docs/engineering/);AI agent 协作指南见 [CLAUDE.md](../../CLAUDE.md)。欢迎 issue / PR,提交前请读 CONTRIBUTING。
 
 ---
 
 ## License
 
-Apache 2.0 + Commons Clause(禁商业转售)。详见 [LICENSE](../../LICENSE)。
+[MIT](../../LICENSE) © Quinn-Talor

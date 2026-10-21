@@ -3,7 +3,7 @@
 // v3.7.1: 从 src/main/loop/outcome-facts.ts 切出。这些 helper 服务 UI 卡片渲染
 // (MessageBubble + InferredIntentCard),**不参与 react-loop 控制流**。
 //
-// 协作原则 (见 docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md):
+// 协作原则 (见 docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md):
 //   - 系统不用 regex 判断 LLM 意图来纠正 LLM (反模式)
 //   - 但 UI 渲染层可以用启发式分类,以决定显示哪种卡片样式 (正模式 — 仅 UI,不回馈 loop)
 //

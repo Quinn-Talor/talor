@@ -70,8 +70,8 @@ Talor 无 lint 规则强制分层，注释是唯一契约。
 - 历史信息归属:
   - **commit message** = 单次改动 why
   - **git log / git blame** = 改动溯源
-  - **docs/superpowers/plans/** = 大型改造的"为什么这么改"的长期档案
-  - **vibe/project/** = L1 长期规范
+  - **docs/design/plans/** = 大型改造的"为什么这么改"的长期档案
+  - **docs/engineering/** = L1 长期规范
   - **代码注释** = 仅当前代码的"为什么这样写"
 - → `patterns.md` §P7
 
@@ -297,7 +297,7 @@ Talor 永不引入。如需结构化输出:
 - 失去 tools / stopWhen / prepareStep 等核心 ReAct 能力
 - 失去 reasoning-delta 分流
 
-依据:`docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md` §3.4
+依据:`docs/design/plans/2026-05-14-talor-v4-sdk-native.md` §3.4
 
 ---
 
@@ -521,10 +521,10 @@ append-only 分层装配里,history 末尾的 `assistant(tool_use)`(MemoryPlugin
 
 **判别速记**: 系统能用 runtime 真相数据(tool output / fs / memory)验证的事 → 代码强制;系统只能用 regex 猜测意图的事 → 信任 LLM。
 
-- 依据(canonical): [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
-- 持续清理: [docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md)(删 A2/B2 残留 + RiskGate 路径统一)
-- 前置: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
-- v4 SDK-native 改造: [docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md](../../docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md)
+- 依据(canonical): [docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 持续清理: [docs/design/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md](../../docs/design/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md)(删 A2/B2 残留 + RiskGate 路径统一)
+- 前置: [docs/design/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/design/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
+- v4 SDK-native 改造: [docs/design/plans/2026-05-14-talor-v4-sdk-native.md](../../docs/design/plans/2026-05-14-talor-v4-sdk-native.md)
 - → `patterns.md` §P13
 
 ### J-SHOULD-3 · AI SDK 信号按"LLM 自陈 / 运行时真相"两类消费 (v4)
@@ -549,7 +549,7 @@ AI SDK 给我们的所有 metadata 信号按 J-SHOULD-2 分类纳入消费:
 **反模式**: 用启发式 (estimate token / "推断 LLM 是否真的 done") 替代 SDK 已经给的信号。
 
 - 案例: v3.7 react-loop step-end 旧实现用 `stepToolCalls.length + stepText` 启发,忽略 SDK `finishReason` (v3.7.3 修复)
-- 依据: [docs/superpowers/plans/2026-05-14-talor-v3.7.3-completion-fulfillment.md](../../docs/superpowers/plans/2026-05-14-talor-v3.7.3-completion-fulfillment.md) §2.1
+- 依据: [docs/design/plans/2026-05-14-talor-v3.7.3-completion-fulfillment.md](../../docs/design/plans/2026-05-14-talor-v3.7.3-completion-fulfillment.md) §2.1
 
 ### J-SHOULD-4 · 故障侦测走 Detector chain, 进展反思走 Reflector chain
 

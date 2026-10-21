@@ -1,5 +1,6 @@
 appId: com.talor.desktop
 productName: Talor
+copyright: Copyright © 2026 Quinn-Talor
 directories:
   buildResources: build
   output: dist

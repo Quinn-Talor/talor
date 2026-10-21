@@ -1,13 +1,13 @@
 # Talor — AI 协作指南
 
 > 本文档给读 Talor 代码库的 AI agent（Claude Code / Copilot CLI / Codex 等）一个**最快上手入口**。
-> 详细工程规范（L1 项目知识库）在 `vibe/project/`，遵循 klook-vibe 体系。
+> 详细工程规范（项目知识库）在 `docs/engineering/`。
 
 ---
 
 ## 1. 项目一句话
 
-Talor 是 **纯 Agent 平台** — Electron + TypeScript 桌面应用(v0.1.0,Apache 2.0 + Commons Clause)。**自身不含任何业务**,所有业务由用户通过对话沉淀(Crystallizer)产出 agent 表达。Talor 提供:agent 运行时 + 工具栈(builtin + MCP)+ skill 系统 + subagent 委托 + 凭据管理。
+Talor 是 **纯 Agent 平台** — Electron + TypeScript 桌面应用(v0.1.0,MIT)。**自身不含任何业务**,所有业务由用户通过对话沉淀(Crystallizer)产出 agent 表达。Talor 提供:agent 运行时 + 工具栈(builtin + MCP)+ skill 系统 + subagent 委托 + 凭据管理。
 
 - **前端**:React 19 + Tailwind + Zustand
 - **模型层**:Vercel AI SDK(Anthropic / OpenAI / Google / Ollama)
@@ -67,10 +67,10 @@ src/
 
 开发前必读：
 
-1. **[vibe/project/standards.md](vibe/project/standards.md)** — 规则清单（MUST / SHOULD / NEVER）。动手前至少扫一遍章节标题。
-2. **[vibe/project/patterns.md](vibe/project/patterns.md)** — 通用模式 + 参考实现索引。遇到问题先查这里有没有对应模式。
-3. **[vibe/project/overview.md](vibe/project/overview.md)** — 项目架构总览。
-4. **[docs/superpowers/plans/2026-05-11-agent-schema-2-0.md](docs/superpowers/plans/2026-05-11-agent-schema-2-0.md)** — Schema 2.0 规格文档（含迁移历史 + 字段逐条说明）。
+1. **[docs/engineering/standards.md](docs/engineering/standards.md)** — 规则清单（MUST / SHOULD / NEVER）。动手前至少扫一遍章节标题。
+2. **[docs/engineering/patterns.md](docs/engineering/patterns.md)** — 通用模式 + 参考实现索引。遇到问题先查这里有没有对应模式。
+3. **[docs/engineering/overview.md](docs/engineering/overview.md)** — 项目架构总览。
+4. **[docs/design/plans/2026-05-11-agent-schema-2-0.md](docs/design/plans/2026-05-11-agent-schema-2-0.md)** — Schema 2.0 规格文档（含迁移历史 + 字段逐条说明）。
 
 做对应任务时读：
 
@@ -244,11 +244,11 @@ npm run build         # electron-vite build + electron-builder 打包
 
 ## 9. 相关文档导航
 
-| 文档                                                                                                           | 对象             | 内容                                 |
-| -------------------------------------------------------------------------------------------------------------- | ---------------- | ------------------------------------ |
-| [vibe/project/standards.md](vibe/project/standards.md)                                                         | 工程师 / AI      | 规则清单（MUST / SHOULD / NEVER）    |
-| [vibe/project/patterns.md](vibe/project/patterns.md)                                                           | 工程师 / AI      | 模式 + 参考实现索引                  |
-| [vibe/project/overview.md](vibe/project/overview.md)                                                           | 工程师 / AI      | 项目架构总览                         |
-| [docs/superpowers/plans/2026-05-11-agent-schema-2-0.md](docs/superpowers/plans/2026-05-11-agent-schema-2-0.md) | 工程师 / AI      | Schema 2.0 规格：字段说明 + 迁移历史 |
-| [docs/superpowers/](docs/superpowers/)                                                                         | Claude Code 插件 | superpowers 体系的 plans/specs       |
-| README.md                                                                                                      | 用户 / 贡献者    | 项目简介、安装、License              |
+| 文档                                                                                                 | 对象          | 内容                                  |
+| ---------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------- |
+| [docs/engineering/standards.md](docs/engineering/standards.md)                                       | 工程师 / AI   | 规则清单（MUST / SHOULD / NEVER）     |
+| [docs/engineering/patterns.md](docs/engineering/patterns.md)                                         | 工程师 / AI   | 模式 + 参考实现索引                   |
+| [docs/engineering/overview.md](docs/engineering/overview.md)                                         | 工程师 / AI   | 项目架构总览                          |
+| [docs/design/plans/2026-05-11-agent-schema-2-0.md](docs/design/plans/2026-05-11-agent-schema-2-0.md) | 工程师 / AI   | Schema 2.0 规格：字段说明 + 迁移历史  |
+| [docs/design/](docs/design/)                                                                         | 工程师 / AI   | 大型改造的设计与计划档案(plans/specs) |
+| README.md                                                                                            | 用户 / 贡献者 | 项目简介、安装、License               |

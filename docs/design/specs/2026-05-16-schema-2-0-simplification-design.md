@@ -193,7 +193,7 @@ rule 4 当前同时校验 `version` 与 `minAppVersion` 的 semver。**保留 ve
 
 ### §3.3 draft-extractor(`src/main/agent/draft-extractor.ts`)
 
-`serializeS1History` 当前末尾走 `redactEntities` 给 Crystallizer 看脱敏文本。**新定位下应直接吐原文** — 用户写自己的 agent,锚定 "BIDU / 百度 / klook" 等具体实体合理。
+`serializeS1History` 当前末尾走 `redactEntities` 给 Crystallizer 看脱敏文本。**新定位下应直接吐原文** — 用户写自己的 agent,锚定 "BIDU / 百度" 等具体实体合理。
 
 ```diff
 - import { redactEntities } from './entity-extractor'

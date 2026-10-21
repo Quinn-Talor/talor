@@ -621,7 +621,7 @@ SDK v6 提供 4 种结构化输出路径,Talor 选 2 个,**显式排除 `streamO
 - **Session title**: `generateObject` (TitleSchema,40 字符,非流式)
 - **其他场景**: 不引入新的结构化输出路径
 
-记入 `vibe/project/standards.md` 加 §F-NEVER-3 条目(v4 落地时):
+记入 `docs/engineering/standards.md` 加 §F-NEVER-3 条目(v4 落地时):
 
 ```
 ### F-NEVER-3 · 禁止使用 streamObject

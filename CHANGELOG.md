@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **License changed to MIT** (previously Apache 2.0 + Commons Clause). Releases before this change remain under their original terms.
 - Upgraded Vercel AI SDK v6 → v7 (providers v3 → v4); `CoreMessage` → `ModelMessage`; Ollama routed through the official `@ai-sdk/openai-compatible`.
 - Agent profile reduced to a minimal 8-field schema; `agentPrompt` split into a sibling `prompt.md`.
 

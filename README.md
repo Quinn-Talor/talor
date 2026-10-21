@@ -1,6 +1,6 @@
 # Talor
 
-[![License: Apache-2.0 + Commons Clause](https://img.shields.io/badge/license-Apache--2.0%20%2B%20Commons%20Clause-blue.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![CI](https://github.com/Quinn-Talor/talor/actions/workflows/ci.yml/badge.svg)](https://github.com/Quinn-Talor/talor/actions/workflows/ci.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](#prerequisites)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
@@ -100,7 +100,7 @@ npm run build       # electron-vite + electron-builder → dist/
 
 ## Architecture
 
-See [vibe/project/overview.md](./vibe/project/overview.md) for the full architecture and the agent execution flow (detect / reflect / turn-end).
+See [docs/engineering/overview.md](./docs/engineering/overview.md) for the full architecture and the agent execution flow (detect / reflect / turn-end).
 
 ```
 Renderer (React 19 + Tailwind + Zustand)
@@ -126,10 +126,10 @@ Main Process
 - [SECURITY.md](./SECURITY.md) — private vulnerability reporting
 - [CHANGELOG.md](./CHANGELOG.md)
 
-Engineering knowledge base lives in [vibe/project/](./vibe/project/); the AI-agent collaboration guide is [CLAUDE.md](./CLAUDE.md). Issues and PRs welcome — please read CONTRIBUTING first.
+Engineering knowledge base lives in [docs/engineering/](./docs/engineering/); the AI-agent collaboration guide is [CLAUDE.md](./CLAUDE.md). Issues and PRs welcome — please read CONTRIBUTING first.
 
 ---
 
 ## License
 
-Apache 2.0 + Commons Clause (no commercial resale). See [LICENSE](./LICENSE).
+[MIT](./LICENSE) © Quinn-Talor

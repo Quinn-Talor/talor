@@ -4,7 +4,7 @@
 //   1. serializeS1History — 把 S1 messages 序列化为 markdown 文本（推给 crystallizer 做 first user message）
 //   2. parseAgentDraft    — 从 crystallizer 输出的 markdown 抠 ```json``` 块 + validateProfile
 //
-// 注:新定位下 crystallizer 直接吐原始实体名(BIDU / 百度 / klook 等具体实体合理);
+// 注:新定位下 crystallizer 直接吐原始实体名(公司名 / 股票代码等具体实体合理);
 //    旧版的 redactEntities 已删,不再脱敏。
 //
 // 允许依赖：repos/* (类型) / shared/* / agent/validator

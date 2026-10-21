@@ -4,8 +4,8 @@
   "description": "Talor Desktop - AI Agent Platform",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "Talor",
-  "license": "SEE LICENSE IN LICENSE",
+  "author": "Quinn-Talor",
+  "license": "MIT",
   "homepage": "https://github.com/Quinn-Talor/talor#readme",
   "repository": {
     "type": "git",

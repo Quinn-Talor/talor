@@ -41,11 +41,11 @@ npx @electron/rebuild -f -w better-sqlite3
 
 ## 动手前
 
-先读 [`vibe/project/`](../../vibe/project/) 的工程知识库:
+先读 [`docs/engineering/`](../../docs/engineering/) 的工程知识库:
 
-- [`overview.md`](../../vibe/project/overview.md) — 架构总览 + agent 作业流程(检测 / 反思 / 收尾)
-- [`standards.md`](../../vibe/project/standards.md) — MUST / SHOULD / NEVER 规则
-- [`patterns.md`](../../vibe/project/patterns.md) — 模式 + 参考实现索引
+- [`overview.md`](../../docs/engineering/overview.md) — 架构总览 + agent 作业流程(检测 / 反思 / 收尾)
+- [`standards.md`](../../docs/engineering/standards.md) — MUST / SHOULD / NEVER 规则
+- [`patterns.md`](../../docs/engineering/patterns.md) — 模式 + 参考实现索引
 
 [`CLAUDE.md`](../../CLAUDE.md) 是最快上手入口(也供 AI 编码 agent 用),列了最常见的坑。
 
@@ -77,4 +77,4 @@ npx @electron/rebuild -f -w better-sqlite3
 
 ## 贡献授权
 
-提交即表示同意以本仓库许可证(Apache 2.0 + Commons Clause)授权你的贡献。
+提交即表示同意以本仓库的 [MIT 许可证](../../LICENSE) 授权你的贡献。

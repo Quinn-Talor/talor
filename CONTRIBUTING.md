@@ -41,11 +41,11 @@ npx @electron/rebuild -f -w better-sqlite3
 
 ## Before you code
 
-Read the engineering knowledge base under [`vibe/project/`](./vibe/project/):
+Read the engineering knowledge base under [`docs/engineering/`](./docs/engineering/):
 
-- [`overview.md`](./vibe/project/overview.md) — architecture + the agent execution flow (detect / reflect / turn-end)
-- [`standards.md`](./vibe/project/standards.md) — MUST / SHOULD / NEVER rules
-- [`patterns.md`](./vibe/project/patterns.md) — patterns + reference-implementation index
+- [`overview.md`](./docs/engineering/overview.md) — architecture + the agent execution flow (detect / reflect / turn-end)
+- [`standards.md`](./docs/engineering/standards.md) — MUST / SHOULD / NEVER rules
+- [`patterns.md`](./docs/engineering/patterns.md) — patterns + reference-implementation index
 
 [`CLAUDE.md`](./CLAUDE.md) is the fast on-ramp (also used by AI coding agents) and lists the most common pitfalls.
 
@@ -77,4 +77,4 @@ Open a [GitHub issue](https://github.com/Quinn-Talor/talor/issues) using the tem
 
 ## License of contributions
 
-By contributing, you agree your contributions are licensed under the repository's license (Apache 2.0 + Commons Clause).
+By contributing, you agree your contributions are licensed under the repository's [MIT License](./LICENSE).

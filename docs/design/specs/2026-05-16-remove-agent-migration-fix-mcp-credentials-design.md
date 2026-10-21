@@ -149,7 +149,7 @@ ReactLoop 跑起来
   ```
 - 第 4.4 节"高风险工具前置黑名单"无关,不动
 
-**`vibe/project/`** 系列:不动(那里描述的是平台能力,迁移本来就没写进去)。
+**`docs/engineering/`** 系列:不动(那里描述的是平台能力,迁移本来就没写进去)。
 
 ---
 
@@ -496,5 +496,5 @@ function looksLikeCredential(value: string): boolean {
 - `cli[]` schema 改动
 - AgentEditPage MCP 编辑 UI 表单重写
 - 存量 agent.json 的 env 凭据自动迁移(用户手动)
-- 文档(vibe/project/)长篇大改
+- 文档(docs/engineering/)长篇大改
 - 国际化 / Windows 兼容

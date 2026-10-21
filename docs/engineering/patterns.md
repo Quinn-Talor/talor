@@ -937,7 +937,7 @@ Agent 需要的领域知识有 4 条加载通道,按规模与共享需求选:
 - 没有 → references
 - 介于之间 → 先 references,复用时升级为 Skill
 
-参考实现: `src/main/agent/templates.ts` 的内置模板演示了 references 用法;`vibe/` 目录自身是 Skill 思想的项目级体现。
+参考实现: `src/main/agent/templates.ts` 的内置模板演示了 references 用法。
 
 ---
 
@@ -980,7 +980,7 @@ v3.6 在这两个反模式上都踩过(`forced-closure` + `WaitAndAct` + `"type 
 - 无 tool 调用 + 有 text → **自然 final** (信任 LLM)
 - 无 tool 无 text → empty_text fallback summary
 
-完整协作矩阵 + 反模式 / 正模式表见 [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md) §2 + §5。
+完整协作矩阵 + 反模式 / 正模式表见 [docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md) §2 + §5。
 
 ### 历史移除清单(对比 v3.6)
 
@@ -998,9 +998,9 @@ v3.6 在这两个反模式上都踩过(`forced-closure` + `WaitAndAct` + `"type 
 
 ### 参考实现
 
-- 协作模型文档 (canonical): [docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
-- 持续清理: [docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md)(删 delegate A2/B2 + RiskGate 路径统一)
-- 前置 v3.7: [docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/superpowers/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
+- 协作模型文档 (canonical): [docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md](../../docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md)
+- 持续清理: [docs/design/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md](../../docs/design/plans/2026-05-13-talor-v3.7.2-cleanup-residual.md)(删 delegate A2/B2 + RiskGate 路径统一)
+- 前置 v3.7: [docs/design/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md](../../docs/design/plans/2026-05-13-talor-v3.7-fault-tolerance-rebalance.md)
 - 维度 A 代表: `src/main/loop/detectors/signature-dead-loop.ts`、`src/main/tools/risk-gate.ts`(v3.7.2 路径统一)
 - 维度 B 启发式 (仅 UI): `src/shared/ui-rendering/intent-classifier.ts`、`src/shared/ui-rendering/text-heuristics.ts`
 - UI 渲染分发: `src/renderer/components/MessageBubble.tsx`(显式 talor block > InferredIntentCard > 普通 markdown)
@@ -1042,7 +1042,7 @@ SDK 已 `@deprecated`。Talor 永不引入。详见 `standards.md` §F-NEVER-3�
 
 ### 参考实现
 
-- v4 plan: [docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md](../../docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md)
+- v4 plan: [docs/design/plans/2026-05-14-talor-v4-sdk-native.md](../../docs/design/plans/2026-05-14-talor-v4-sdk-native.md)
 - middleware 模式: `src/main/providers/middleware/`
 - adapter 改造: `src/main/providers/adapters/openai-adapter.ts` (使用 wrapLanguageModel)
 - generateObject 应用: `src/main/memory/ShortTermMemory.ts:generateSummary`

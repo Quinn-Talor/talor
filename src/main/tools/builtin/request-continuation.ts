@@ -16,7 +16,7 @@
 // 防滥用: SDK 内置 stopWhen stepCountIs + 已有的 ToolOnlyLoopDetector
 // (连续 N 步纯工具不输出文本) 替代旧 ContinuationChainDetector。
 //
-// 见 docs/superpowers/plans/2026-05-14-talor-v4-sdk-native.md §4.2
+// 见 docs/design/plans/2026-05-14-talor-v4-sdk-native.md §4.2
 
 import { z } from 'zod'
 import log from 'electron-log'

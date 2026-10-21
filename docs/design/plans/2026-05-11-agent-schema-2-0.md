@@ -1,7 +1,5 @@
 # Agent Schema 2.0 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** Replace Talor's 6-section nested Agent Profile schema (v1.0) with a flat 15-field schema (v2.0) where `agentPrompt` carries all LLM-facing behavior as free markdown and only `description / tools / skills / mcpServers / cli / references / subagents / preferences` remain structured.
 
 **Architecture:** Clean break, **no backward-compat at all**. v1.0 agent.json files are rejected by the validator with rule 1 ("must be 2.0"). No migration module, no in-memory upgrade. Users with existing v1.0 agents must edit manually or recreate. Five phases, each committed independently.
@@ -51,7 +49,7 @@ Expected: clean (or list of pre-existing errors). Anything from `src/main/agent/
 ### Created
 
 - `src/main/prompt/templates/agent-system-prompt.v2.md` — new compact template.
-- `docs/superpowers/plans/2026-05-11-agent-schema-2-0.md` — this plan.
+- `docs/design/plans/2026-05-11-agent-schema-2-0.md` — this plan.
 
 ### Modified
 
@@ -84,7 +82,7 @@ Expected: clean (or list of pre-existing errors). Anything from `src/main/agent/
 - `src/main/agent/crystallizer-heuristics.test.ts` — only if profile-shaped
 - `src/main/agent/preview.test.ts` — adjust
 - `src/main/prompt/naturalize.test.ts` — naturalize is only used by 1.0 acceptance rendering; either delete `naturalize.ts` or keep as no-op
-- `vibe/project/patterns.md` — append "领域知识加载策略" section
+- `docs/engineering/patterns.md` — append "领域知识加载策略" section
 - `CLAUDE.md` — update §2 code map blurb and §3 必读文档 references
 
 ### Deleted
@@ -517,7 +515,7 @@ Expected: ALL FAIL (validator still has 1.0 rules).
 ```ts
 // src/main/agent/validator.ts — 业务层: AgentProfile Schema 2.0 校验
 //
-// 9 条规则: 8 hard + 1 warn。详见 docs/superpowers/plans/2026-05-11-agent-schema-2-0.md §III.
+// 9 条规则: 8 hard + 1 warn。详见 docs/design/plans/2026-05-11-agent-schema-2-0.md §III.
 //
 // 允许依赖: shared/*
 // 禁止依赖: ipc/*、repos/*
@@ -1799,7 +1797,7 @@ For each failing test:
 **Files:**
 
 - Modify: `CLAUDE.md`
-- Modify: `vibe/project/patterns.md`
+- Modify: `docs/engineering/patterns.md`
 
 - [ ] **Step 1: CLAUDE.md updates**
 
@@ -1875,7 +1873,7 @@ Expected: no startup crash. (User can manually check the UI loads if they want.)
 ### Task 5.4: Commit Phase 5
 
 ```bash
-git add CLAUDE.md vibe/project/patterns.md
+git add CLAUDE.md docs/engineering/patterns.md
 git commit -m "$(cat <<'EOF'
 docs: Schema 2.0 — update CLAUDE.md and patterns.md
 
@@ -1928,7 +1926,7 @@ No drift found.
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-05-11-agent-schema-2-0.md`. Two execution options:
+Plan complete and saved to `docs/design/plans/2026-05-11-agent-schema-2-0.md`. Two execution options:
 
 **1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between tasks, fast iteration. Best given the scope (5 phases, ~20 tasks) and that each task has clear scope boundaries.
 

@@ -35,7 +35,7 @@ const TALOR_BLOCK_RE = /```talor[ \t]*\n([\s\S]+?)\n[ \t]*```/g
  * quote 别人的代码) → streaming 期间可能短暂误判类型。但 JSONC 闭合后 parser
  * 取真实 block 仍正确,UI 骨架短暂错样式代价极小。
  *
- * 见 docs/superpowers/plans/2026-05-13-talor-v3.7.1-collaboration-model.md §6
+ * 见 docs/design/plans/2026-05-13-talor-v3.7.1-collaboration-model.md §6
  * Cleanup 3。
  */
 const STREAMING_TYPE_RE = /```talor[ \t]*\n[\s\S]*?"type"\s*:\s*"(\w+)"/g

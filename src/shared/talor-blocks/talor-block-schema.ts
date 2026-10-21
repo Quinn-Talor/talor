@@ -10,7 +10,7 @@
 //   }
 //   ```
 //
-// 设计原则 (详见 docs/superpowers/plans/2026-05-12-talor-block-protocol.md):
+// 设计原则 (详见 docs/design/plans/2026-05-12-talor-block-protocol.md):
 //   - 统一 fence tag `talor`, 类型由 JSON `type` 字段 discriminated
 //   - `type` 必须是 JSON 的第一个 key (让流式提取早期生效)
 //   - 字段化 100%, Detector 不靠 regex 启发判定
