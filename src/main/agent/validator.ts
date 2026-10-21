@@ -41,6 +41,7 @@ export interface ValidatorContext {
 }
 
 const ID_RE = /^[a-z0-9_-]+$/
+const SKILL_NAME_RE = /^[A-Za-z0-9_.-]+$/
 const PLATFORM_ID_RE = /^__[a-z0-9_-]+__$/
 
 export function validateProfile(json: unknown, ctx: ValidatorContext = {}): ValidateProfileResult {
@@ -153,7 +154,7 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
     }
   }
 
-  // RULE 12: skills 是平台 skill name 数组(string[])
+  // RULE 12: skills 是平台 skill name 数组(string[]),每项是单个目录名
   if (o.skills !== undefined) {
     if (!Array.isArray(o.skills)) {
       errors.push({
@@ -170,6 +171,14 @@ export function validateProfile(json: unknown, ctx: ValidatorContext = {}): Vali
             rule: 12,
             path: `skills[${i}]`,
             message: 'must be a non-empty string (platform skill name)',
+          })
+        } else if (!SKILL_NAME_RE.test(s) || s === '.' || s === '..') {
+          // skill name 会被拼进 ~/.talor/skills/<name>,不能含路径分隔符或 ..
+          errors.push({
+            severity: 'error',
+            rule: 12,
+            path: `skills[${i}]`,
+            message: `invalid skill name "${s}" (allowed: letters, digits, _ . -)`,
           })
         } else if (ctx.knownSkillNames && !ctx.knownSkillNames.has(s)) {
           errors.push({

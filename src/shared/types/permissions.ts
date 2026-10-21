@@ -28,7 +28,7 @@ export interface PermissionRule {
 /** Persisted 规则的落盘格式（per-workspace）。 */
 export interface WorkspacePermissions {
   workspacePath: string
-  rules: PermissionRule[]        // 只含 scope='persisted'
+  rules: PermissionRule[] // 只含 scope='persisted'
   schemaVersion: 1
 }
 
@@ -42,8 +42,8 @@ export interface PatternSuggestion {
   pattern: string
   /** UI 用于展示"这个规则会匹配/不匹配什么"的预览。 */
   preview: {
-    matches: string[]       // 正例，<= 3 条
-    doesNotMatch: string[]  // 反例，<= 3 条
+    matches: string[] // 正例，<= 3 条
+    doesNotMatch: string[] // 反例，<= 3 条
   }
 }
 
@@ -67,6 +67,8 @@ export interface PermissionRequest {
    * 一条规则。
    */
   bulkGrantGroup?: string[]
+  /** 发起本轮 chat:send 的 session(入口层补充);子 agent 的请求也归到它。 */
+  rootSessionId?: string
 }
 
 /** 渲染进程回复主进程的授权决定。 */

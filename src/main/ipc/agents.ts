@@ -19,6 +19,7 @@ import { sessionRepo, messageRepo } from '../repos/session-repo'
 import { streamRegistry } from '../chat/stream-registry'
 import { getDefaultProvider } from '../chat/provider-selector'
 import type { AgentProfile } from '@shared/types/agent'
+import { normalizeDraftSubagents } from '../agent/draft-normalize'
 import { buildAgentList } from './agent-list'
 import { serializeS1History } from '../agent/draft-extractor'
 import { recommendMode } from '../agent/crystallizer-heuristics'
@@ -296,10 +297,18 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         .join('; ')
       throw new Error(`Invalid profile: ${summary}`)
     }
+    // 目录名即 agent 身份：编辑不能改 id（否则目录与内容错位、可能覆盖同 id 的另一 agent）
+    if (result.profile.id !== raw.id) {
+      throw new Error(
+        `Agent id cannot be changed while editing ("${raw.id}" → "${result.profile.id}")`,
+      )
+    }
 
     // 拆 splitter: agent.json (不含 agentPrompt) + prompt.md
     persistAgentProfile(result.profile, entry.dirPath)
     loader.loadAll()
+    const reloaded = loader.getById(raw.id)
+    if (reloaded) agentManager.reloadUserAgent(reloaded.profile, reloaded.dirPath)
     log.info('[agents:update] Updated agent:', raw.id)
   })
 
@@ -407,7 +416,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
           snapshot +
           (delegated.length > 0
             ? `\n\n===== Subagents Delegated To =====\n${delegated.join(', ')}\n` +
-              `(If extracting an agent from this context, include these in dependencies.subagents.)`
+              `(If extracting an agent from this context, include these in subagents.ids as ` +
+              `objects: {"id": "<agent_id>", "required": true}.)`
             : '')
         )
       }
@@ -516,7 +526,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     'agents:create-from-draft',
     async (_event, raw: { profile: AgentProfile; workbench_session_id: string }) => {
       try {
-        const profile = raw.profile
+        const profile = normalizeDraftSubagents(raw.profile)
 
         // 1. validateProfile
         const result = validateProfile(profile)

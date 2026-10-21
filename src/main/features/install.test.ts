@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 
-vi.mock('electron-log', () => ({ default: { warn: vi.fn(), info: vi.fn() } }))
+vi.mock('electron-log', () => ({ default: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }))
 
 import { installFeatures } from './install'
 import type {
@@ -81,6 +81,17 @@ describe('installFeatures (平台拥有注册)', () => {
     })
     installFeatures([f], ctx, ports())
     expect(order).toEqual(['init', 'agents', 'artifacts', 'ipc'])
+  })
+
+  it('单个 feature 装配抛错 → 跳过它,其余照常装配', () => {
+    const bad = feature('bad', {
+      init: vi.fn(() => {
+        throw new Error('boom')
+      }),
+    })
+    const good = feature('good', { registerIpc: vi.fn() })
+    expect(() => installFeatures([bad, good], ctx, ports())).not.toThrow()
+    expect(good.registerIpc).toHaveBeenCalledOnce()
   })
 
   it('空列表 / 缺省方法 → 不抛', () => {

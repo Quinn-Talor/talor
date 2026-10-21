@@ -16,15 +16,20 @@ export function installFeatures(
   ctx: FeatureInitCtx,
   ports: FeaturePorts,
 ): void {
+  // 逐个隔离:单个 Feature 装配失败只跳过它,不能中断启动(主窗口在之后创建)
   for (const f of features) {
-    f.init(ctx)
-    for (const agent of f.agents?.() ?? []) ports.registerAgent(agent)
-    for (const artifact of f.artifacts?.() ?? []) ports.registerArtifactReader(artifact)
-    f.registerIpc?.()
-    for (const dep of f.mcpDeps?.() ?? []) {
-      if (!ports.isMcpConfigured(dep.name)) {
-        log.warn(`[features] ${f.id} 需要 MCP server "${dep.name}" 未配置 — ${dep.hint}`)
+    try {
+      f.init(ctx)
+      for (const agent of f.agents?.() ?? []) ports.registerAgent(agent)
+      for (const artifact of f.artifacts?.() ?? []) ports.registerArtifactReader(artifact)
+      f.registerIpc?.()
+      for (const dep of f.mcpDeps?.() ?? []) {
+        if (!ports.isMcpConfigured(dep.name)) {
+          log.warn(`[features] ${f.id} 需要 MCP server "${dep.name}" 未配置 — ${dep.hint}`)
+        }
       }
+    } catch (err) {
+      log.error(`[features] ${f.id} 装配失败,已跳过:`, err)
     }
   }
 }

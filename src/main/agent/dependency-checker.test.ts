@@ -10,13 +10,25 @@ vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error:
 vi.mock('../repos/mcp-server-repo', () => ({
   mcpServerRepo: {
     getByName: vi.fn((name: string) => {
+      if (name === 'no-token-api') {
+        return {
+          id: '2',
+          name: 'no-token-api',
+          type: 'http',
+          url: 'https://mcp.company.com',
+          auth: { type: 'bearer' },
+          enabled: true,
+          created_at: '',
+          updated_at: '',
+        }
+      }
       if (name === 'company-api') {
         return {
           id: '1',
           name: 'company-api',
           type: 'http',
           url: 'https://mcp.company.com',
-          auth: { type: 'bearer', token: 'COMPANY_API_TOKEN' },
+          auth: { type: 'bearer', token: 'secret-token-value' },
           enabled: true,
           created_at: '',
           updated_at: '',
@@ -77,33 +89,32 @@ describe('checkDependencies (schema 2.0 引用化)', () => {
       ...BASE_PROFILE,
       mcpServers: ['nonexistent-mcp'],
     }
-    const result = checkDependencies(profile, tempDir, { accountValues: new Map() })
+    const result = checkDependencies(profile, tempDir)
     const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('missing')
     expect(step.message).toContain('未在 Settings → MCP Servers 配置')
   })
 
-  it('MCP Server auth missing → missing', () => {
+  it('MCP Server bearer auth without token → missing', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
-      mcpServers: ['company-api'],
+      mcpServers: ['no-token-api'],
     }
-    const result = checkDependencies(profile, tempDir, { accountValues: new Map() })
+    const result = checkDependencies(profile, tempDir)
     const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('missing')
-    expect(step.message).toContain('COMPANY_API_TOKEN')
+    expect(step.message).toContain('认证凭证未填写')
   })
 
-  it('MCP Server auth configured → pass', () => {
+  it('MCP Server auth configured → pass, and the token never appears in the report', () => {
     const profile: AgentProfile = {
       ...BASE_PROFILE,
       mcpServers: ['company-api'],
     }
-    const result = checkDependencies(profile, tempDir, {
-      accountValues: new Map([['COMPANY_API_TOKEN', 'tok_xxx']]),
-    })
+    const result = checkDependencies(profile, tempDir)
     const step = result.steps.find((s) => s.step === 'mcpServer')!
     expect(step.status).toBe('pass')
+    expect(JSON.stringify(result)).not.toContain('secret-token-value')
   })
 
   // tool step 已删:validator rule 5 静态校验 tools 是 BuiltinToolName[],

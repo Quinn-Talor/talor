@@ -8,6 +8,8 @@ import { ConfigStore } from '../store/config-store'
 import { getProviderModels } from '../providers/provider-fetcher'
 import { checkModelAvailability } from '../providers/model-availability'
 import log from 'electron-log'
+import { streamRegistry } from '../chat/stream-registry'
+import { clearLimiter } from '../agent/delegate-agent'
 
 export function registerSessionHandlers(): void {
   ipcMain.handle('session:list', (): ChatSession[] => {
@@ -127,6 +129,9 @@ export function registerSessionHandlers(): void {
   )
 
   ipcMain.handle('session:delete', (_, sessionId: string): void => {
+    // 先停掉该会话正在跑的回合(子 agent 经父 abort 链一并停止),避免删除后工具/LLM 继续执行
+    streamRegistry.abort(sessionId)
+    clearLimiter(sessionId)
     sessionRepo.delete(sessionId)
   })
 

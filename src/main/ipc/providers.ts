@@ -7,6 +7,27 @@ import { ConfigStore } from '../store/config-store'
 import type { Provider, ProviderInput } from '../store/config-store'
 import { testConnection, ProviderType } from '../providers/provider-tester'
 import { SafeStorageService } from '../services/safe-storage'
+import log from 'electron-log'
+import type { ModelInfo } from '@shared/types/models'
+
+/**
+ * 把拉到的模型列表写回单个 provider。拉取要 await 网络,期间用户可能改/删了别的 provider,
+ * 所以必须 await 之后重新读 store 并只合并目标 provider,不能整表回写旧快照。
+ * 目标 provider 已被删除时不写(避免“复活”)。
+ */
+function saveFetchedModels(providerId: string, models: ModelInfo[], refreshedAt: string): void {
+  const store = ConfigStore.getInstance()
+  const latest = store.get('providers') ?? {}
+  const current = latest[providerId]
+  if (!current) return
+  latest[providerId] = {
+    ...current,
+    models,
+    models_last_updated: refreshedAt,
+    models_cache_ttl: current.models_cache_ttl ?? 300,
+  }
+  store.set('providers', latest)
+}
 
 export function registerProviderHandlers(): void {
   ipcMain.handle('providers:list', () => {
@@ -106,8 +127,18 @@ export function registerProviderHandlers(): void {
 
   ipcMain.handle(
     'providers:testConnection',
-    (_event, config: { type: ProviderType; base_url: string; api_key?: string }) => {
-      return testConnection(config)
+    (
+      _event,
+      config: { type: ProviderType; base_url: string; api_key?: string; provider_id?: string },
+    ) => {
+      const { provider_id, ...testConfig } = config
+      // 已存 provider 的 key 只在 SafeStorage,不回传渲染端;未显式给 key 时按 id 取已存 key
+      const apiKey =
+        testConfig.api_key ||
+        (provider_id
+          ? (SafeStorageService.getInstance().getApiKey(provider_id) ?? undefined)
+          : undefined)
+      return testConnection({ ...testConfig, api_key: apiKey })
     },
   )
 
@@ -142,13 +173,7 @@ export function registerProviderHandlers(): void {
         const models = await getProviderModels(provider, forceRefresh)
 
         const now = new Date().toISOString()
-        providers[providerId] = {
-          ...provider,
-          models,
-          models_last_updated: now,
-          models_cache_ttl: provider.models_cache_ttl ?? 300,
-        }
-        store.set('providers', providers)
+        saveFetchedModels(providerId, models, now)
 
         return {
           models,
@@ -157,6 +182,17 @@ export function registerProviderHandlers(): void {
           from_cache: false,
         }
       } catch (error) {
+        // 拉取失败(provider 离线等)但有旧列表时回退旧列表,不让一个不可达的 provider
+        // 把模型选择整体打空;显式刷新(refreshModels / forceRefresh)仍报错。
+        if (!forceRefresh && (provider.models?.length ?? 0) > 0) {
+          log.warn('[providers:getModels] fetch failed, serving stale models:', providerId, error)
+          return {
+            models: provider.models,
+            refreshed_at: provider.models_last_updated,
+            cache_ttl: provider.models_cache_ttl ?? 300,
+            from_cache: true,
+          }
+        }
         throw new Error(
           `Failed to get models for provider ${providerId}: ${error instanceof Error ? error.message : String(error)}`,
         )
@@ -178,13 +214,7 @@ export function registerProviderHandlers(): void {
       const models = await getProviderModels(provider, true)
 
       const now = new Date().toISOString()
-      providers[providerId] = {
-        ...provider,
-        models,
-        models_last_updated: now,
-        models_cache_ttl: provider.models_cache_ttl ?? 300,
-      }
-      store.set('providers', providers)
+      saveFetchedModels(providerId, models, now)
 
       return {
         models,

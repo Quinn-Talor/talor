@@ -5,7 +5,7 @@ import { ipcMain, BrowserWindow } from 'electron'
 
 let _mainWindow: BrowserWindow | null = null
 
-export function setMainWindow(win: BrowserWindow): void {
+export function setMainWindow(win: BrowserWindow | null): void {
   _mainWindow = win
 }
 

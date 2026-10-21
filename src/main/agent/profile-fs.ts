@@ -9,7 +9,7 @@
 // 允许依赖: fs / path / shared/*
 // 禁止依赖: ipc/*
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentProfile } from '@shared/types/agent'
 
@@ -52,8 +52,17 @@ export function loadAgentBundle(dirPath: string): { raw: unknown; agentPrompt: s
  */
 export function persistAgentProfile(profile: AgentProfile, dirPath: string): void {
   const { agentPrompt, ...rest } = profile
-  writeFileSync(join(dirPath, AGENT_JSON), JSON.stringify(rest, null, 2), 'utf-8')
-  writeFileSync(join(dirPath, PROMPT_FILE), agentPrompt, 'utf-8')
+  // 先 prompt.md 后 agent.json:loader 以 agent.json 判定目录是否为 agent,
+  // 中途失败时不会留下“有 agent.json 却缺/半截 prompt.md”的目录
+  writeFileAtomic(join(dirPath, PROMPT_FILE), agentPrompt)
+  writeFileAtomic(join(dirPath, AGENT_JSON), JSON.stringify(rest, null, 2))
+}
+
+/** 写临时文件再 rename,避免崩溃/磁盘满时留下截断文件。 */
+function writeFileAtomic(path: string, content: string): void {
+  const tmp = `${path}.tmp`
+  writeFileSync(tmp, content, 'utf-8')
+  renameSync(tmp, path)
 }
 
 /**
@@ -61,5 +70,5 @@ export function persistAgentProfile(profile: AgentProfile, dirPath: string): voi
  * 供 prompt-only edit 场景。
  */
 export function persistAgentPrompt(agentPrompt: string, dirPath: string): void {
-  writeFileSync(join(dirPath, PROMPT_FILE), agentPrompt, 'utf-8')
+  writeFileAtomic(join(dirPath, PROMPT_FILE), agentPrompt)
 }

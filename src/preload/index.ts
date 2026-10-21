@@ -97,6 +97,7 @@ const talorAPI = {
       type: ProviderType
       base_url: string
       api_key?: string
+      provider_id?: string
     }): Promise<ConnectionTestResult> => ipcRenderer.invoke('providers:testConnection', config),
     getModels: (providerId: string, forceRefresh = false): Promise<ProviderModelResponse> =>
       ipcRenderer.invoke('providers:getModels', providerId, forceRefresh),

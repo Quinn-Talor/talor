@@ -127,6 +127,24 @@ const DEFAULT_CONFIG: AppConfig = {
   trace: { ...DEFAULT_TRACE_CONFIG },
 }
 
+/** 配置文件存在但不是合法 JSON 时移到 .bak,让后续以默认配置重建。 */
+export function backupIfCorrupted(configPath: string): boolean {
+  if (!existsSync(configPath)) return false
+  try {
+    JSON.parse(readFileSync(configPath, 'utf-8'))
+    return false
+  } catch {
+    const backupPath = configPath + '.bak'
+    try {
+      renameSync(configPath, backupPath)
+    } catch {
+      unlinkSync(configPath)
+    }
+    log.warn('[ConfigStore] Config file corrupted, backed up to:', backupPath)
+    return true
+  }
+}
+
 export class ConfigStore {
   private static instance: ConfigStore | null = null
   private store: Store<StoreSchema>
@@ -134,6 +152,9 @@ export class ConfigStore {
 
   private constructor() {
     this.configPath = join(app.getPath('home'), '.talor', 'config.json')
+    // electron-store 构造时就会解析文件,遇到非法 JSON 直接抛错(应用起不来),
+    // 所以损坏检测必须在构造 Store 之前做。
+    backupIfCorrupted(this.configPath)
     this.store = new Store<StoreSchema>({
       name: 'config',
       cwd: join(app.getPath('home'), '.talor'),
@@ -158,22 +179,6 @@ export class ConfigStore {
     if (!existsSync(this.configPath)) {
       this.saveConfig(DEFAULT_CONFIG)
       log.info('[ConfigStore] Created default config at:', this.configPath)
-      return
-    }
-
-    try {
-      const content = readFileSync(this.configPath, 'utf-8')
-      JSON.parse(content)
-    } catch {
-      log.warn('[ConfigStore] Config file corrupted, backing up and recreating')
-      const backupPath = this.configPath + '.bak'
-      try {
-        renameSync(this.configPath, backupPath)
-      } catch {
-        unlinkSync(this.configPath)
-      }
-      this.saveConfig(DEFAULT_CONFIG)
-      log.info('[ConfigStore] Backed up corrupted config to:', backupPath)
     }
   }
 

@@ -352,10 +352,10 @@ describe('delegate_agent (TASK-3)', () => {
     it('11th delegation times out when queue is held by long-running 10', async () => {
       const agents = new Map([['translator-001', translator]])
       // 让第一批 10 个长时间不完成，模拟队列阻塞
-      let unblock: (() => void) | undefined
+      const unblockers: Array<() => void> = []
       const blockingLoop: RunReactLoopFn = async (opts) => {
         await new Promise<void>((resolve) => {
-          unblock = resolve
+          unblockers.push(resolve)
         })
         messageRepo.create({
           id: uuidv4(),
@@ -387,9 +387,36 @@ describe('delegate_agent (TASK-3)', () => {
       expect(env.__talor_error).toBe(true)
       expect(env.code).toBe('DELEGATION_QUEUE_TIMEOUT')
 
-      // 解锁前 10 个让 promise 不悬挂
-      unblock?.()
-      await Promise.all(heldCalls)
+      // 已在执行的 10 个不受排队超时影响：解锁后正常拿到子 agent 结果
+      for (const u of unblockers) u()
+      const heldResults = await Promise.all(heldCalls)
+      for (const r of heldResults) {
+        expect(r.output).toBe('done')
+      }
+    })
+
+    it('a running delegation that outlives queueTimeoutMs still returns its result', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const slowLoop: RunReactLoopFn = async (opts) => {
+        await new Promise((r) => setTimeout(r, 60))
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: 'slow but done' }],
+          agent_id: opts.agent.id,
+        })
+      }
+      const runtime = makeRuntime({
+        runReactLoop: slowLoop,
+        agents,
+        config: { queueTimeoutMs: 20 },
+      })
+      tool = createDelegateAgentTool(runtime)
+      const ctx = makeCtx({ sessionId: sessionRepo.list()[0].id })
+
+      const r = await tool.execute({ agent_id: 'translator-001', instruction: 'x' }, ctx)
+      expect(r.output).toBe('slow but done')
     })
   })
 
@@ -457,6 +484,127 @@ describe('delegate_agent (TASK-3)', () => {
       const env = result.output as ToolErrorEnvelope
       expect(env.__talor_error).toBe(true)
       expect(env.code).toBe('SUBAGENT_TIMEOUT')
+    })
+  })
+
+  describe('loop returns normally on abort / step exhaustion (real runReactLoop contract)', () => {
+    // runReactLoop 吞掉 abort,落一条带 [step interrupted] 的半截文本后返回 exitReason='abort'
+    function abortSwallowingLoop(partial: string): RunReactLoopFn {
+      return async (opts) => {
+        await new Promise<void>((resolve) => {
+          opts.abortSignal.addEventListener('abort', () => resolve(), { once: true })
+        })
+        messageRepo.create({
+          id: uuidv4(),
+          session_id: opts.sessionId,
+          role: 'assistant',
+          content: [{ type: 'text', text: `${partial}\n\n[step interrupted]` }],
+          agent_id: opts.agent.id,
+        })
+        return { exitReason: 'abort' }
+      }
+    }
+
+    it('execution timeout → SUBAGENT_TIMEOUT, partial text is not reported as success', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: abortSwallowingLoop('half an answer'),
+        agents,
+        config: { executionTimeoutMs: 20 },
+      })
+      tool = createDelegateAgentTool(runtime)
+      const result = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'x' },
+        makeCtx({ sessionId: sessionRepo.list()[0].id }),
+      )
+      const env = result.output as ToolErrorEnvelope & { last_text?: string }
+      expect(env.code).toBe('SUBAGENT_TIMEOUT')
+      expect(env.last_text).toBe('half an answer')
+    })
+
+    it('parent stop → SUBAGENT_ABORTED', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({ runReactLoop: abortSwallowingLoop('partial'), agents })
+      tool = createDelegateAgentTool(runtime)
+      const controller = new AbortController()
+      const promise = tool.execute(
+        { agent_id: 'translator-001', instruction: 'x' },
+        makeCtx({ sessionId: sessionRepo.list()[0].id, abortSignal: controller.signal }),
+      )
+      setTimeout(() => controller.abort(), 5)
+      const env = (await promise).output as ToolErrorEnvelope
+      expect(env.code).toBe('SUBAGENT_ABORTED')
+    })
+
+    it("exitReason='max_steps' → SUBAGENT_MAX_STEPS carrying the last text", async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: async (opts) => {
+          messageRepo.create({
+            id: uuidv4(),
+            session_id: opts.sessionId,
+            role: 'assistant',
+            content: [{ type: 'text', text: 'intermediate notes' }],
+            agent_id: opts.agent.id,
+          })
+          return { exitReason: 'max_steps' }
+        },
+        agents,
+      })
+      tool = createDelegateAgentTool(runtime)
+      const result = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'x' },
+        makeCtx({ sessionId: sessionRepo.list()[0].id }),
+      )
+      const env = result.output as ToolErrorEnvelope & { last_text?: string }
+      expect(env.code).toBe('SUBAGENT_MAX_STEPS')
+      expect(env.last_text).toBe('intermediate notes')
+    })
+
+    it('[signature-dead-loop] summary is reported as SUBAGENT_RECOVERY', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: async (opts) => {
+          messageRepo.create({
+            id: uuidv4(),
+            session_id: opts.sessionId,
+            role: 'assistant',
+            content: [{ type: 'text', text: '[signature-dead-loop] stuck on the same call' }],
+            agent_id: opts.agent.id,
+          })
+          return { exitReason: 'repeated_error' }
+        },
+        agents,
+      })
+      tool = createDelegateAgentTool(runtime)
+      const result = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'x' },
+        makeCtx({ sessionId: sessionRepo.list()[0].id }),
+      )
+      expect((result.output as ToolErrorEnvelope).code).toBe('SUBAGENT_RECOVERY')
+    })
+
+    it("normal completion with exitReason='no_tool_calls' still returns the text", async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: async (opts) => {
+          messageRepo.create({
+            id: uuidv4(),
+            session_id: opts.sessionId,
+            role: 'assistant',
+            content: [{ type: 'text', text: 'final answer' }],
+            agent_id: opts.agent.id,
+          })
+          return { exitReason: 'no_tool_calls' }
+        },
+        agents,
+      })
+      tool = createDelegateAgentTool(runtime)
+      const result = await tool.execute(
+        { agent_id: 'translator-001', instruction: 'x' },
+        makeCtx({ sessionId: sessionRepo.list()[0].id }),
+      )
+      expect(result.output).toBe('final answer')
     })
   })
 
@@ -796,6 +944,121 @@ Provide a stock ticker and mood. The agent fetches price data and composes a 七
         makeCtx({ sessionId: parentSessions[0].id }),
       )
       expect((r.output as ToolErrorEnvelope).code).toBe('DELEGATION_BUDGET_EXHAUSTED')
+    })
+  })
+
+  describe('A3: budget is scoped to the parent turn', () => {
+    it('a new turn (different parentMessageId) gets a fresh budget', async () => {
+      const agents = new Map([['translator-001', translator]])
+      const runtime = makeRuntime({
+        runReactLoop: mockSuccessReactLoop('ok'),
+        agents,
+        config: { maxInvocationsPerAgentPerSession: 1 },
+      })
+      tool = createDelegateAgentTool(runtime)
+      const sid = sessionRepo.list()[0].id
+      const call = (turn: string) =>
+        tool.execute(
+          { agent_id: 'translator-001', instruction: 'x' },
+          makeCtx({ sessionId: sid, parentMessageId: turn }),
+        )
+
+      expect((await call('turn-1')).output).toBe('ok')
+      expect(((await call('turn-1')).output as ToolErrorEnvelope).code).toBe(
+        'DELEGATION_BUDGET_EXHAUSTED',
+      )
+      expect((await call('turn-2')).output).toBe('ok')
+    })
+  })
+
+  describe('recursion guard', () => {
+    it('rejects platform agents as delegation targets', async () => {
+      const chatAgent = makeAgent('__chat__', 'Talor')
+      const agents = new Map([['__chat__', chatAgent]])
+      const loop = vi.fn(mockSuccessReactLoop('ok'))
+      tool = createDelegateAgentTool(makeRuntime({ runReactLoop: loop, agents }))
+      const r = await tool.execute(
+        { agent_id: '__chat__', instruction: 'x' },
+        makeCtx({ sessionId: sessionRepo.list()[0].id }),
+      )
+      expect((r.output as ToolErrorEnvelope).code).toBe('AGENT_NOT_FOUND')
+      expect(loop).not.toHaveBeenCalled()
+    })
+
+    it('rejects delegating to an agent already in the chain (A → B → A)', async () => {
+      const a = makeAgent('agent-a', 'A')
+      const b = makeAgent('agent-b', 'B')
+      const agents = new Map([
+        ['agent-a', a],
+        ['agent-b', b],
+      ])
+      const root = sessionRepo.list()[0]
+      const childA = sessionRepo.create({
+        title: 'A',
+        provider_id: 'mock-provider',
+        agent_id: 'agent-a',
+        parent_session_id: root.id,
+      })
+      const childB = sessionRepo.create({
+        title: 'B',
+        provider_id: 'mock-provider',
+        agent_id: 'agent-b',
+        parent_session_id: childA.id,
+      })
+      const loop = vi.fn(mockSuccessReactLoop('ok'))
+      tool = createDelegateAgentTool(makeRuntime({ runReactLoop: loop, agents }))
+
+      const r = await tool.execute(
+        { agent_id: 'agent-a', instruction: 'x' },
+        makeCtx({ sessionId: childB.id }),
+      )
+      expect((r.output as ToolErrorEnvelope).code).toBe('DELEGATION_CYCLE')
+      expect(loop).not.toHaveBeenCalled()
+    })
+
+    it('rejects delegation beyond the depth limit, allows it within', async () => {
+      const ids = ['d1', 'd2', 'd3', 'd4']
+      const agents = new Map(ids.map((id) => [id, makeAgent(id, id)] as const))
+      let parentId = sessionRepo.list()[0].id
+      const chain: string[] = []
+      for (const id of ids.slice(0, 3)) {
+        const s = sessionRepo.create({
+          title: id,
+          provider_id: 'mock-provider',
+          agent_id: id,
+          parent_session_id: parentId,
+        })
+        chain.push(s.id)
+        parentId = s.id
+      }
+      tool = createDelegateAgentTool(
+        makeRuntime({ runReactLoop: mockSuccessReactLoop('ok'), agents }),
+      )
+
+      // depth 2 (root → d1 → d2) 仍可委托
+      const ok = await tool.execute(
+        { agent_id: 'd4', instruction: 'x' },
+        makeCtx({ sessionId: chain[1] }),
+      )
+      expect(ok.output).toBe('ok')
+      // depth 3 (root → d1 → d2 → d3) 到达上限
+      const r = await tool.execute(
+        { agent_id: 'd4', instruction: 'x' },
+        makeCtx({ sessionId: chain[2] }),
+      )
+      expect((r.output as ToolErrorEnvelope).code).toBe('DELEGATION_DEPTH_EXCEEDED')
+    })
+  })
+
+  describe('listing reflects the current agent registry', () => {
+    it('description is recomputed when agents are registered later', () => {
+      const agents = new Map<string, Agent>()
+      tool = createDelegateAgentTool(
+        makeRuntime({ runReactLoop: mockSuccessReactLoop('ok'), agents }),
+      )
+      expect(tool.description).toContain('(no subagents available)')
+      agents.set('translator-001', translator)
+      expect(tool.description).toContain('translator-001')
     })
   })
 

@@ -131,6 +131,21 @@ describe('AgentLoader (schema 2.0)', () => {
     expect(loader.getById('sales_analyst')!.status).toBe('ready')
   })
 
+  it('loadAll keeps runtime status of agents that still exist', () => {
+    writeAgent('sales_analyst', VALID_AGENT_V2)
+    writeAgent('other', { ...VALID_AGENT_V2, id: 'other', name: 'Other' })
+    const loader = new AgentLoader(tempDir)
+    loader.loadAll()
+    loader.setStatus('sales_analyst', 'ready')
+
+    writeAgent('sales_analyst', { ...VALID_AGENT_V2, description: 'edited' })
+    loader.loadAll()
+
+    expect(loader.getById('sales_analyst')?.status).toBe('ready')
+    expect(loader.getById('sales_analyst')?.profile.description).toBe('edited')
+    expect(loader.getById('other')?.status).toBe('disabled')
+  })
+
   it('remove deletes agent from index', () => {
     writeAgent('sales', VALID_AGENT_V2)
     const loader = new AgentLoader(tempDir)

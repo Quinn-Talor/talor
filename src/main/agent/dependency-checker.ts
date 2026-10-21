@@ -1,7 +1,7 @@
 // src/main/agent/dependency-checker.ts — 业务层:Agent 依赖检查(极简 3 步)
 //
 // step skill:    检查平台 ~/.talor/skills/<name>/SKILL.md 存在
-// step mcpServer: mcp_servers DB lookup + envVar 配置(若有)
+// step mcpServer: mcp_servers DB lookup + 声明的认证凭证非空
 // step subagent: profile.subagents.ids 中 required 的 agent 已注册
 // step complete: 汇总
 //
@@ -27,7 +27,6 @@ export function checkDependencies(
   profile: AgentProfile,
   _dirPath: string,
   opts?: {
-    accountValues?: Map<string, string>
     /**
      * 已注册业务 agent_id 集合(用于校验 subagents.ids)。不传时跳过 subagent 检查。
      */
@@ -35,7 +34,6 @@ export function checkDependencies(
   },
 ): DependencyCheckResult {
   const steps: DependencyStepResult[] = []
-  const accountValues = opts?.accountValues ?? new Map<string, string>()
 
   const skills = profile.skills ?? []
   const mcpNames = profile.mcpServers ?? []
@@ -60,7 +58,9 @@ export function checkDependencies(
     steps.push({ step: 'skill', status: 'pass' })
   }
 
-  // ── step mcpServer: DB lookup + envVar ──
+  // ── step mcpServer: DB lookup + 认证凭证 ──
+  // auth.token / auth.apiKey 是明文凭证(http transport 直接放进请求头),只校验非空,
+  // 任何提示都不能带出凭证内容。
   const mcpIssues: string[] = []
   for (const mcpName of mcpNames) {
     const server = mcpServerRepo.getByName(mcpName)
@@ -68,10 +68,11 @@ export function checkDependencies(
       mcpIssues.push(`${mcpName}: 未在 Settings → MCP Servers 配置`)
       continue
     }
-    if (server.type === 'http' && server.auth?.type === 'bearer' && server.auth.token) {
-      if (!accountValues.has(server.auth.token)) {
-        mcpIssues.push(`${mcpName}: 需要配置 ${server.auth.token} → 前往账户管理`)
-      }
+    const auth = server.type === 'http' ? server.auth : undefined
+    const credential =
+      auth?.type === 'bearer' ? auth.token : auth?.type === 'apiKey' ? auth.apiKey : 'n/a'
+    if (!credential?.trim()) {
+      mcpIssues.push(`${mcpName}: 认证凭证未填写 → 前往 Settings → MCP Servers 配置`)
     }
   }
   if (mcpIssues.length > 0) {

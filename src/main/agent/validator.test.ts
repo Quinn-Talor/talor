@@ -111,6 +111,14 @@ describe('validateProfile (极简 schema)', () => {
       expect(r.valid).toBe(false)
       if (!r.valid) expect(r.errors.some((e) => e.rule === 12)).toBe(true)
     })
+    it('rejects skill names that are not a single safe directory name', () => {
+      for (const bad of ['../../x', 'a/b', '..', 'with space']) {
+        const r = validateProfile(minimal({ skills: [bad] }))
+        expect(r.valid, bad).toBe(false)
+      }
+      expect(validateProfile(minimal({ skills: ['lark-doc', 'my_skill.v2'] })).valid).toBe(true)
+    })
+
     it('rejects empty string in skills', () => {
       const r = validateProfile(minimal({ skills: ['', 'ok'] }))
       expect(r.valid).toBe(false)

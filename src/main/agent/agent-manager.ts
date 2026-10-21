@@ -301,6 +301,17 @@ export class AgentManager {
     return agent
   }
 
+  /**
+   * 用磁盘最新 profile 重建用户池 agent 的运行时实例（编辑保存后调用），
+   * 保证 chat / delegate 拿到的是新 profile 而非旧实例。
+   */
+  reloadUserAgent(profile: AgentProfile, dirPath: string): Agent {
+    const agent = this.buildAgent(profile, dirPath, [])
+    this.businessAgents.set(profile.id, agent)
+    log.info('[AgentManager] Reloaded user agent:', profile.id)
+    return agent
+  }
+
   unregisterBusinessAgent(agentId: string): boolean {
     const removed = this.businessAgents.delete(agentId)
     if (removed) {

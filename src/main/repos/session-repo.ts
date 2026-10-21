@@ -374,9 +374,18 @@ export const sessionRepo = {
     db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, id)
   },
 
+  /** 删除会话及其全部委托子孙会话（parent_session_id 无外键，需显式递归）。 */
   delete(id: string): void {
     const db = getDb()
-    db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+    db.transaction(() => {
+      db.prepare(
+        `WITH RECURSIVE tree(id) AS (
+           SELECT id FROM sessions WHERE id = ?
+           UNION SELECT s.id FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+         )
+         DELETE FROM sessions WHERE id IN (SELECT id FROM tree)`,
+      ).run(id)
+    })()
     log.info('[SessionRepo] Deleted session:', id)
   },
 

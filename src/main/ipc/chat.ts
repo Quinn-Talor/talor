@@ -28,8 +28,18 @@ interface ChatSendRawParams {
 export function registerChatHandlers(agentManager: AgentManager): void {
   ipcMain.handle('chat:send', async (_event, raw: ChatSendRawParams) => {
     log.info('[chat:send] session:', raw.session_id, 'content:', raw.content.slice(0, 20))
-    const win = getMainWindow()
-    if (!win) throw new Error('No main window')
+    if (!getMainWindow()) throw new Error('No main window')
+
+    // 发送时现取窗口:macOS 关窗不退出,轮次仍在跑;对已销毁窗口 send 会抛错并打断本轮
+    const send = (channel: string, payload: unknown): void => {
+      const w = getMainWindow()
+      if (w && !w.isDestroyed()) w.webContents.send(channel, payload)
+    }
+    const liveWindow = () => {
+      const w = getMainWindow()
+      if (!w || w.isDestroyed()) throw new Error('Main window is closed')
+      return w
+    }
 
     const sid = raw.session_id
     const { messageId } = await sendChat(
@@ -40,7 +50,7 @@ export function registerChatHandlers(agentManager: AgentManager): void {
       },
       {
         onTextDelta: (mid, delta, stepIdx) =>
-          win.webContents.send('chat:stream', {
+          send('chat:stream', {
             session_id: sid,
             message_id: mid,
             delta,
@@ -48,7 +58,7 @@ export function registerChatHandlers(agentManager: AgentManager): void {
             step_index: stepIdx,
           }),
         onToolCall: (mid, id, name, input, stepIdx, startedAt) =>
-          win.webContents.send('chat:tool-call', {
+          send('chat:tool-call', {
             session_id: sid,
             message_id: mid,
             tool_call_id: id,
@@ -58,7 +68,7 @@ export function registerChatHandlers(agentManager: AgentManager): void {
             started_at: startedAt,
           }),
         onToolResult: (mid, id, name, out, durationMs) =>
-          win.webContents.send('chat:tool-result', {
+          send('chat:tool-result', {
             session_id: sid,
             message_id: mid,
             tool_call_id: id,
@@ -71,12 +81,12 @@ export function registerChatHandlers(agentManager: AgentManager): void {
         // step_index 让 renderer 清掉已落库步对应的 streamItems, 防止
         // ToolCallMessage (持久) + ToolCallLog (流式) 同时显示同一步。
         onMessagePersisted: (persistedSid, stepIdx) =>
-          win.webContents.send('chat:message-persisted', {
+          send('chat:message-persisted', {
             session_id: persistedSid,
             step_index: stepIdx,
           }),
         onDone: (mid, err) =>
-          win.webContents.send('chat:stream', {
+          send('chat:stream', {
             session_id: sid,
             message_id: mid,
             delta: '',
@@ -87,8 +97,12 @@ export function registerChatHandlers(agentManager: AgentManager): void {
           }),
       },
       {
-        confirmTool: (payload) => requestToolConfirm(win, payload),
-        promptPermission: (payload) => requestPermissionFromRenderer(win, payload),
+        // 子 agent 共用父轮次的 confirmTool 端口:统一补 rootSessionId,
+        // 渲染端据此把子 session / 工作台的确认请求归到发起本轮的 session
+        confirmTool: (payload) =>
+          requestToolConfirm(liveWindow(), { ...payload, rootSessionId: sid }),
+        promptPermission: (payload) =>
+          requestPermissionFromRenderer(liveWindow(), { ...payload, rootSessionId: sid }),
         agentManager,
       },
     )

@@ -24,7 +24,9 @@ export class AgentLoader {
     }
   }
 
+  /** 重新扫描磁盘。已存在条目的运行时状态（status / lastUsedAt）跨重载保留。 */
   loadAll(): void {
+    const previous = new Map(this.entries)
     this.entries.clear()
     let dirs: string[]
     try {
@@ -66,10 +68,12 @@ export class AgentLoader {
           continue
         }
 
+        const prev = previous.get(result.profile.id)
         this.entries.set(result.profile.id, {
           profile: result.profile,
           dirPath,
-          status: 'disabled',
+          status: prev?.status ?? 'disabled',
+          ...(prev?.lastUsedAt !== undefined ? { lastUsedAt: prev.lastUsedAt } : {}),
         })
         log.info('[AgentLoader] Loaded agent:', result.profile.id, result.profile.name)
       } catch (err) {

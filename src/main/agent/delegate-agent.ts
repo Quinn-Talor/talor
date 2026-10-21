@@ -6,9 +6,8 @@
 // 关键不变量：
 //   1. execute() 全包 try/catch，永不让异常炸穿父 react-loop（保 §I-MUST-1
 //      配对不变量；patterns §P6）
-//   2. 子 Agent 结构上不持有 delegate_agent 工具（业务 agent 永不接收
-//      DelegationRuntime + 平台 worker agent 的 profile.disabledTools 含
-//      'delegate_agent'）—— 防递归不靠运行时 envelope，靠工具不可见
+//   2. 防递归：委托目标不能是平台 agent（__x__），也不能已在当前委托链上
+//      （沿 parent_session_id 回溯）；链深度上限 MAX_DELEGATION_DEPTH
 //   3. 同 session 并发上限 K：用 p-limit 库实现，不要手写 counter（race-prone）
 //   4. AbortController 链 + setTimeout(.unref()) + finally clearTimeout 三件套
 //      防止用户 stop 后子 loop 跑不停 / 进程退不掉
@@ -74,9 +73,12 @@ export interface ProviderContext {
 
 /**
  * 子 ReAct loop 入口签名（和 loop/react-loop.ts 的 runReactLoop 兼容）。
- * 委托只看子 session 落库的消息，不消费返回值（真实实现返回 LoopResult）。
+ * 真实实现返回 LoopResult：abort 被 loop 吞掉不抛出，委托据 exitReason + abort signal
+ * 判定中止/超时/步数耗尽；最终文本从子 session 落库消息里取。
  */
-export type RunReactLoopFn = (opts: import('../loop/types').ReactLoopOptions) => Promise<unknown>
+export type RunReactLoopFn = (
+  opts: import('../loop/types').ReactLoopOptions,
+) => Promise<Partial<import('../loop/types').LoopResult> | void>
 
 export interface DelegationRuntime {
   agentManager: AgentManager
@@ -101,13 +103,19 @@ function getLimiter(sessionId: string, K: number): LimitFunction {
   return l
 }
 
-/** A3: per-session × per-agent 调用计数（仅本进程内存,session 关闭即清理）。 */
+/**
+ * A3: per-turn × per-agent 调用计数（仅本进程内存）。
+ * 预算防的是“同一轮里子 agent 失败后父 agent 无脑重试”，按父 turn（parentMessageId）
+ * 计数：新的一轮开始即清零，长会话里后续轮次仍可正常委托。
+ */
 const invocationCounts = new Map<string, Map<string, number>>()
-function bumpInvocation(sessionId: string, agentId: string): number {
+const currentTurn = new Map<string, string>()
+function bumpInvocation(sessionId: string, turnId: string, agentId: string): number {
   let inner = invocationCounts.get(sessionId)
-  if (!inner) {
+  if (!inner || currentTurn.get(sessionId) !== turnId) {
     inner = new Map()
     invocationCounts.set(sessionId, inner)
+    currentTurn.set(sessionId, turnId)
   }
   const next = (inner.get(agentId) ?? 0) + 1
   inner.set(agentId, next)
@@ -118,10 +126,33 @@ function bumpInvocation(sessionId: string, agentId: string): number {
 export function clearLimiter(sessionId: string): void {
   limiterPerSession.delete(sessionId)
   invocationCounts.delete(sessionId)
+  currentTurn.delete(sessionId)
 }
 
 // 仅供测试访问
 export const __TEST__ = { limiterPerSession, invocationCounts }
+
+/** 委托链最大深度（根会话 → 子 → 孙 …）。超过即拒绝，防 A→B→A 之类无界递归扇出。 */
+const MAX_DELEGATION_DEPTH = 3
+
+/** 从当前 session 沿 parent_session_id 回溯：返回链上各 session 的 agent_id 与当前深度。 */
+function delegationAncestry(
+  sessions: typeof SessionRepoT,
+  sessionId: string,
+): { depth: number; agentIds: string[] } {
+  const agentIds: string[] = []
+  let depth = 0
+  let cur = sessions.getById(sessionId)
+  const seen = new Set<string>()
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id)
+    agentIds.push(cur.agent_id)
+    if (!cur.parent_session_id) break
+    depth++
+    cur = sessions.getById(cur.parent_session_id)
+  }
+  return { depth, agentIds }
+}
 
 // ─── 错误信封 ─────────────────────────────────────────────────────────
 
@@ -141,7 +172,11 @@ const HINTS: Record<string, string> = {
     'Subagent reached maxSteps without producing a final answer. Increase maxSteps or simplify the task.',
   // v3.7.2: INSTRUCTION_OUT_OF_SCOPE / SUBAGENT_OFF_TARGET 已删除 (A2/B2 移除)。
   DELEGATION_BUDGET_EXHAUSTED:
-    'This subagent has already been invoked the maximum number of times in this session. Try a different approach or agent.',
+    'This subagent has already been invoked the maximum number of times in this turn. Try a different approach or agent.',
+  DELEGATION_CYCLE:
+    'The target agent is already part of the current delegation chain. Do the work here or delegate to a different agent.',
+  DELEGATION_DEPTH_EXCEEDED:
+    'Delegation chain is too deep. Complete the task here instead of delegating further.',
   SUBAGENT_RECOVERY:
     'Subagent entered failure-recovery mode (3+ consecutive tool failures). Treat as failure; investigate sub-session for details.',
 }
@@ -214,7 +249,10 @@ export function createDelegateAgentTool(
 
   return {
     name: 'delegate_agent',
-    description: buildDescription(runtime.agentManager, allowedAgentIds),
+    // 每次装配工具时现算：启动时的加载顺序、之后新建/删除/替换的 agent 都能反映到 listing
+    get description() {
+      return buildDescription(runtime.agentManager, allowedAgentIds)
+    },
     parameters: z.toJSONSchema(DelegateInput) as Record<string, unknown>,
     riskLevel: 'LOW',
     zodSchema: DelegateInput,
@@ -239,8 +277,8 @@ export function createDelegateAgentTool(
         }
       }
 
-      // ─ Step 1b: agent 查找 ─
-      const agent = runtime.agentManager.getAgent(agent_id)
+      // ─ Step 1b: agent 查找（平台 agent __x__ 不可作为委托目标） ─
+      const agent = agent_id.startsWith('__') ? null : runtime.agentManager.getAgent(agent_id)
       if (!agent) {
         return {
           output: makeEnvelope('AGENT_NOT_FOUND', {
@@ -249,18 +287,35 @@ export function createDelegateAgentTool(
         }
       }
 
-      // ─ Step 1c (A3): per-agent budget 检查 ─
+      // ─ Step 1c: 委托链环路 / 深度检查 ─
+      const ancestry = delegationAncestry(runtime.sessionRepo, ctx.sessionId)
+      if (ancestry.agentIds.includes(agent_id)) {
+        return {
+          output: makeEnvelope('DELEGATION_CYCLE', {
+            message: `Agent "${agent_id}" is already in the delegation chain (${ancestry.agentIds.join(' <- ')}).`,
+          }),
+        }
+      }
+      if (ancestry.depth >= MAX_DELEGATION_DEPTH) {
+        return {
+          output: makeEnvelope('DELEGATION_DEPTH_EXCEEDED', {
+            message: `Delegation depth limit (${MAX_DELEGATION_DEPTH}) reached.`,
+          }),
+        }
+      }
+
+      // ─ Step 1d (A3): per-agent budget 检查 ─
       // 注意:在实际 launch 之前 bump,即"尝试委托即计数"。budget 用尽即拒绝,
       // 避免父 agent 在子失败后无脑重试同一 agent_id。
       const budgetMax = runtime.config.maxInvocationsPerAgentPerSession
-      const used = bumpInvocation(ctx.sessionId, agent_id)
+      const used = bumpInvocation(ctx.sessionId, ctx.parentMessageId ?? '', agent_id)
       if (used > budgetMax) {
         log.info(
           `[DelegateAgent] budget exhausted: session=${ctx.sessionId} agent=${agent_id} used=${used} max=${budgetMax}`,
         )
         return {
           output: makeEnvelope('DELEGATION_BUDGET_EXHAUSTED', {
-            message: `Agent "${agent_id}" has been delegated ${used - 1} times in this session (max ${budgetMax}).`,
+            message: `Agent "${agent_id}" has been delegated ${used - 1} times in this turn (max ${budgetMax}).`,
             agent_id,
             invocations_used: used - 1,
             budget_max: budgetMax,
@@ -281,18 +336,26 @@ export function createDelegateAgentTool(
         )
       }
 
+      // 排队超时只覆盖“在 limiter 队列里等待”的阶段：出队开始执行即清除计时器，
+      // 执行期由 runDelegation 内的 executionTimeoutMs 管。已超时的排队任务出队后直接放弃。
       let queueTimer: NodeJS.Timeout | undefined
+      let queueTimedOut = false
       const queueTimeoutPromise = new Promise<never>((_, reject) => {
-        queueTimer = setTimeout(
-          () => reject(new QueueTimeoutError()),
-          runtime.config.queueTimeoutMs,
-        )
+        queueTimer = setTimeout(() => {
+          queueTimedOut = true
+          reject(new QueueTimeoutError())
+        }, runtime.config.queueTimeoutMs)
         if (queueTimer.unref) queueTimer.unref()
       })
 
       try {
         return await Promise.race([
-          limit(() => runDelegation(runtime, agent, ctx, instruction, context)),
+          limit(async () => {
+            clearTimeout(queueTimer)
+            if (queueTimedOut) return { output: makeEnvelope('DELEGATION_QUEUE_TIMEOUT') }
+            if (ctx.abortSignal?.aborted) return { output: makeEnvelope('SUBAGENT_ABORTED') }
+            return runDelegation(runtime, agent, ctx, instruction, context)
+          }),
           queueTimeoutPromise,
         ])
       } catch (err) {
@@ -480,7 +543,7 @@ async function runDelegation(
         })
 
   try {
-    await withParent(childAgentObs.ref, () =>
+    const loopResult = await withParent(childAgentObs.ref, () =>
       runtime.runReactLoop({
         model: providerCtx.model,
         sessionId: childSession.id,
@@ -510,6 +573,55 @@ async function runDelegation(
     // ─ Step 6: 提取最终 text ─
     const messages = messageRepo.listBySession(childSession.id)
     const lastAssistant = findLastAssistantWithText(messages)
+    const exitReason = loopResult?.exitReason
+
+    // 子 loop 把 abort 吞掉后正常返回：落库的最后一条 assistant 可能是半截文本或
+    // 上一步的中间文本，不能当成功结果。按 abort reason 区分超时与父中止。
+    if (childAbort.signal.aborted) {
+      const code =
+        childAbort.signal.reason === 'execution_timeout' ? 'SUBAGENT_TIMEOUT' : 'SUBAGENT_ABORTED'
+      runtime.sessionRepo.updateStatus(childSession.id, 'aborted')
+      log.info(
+        `[DelegateAgent] done code=${code} session=${childSession.id} ` +
+          `duration=${Date.now() - start}ms`,
+      )
+      const envelope = makeEnvelope(code, {
+        last_text: stripInterruptedMarker(lastAssistant?.text ?? ''),
+        child_session_id: childSession.id,
+      })
+      childAgentObs.end({ level: 'WARNING', statusMessage: code, output: envelope })
+      return { output: envelope }
+    }
+
+    if (exitReason === 'max_steps') {
+      runtime.sessionRepo.updateStatus(childSession.id, 'completed')
+      log.info(
+        `[DelegateAgent] done code=SUBAGENT_MAX_STEPS session=${childSession.id} ` +
+          `duration=${Date.now() - start}ms`,
+      )
+      const envelope = makeEnvelope('SUBAGENT_MAX_STEPS', {
+        truncated: true,
+        last_text: lastAssistant?.text ?? '',
+        child_session_id: childSession.id,
+      })
+      childAgentObs.end({ level: 'WARNING', statusMessage: 'SUBAGENT_MAX_STEPS', output: envelope })
+      return { output: envelope }
+    }
+
+    if (lastAssistant && INTERRUPTED_MARKER.test(lastAssistant.text)) {
+      runtime.sessionRepo.updateStatus(childSession.id, 'aborted')
+      log.warn(
+        `[DelegateAgent] interrupted step agent=${agent.id} session=${childSession.id} ` +
+          `duration=${Date.now() - start}ms`,
+      )
+      const envelope = makeEnvelope('SUBAGENT_FAILED', {
+        message: 'Subagent step was interrupted before producing a final answer.',
+        last_text: stripInterruptedMarker(lastAssistant.text),
+        child_session_id: childSession.id,
+      })
+      childAgentObs.end({ level: 'ERROR', statusMessage: 'SUBAGENT_FAILED', output: envelope })
+      return { output: envelope }
+    }
 
     if (lastAssistant) {
       // C1: failure-recovery / auto-summary 文本回流为 ToolErrorEnvelope
@@ -697,8 +809,16 @@ function extractToolErrors(rawContent: string): string[] {
 const RECOVERY_MARKERS = [
   /^\s*\[failure-recovery[^\]]*\]/,
   /^\s*\[auto-summary[^\]]*\]/,
+  /^\s*\[signature-dead-loop[^\]]*\]/,
   /^\s*\[auto-halt\]/,
 ]
+
+/** persist-step 在步骤被中断时追加到 assistant 文本末尾的标记。 */
+const INTERRUPTED_MARKER = /\[step interrupted[^\]]*\]\s*$/
+
+function stripInterruptedMarker(text: string): string {
+  return text.replace(INTERRUPTED_MARKER, '').trim()
+}
 
 function detectRecoveryMarker(text: string): { marker: string; cleanedText: string } | null {
   for (const re of RECOVERY_MARKERS) {

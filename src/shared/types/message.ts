@@ -47,7 +47,13 @@ export const HIGH_RISK_TOOLS = ['bash', 'write', 'edit'] as const
 export type HighRiskTool = (typeof HIGH_RISK_TOOLS)[number]
 
 export interface ToolConfirmRequest {
+  /** 发起工具调用的 session;delegate_agent 子 agent 的调用为子 session id */
   sessionId: string
+  /**
+   * 本次 chat:send 的 session(入口层补上)。子 session 的确认请求与父轮次
+   * 同属一个 root,渲染端据此标注来源、在停止 / 轮次结束时批量清理。
+   */
+  rootSessionId?: string
   messageId?: string // 已有 builtin 路径必填; RiskGate 新路径可省
   toolCallId: string
   toolName: string // 'bash' | 'write' | 'edit' | mcp tool name
