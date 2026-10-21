@@ -151,7 +151,7 @@ export class RiskGate {
    * @param ledger  副作用日志 — Gate 内部决定通过后立即 record,buildTools 不必再调一次。
    */
   constructor(
-    private readonly memory: SessionApprovalMemory,
+    readonly memory: SessionApprovalMemory,
     private readonly ledger: SideEffectLedger,
   ) {}
 

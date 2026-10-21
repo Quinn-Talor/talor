@@ -1,5 +1,4 @@
-import type { ModelInfo } from './models'
-import type { ReasoningConfig } from '@shared/types/models'
+import type { ModelInfo, ReasoningConfig } from '@shared/types/models'
 
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google'
 

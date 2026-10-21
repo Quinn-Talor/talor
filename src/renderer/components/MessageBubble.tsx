@@ -223,7 +223,7 @@ function MessageBubbleInner({
 
 function renderAssistantSegments(
   text: string,
-  isStreaming: boolean,
+  _isStreaming: boolean,
   onPickChoice?: (text: string) => void,
   onConfirmProposal?: (tool: string, args: Record<string, unknown>) => void,
   onEmit?: (text: string) => void,

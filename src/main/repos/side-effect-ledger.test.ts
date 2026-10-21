@@ -33,7 +33,7 @@ CREATE TABLE side_effect_log (
   op                  TEXT NOT NULL,
   target              TEXT NOT NULL,
   preview             TEXT NOT NULL,
-  confirmed_by        TEXT NOT NULL CHECK(confirmed_by IN ('pendingBlock','fallback','memory','auto-low')),
+  confirmed_by        TEXT NOT NULL CHECK(confirmed_by IN ('fallback','memory','auto-low','high-static')),
   user_decision       TEXT NOT NULL CHECK(user_decision IN ('approved','denied','auto')),
   created_at          TEXT NOT NULL,
   FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -68,7 +68,7 @@ function makeEntry(overrides: Partial<Omit<SideEffectEntry, 'id' | 'created_at'>
     op: 'sql:INSERT',
     target: 'game.rule',
     preview: 'INSERT INTO game.rule ...',
-    confirmed_by: 'pendingBlock' as const,
+    confirmed_by: 'fallback' as const,
     user_decision: 'approved' as const,
     ...overrides,
   }
@@ -151,14 +151,14 @@ describe('SideEffectLedger', () => {
          (id, session_id, parent_session_id, message_id, tool_call_id, step_index,
           op, target, preview, confirmed_by, user_decision, created_at)
          VALUES (?, 'root-session', NULL, 'm1', ?, 0,
-                 'op', 't', 'p', 'pendingBlock', 'approved', ?)`,
+                 'op', 't', 'p', 'fallback', 'approved', ?)`,
       ).run('id-old', 'tc-old', before)
       db.prepare(
         `INSERT INTO side_effect_log
          (id, session_id, parent_session_id, message_id, tool_call_id, step_index,
           op, target, preview, confirmed_by, user_decision, created_at)
          VALUES (?, 'root-session', NULL, 'm1', ?, 0,
-                 'op', 't', 'p', 'pendingBlock', 'approved', ?)`,
+                 'op', 't', 'p', 'fallback', 'approved', ?)`,
       ).run('id-new', 'tc-new', after)
 
       const list = ledger.listByRootSession('root-session', { sinceTime: turnStart })
@@ -174,14 +174,14 @@ describe('SideEffectLedger', () => {
          (id, session_id, parent_session_id, message_id, tool_call_id, step_index,
           op, target, preview, confirmed_by, user_decision, created_at)
          VALUES (?, 'root-session', NULL, 'm1', ?, ?,
-                 'op', 't', 'p', 'pendingBlock', 'approved', ?)`,
+                 'op', 't', 'p', 'fallback', 'approved', ?)`,
       ).run('id-1', 'tc-low-step', 1, after)
       db.prepare(
         `INSERT INTO side_effect_log
          (id, session_id, parent_session_id, message_id, tool_call_id, step_index,
           op, target, preview, confirmed_by, user_decision, created_at)
          VALUES (?, 'root-session', NULL, 'm1', ?, ?,
-                 'op', 't', 'p', 'pendingBlock', 'approved', ?)`,
+                 'op', 't', 'p', 'fallback', 'approved', ?)`,
       ).run('id-2', 'tc-high-step', 5, after)
 
       const list = ledger.listByRootSession('root-session', {
@@ -218,7 +218,7 @@ describe('SideEffectLedger', () => {
           target: 'game.rule',
           preview: 'INSERT INTO game.rule (...) VALUES (...)',
           user_decision: 'approved',
-          confirmed_by: 'pendingBlock',
+          confirmed_by: 'fallback',
         }),
       )
       const summary = ledger.buildSummary('root-session', '2000-01-01T00:00:00.000Z')

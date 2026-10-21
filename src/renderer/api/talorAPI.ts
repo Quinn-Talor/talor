@@ -63,6 +63,7 @@ declare global {
         updateModel: (params: {
           session_id: string
           model_id: string
+          provider_id?: string
         }) => Promise<ChatSession | null>
         updateReasoning: (params: {
           session_id: string

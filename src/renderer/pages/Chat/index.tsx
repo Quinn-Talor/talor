@@ -4,7 +4,6 @@ import { useStreamingMessage } from '../../hooks/useStreamingMessage'
 import { talorAPI } from '../../api/talorAPI'
 import { formatTokens } from '../../lib/format-tokens'
 import { MessageBubble } from '../../components/MessageBubble'
-import { agentColor } from '../../components/SessionItem'
 import { Sidebar } from './Sidebar'
 import { useUIStore } from '../../store/uiStore'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -53,20 +52,6 @@ function reasoningLevelIndex(reasoning: ReasoningConfig | undefined): number {
   if (reasoning.effort === 'high') return 3
   return 2
 }
-
-const BUILTIN_TOOLS = [
-  {
-    name: 'bash',
-    description: 'Execute a shell command in the workspace directory.',
-    riskLevel: 'HIGH',
-  },
-  { name: 'read', description: 'Read content of a file.', riskLevel: 'LOW' },
-  { name: 'write', description: 'Write content to a file.', riskLevel: 'MEDIUM' },
-  { name: 'edit', description: 'Edit a file with string replacement.', riskLevel: 'MEDIUM' },
-  { name: 'glob', description: 'Find files matching a glob pattern.', riskLevel: 'LOW' },
-  { name: 'grep', description: 'Search file contents with regex.', riskLevel: 'LOW' },
-  { name: 'ls', description: 'List files in a directory.', riskLevel: 'LOW' },
-] as const
 
 interface ChatPageProps {
   onOpenSettings: () => void
@@ -232,7 +217,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     const id = agentId ?? '__chat__'
     const stillCurrent = () => (currentAgentIdRef.current ?? '__chat__') === id
     try {
-      const tools = await talorAPI.agents.listTools(id)
+      const tools = (await talorAPI.agents.listTools?.(id)) ?? []
       if (stillCurrent()) setAgentTools(tools)
     } catch {
       if (stillCurrent()) setAgentTools([])
@@ -846,7 +831,6 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   const currentAgent = agents.find((a) => a.id === currentAgentId)
   const currentAgentName = currentAgent?.name ?? 'Talor'
   const currentAgentSubtitle = currentAgent?.id ?? 'talor-default'
-  const currentAgentColorVal = agentColor(currentAgentId)
   // Split agentTools into builtin (no provider) and mcp (has provider)
   const agentBuiltinTools = agentTools.filter((t) => !t.provider)
   const agentMcpTools = agentTools.filter((t) => !!t.provider)

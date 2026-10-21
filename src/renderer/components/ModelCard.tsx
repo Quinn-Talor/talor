@@ -27,6 +27,7 @@ function CapabilityBadge({ capability, compact = false }: CapabilityBadgeProps) 
     tools: { bg: 'bg-amber-100', text: 'text-amber-700', icon: '🔧' },
     video: { bg: 'bg-purple-100', text: 'text-purple-700', icon: '🎥' },
     audio: { bg: 'bg-green-100', text: 'text-green-700', icon: '🎵' },
+    reasoning: { bg: 'bg-indigo-100', text: 'text-indigo-700', icon: '🧠' },
   }
 
   const style = CATEGORY_STYLES[capability.category] ?? {
