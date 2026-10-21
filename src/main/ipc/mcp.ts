@@ -5,7 +5,9 @@ import { ipcMain } from 'electron'
 import { mcpServerRepo, MCPServerType, MCPAuthConfig } from '../repos/mcp-server-repo'
 import { mcpRegistry } from '../mcp/client'
 import { StdioTransport } from '../mcp/transport/stdio'
-import { MCPServerConfig, MCPError } from '../mcp/types'
+import { HttpTransport } from '../mcp/transport/http'
+import { MCPServerConfig, MCPTimeoutError } from '../mcp/types'
+import type { MCPConnectionTestResult } from '@shared/types/ipc'
 import log from 'electron-log'
 
 export interface MCPServerInput {
@@ -51,12 +53,24 @@ async function syncRegistry(serverId: string, reconnect: boolean): Promise<void>
   }
 }
 
+/**
+ * MCP server 以 name 被 agent 引用、并作为工具注册表的 key,同名会互相覆盖/误删工具,
+ * 所以 name 必须唯一。
+ */
+function assertNameAvailable(name: string, selfId?: string): void {
+  const existing = mcpServerRepo.getByName(name)
+  if (existing && existing.id !== selfId) {
+    throw new Error(`MCP server name already exists: ${name}`)
+  }
+}
+
 export function registerMCPHandlers(): void {
   ipcMain.handle('mcp:servers:list', () => {
     return mcpServerRepo.list()
   })
 
   ipcMain.handle('mcp:servers:create', async (_event, input: MCPServerInput) => {
+    assertNameAvailable(input.name)
     const server = mcpServerRepo.create({
       name: input.name,
       type: input.type,
@@ -65,6 +79,7 @@ export function registerMCPHandlers(): void {
       env: input.env,
       url: input.url,
       auth: input.auth,
+      enabled: input.enabled,
     })
     await syncRegistry(server.id, false)
     return server
@@ -81,6 +96,7 @@ export function registerMCPHandlers(): void {
   ipcMain.handle(
     'mcp:servers:update',
     async (_event, id: string, updates: Partial<MCPServerInput>) => {
+      if (updates.name !== undefined) assertNameAvailable(updates.name, id)
       const server = mcpServerRepo.update(id, updates)
       if (!server) {
         throw new Error(`MCP Server not found: ${id}`)
@@ -168,114 +184,61 @@ export function registerMCPHandlers(): void {
         url?: string
         auth?: MCPAuthConfig
       },
-    ) => {
+    ): Promise<MCPConnectionTestResult> => {
       const start = Date.now()
-      const timeout = 30000
-
-      try {
-        if (server.type === 'http' && server.url) {
-          const headers: Record<string, string> = {}
-          if (server.auth) {
-            if (server.auth.type === 'bearer' && server.auth.token) {
-              headers['Authorization'] = `Bearer ${server.auth.token}`
-            } else if (server.auth.type === 'apiKey' && server.auth.apiKey) {
-              headers['X-API-Key'] = server.auth.apiKey
-            }
-          }
-
-          const controller = new AbortController()
-          const timeoutId = setTimeout(() => controller.abort(), timeout)
-
-          try {
-            const response = await fetch(server.url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...headers,
-              },
-              body: JSON.stringify({
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'tools/list',
-              }),
-              signal: controller.signal,
-            })
-
-            clearTimeout(timeoutId)
-
-            if (!response.ok) {
-              return {
-                status: 'failure',
-                error_code: 'CONNECTION_FAILED',
-                message: `HTTP ${response.status}: ${response.statusText}`,
-              }
-            }
-
-            const data = (await response.json()) as { result?: { tools?: Array<{ name: string }> } }
-            const toolsCount = data.result?.tools?.length ?? 0
-
-            return {
-              status: 'success',
-              latency_ms: Date.now() - start,
-              tools_count: toolsCount,
-              message: `✅ 连接成功，发现 ${toolsCount} 个工具`,
-            }
-          } catch (httpError) {
-            clearTimeout(timeoutId)
-            if (httpError instanceof Error && httpError.name === 'AbortError') {
-              return {
-                status: 'failure',
-                error_code: 'TIMEOUT',
-                message: `❌ 连接超时（${timeout / 1000}秒），请检查 Server 是否运行`,
-              }
-            }
-            throw httpError
-          }
-        }
-
-        if (server.type === 'stdio' && server.command) {
-          const config: MCPServerConfig = {
-            id: 'test-' + Date.now(),
-            name: 'test',
-            type: 'stdio',
-            command: server.command,
-            args: server.args || [],
-            env: server.env || {},
-            enabled: true,
-          }
-
-          const transport = new StdioTransport(config)
-          try {
-            await transport.connect()
-            const tools = await transport.listTools()
-            transport.disconnect()
-            return {
-              status: 'success',
-              latency_ms: Date.now() - start,
-              tools_count: tools.length,
-              message: `✅ 连接成功，发现 ${tools.length} 个工具`,
-            }
-          } catch (err) {
-            return {
-              status: 'failure',
-              error_code: 'CONNECTION_FAILED',
-              message: `❌ 连接失败：${err instanceof Error ? err.message : '未知错误'}`,
-            }
-          }
-        }
-
+      // 测试连接用短超时:设置页需要快速反馈,不沿用 transport 默认的 5 分钟。
+      const timeoutMs = 30000
+      const isHttp = server.type === 'http' && !!server.url
+      const isStdio = server.type === 'stdio' && !!server.command
+      if (!isHttp && !isStdio) {
         return {
           status: 'failure',
           error_code: 'INVALID_CONFIG',
           message: '无效的服务器配置',
         }
+      }
+
+      const config: MCPServerConfig = {
+        id: 'test-' + Date.now(),
+        name: 'test',
+        type: server.type,
+        command: server.command,
+        args: server.args || [],
+        env: server.env || {},
+        url: server.url,
+        auth: server.auth,
+        enabled: true,
+      }
+      const transport = isHttp
+        ? new HttpTransport(config, timeoutMs)
+        : new StdioTransport(config, timeoutMs)
+
+      try {
+        await transport.connect()
+        const tools = await transport.listTools()
+        return {
+          status: 'success',
+          latency_ms: Date.now() - start,
+          tools_count: tools.length,
+          message: `✅ 连接成功，发现 ${tools.length} 个工具`,
+        }
       } catch (error) {
         log.error('[MCP] Connection test failed:', error)
+        const message = error instanceof Error ? error.message : '未知错误'
+        if (error instanceof MCPTimeoutError) {
+          return {
+            status: 'failure',
+            error_code: 'TIMEOUT',
+            message: `❌ 连接超时（${timeoutMs / 1000}秒），请检查 Server 是否运行`,
+          }
+        }
         return {
           status: 'failure',
           error_code: 'CONNECTION_FAILED',
-          message: `❌ 连接失败：${error instanceof Error ? error.message : '未知错误'}`,
+          message: `❌ 连接失败：${message}`,
         }
+      } finally {
+        transport.disconnect()
       }
     },
   )

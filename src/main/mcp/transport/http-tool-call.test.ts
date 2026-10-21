@@ -167,9 +167,11 @@ describe('AC-005-02: MCP HTTP Tool Calling', () => {
     })
 
     await transport.connect()
-    const promise = transport.callTool('test', {})
+    // 先挂上 rejects 断言再推进计时器:否则 promise 在推进中 reject 时尚无处理器,
+    // vitest 会报 Unhandled Rejection。
+    const assertion = expect(transport.callTool('test', {})).rejects.toThrow('HTTP 500')
     await vi.runAllTimersAsync()
-    await expect(promise).rejects.toThrow('HTTP 500')
+    await assertion
     vi.useRealTimers()
   })
 
@@ -225,9 +227,9 @@ describe('AC-005-02: MCP HTTP Tool Calling', () => {
     })
 
     await transport.connect()
-    const promise = transport.callTool('test_tool', {})
+    const assertion = expect(transport.callTool('test_tool', {})).rejects.toThrow('HTTP 500')
     await vi.runAllTimersAsync()
-    await expect(promise).rejects.toThrow('HTTP 500')
+    await assertion
     vi.useRealTimers()
   })
 })

@@ -57,7 +57,9 @@ function rowToMCPServer(row: MCPServerRow): MCPServer {
 export const mcpServerRepo = {
   list(): MCPServer[] {
     const db = getDb()
-    const rows = db.prepare('SELECT * FROM mcp_servers ORDER BY created_at DESC').all() as MCPServerRow[]
+    const rows = db
+      .prepare('SELECT * FROM mcp_servers ORDER BY created_at DESC')
+      .all() as MCPServerRow[]
     return rows.map(rowToMCPServer)
   },
 
@@ -69,14 +71,18 @@ export const mcpServerRepo = {
     env?: Record<string, string>
     url?: string
     auth?: MCPAuthConfig
+    enabled?: boolean
   }): MCPServer {
     const db = getDb()
     const id = uuidv4()
+    const enabled = params.enabled ?? true
     const now = new Date().toISOString()
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO mcp_servers (id, name, type, command, args, env, url, auth, enabled, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `,
+    ).run(
       id,
       params.name,
       params.type,
@@ -85,9 +91,9 @@ export const mcpServerRepo = {
       params.env ? JSON.stringify(params.env) : null,
       params.url ?? null,
       params.auth ? JSON.stringify(params.auth) : null,
-      1,
+      enabled ? 1 : 0,
       now,
-      now
+      now,
     )
     log.info('[MCPServerRepo] Created server:', id, params.name)
     return {
@@ -99,7 +105,7 @@ export const mcpServerRepo = {
       env: params.env,
       url: params.url,
       auth: params.auth,
-      enabled: true,
+      enabled,
       created_at: now,
       updated_at: now,
     }
@@ -107,25 +113,33 @@ export const mcpServerRepo = {
 
   getById(id: string): MCPServer | null {
     const db = getDb()
-    const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as MCPServerRow | undefined
+    const row = db.prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as
+      | MCPServerRow
+      | undefined
     return row ? rowToMCPServer(row) : null
   },
 
   getByName(name: string): MCPServer | null {
     const db = getDb()
-    const row = db.prepare('SELECT * FROM mcp_servers WHERE name = ?').get(name) as MCPServerRow | undefined
+    const row = db.prepare('SELECT * FROM mcp_servers WHERE name = ?').get(name) as
+      | MCPServerRow
+      | undefined
     return row ? rowToMCPServer(row) : null
   },
 
-  update(id: string, params: Partial<{
-    name: string
-    type: MCPServerType
-    command: string
-    args: string[]
-    env: Record<string, string>
-    url: string
-    auth: MCPAuthConfig
-  }>): MCPServer | null {
+  update(
+    id: string,
+    params: Partial<{
+      name: string
+      type: MCPServerType
+      command: string
+      args: string[]
+      env: Record<string, string>
+      url: string
+      auth: MCPAuthConfig
+      enabled: boolean
+    }>,
+  ): MCPServer | null {
     const db = getDb()
     const existing = this.getById(id)
     if (!existing) return null
@@ -162,6 +176,10 @@ export const mcpServerRepo = {
       updates.push('auth = ?')
       values.push(JSON.stringify(params.auth))
     }
+    if (params.enabled !== undefined) {
+      updates.push('enabled = ?')
+      values.push(params.enabled ? 1 : 0)
+    }
 
     if (updates.length === 0) return existing
 
@@ -178,7 +196,9 @@ export const mcpServerRepo = {
   setEnabled(id: string, enabled: boolean): MCPServer | null {
     const db = getDb()
     const now = new Date().toISOString()
-    const info = db.prepare('UPDATE mcp_servers SET enabled = ?, updated_at = ? WHERE id = ?').run(enabled ? 1 : 0, now, id)
+    const info = db
+      .prepare('UPDATE mcp_servers SET enabled = ?, updated_at = ? WHERE id = ?')
+      .run(enabled ? 1 : 0, now, id)
     if (info.changes === 0) return null
     log.info('[MCPServerRepo] Set enabled:', id, enabled)
     return this.getById(id)
@@ -190,14 +210,17 @@ export const mcpServerRepo = {
     log.info('[MCPServerRepo] Deleted server:', id)
   },
 
-  upsertFromConfig(name: string, config: {
-    type: MCPServerType
-    command?: string
-    args?: string[]
-    env?: Record<string, string>
-    url?: string
-    auth?: MCPAuthConfig
-  }): MCPServer {
+  upsertFromConfig(
+    name: string,
+    config: {
+      type: MCPServerType
+      command?: string
+      args?: string[]
+      env?: Record<string, string>
+      url?: string
+      auth?: MCPAuthConfig
+    },
+  ): MCPServer {
     const existing = this.getByName(name)
     if (existing) {
       return this.update(existing.id, config) ?? existing
