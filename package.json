@@ -40,12 +40,12 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.0",
-    "@ai-sdk/google": "^4.0.1",
-    "@ai-sdk/openai": "^4.0.1",
-    "@ai-sdk/openai-compatible": "^3.0.0",
+    "@ai-sdk/anthropic": "^4.0.82",
+    "@ai-sdk/google": "^4.0.99",
+    "@ai-sdk/openai": "^4.0.96",
+    "@ai-sdk/openai-compatible": "^3.0.71",
     "@types/better-sqlite3": "^7.6.13",
-    "ai": "^7.0.3",
+    "ai": "^7.0.143",
     "ajv": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "electron-log": "^5.2.4",
