@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { phaseMarker } from '@shared/turn-phase'
-import { assistantView } from './turn-view'
+import { assistantView, stepPreview } from './turn-view'
 
 const row = (parts: unknown) => JSON.stringify(parts)
 
@@ -41,5 +41,13 @@ describe('assistantView', () => {
   it('AC-007 falls back to the raw content when it is not a JSON array', () => {
     expect(assistantView('not json')).toEqual({ phase: null, text: 'not json', reasoning: '' })
     expect(assistantView('{"a":1}')).toEqual({ phase: null, text: '{"a":1}', reasoning: '' })
+  })
+})
+
+describe('stepPreview', () => {
+  it('AC-001 trims and cuts long text with an ellipsis, keeps short text whole', () => {
+    expect(stepPreview('a'.repeat(100), 80)).toBe(`${'a'.repeat(80)}…`)
+    expect(stepPreview('abc', 80)).toBe('abc')
+    expect(stepPreview('  x  ', 80)).toBe('x')
   })
 })

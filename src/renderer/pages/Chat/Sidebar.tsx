@@ -23,6 +23,9 @@ export interface SidebarProps {
   onCommitRename: (id: string, title: string) => void
   onCancelRename: () => void
   onOpenSettings: () => void
+  /** 是否列出委托产生的子会话（偏好 showSubSessions）。 */
+  showSubSessions: boolean
+  onToggleSubSessions: () => void
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -118,6 +121,15 @@ export function Sidebar(props: SidebarProps) {
       {/* Settings — sibling of sb-list (NOT inside it). Spec §6.3:
           flex:1 on the list above pushes this to the very bottom.
           No border-top — visual is "last list item", structure is sibling. */}
+      <button
+        className="flex items-center gap-[9px] px-2 py-[7px] mx-2 rounded-md cursor-pointer text-mute hover:bg-line-2 hover:text-text transition-colors text-[12.5px] text-left w-[calc(100%-16px)]"
+        title="显示子会话"
+        aria-pressed={props.showSubSessions}
+        onClick={props.onToggleSubSessions}
+      >
+        <span className="flex-1">显示子会话</span>
+        {props.showSubSessions && <span className="text-[11px]">✓</span>}
+      </button>
       <button
         className="flex items-center gap-[9px] px-2 py-[7px] mx-2 mb-2 rounded-md cursor-pointer text-mute hover:bg-line-2 hover:text-text transition-colors text-[12.5px] text-left w-[calc(100%-16px)]"
         onClick={props.onOpenSettings}

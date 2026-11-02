@@ -10,7 +10,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
-import { ProcessNote, ReasoningNote } from '../../components/TurnNotes'
+import { ProcessNote, ReasoningNote, StepNote } from '../../components/TurnNotes'
 import { assistantView } from '../../lib/turn-view'
 import { intentViewOf } from '../../lib/intent-view'
 import { IntentCard } from '../../components/IntentCard'
@@ -358,12 +358,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
             if (reasoningNote) acc.push(reasoningNote)
             acc.push(
               <div key={msg.id} className="pl-[32px] mb-1">
-                {textContent && (
-                  <div className="text-[12px] text-mute mb-1 truncate">
-                    {textContent.slice(0, 80)}
-                    {textContent.length > 80 ? '…' : ''}
-                  </div>
-                )}
+                {textContent && <StepNote text={textContent} />}
                 {toolUses.map((tu) => (
                   <ToolDispatch
                     key={tu.toolCallId}
@@ -875,6 +870,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
   // 工作台 session（agent_id='__crystallizer__'）也始终隐藏（AC-016）—
   // 它是导出 Agent 的内部对话区，不应作为顶层 session 暴露给用户切换。
   const showSubSessions = useUIStore((s) => s.showSubSessions)
+  const toggleShowSubSessions = useUIStore((s) => s.toggleShowSubSessions)
   const visibleSessions = sessions.filter(
     (s) => s.agent_id !== '__crystallizer__' && (showSubSessions || s.parent_session_id == null),
   )
@@ -899,6 +895,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         onCommitRename={handleRenameSession}
         onCancelRename={() => setRenamingSessionId(null)}
         onOpenSettings={onOpenSettings}
+        showSubSessions={showSubSessions}
+        onToggleSubSessions={toggleShowSubSessions}
       />
 
       {/* Chat area — main panel (canvas bg, no gradient) */}

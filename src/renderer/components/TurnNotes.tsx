@@ -1,7 +1,10 @@
-// 引擎路径一轮里的辅助显示：过程文本折叠、思考折叠、"核对中"。
-// 只用于带阶段标记的行与引擎的流式事件；旧路径的消息不经这里。
+// 一轮里的辅助显示：过程文本折叠、思考折叠、"核对中"、工具步文本折叠。
+// 前三者只用于带阶段标记的行与引擎的流式事件；工具步文本（StepNote）新旧路径都用。
 import { useState } from 'react'
+import { stepPreview } from '../lib/turn-view'
 import { Prose } from './markdown/Prose'
+
+const STEP_PREVIEW_CHARS = 80
 
 const PREVIEW_CHARS = 60
 const LIVE_REASONING_LINES = 3
@@ -27,6 +30,24 @@ export function ProcessNote({ text }: { text: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** 工具步文本：落库后默认收起成一行灰色预览，点开显示全文（与生成中 ToolCallLog 的展开一致）。 */
+export function StepNote({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  return (
+    <button
+      data-testid="step-note"
+      className={`text-[12px] text-mute mb-1 text-left hover:text-body cursor-pointer max-w-full block ${
+        open ? 'whitespace-pre-wrap' : 'truncate'
+      }`}
+      onClick={() => setOpen((v) => !v)}
+    >
+      {open ? trimmed : stepPreview(trimmed, STEP_PREVIEW_CHARS)}
+    </button>
   )
 }
 

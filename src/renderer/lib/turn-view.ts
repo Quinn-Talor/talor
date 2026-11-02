@@ -29,3 +29,9 @@ export function assistantView(content: string): AssistantView {
     reasoning: textOf('reasoning').join('\n'),
   }
 }
+
+/** 一行预览：去首尾空白，超过 max 字截断并加省略号。 */
+export function stepPreview(text: string, max: number): string {
+  const t = text.trim()
+  return t.length > max ? `${t.slice(0, max)}…` : t
+}
