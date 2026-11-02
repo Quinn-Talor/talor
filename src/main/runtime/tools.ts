@@ -85,8 +85,9 @@ export function toEngineOutput(result: ToolResult): unknown {
   if (result.error !== undefined) return toolError('TOOL_EXCEPTION', String(result.error))
   const out = result.output
   if (isToolErrorEnvelope(out)) return deterministic(out.code, out.message, out.hint)
+  // 字符串失败（bash 非零退出、超时等）依赖环境，下次可能不同：不强加类别，由引擎按错误码判为瞬时（F25）
   if (isErrorOutput(out)) {
-    return deterministic('TOOL_FAILED', typeof out === 'string' ? out : JSON.stringify(out))
+    return toolError('TOOL_FAILED', typeof out === 'string' ? out : JSON.stringify(out))
   }
   return typeof out === 'string' ? out : JSON.stringify(out)
 }

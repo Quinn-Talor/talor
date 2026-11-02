@@ -72,13 +72,12 @@ describe('toEngineTool output', () => {
     })
   })
 
-  it('AC-005 turns a failure string into a deterministic TOOL_FAILED error', async () => {
+  it('F25 AC-007 turns a failure string into a TOOL_FAILED error the engine classifies', async () => {
     const tool = fakeTool(async () => ({ output: 'File not found: x' }))
     expect(await tool.execute({}, ctxFor())).toEqual({
       __agent_error: true,
       code: 'TOOL_FAILED',
       message: 'File not found: x',
-      errorClass: 'deterministic',
     })
   })
 
