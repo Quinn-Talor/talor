@@ -14,7 +14,6 @@ import { dirname } from 'path'
 import log from 'electron-log'
 import {
   defineAgent,
-  hashOf,
   intents,
   mcp,
   skill,
@@ -24,6 +23,7 @@ import {
   type Capability,
   type SkillPackage,
 } from 'agent-engine'
+import { hashOf } from 'agent-engine/sdk'
 import type { AgentProfile } from '@shared/types/agent'
 import { resolveRelativePaths } from '../skills/skill-tool'
 import type { ParsedSkill } from '../skills/types'

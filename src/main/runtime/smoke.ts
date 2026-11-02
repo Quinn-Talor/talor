@@ -8,7 +8,6 @@
 
 import { z } from 'zod'
 import {
-  checkInvariants,
   createEngine,
   defineAgent,
   defineTask,
@@ -20,6 +19,7 @@ import {
   type RunStatus,
   type ToolDef,
 } from 'agent-engine'
+import { checkInvariants } from 'agent-engine/sdk'
 import { electronLogger } from './logger'
 
 export interface EngineSmokeResult {

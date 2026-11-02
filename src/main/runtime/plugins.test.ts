@@ -30,7 +30,8 @@ vi.mock('agent-engine', async (importOriginal) => {
 })
 
 import log from 'electron-log'
-import { createMcpHost, fakeMcpServer, type AskRequest, type RunInfo } from 'agent-engine'
+import { createMcpHost, type AskRequest, type RunInfo } from 'agent-engine'
+import { fakeMcpServer } from 'agent-engine/testing'
 import { registerApprovalPort, sessionApprover } from './approval'
 import {
   currentPlugins,

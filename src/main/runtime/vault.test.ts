@@ -4,7 +4,8 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import { createMcpHost, fakeMcpServer } from 'agent-engine'
+import { createMcpHost } from 'agent-engine'
+import { fakeMcpServer } from 'agent-engine/testing'
 import type { MCPServer } from '../repos/mcp-server-repo'
 import { mcpSlugs, toMcpSpec } from './mcp-spec'
 import { accountSecret, createTalorVault, envSecret, mcpAuthSecret } from './vault'

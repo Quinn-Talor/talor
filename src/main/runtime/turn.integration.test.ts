@@ -48,15 +48,17 @@ vi.mock('../store/config-store', () => ({
 import {
   createHookRunner,
   createMcpHost,
-  fakeMcpServer,
-  fakeModel,
   memoryArchive,
   modelHub,
+  type ModelInput,
+} from 'agent-engine'
+import {
+  fakeMcpServer,
+  fakeModel,
   type FakeMcpServer,
   type FakeModel,
   type FakeReply,
-  type ModelInput,
-} from 'agent-engine'
+} from 'agent-engine/testing'
 import type { AgentManager } from '../agent/agent-manager'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ChatCallbacks, ChatPorts } from '../chat/types'

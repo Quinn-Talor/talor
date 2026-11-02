@@ -16,7 +16,6 @@
 import log from 'electron-log'
 import {
   createEngine,
-  hashOf,
   hookRunner as processHookRunner,
   mcpHost,
   modelHub,
@@ -36,6 +35,7 @@ import {
   type ModelHub,
   type Vault,
 } from 'agent-engine'
+import { hashOf } from 'agent-engine/sdk'
 import { mcpServerRepo, type MCPServer } from '../repos/mcp-server-repo'
 import { ConfigStore, type DelegationConfig } from '../store/config-store'
 import { DEFAULT_CHILD_TIMEOUT_MS, MAX_DELEGATION_DEPTH } from './agents'

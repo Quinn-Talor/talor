@@ -18,16 +18,14 @@ import {
   createHookRunner,
   createMcpHost,
   defineTask,
-  fakeMcpServer,
-  fakeModel,
   memoryArchive,
   modelHub,
   type Approver,
-  type FakeReply,
   type HookExecResult,
   type HookSpec,
   type McpHost,
 } from 'agent-engine'
+import { fakeMcpServer, fakeModel, type FakeReply } from 'agent-engine/testing'
 import type { AgentProfile } from '@shared/types/agent'
 import type { PermissionRequest, PermissionResponse } from '@shared/types/permissions'
 import { permissionStore } from '../permissions/permission-store'

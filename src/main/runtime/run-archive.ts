@@ -8,7 +8,8 @@
 
 import { join } from 'path'
 import { app } from 'electron'
-import { sqliteArchive, type Archive } from 'agent-engine'
+import { type Archive } from 'agent-engine'
+import { sqliteArchive } from 'agent-engine/adapters/sqlite'
 
 export const ARCHIVE_RETENTION_DAYS = 30
 

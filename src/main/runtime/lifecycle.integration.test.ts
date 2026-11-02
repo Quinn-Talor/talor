@@ -21,7 +21,8 @@ vi.mock('../store/config-store', () => ({
   ConfigStore: { getInstance: () => ({ get: () => undefined, getDelegation: () => ({}) }) },
 }))
 
-import { defineTask, fakeModel, memoryArchive, modelHub, type RunEvent } from 'agent-engine'
+import { defineTask, memoryArchive, modelHub, type RunEvent } from 'agent-engine'
+import { fakeModel } from 'agent-engine/testing'
 import { messageRepo } from '../repos/session-repo'
 import { agentFor } from './agents'
 import { catalogSnapshot } from './catalog'

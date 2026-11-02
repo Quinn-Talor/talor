@@ -10,14 +10,13 @@
 
 import type { LanguageModel } from 'ai'
 import {
-  aiSdkProvider,
   ModelCallError,
-  type AiSdkModelConfig,
   type ModelCapabilities,
   type ModelPort,
   type ModelProvider,
   type ModelRef,
 } from 'agent-engine'
+import { aiSdkProvider, type AiSdkModelConfig } from 'agent-engine/adapters/ai-sdk'
 import type { ReasoningConfig } from '@shared/types/models'
 import { getProviderById } from '../chat/provider-selector'
 import { modelContextWindow } from '../history/context-config'

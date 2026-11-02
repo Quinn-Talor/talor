@@ -11,7 +11,8 @@
 // 禁止依赖: ipc/*、db/*
 
 import log from 'electron-log'
-import { hashOf, type McpServerSpec } from 'agent-engine'
+import { type McpServerSpec } from 'agent-engine'
+import { hashOf } from 'agent-engine/sdk'
 import { BUILTIN_TOOL_NAMES, type AgentProfile } from '@shared/types/agent'
 import type { AgentManager } from '../agent/agent-manager'
 import { mcpServerRepo, type MCPServer } from '../repos/mcp-server-repo'

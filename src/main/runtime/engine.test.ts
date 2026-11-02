@@ -12,20 +12,18 @@ vi.mock('../store/config-store', () => ({
 }))
 
 import {
-  checkInvariants,
   createEngine,
   createMcpHost,
   defineTask,
-  fakeMcpServer,
-  fakeModel,
   memoryArchive,
   modelHub,
   type McpConnect,
   type Approver,
-  type FakeReply,
   type RunEvent,
   type McpHost,
 } from 'agent-engine'
+import { checkInvariants } from 'agent-engine/sdk'
+import { fakeMcpServer, fakeModel, type FakeReply } from 'agent-engine/testing'
 import '../tools/builtin'
 import { toolRegistry } from '../tools/registry'
 import { agentFor } from './agents'
