@@ -27,8 +27,8 @@ import {
 } from './attachments'
 import { resolveSessionProviderModel } from './provider-selector'
 import { streamRegistry } from './stream-registry'
-import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
-import type { ToolConfirmPort } from '../ipc/tool-confirm'
+import type { ChatCallbacks, ChatPorts, ChatSendParams } from './types'
+import { classifyLlmError } from '../ipc/error-codes'
 import type { LoopExitReason, LoopResult } from '../loop/types'
 import { traceRecorder } from '../observe/trace-recorder'
 import { runInScope } from '../observe/trace-context'
@@ -57,58 +57,8 @@ const memoryManager = new MemoryManager()
 const pipeline = new PromptPipeline(memoryManager)
 export const sharedPromptPipeline = pipeline
 
-/** chat:send 业务入参（camelCase；入口层负责 snake_case ↔ camelCase 转换）。 */
-export interface ChatSendParams {
-  sessionId: string
-  content: string
-  attachments: Array<{ path: string; mime_type: string; filename: string; size_bytes: number }>
-}
-
-/**
- * UI 事件回调。入口层把每个回调桥接到 `webContents.send('chat:xxx', ...)`。
- *
- * 设计：单一出口 `onDone` 表示流结束；err 非空代表这次请求没能正常完成，
- * 前端通过 `err.code` 做差异化提示（如"API key 无效"），不需要额外的 error 事件。
- */
-export interface ChatCallbacks {
-  onTextDelta(messageId: string, delta: string, stepIndex: number): void
-  onToolCall(
-    messageId: string,
-    toolCallId: string,
-    toolName: string,
-    input: unknown,
-    stepIndex: number,
-    startedAt: number,
-  ): void
-  onToolResult(
-    messageId: string,
-    toolCallId: string,
-    toolName: string,
-    output: unknown,
-    durationMs: number,
-  ): void
-  /**
-   * v3.6: 主进程一条消息落库后触发。入口层桥接到
-   * `webContents.send('chat:message-persisted', { sessionId, stepIndex })`,
-   * renderer 收到事件立即调 loadMessages, 替代 3s polling。
-   *
-   * stepIndex 用于 renderer 清理 streamItems 中 step <= 该值的项, 避免
-   * 已落库 message 与 streaming UI 同时显示同一步工具调用(1:1 视觉重复)。
-   */
-  onMessagePersisted?(sessionId: string, stepIndex: number): void
-  onDone(messageId: string, err?: { code: ChatErrorCode; message: string }): void
-}
-
-/**
- * 端口注入：业务层声明"需要什么能力"，具体实现由入口层提供。
- * confirmTool 绑定了 mainWindow 的 `requestToolConfirm` 调用。
- * promptPermission 用于跨 workspace 路径/命令的用户授权（PR #5）。
- */
-export interface ChatPorts {
-  confirmTool: ToolConfirmPort
-  promptPermission?: import('../permissions/port').PermissionUIPrompt
-  agentManager: import('../agent/agent-manager').AgentManager
-}
+// 入参、回调、端口类型在 chat/types.ts（阶段 D 删除本文件后引擎路径仍从那里引用），这里再导出。
+export type { ChatSendParams, ChatCallbacks, ChatPorts } from './types'
 
 /**
  * chat:send 业务入口。

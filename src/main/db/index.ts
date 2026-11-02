@@ -279,6 +279,7 @@ export function initChatDb(): Database.Database {
   db.exec(CREATE_INDEX)
   ensureMessagesTraceColumn(db)
   db.exec(CREATE_MCP_SERVERS)
+  ensureMcpServerColumns(db)
   db.exec(CREATE_SESSION_SUMMARIES)
   db.exec(CREATE_ACCOUNT_KEYS)
   // v3.7.2: CHECK 约束 schema 变化时直接 DROP + 重建。
@@ -485,6 +486,21 @@ export function ensureMessagesTraceColumn(db: Database.Database): void {
     log.info('[ChatDB] added messages.trace_id')
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_messages_trace ON messages(trace_id);')
+}
+
+/**
+ * 给 mcp_servers 补 env_from_account 列(幂等):MCP 服务器引用账户凭据,
+ * JSON 对象 { 子进程变量名: 账户 key 名 }。同 ensureMessagesTraceColumn,
+ * 缺列只说明来自旧版本,先查 PRAGMA 再 ALTER,不包 try。
+ */
+export function ensureMcpServerColumns(db: Database.Database): void {
+  const cols = (db.prepare('PRAGMA table_info(mcp_servers)').all() as Array<{ name: string }>).map(
+    (c) => c.name,
+  )
+  if (!cols.includes('env_from_account')) {
+    db.exec('ALTER TABLE mcp_servers ADD COLUMN env_from_account TEXT')
+    log.info('[ChatDB] added mcp_servers.env_from_account')
+  }
 }
 
 /**

@@ -34,6 +34,7 @@ function configFromServer(server: MCPServer): MCPServerConfig {
     command: server.command,
     args: server.args,
     env: server.env,
+    envFromAccount: server.envFromAccount,
     url: server.url,
     auth: server.auth,
     enabled: server.enabled,

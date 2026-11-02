@@ -191,3 +191,49 @@ describe('permission queue', () => {
     expect(useChatStore.getState().permissionQueue.map((r) => r.requestId)).toEqual(['b'])
   })
 })
+
+describe('reasoning stream and run status (C1)', () => {
+  it('AC-008 keeps reasoning per step, tracks verifying and clears both', () => {
+    const s = useChatStore.getState()
+    s.setCurrentSession('s1')
+    s.beginTurn('s1')
+    s.appendStreamText(1, '答')
+    s.appendStreamReasoning(1, '想')
+    useChatStore.getState().appendStreamReasoning(1, '想')
+    useChatStore.getState().setRunStatus('verifying')
+
+    let state = useChatStore.getState()
+    expect(state.streamItems).toEqual([
+      { type: 'reasoning', stepIndex: 1, content: '想想' },
+      { type: 'text', stepIndex: 1, content: '答' },
+    ])
+    expect(state.runStatus).toBe('verifying')
+
+    state.appendStreamReasoning(2, '再想')
+    useChatStore.getState().dropStreamItemsUpToStep(1)
+    expect(useChatStore.getState().streamItems).toEqual([
+      { type: 'reasoning', stepIndex: 2, content: '再想' },
+    ])
+
+    useChatStore.getState().clearStreaming()
+    state = useChatStore.getState()
+    expect(state.runStatus).toBe('idle')
+    expect(state.streamItems).toEqual([])
+  })
+
+  it('AC-008 resets the run status when a turn begins, commits or the session changes', () => {
+    const s = useChatStore.getState()
+    s.setCurrentSession('s1')
+    s.setRunStatus('verifying')
+    useChatStore.getState().beginTurn('s1')
+    expect(useChatStore.getState().runStatus).toBe('idle')
+
+    useChatStore.getState().setRunStatus('verifying')
+    useChatStore.getState().commitStreaming('m1')
+    expect(useChatStore.getState().runStatus).toBe('idle')
+
+    useChatStore.getState().setRunStatus('verifying')
+    useChatStore.getState().setCurrentSession('s2')
+    expect(useChatStore.getState().runStatus).toBe('idle')
+  })
+})

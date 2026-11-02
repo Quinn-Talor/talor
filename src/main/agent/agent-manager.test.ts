@@ -248,6 +248,35 @@ Markdown card.`,
     expect(m.getFeatureAgentProfiles()).toHaveLength(1)
   })
 
+  it('B1 AC-003 featureAgentIds: Feature 承载的 id;被用户版覆盖、替换或注销后去掉', () => {
+    const m = freshManager()
+    m.registerFeatureAgent(FEATURE_PROFILE, [makeTool('compute_red_flags')])
+    expect([...m.featureAgentIds()]).toEqual(['invest_research'])
+
+    // 用户 agent 先注册同 id → feature 被跳过,不算 Feature 承载
+    const overridden = freshManager()
+    overridden.reloadUserAgent({ ...FEATURE_PROFILE, id: 'u' }, '/tmp/u')
+    overridden.registerFeatureAgent({ ...FEATURE_PROFILE, id: 'u' }, [makeTool('t')])
+    expect(overridden.featureAgentIds().has('u')).toBe(false)
+
+    // 之后被用户版替换(reload / registerBusinessAgent)或注销 → 去掉
+    m.reloadUserAgent(FEATURE_PROFILE, '/tmp/invest')
+    expect(m.featureAgentIds().has('invest_research')).toBe(false)
+    const replaced = freshManager()
+    replaced.registerFeatureAgent(FEATURE_PROFILE, [makeTool('x')])
+    replaced.registerBusinessAgent('invest_research', {
+      profile: FEATURE_PROFILE,
+      source: null,
+      mcpRegistry: null,
+      skillRegistry: SkillRegistry.fromDir(null),
+    } as unknown as Parameters<AgentManager['registerBusinessAgent']>[1])
+    expect(replaced.featureAgentIds().has('invest_research')).toBe(false)
+    const removed = freshManager()
+    removed.registerFeatureAgent(FEATURE_PROFILE, [makeTool('compute_red_flags')])
+    removed.unregisterBusinessAgent('invest_research')
+    expect(removed.featureAgentIds().has('invest_research')).toBe(false)
+  })
+
   it('未 init 即调 registerFeatureAgent → 抛', () => {
     expect(() => new AgentManager().registerFeatureAgent(FEATURE_PROFILE)).toThrow()
   })

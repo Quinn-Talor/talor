@@ -20,6 +20,10 @@ const externalDeps = [
   ...Object.keys(pkg.dependencies ?? {}),
   ...Object.keys(pkg.peerDependencies ?? {}),
 ]
+// 子路径 import(如 `@modelcontextprotocol/sdk/client/index.js`)也按所属包判定为外部依赖。
+// devDependencies 里的包(如本地依赖 agent-engine)不在列表里,会被打进 bundle。
+const isExternal = (id: string): boolean =>
+  externalDeps.some((dep) => id === dep || id.startsWith(`${dep}/`))
 
 export default defineConfig({
   main: {
@@ -34,8 +38,10 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
+          // agent-engine 冒烟入口:`npx electron out/main/engine-smoke.js`
+          'engine-smoke': resolve(__dirname, 'src/main/runtime/smoke-entry.ts'),
         },
-        external: externalDeps,
+        external: isExternal,
       },
     },
   },
@@ -57,7 +63,7 @@ export default defineConfig({
           format: 'cjs',
           entryFileNames: '[name].cjs',
         },
-        external: externalDeps,
+        external: isExternal,
       },
     },
   },

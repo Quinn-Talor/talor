@@ -12,6 +12,19 @@ export const TOOL_CONFIRM_TTL_MS = 30_000
 export const PERMISSION_TTL_MS = 5 * 60 * 1000
 
 /**
+ * 轮次结束(或报错)时收起本轮挂起的请求:工具确认只移出(主进程已不再等待);
+ * 授权请求移出并回复拒绝,让仍在等待的主进程立即结束,而不是等到超时。
+ * 写法与聊天页停止按钮一致。
+ */
+export function settleTurnApprovals(rootSessionId: string): void {
+  const s = useChatStore.getState()
+  s.takeToolConfirmsForRoot(rootSessionId)
+  for (const req of s.takePermissionsForRoot(rootSessionId)) {
+    talorAPI.chat.sendPermissionResponse({ requestId: req.requestId, decision: 'rejected' })
+  }
+}
+
+/**
  * 在 App 层订阅工具确认 / 授权请求并写入 chatStore 队列。
  *
  * 必须挂在不会随页面切换卸载的位置:请求在用户停留设置页时也会到达,
@@ -42,11 +55,9 @@ export function usePendingApprovals(): void {
       expireLater(PERMISSION_TTL_MS, () => useChatStore.getState().removePermission(req.requestId))
     })
 
-    // 轮次结束(chat:stream done 只以发起 session 发出)后,该轮挂起的确认已无人等待
+    // 轮次结束(chat:stream done 只以发起 session 发出)后,该轮挂起的确认与授权请求已无人等待
     const offStream = talorAPI.chat.onStream((event) => {
-      if (event.done || event.error_code) {
-        useChatStore.getState().takeToolConfirmsForRoot(event.session_id)
-      }
+      if (event.done || event.error_code) settleTurnApprovals(event.session_id)
     })
 
     return () => {

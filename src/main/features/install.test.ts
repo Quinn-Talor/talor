@@ -1,7 +1,18 @@
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('electron-log', () => ({ default: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }))
+vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: { list: () => [] } }))
 
+import { AgentManager } from '../agent/agent-manager'
+import { BuiltinToolRegistry } from '../agent/builtin-registry'
+import {
+  catalogSnapshot,
+  createCatalogRegistry,
+  featureSourcePort,
+  talorCatalogSources,
+} from '../runtime/catalog'
+import { SkillRegistry } from '../skills/registry'
+import type { ToolDefinition } from '../tools/types'
 import { installFeatures } from './install'
 import type {
   FeatureAgent,
@@ -21,6 +32,7 @@ function ports(over: Partial<FeaturePorts> = {}): FeaturePorts {
     registerAgent: vi.fn(),
     registerArtifactReader: vi.fn(),
     isMcpConfigured: vi.fn(() => true),
+    registerCatalogSource: vi.fn(),
     ...over,
   }
 }
@@ -97,5 +109,81 @@ describe('installFeatures (平台拥有注册)', () => {
   it('空列表 / 缺省方法 → 不抛', () => {
     expect(() => installFeatures([], ctx, ports())).not.toThrow()
     expect(() => installFeatures([feature('x')], ctx, ports())).not.toThrow()
+  })
+})
+
+describe('Feature 经端口登记目录来源 (B1)', () => {
+  const quote: ToolDefinition = {
+    name: 'quote',
+    description: 'q',
+    parameters: { type: 'object' },
+    execute: async () => ({ output: 'q' }),
+  }
+
+  it('B1 AC-003 registers feature:<id>, and a user agent with the same id takes over', () => {
+    const m = new AgentManager()
+    m.init({
+      builtinRegistry: new BuiltinToolRegistry([]),
+      mcpRegistry: null,
+      skillRegistry: SkillRegistry.fromDir(null),
+    } as unknown as Parameters<AgentManager['init']>[0])
+    const registry = createCatalogRegistry()
+    registry.register('talor', talorCatalogSources(m))
+    const register = vi.fn(featureSourcePort(registry, m))
+    installFeatures(
+      [feature('f1', { agents: () => [{ profile: profile('inv'), tools: [quote] }] })],
+      ctx,
+      {
+        registerAgent: (fa) => m.registerFeatureAgent(fa.profile, fa.tools ?? []),
+        registerArtifactReader: vi.fn(),
+        isMcpConfigured: () => true,
+        registerCatalogSource: register,
+      },
+    )
+    const agents = () =>
+      catalogSnapshot(registry.sources()).agents.map((a) => [
+        a.profile.id,
+        a.profile.name,
+        a.featureTools.map((t) => t.name),
+      ])
+
+    expect(register).toHaveBeenCalledWith('feature:f1', expect.any(Object))
+    expect(m.featureAgentIds().has('inv')).toBe(true)
+    expect(
+      talorCatalogSources(m)
+        .agents()
+        .map((a) => a.profile.id),
+    ).not.toContain('inv')
+    expect(agents()).toEqual([['inv', 'inv', ['quote']]])
+
+    // agents:create-from-draft 以同 id 注册用户版
+    m.registerBusinessAgent('inv', {
+      profile: { ...profile('inv'), name: 'user' },
+      source: null,
+      mcpRegistry: null,
+      skillRegistry: SkillRegistry.fromDir(null),
+    } as unknown as Parameters<AgentManager['registerBusinessAgent']>[1])
+    expect(m.featureAgentIds().has('inv')).toBe(false)
+    expect(agents()).toEqual([['inv', 'user', []]])
+
+    m.unregisterBusinessAgent('inv')
+    expect(agents()).toEqual([])
+  })
+
+  it('B1 does not register a feature whose assembly throws', () => {
+    const register = vi.fn()
+    installFeatures(
+      [
+        feature('bad', {
+          init: () => {
+            throw new Error('boom')
+          },
+          agents: () => [{ profile: profile('x') }],
+        }),
+      ],
+      ctx,
+      ports({ registerCatalogSource: register }),
+    )
+    expect(register).not.toHaveBeenCalled()
   })
 })

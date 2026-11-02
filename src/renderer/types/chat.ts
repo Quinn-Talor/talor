@@ -124,6 +124,21 @@ export interface ChatStreamEvent {
   error_message?: string
 }
 
+/** 引擎路径：推理模型的思考增量。 */
+export interface ChatReasoningEvent {
+  session_id: string
+  message_id: string
+  delta: string
+  step_index: number
+}
+
+/** 引擎路径：交付验收期间为 verifying，结束回到 idle。 */
+export interface ChatStatusEvent {
+  session_id: string
+  message_id: string
+  status: 'verifying' | 'idle'
+}
+
 export interface SessionRenameParams {
   session_id: string
   title: string

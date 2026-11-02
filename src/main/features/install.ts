@@ -1,6 +1,6 @@
 // src/main/features/install.ts — 启动期 Feature 融合(main 侧)
 //
-// **平台拥有注册**:对每个 Feature 依次 init(建数据) → agents(声明,逐个 registerAgent) →
+// **平台拥有注册**:对每个 Feature 依次 init(建数据) → agents(声明,逐个 registerAgent,并登记能力目录来源) →
 // artifacts(声明读口,逐个 registerArtifactReader) → registerIpc → mcpDeps(校验缺失,告警)。
 // feature 只声明贡献;注册动作经 ports 由平台执行 —— 加新业务平台核心零改动。
 //
@@ -20,7 +20,11 @@ export function installFeatures(
   for (const f of features) {
     try {
       f.init(ctx)
-      for (const agent of f.agents?.() ?? []) ports.registerAgent(agent)
+      const agents = f.agents?.() ?? []
+      for (const agent of agents) ports.registerAgent(agent)
+      ports.registerCatalogSource(`feature:${f.id}`, {
+        agents: () => agents.map((a) => ({ profile: a.profile, featureTools: a.tools ?? [] })),
+      })
       for (const artifact of f.artifacts?.() ?? []) ports.registerArtifactReader(artifact)
       f.registerIpc?.()
       for (const dep of f.mcpDeps?.() ?? []) {

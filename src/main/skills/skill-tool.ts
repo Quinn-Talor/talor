@@ -11,7 +11,7 @@ import { SkillActivationTracker } from './registry'
 
 const MAX_SKILL_CHARS = 20_000 // ~6700 tokens per skill
 
-function resolveRelativePaths(content: string, skillMdPath: string): string {
+export function resolveRelativePaths(content: string, skillMdPath: string): string {
   const skillDir = dirname(skillMdPath)
   return content.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (_match, text: string, href: string) => {
     if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#')) {

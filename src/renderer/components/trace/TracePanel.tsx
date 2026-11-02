@@ -240,24 +240,27 @@ export function TracePanel({ sessionId, traceId, openSeq, onClose }: TracePanelP
               <input type="checkbox" checked={showDebug} onChange={toggleShowDebug} />
               Show debug
             </label>
-            <span className="ml-auto flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => void sendFeedback(1)}
-                className="rounded px-1.5 py-0.5 hover:bg-surface"
-                aria-label="有帮助"
-              >
-                👍
-              </button>
-              <button
-                type="button"
-                onClick={() => void sendFeedback(0)}
-                className="rounded px-1.5 py-0.5 hover:bg-surface"
-                aria-label="没帮助"
-              >
-                👎
-              </button>
-            </span>
+            {/* 引擎轮次不支持评分（scores 外键指向旧 traces 表） */}
+            {current.trace.metadata.source !== 'engine' && (
+              <span className="ml-auto flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => void sendFeedback(1)}
+                  className="rounded px-1.5 py-0.5 hover:bg-surface"
+                  aria-label="有帮助"
+                >
+                  👍
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendFeedback(0)}
+                  className="rounded px-1.5 py-0.5 hover:bg-surface"
+                  aria-label="没帮助"
+                >
+                  👎
+                </button>
+              </span>
+            )}
             {scoreError && <span className="text-err">{scoreError}</span>}
           </div>
 

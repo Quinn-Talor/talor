@@ -186,3 +186,15 @@ describe('estimateModelMessageTokens / estimateContentTokens', () => {
     ).toBeGreaterThan(10)
   })
 })
+
+describe('dbToModelMessages skips notices (A5a)', () => {
+  it('AC-005 leaves notice rows out of the legacy history', () => {
+    const notice = {
+      ...makeMsg('assistant', [{ type: 'text', text: 'NOTICE' }]),
+      content_type: 'notice' as const,
+    }
+    const result = dbToModelMessages([makeMsg('user', 'hi'), notice])
+    expect(JSON.stringify(result)).not.toContain('NOTICE')
+    expect(result).toHaveLength(1)
+  })
+})

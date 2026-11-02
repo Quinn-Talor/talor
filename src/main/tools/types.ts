@@ -85,6 +85,8 @@ export interface ToolDefinition<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
   parameters: Record<string, unknown>
   schema?: Record<string, unknown>
   riskLevel?: 'HIGH' | 'LOW'
+  /** 工具自己的执行上限（毫秒）；不声明时为 DEFAULT_TOOL_TIMEOUT_MS。 */
+  timeoutMs?: number
   /** Zod schema。提供则 registry 用 Zod 校验,跳过 schema-check。 */
   zodSchema?: TSchema
   validate?: (input: unknown, context: ToolExecuteContext) => ValidationResult

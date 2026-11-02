@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useChatStore, type ToolCallEntry, type StreamItem } from '../store/chatStore'
 import { Prose } from './markdown/Prose'
+import { ReasoningNote, VerifyingIndicator } from './TurnNotes'
 
 function useElapsedTimer(startedAt: number, active: boolean): string {
   const [elapsed, setElapsed] = useState(() => (Date.now() - startedAt) / 1000)
@@ -214,15 +215,21 @@ function StepGroup({ items, isLast }: { items: StreamItem[]; isLast: boolean }) 
   const toolItems = items.filter(
     (i): i is Extract<StreamItem, { type: 'tool_call' }> => i.type === 'tool_call',
   )
+  const reasoning = items
+    .filter((i): i is Extract<StreamItem, { type: 'reasoning' }> => i.type === 'reasoning')
+    .map((i) => i.content)
+    .join('')
   const hasText = textContent.trim().length > 0
   const hasTools = toolItems.length > 0
+  const hasReasoning = reasoning.trim().length > 0
 
-  if (!hasText && !hasTools) return null
+  if (!hasText && !hasTools && !hasReasoning) return null
 
   const showTextExpanded = isLast || expanded
 
   return (
     <div>
+      {hasReasoning && <ReasoningNote text={reasoning} live />}
       {hasText &&
         (hasTools ? (
           // Streaming intermediate text + tool calls: truncate preview only.
@@ -257,8 +264,9 @@ function StepGroup({ items, isLast }: { items: StreamItem[]; isLast: boolean }) 
 
 export function ToolCallLog() {
   const streamItems = useChatStore((s) => s.streamItems)
+  const runStatus = useChatStore((s) => s.runStatus)
 
-  if (streamItems.length === 0) return null
+  if (streamItems.length === 0 && runStatus !== 'verifying') return null
 
   const groups = groupByStep(streamItems)
 
@@ -267,6 +275,7 @@ export function ToolCallLog() {
       {groups.map((group, idx) => (
         <StepGroup key={group.stepIndex} items={group.items} isLast={idx === groups.length - 1} />
       ))}
+      {runStatus === 'verifying' && <VerifyingIndicator />}
     </div>
   )
 }

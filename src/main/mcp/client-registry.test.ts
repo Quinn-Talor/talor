@@ -99,6 +99,21 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('McpRegistry transport config (engine-mcp-credentials TASK-1)', () => {
+  it('AC-003 passes the account references to the stdio transport', async () => {
+    addServer('s1')
+    h.servers.get('s1')!.envFromAccount = { GH_TOKEN: 'github_pat' }
+    const registry = new McpRegistry()
+
+    await registry.connectServer('s1')
+
+    expect(h.state.instances[0]!.serverConfig).toMatchObject({
+      id: 's1',
+      envFromAccount: { GH_TOKEN: 'github_pat' },
+    })
+  })
+})
+
 describe('McpRegistry connect', () => {
   it('disconnects the transport and registers nothing when connect fails', async () => {
     addServer('s1')

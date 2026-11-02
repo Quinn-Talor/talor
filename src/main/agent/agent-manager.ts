@@ -182,6 +182,8 @@ export class AgentManager {
   private readonly businessAgents = new Map<string, Agent>()
   /** Feature 声明并注册的 agent profile(origin=feature),供 getFeatureAgentProfiles / 只读门禁。 */
   private readonly featureProfiles: AgentProfile[] = []
+  /** 当前由 Feature 承载(没有被用户版覆盖、替换或注销)的 agent id;能力目录按它排除核心来源里的 Feature agent。 */
+  private readonly featureIds = new Set<string>()
 
   private deps: PlatformAgentDeps | null = null
   private loader: AgentLoader | null = null
@@ -271,6 +273,7 @@ export class AgentManager {
     }
     this.businessAgents.set(profile.id, this.buildAgent(profile, null, tools))
     this.featureProfiles.push(profile)
+    this.featureIds.add(profile.id)
     log.info('[AgentManager] Registered feature agent:', profile.id)
   }
 
@@ -297,6 +300,7 @@ export class AgentManager {
       featureTools: [],
     })
     this.businessAgents.set(agentId, agent)
+    this.featureIds.delete(agentId)
     log.info('[AgentManager] Registered business agent:', agentId)
     return agent
   }
@@ -308,12 +312,14 @@ export class AgentManager {
   reloadUserAgent(profile: AgentProfile, dirPath: string): Agent {
     const agent = this.buildAgent(profile, dirPath, [])
     this.businessAgents.set(profile.id, agent)
+    this.featureIds.delete(profile.id)
     log.info('[AgentManager] Reloaded user agent:', profile.id)
     return agent
   }
 
   unregisterBusinessAgent(agentId: string): boolean {
     const removed = this.businessAgents.delete(agentId)
+    this.featureIds.delete(agentId)
     if (removed) {
       log.info('[AgentManager] Unregistered business agent:', agentId)
     }
@@ -360,6 +366,11 @@ export class AgentManager {
    */
   getFeatureAgentProfiles(): AgentProfile[] {
     return this.featureProfiles
+  }
+
+  /** 当前由 Feature 承载的 agent id。 */
+  featureAgentIds(): ReadonlySet<string> {
+    return this.featureIds
   }
 
   get isInitialized(): boolean {

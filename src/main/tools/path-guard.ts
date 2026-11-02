@@ -9,7 +9,7 @@ import { homedir } from 'os'
 //   - SYSTEM_SENSITIVE_ROOTS：系统绝对路径（含 macOS 下 /etc 的真实路径 /private/etc）
 //   - HOME_SENSITIVE_ENTRIES：相对用户主目录，运行时展开为 homedir() 前缀
 //   - SENSITIVE_SEGMENTS：任意位置出现该目录段即命中（其他用户 / root 的密钥目录）
-const SYSTEM_SENSITIVE_ROOTS = [
+export const SYSTEM_SENSITIVE_ROOTS = [
   '/etc',
   '/private/etc',
   '/root',
@@ -20,7 +20,7 @@ const SYSTEM_SENSITIVE_ROOTS = [
   '/Library/Keychains',
 ]
 
-const HOME_SENSITIVE_ENTRIES = [
+export const HOME_SENSITIVE_ENTRIES = [
   // SSH / 加密密钥
   '.ssh',
   '.gnupg',
@@ -40,7 +40,10 @@ const HOME_SENSITIVE_ENTRIES = [
 
 const SENSITIVE_SEGMENTS = ['.ssh', '.gnupg', '.aws']
 
-const SKILL_ROOTS = [join(homedir(), '.talor', 'skills'), join(homedir(), '.talor', 'agents')]
+export const SKILL_ROOTS = [
+  join(homedir(), '.talor', 'skills'),
+  join(homedir(), '.talor', 'agents'),
+]
 
 // macOS 默认文件系统大小写不敏感：/ETC/passwd 与 /etc/passwd 指向同一文件
 const CASE_INSENSITIVE_FS = process.platform === 'darwin'

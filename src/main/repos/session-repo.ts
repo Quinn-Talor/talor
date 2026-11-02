@@ -70,6 +70,8 @@ export interface ChatMessage {
   agent_id: string
   created_at: string
   trace_id?: string
+  /** 'notice'：给用户看、不进模型输入的提示消息；普通消息没有这个字段。 */
+  content_type?: 'notice'
 }
 
 function rowToSession(row: SessionRow): ChatSession {
@@ -129,6 +131,7 @@ function rowToMessage(row: MessageRow): ChatMessage {
     agent_id: row.agent_id ?? '__chat__',
     created_at: row.created_at,
     ...(row.trace_id ? { trace_id: row.trace_id } : {}),
+    ...(row.content_type === 'notice' ? { content_type: 'notice' as const } : {}),
   }
 }
 
@@ -464,6 +467,10 @@ export interface MessageCreateParams {
   agent_id?: string
   /** 缺省时取当前 trace scope 的 traceId(scope 外为 NULL);显式 null 强制不挂 trace。 */
   trace_id?: string | null
+  /** 缺省 'blocks';'notice' 为不进模型输入的提示消息。 */
+  content_type?: 'blocks' | 'notice'
+  /** 缺省为当前时间;提示消息用它排到所属运行的最后一行之后。 */
+  created_at?: string
 }
 
 function effectiveTraceId(params: MessageCreateParams): string | null {
@@ -504,16 +511,26 @@ export const messageRepo = {
 
   create(params: MessageCreateParams): ChatMessage {
     const db = getDb()
-    const now = new Date().toISOString()
+    const now = params.created_at ?? new Date().toISOString()
     const contentJson = JSON.stringify(params.content)
     const agentId = params.agent_id ?? '__chat__'
     const traceId = effectiveTraceId(params)
+    const contentType = params.content_type ?? 'blocks'
     db.prepare(
       `
       INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at, trace_id)
-      VALUES (?, ?, ?, ?, 'blocks', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    ).run(params.id, params.session_id, params.role, contentJson, agentId, now, traceId)
+    ).run(
+      params.id,
+      params.session_id,
+      params.role,
+      contentJson,
+      contentType,
+      agentId,
+      now,
+      traceId,
+    )
     return {
       id: params.id,
       session_id: params.session_id,
@@ -522,6 +539,7 @@ export const messageRepo = {
       agent_id: agentId,
       created_at: now,
       ...(traceId ? { trace_id: traceId } : {}),
+      ...(contentType === 'notice' ? { content_type: 'notice' as const } : {}),
     }
   },
 

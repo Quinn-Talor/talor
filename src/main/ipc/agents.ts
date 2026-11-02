@@ -24,6 +24,9 @@ import { buildAgentList } from './agent-list'
 import { serializeS1History } from '../agent/draft-extractor'
 import { recommendMode } from '../agent/crystallizer-heuristics'
 import { v4 as uuidv4 } from 'uuid'
+import { mcpRegistry } from '../mcp/client'
+import { currentCatalog, engineToolsView } from '../runtime/catalog'
+import { runtimeMode } from '../runtime/dispatch'
 
 /**
  * 粗略统计 session 中失败的工具调用数量（用于 Crystallizer mode 启发式）。
@@ -711,7 +714,10 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
   ipcMain.handle('agents:list-tools', (_event, agentId: string) => {
     const agent = agentManager.getAgent(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
-    return agent.toolRegistry.listTools()
+    if (runtimeMode() === 'off') return agent.toolRegistry.listTools()
+    // 引擎路径：界面显示的就是能力目录为这个 agent 选出的工具
+    const caps = currentCatalog().select(agent.profile)
+    return engineToolsView(caps, mcpRegistry.listRegisteredTools())
   })
 
   ipcMain.handle(

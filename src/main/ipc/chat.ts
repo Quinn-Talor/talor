@@ -13,9 +13,9 @@ import log from 'electron-log'
 import { getMainWindow } from './window'
 import { requestToolConfirm } from './tool-confirm'
 import { requestPermissionFromRenderer } from './permission'
-import { sendChat } from '../chat/orchestrator'
 import { streamRegistry } from '../chat/stream-registry'
 import { isErrorOutput } from '../loop/stream-utils'
+import { dispatchTurn } from '../runtime/dispatch'
 import type { AgentManager } from '../agent/agent-manager'
 
 /** 渲染端传入的 snake_case 参数结构。 */
@@ -42,7 +42,8 @@ export function registerChatHandlers(agentManager: AgentManager): void {
     }
 
     const sid = raw.session_id
-    const { messageId } = await sendChat(
+    // 按运行时模式（off / auto / force）逐轮分派到旧路径或 agent-engine；回调与端口相同
+    const { messageId } = await dispatchTurn(
       {
         sessionId: sid,
         content: raw.content,
@@ -85,6 +86,16 @@ export function registerChatHandlers(agentManager: AgentManager): void {
             session_id: persistedSid,
             step_index: stepIdx,
           }),
+        // 引擎路径：推理模型的思考流与"核对中"状态（旧路径不调用）
+        onReasoningDelta: (mid, delta, stepIdx) =>
+          send('chat:reasoning', {
+            session_id: sid,
+            message_id: mid,
+            delta,
+            step_index: stepIdx,
+          }),
+        onRunStatus: (mid, status) =>
+          send('chat:status', { session_id: sid, message_id: mid, status }),
         onDone: (mid, err) =>
           send('chat:stream', {
             session_id: sid,

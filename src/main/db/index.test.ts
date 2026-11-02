@@ -9,6 +9,7 @@ import {
   cleanupOrphanRunningSubSessions,
   initTraceTables,
   ensureMessagesTraceColumn,
+  ensureMcpServerColumns,
   sweepOpenTraces,
   pruneTraces,
 } from './index'
@@ -435,6 +436,44 @@ describe('pruneTraces (turn-trace TASK-1)', () => {
 
     expect(pruneTraces(db, 0, NOW)).toBe(0)
     expect(countRows(db, 'traces')).toBe(1)
+    db.close()
+  })
+})
+
+describe('ensureMcpServerColumns (engine-mcp-credentials TASK-1)', () => {
+  const CREATE_MCP_SERVERS_OLD = `
+CREATE TABLE mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('stdio', 'http')),
+    command TEXT,
+    args TEXT,
+    env TEXT,
+    url TEXT,
+    auth TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+`
+
+  it('AC-001 adds env_from_account once and keeps existing rows', () => {
+    const db = new Database(':memory:')
+    db.exec(CREATE_MCP_SERVERS_OLD)
+    db.prepare(
+      `INSERT INTO mcp_servers (id, name, type, command, created_at, updated_at)
+       VALUES ('m1', 'fs', 'stdio', 'npx', ?, ?)`,
+    ).run(NOW, NOW)
+    vi.mocked(log.info).mockClear()
+
+    ensureMcpServerColumns(db)
+    expect(() => ensureMcpServerColumns(db)).not.toThrow()
+
+    expect(columnNames(db, 'mcp_servers')).toContain('env_from_account')
+    expect(vi.mocked(log.info)).toHaveBeenCalledTimes(1)
+    expect(db.prepare('SELECT name, env_from_account FROM mcp_servers').all()).toEqual([
+      { name: 'fs', env_from_account: null },
+    ])
     db.close()
   })
 })

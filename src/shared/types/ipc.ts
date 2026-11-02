@@ -113,6 +113,8 @@ export interface MCPServer {
   command?: string
   args?: string[]
   env?: Record<string, string>
+  /** 凭据引用：子进程环境变量名 → 账户里的 key 名。 */
+  envFromAccount?: Record<string, string>
   url?: string
   auth?: MCPAuthConfig
   enabled: boolean
@@ -126,6 +128,8 @@ export interface MCPServerInput {
   command?: string
   args?: string[]
   env?: Record<string, string>
+  /** 凭据引用：子进程环境变量名 → 账户里的 key 名。 */
+  envFromAccount?: Record<string, string>
   url?: string
   auth?: MCPAuthConfig
   enabled?: boolean
@@ -187,6 +191,8 @@ export interface ChatMessage {
   content: string
   created_at: string
   trace_id?: string
+  /** 'notice'：给用户看、不进模型输入的提示消息 */
+  content_type?: 'notice'
 }
 
 export interface Attachment {
@@ -228,6 +234,21 @@ export interface ChatStreamEvent {
   error_message?: string
 }
 
+/** 引擎路径：推理模型的思考增量。 */
+export interface ChatReasoningEvent {
+  session_id: string
+  message_id: string
+  delta: string
+  step_index: number
+}
+
+/** 引擎路径：交付验收期间为 verifying，结束回到 idle。 */
+export interface ChatStatusEvent {
+  session_id: string
+  message_id: string
+  status: 'verifying' | 'idle'
+}
+
 export interface SessionRenameParams {
   session_id: string
   title: string
@@ -247,4 +268,14 @@ export interface SessionUpdateReasoningParams {
 export interface SessionCheckModelAvailabilityResult {
   available: boolean
   model_id?: string
+}
+
+/** 插件（plugins:list 等返回）。 */
+export interface PluginInfo {
+  name: string
+  dir: string
+  enabled: boolean
+  loaded: boolean
+  error?: string
+  counts: { skills: number; agents: number; mcpServers: number; hooks: number; commands: number }
 }

@@ -10,6 +10,10 @@ import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AttachmentPreview } from '../../components/AttachmentPreview'
 import { WorkspaceSelector } from '../../components/WorkspaceSelector'
 import { ToolCallLog } from '../../components/ToolCallLog'
+import { ProcessNote, ReasoningNote } from '../../components/TurnNotes'
+import { assistantView } from '../../lib/turn-view'
+import { intentViewOf } from '../../lib/intent-view'
+import { IntentCard } from '../../components/IntentCard'
 import { ToolDispatch } from '../../components/tool-calls/ToolDispatch'
 import { TraceChip } from '../../components/trace/TraceChip'
 import { TracePanel } from '../../components/trace/TracePanel'
@@ -275,6 +279,29 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         acc.push(traceChip(prev.trace_id, prev.session_id, idx))
       }
       if (isHiddenChatMessage(msg)) return acc
+      // 引擎路径写的行带阶段标记；旧路径的行 view.phase 为 null，显示与改动前完全相同
+      const view = msg.role === 'assistant' ? assistantView(msg.content) : null
+      const reasoningNote =
+        view?.phase && view.reasoning ? (
+          <ReasoningNote key={`${msg.id}-reasoning`} text={view.reasoning} />
+        ) : null
+      // 引擎的意图调用（只对标为答复的行）画成卡片，卡片上的选择作为下一条用户消息发出
+      if (msg.role === 'assistant') {
+        const next = messages[idx + 1]
+        const intent = intentViewOf(msg.content, next?.role === 'tool' ? next.content : undefined)
+        if (intent) {
+          if (reasoningNote) acc.push(reasoningNote)
+          acc.push(
+            <div key={msg.id} className="turn" data-variant="normal">
+              <div className="turn-av av-bot">T</div>
+              <div className="turn-body">
+                <IntentCard view={intent} onReply={blockOnPickChoice} />
+              </div>
+            </div>,
+          )
+          return acc
+        }
+      }
       if (msg.role === 'assistant') {
         try {
           const blocks = JSON.parse(msg.content) as Array<{
@@ -328,6 +355,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               .join('')
               .trim()
             const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r]))
+            if (reasoningNote) acc.push(reasoningNote)
             acc.push(
               <div key={msg.id} className="pl-[32px] mb-1">
                 {textContent && (
@@ -352,6 +380,12 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
           /* render normal */
         }
       }
+      if (view?.phase === 'process') {
+        if (reasoningNote) acc.push(reasoningNote)
+        acc.push(<ProcessNote key={msg.id} text={view.text} />)
+        return acc
+      }
+      if (reasoningNote) acc.push(reasoningNote)
       acc.push(
         <MessageBubble
           key={msg.id}

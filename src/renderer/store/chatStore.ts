@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { ChatSession, ChatMessage, Attachment } from '../types/chat'
 import type { ToolConfirmRequest } from '@shared/types/message'
 import type { PermissionRequest } from '@shared/types/permissions'
+import type { RunStatus } from '@shared/turn-phase'
 
 export interface ToolCallEntry {
   toolCallId: string
@@ -16,6 +17,8 @@ export interface ToolCallEntry {
 export type StreamItem =
   | { type: 'text'; stepIndex: number; content: string }
   | { type: 'tool_call'; stepIndex: number; entry: ToolCallEntry }
+  /** 引擎路径：推理模型的思考流，排在同一步其他条目之前 */
+  | { type: 'reasoning'; stepIndex: number; content: string }
 
 /**
  * 一次 chat:send 在渲染端的生命周期:发起时建立,chat:send 返回时移除。
@@ -35,6 +38,8 @@ interface ChatState {
   messages: ChatMessage[]
   streamState: 'idle' | 'streaming' | 'done' | 'error' | 'aborted'
   streamItems: StreamItem[]
+  /** 引擎路径：交付验收期间为 verifying（显示"核对中"） */
+  runStatus: RunStatus
   error: { code: string; message: string } | null
   attachments: Attachment[]
   /** 进行中的轮次,按 session id 索引(同一 session 同时至多一轮) */
@@ -49,6 +54,8 @@ interface ChatState {
   setMessages: (messages: ChatMessage[]) => void
   addMessage: (message: ChatMessage) => void
   appendStreamText: (stepIndex: number, delta: string) => void
+  appendStreamReasoning: (stepIndex: number, delta: string) => void
+  setRunStatus: (status: RunStatus) => void
   addToolCall: (entry: Omit<ToolCallEntry, 'status'> & { stepIndex: number }) => void
   updateToolResult: (
     toolCallId: string,
@@ -108,6 +115,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streamState: 'idle',
   streamItems: [],
+  runStatus: 'idle',
   error: null,
   attachments: [],
   turns: {},
@@ -123,6 +131,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         currentSessionId: id,
         streamState: turn && !turn.stopped ? 'streaming' : 'idle',
         streamItems: [],
+        runStatus: 'idle',
         error: null,
         attachments: [],
       }
@@ -141,6 +150,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       return { streamItems: items }
     }),
+
+  appendStreamReasoning: (stepIndex, delta) =>
+    set((state) => {
+      const items = [...state.streamItems]
+      const at = items.findIndex((it) => it.type === 'reasoning' && it.stepIndex === stepIndex)
+      if (at >= 0) {
+        const item = items[at] as Extract<StreamItem, { type: 'reasoning' }>
+        items[at] = { ...item, content: item.content + delta }
+        return { streamItems: items }
+      }
+      const first = items.findIndex((it) => it.stepIndex === stepIndex)
+      const entry: StreamItem = { type: 'reasoning', stepIndex, content: delta }
+      if (first >= 0) items.splice(first, 0, entry)
+      else items.push(entry)
+      return { streamItems: items }
+    }),
+  setRunStatus: (runStatus) => set({ runStatus }),
 
   addToolCall: ({ stepIndex, ...entry }) =>
     set((state) => ({
@@ -173,7 +199,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (turn && (turn.stopped || (turn.messageId !== null && turn.messageId !== messageId))) {
         return state
       }
-      return { streamState: 'done', streamItems: [], error: null }
+      return { streamState: 'done', streamItems: [], runStatus: 'idle', error: null }
     }),
   dropStreamItemsUpToStep: (persistedStepIndex) =>
     set((state) => ({
@@ -181,7 +207,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })),
   setStreamState: (streamState) => set({ streamState }),
   setError: (error) => set({ error }),
-  clearStreaming: () => set({ streamState: 'idle', streamItems: [], error: null }),
+  clearStreaming: () =>
+    set({ streamState: 'idle', streamItems: [], runStatus: 'idle', error: null }),
   setAttachments: (attachments) => set({ attachments }),
   addAttachment: (attachment) =>
     set((state) => ({ attachments: [...state.attachments, attachment] })),
@@ -195,7 +222,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => {
       const turns = { ...state.turns, [sessionId]: { messageId: null, stopped: false } }
       if (sessionId !== state.currentSessionId) return { turns }
-      return { turns, streamState: 'streaming', streamItems: [], error: null }
+      return { turns, streamState: 'streaming', streamItems: [], runStatus: 'idle', error: null }
     }),
   finishTurn: (sessionId) =>
     set((state) => {

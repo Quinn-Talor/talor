@@ -42,6 +42,8 @@ export type {
   ChatSendParams,
   ChatSendResult,
   ChatStreamEvent,
+  ChatReasoningEvent,
+  ChatStatusEvent,
   SessionRenameParams,
   SessionUpdateModelParams,
   SessionUpdateReasoningParams,
@@ -67,11 +69,14 @@ import type {
   ChatSendParams,
   ChatSendResult,
   ChatStreamEvent,
+  ChatReasoningEvent,
+  ChatStatusEvent,
   SessionRenameParams,
   SessionUpdateModelParams,
   SessionUpdateReasoningParams,
   SessionUpdateWorkspaceParams,
   SessionCheckModelAvailabilityResult,
+  PluginInfo,
 } from '@shared/types/ipc'
 
 // 顶部 debug 日志仅在 dev 下输出,避免生产 DevTools 泄漏启动信息。
@@ -191,6 +196,18 @@ const talorAPI = {
       ipcRenderer.on('chat:stream', handler)
       return () => ipcRenderer.removeListener('chat:stream', handler)
     },
+    /** 引擎路径：推理模型的思考增量（chat:reasoning）。 */
+    onReasoning: (callback: (event: ChatReasoningEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: ChatReasoningEvent) => callback(data)
+      ipcRenderer.on('chat:reasoning', handler)
+      return () => ipcRenderer.removeListener('chat:reasoning', handler)
+    },
+    /** 引擎路径：交付验收期间的"核对中"状态（chat:status）。 */
+    onStatus: (callback: (event: ChatStatusEvent) => void): (() => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: ChatStatusEvent) => callback(data)
+      ipcRenderer.on('chat:status', handler)
+      return () => ipcRenderer.removeListener('chat:status', handler)
+    },
     onToolCall: (callback: (event: ChatToolCallEvent) => void): (() => void) => {
       const handler = (_: Electron.IpcRendererEvent, data: ChatToolCallEvent) => callback(data)
       ipcRenderer.on('chat:tool-call', handler)
@@ -252,6 +269,13 @@ const talorAPI = {
       ipcRenderer.invoke('permissions:clearSession', workspacePath),
     listWorkspaces: (): Promise<Array<{ workspacePath: string; ruleCount: number }>> =>
       ipcRenderer.invoke('permissions:listWorkspaces'),
+  },
+
+  plugins: {
+    list: (): Promise<PluginInfo[]> => ipcRenderer.invoke('plugins:list'),
+    setEnabled: (name: string, enabled: boolean): Promise<PluginInfo[]> =>
+      ipcRenderer.invoke('plugins:set-enabled', name, enabled),
+    reload: (): Promise<PluginInfo[]> => ipcRenderer.invoke('plugins:reload'),
   },
 
   skills: {

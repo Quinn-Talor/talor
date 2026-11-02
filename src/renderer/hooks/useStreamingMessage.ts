@@ -1,6 +1,12 @@
 import { useEffect } from 'react'
 import { useChatStore } from '../store/chatStore'
-import type { ChatStreamEvent, ChatToolCallEvent, ChatToolResultEvent } from '../types/chat'
+import type {
+  ChatReasoningEvent,
+  ChatStatusEvent,
+  ChatStreamEvent,
+  ChatToolCallEvent,
+  ChatToolResultEvent,
+} from '../types/chat'
 import { talorAPI } from '../api/talorAPI'
 
 /**
@@ -63,7 +69,25 @@ export function useStreamingMessage(sessionId: string | null) {
       )
     })
 
+    // 引擎路径：推理流与"核对中"（旧路径不发这两个事件）
+    const unsubscribeReasoning = talorAPI.chat.onReasoning((event: ChatReasoningEvent) => {
+      if (event.session_id !== sessionId) return
+      const s = useChatStore.getState()
+      if (!s.claimTurnEvent(sessionId, event.message_id)) return
+      s.appendStreamReasoning(event.step_index, event.delta)
+      s.setStreamState('streaming')
+    })
+
+    const unsubscribeStatus = talorAPI.chat.onStatus((event: ChatStatusEvent) => {
+      if (event.session_id !== sessionId) return
+      const s = useChatStore.getState()
+      if (!s.claimTurnEvent(sessionId, event.message_id)) return
+      s.setRunStatus(event.status)
+    })
+
     return () => {
+      unsubscribeReasoning()
+      unsubscribeStatus()
       unsubscribeStream()
       unsubscribeToolCall()
       unsubscribeToolResult()

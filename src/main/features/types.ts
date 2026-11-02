@@ -10,6 +10,7 @@
 
 import type { Database } from 'better-sqlite3'
 import type { ToolDefinition } from '../tools/types'
+import type { CatalogContribution } from '../runtime/catalog'
 import type { AgentProfile } from '../../shared/types/agent'
 
 /** init 时平台注入的上下文(建数据用)。 */
@@ -56,4 +57,6 @@ export interface FeaturePorts {
   registerAgent(agent: FeatureAgent): void
   registerArtifactReader(artifact: FeatureArtifact): void
   isMcpConfigured(serverName: string): boolean
+  /** 把本 Feature 的能力登记进能力目录(id 为 `feature:<featureId>`)。 */
+  registerCatalogSource(id: string, contribution: CatalogContribution): void
 }

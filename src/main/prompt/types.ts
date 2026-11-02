@@ -68,14 +68,8 @@ export interface PluginResult {
   tokenEstimate: number
 }
 
-export interface ProviderContextConfig {
-  provider: Provider
-  /** 会话实际使用的模型 id;memory 压缩等辅助 LLM 调用沿用该模型。 */
-  modelId?: string
-  context_limit: number
-  recent_ratio: number
-  summary_ratio: number
-}
+import type { ProviderContextConfig } from '../history/context-config'
+export type { ProviderContextConfig }
 
 /** @deprecated Use ToolMetadata from tools/types instead */
 export type ToolSchema = ToolMetadata

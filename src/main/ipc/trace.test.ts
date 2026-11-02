@@ -248,6 +248,7 @@ describe('trace:score:create', () => {
   })
 
   it('maps a repo write error to TRACE_WRITE_FAILED', async () => {
+    insertTrace('t1', 's1', '2026-10-19T10:00:00.000Z')
     vi.spyOn(traceRepo, 'createScore').mockImplementation(() => {
       throw new Error('readonly')
     })

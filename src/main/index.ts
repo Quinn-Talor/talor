@@ -22,6 +22,8 @@ import { registerSessionHandlers } from './ipc/session'
 import { registerChatHandlers } from './ipc/chat'
 import { registerFileHandlers } from './ipc/fileHandlers'
 import { registerMCPHandlers } from './ipc/mcp'
+import { registerPluginHandlers } from './ipc/plugins'
+import { pluginCatalogSource, reloadPlugins } from './runtime/plugins'
 import { registerAgentHandlers } from './ipc/agents'
 import { registerSkillHandlers } from './ipc/skills'
 import { registerAccountHandlers } from './ipc/accounts'
@@ -32,7 +34,10 @@ import { initChatDb, closeChatDb, getDb, pruneTraces } from './db/index'
 import { traceRecorder } from './observe/trace-recorder'
 import { installFeatures } from './features/install'
 import { ArtifactReaderRegistry } from './features/artifact-readers'
-import { mcpServerRepo } from './repos/mcp-server-repo'
+import { mcpServerRepo, setMcpAuthCipher, type SecretCipher } from './repos/mcp-server-repo'
+import { runtimeCreated } from './runtime/engine'
+import { catalogRegistry, featureSourcePort, talorCatalogSources } from './runtime/catalog'
+import { shutdownForQuit, startEngineRuntime } from './runtime/lifecycle'
 import { AgentManager } from './agent/agent-manager'
 import { BuiltinToolRegistry } from './agent/builtin-registry'
 import { AccountStore } from './accounts/account-store'
@@ -43,7 +48,7 @@ import { sharedPromptPipeline } from './chat/orchestrator'
 import { runReactLoop } from './loop/react-loop'
 import { getAdapter, resolveStreamOptions } from './providers/model-adapter'
 import { resolveSessionProviderModel } from './chat/provider-selector'
-import { resolveProviderConfig } from './prompt/PromptPipeline'
+import { resolveProviderConfig } from './history/context-config'
 import { SkillRegistry } from './skills/registry'
 import { SafeStorageService } from './services/safe-storage'
 import { safeStorage } from 'electron'
@@ -67,6 +72,7 @@ registerSessionHandlers()
 registerChatHandlers(agentManager)
 registerFileHandlers()
 registerMCPHandlers()
+registerPluginHandlers()
 registerAgentHandlers(agentManager)
 registerSkillHandlers(agentManager)
 registerPermissionHandlers()
@@ -207,11 +213,19 @@ app.whenReady().then(() => {
   const safeStorageInstance = SafeStorageService.getInstance()
   // Account 凭据已迁至 DB(account_keys 表),不再需要 filePath 参数。
   // safeStorage 仍用于加密 secret 字段,与旧实现保持同样的 OS 级保护。
-  const accountStore = new AccountStore({
+  // MCP 服务器的 token / apiKey 用同一个加解密对象,启动时把明文存储的迁移为密文。
+  const secretCipher: SecretCipher = {
     isAvailable: () => safeStorageInstance.isAvailable(),
     encrypt: (value: string) => safeStorage.encryptString(value).toString('base64'),
     decrypt: (encrypted: string) => safeStorage.decryptString(Buffer.from(encrypted, 'base64')),
-  })
+  }
+  const accountStore = new AccountStore(secretCipher)
+  setMcpAuthCipher(secretCipher)
+  try {
+    mcpServerRepo.encryptStoredAuth()
+  } catch (err) {
+    log.warn('[Main] MCP credential migration failed:', err)
+  }
 
   registerAccountHandlers(accountStore)
 
@@ -248,6 +262,8 @@ app.whenReady().then(() => {
     delegationRuntime,
   })
   log.info('[Main] Agent system initialized')
+  // 能力目录的来源按登记顺序汇总:Talor 核心 → Feature → 插件(同名条目先登记的胜出)
+  catalogRegistry.register('talor', talorCatalogSources(agentManager))
 
   // Feature 融合:平台拥有注册。组合根登记各业务 Feature —— 当前为空(平台框架就绪,
   // 业务 feature 后续在此数组加一项即可接入,平台核心零改动)。
@@ -263,14 +279,20 @@ app.whenReady().then(() => {
       registerAgent: (fa) => agentManager.registerFeatureAgent(fa.profile, fa.tools ?? []),
       registerArtifactReader: (a) => artifactReaders.register(a),
       isMcpConfigured: (name) => mcpServerRepo.list().some((s) => s.name === name),
+      registerCatalogSource: featureSourcePort(catalogRegistry, agentManager),
     },
   )
   log.info('[Main] Features installed')
+  // 插件最后登记;启动时异步加载,不阻塞创建窗口
+  catalogRegistry.register('plugins', pluginCatalogSource())
+  reloadPlugins().catch((err) => log.warn('[Main] plugin load failed:', err))
 
   createWindow()
   mcpRegistry.connectAllEnabled().catch((err) => {
     log.warn('[Main] Failed to connect MCP servers:', err)
   })
+  // 引擎运行时(模式不是 off):启动时创建引擎并预连接 MCP 服务器,再收尾上次中断的运行
+  startEngineRuntime().catch((err) => log.warn('[Main] engine start failed:', err))
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -282,7 +304,10 @@ app.whenReady().then(() => {
 // 退出前把仍在缓冲中的 trace 写盘(进行中的轮次下次启动由 sweepOpenTraces 收尾)。
 // macOS Cmd+Q 走 before-quit;Windows / Linux 关最后一个窗口会先 closeChatDb 再 quit,
 // 所以 window-all-closed 里要在关库之前先写盘,否则 before-quit 时 DB 已关闭。
-app.on('before-quit', () => {
+// 创建过引擎时,退出前限时等引擎关闭(停止进行中的运行、关 MCP 连接池)与进行中的轮次写完。
+let quitting = false
+app.on('before-quit', (event) => {
+  if (quitting) return
   traceRecorder.flushAll()
   // stdio MCP server 是普通子进程,父进程退出不会带走它们
   for (const id of mcpRegistry.getConnectedServers()) {
@@ -290,13 +315,19 @@ app.on('before-quit', () => {
       log.warn('[Main] MCP disconnect on quit failed:', id, err)
     })
   }
+  if (!runtimeCreated()) return
+  event.preventDefault()
+  quitting = true
+  shutdownForQuit().finally(() => app.quit())
 })
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     traceRecorder.flushAll()
-    closeChatDb()
-    app.quit()
+    shutdownForQuit().finally(() => {
+      closeChatDb()
+      app.quit()
+    })
   }
 })
 

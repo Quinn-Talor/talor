@@ -3,15 +3,13 @@
 // 允许依赖：store/*（读配置）、memory/*、shared/*
 // 禁止依赖：ipc/*
 //
-// 已知欠款：resolveProviderConfig 直接引用 ConfigStore 单例。后续可改为依赖注入。
+// resolveProviderConfig 已迁到 history/context-config（这里再导出）。
 
-import { ConfigStore } from '../store/config-store'
 import { MemoryManager } from '../memory/MemoryManager'
-import type { PipelineContext, ProviderContextConfig, PromptPlugin, StabilityLayer } from './types'
+import type { PipelineContext, PromptPlugin, StabilityLayer } from './types'
 import { applyAnthropicCacheBreakpoints } from './cache-breakpoints'
 import { estimateModelMessagesTokens, estimateToolDefinitionsTokens } from '../memory/types'
 import type { ToolMetadata } from '../tools/types'
-import type { Provider } from '../store/config-store'
 import type { ModelMessage } from 'ai'
 import log from 'electron-log'
 
@@ -30,23 +28,7 @@ const CRITICAL_PLUGIN_NAMES = new Set([
   'MessagePlugin',
 ])
 
-/**
- * Merges provider-level overrides with global defaults from ConfigStore.
- * `modelId` 为会话实际使用的模型,供 memory 压缩等辅助调用沿用。
- */
-export function resolveProviderConfig(provider: Provider, modelId?: string): ProviderContextConfig {
-  const configStore = ConfigStore.getInstance()
-  const defaultLimit = configStore.get('default_context_limit') as number | undefined
-  const defaultRecent = configStore.get('default_recent_ratio') as number | undefined
-  const defaultSummary = configStore.get('default_summary_ratio') as number | undefined
-  return {
-    provider,
-    ...(modelId ? { modelId } : {}),
-    context_limit: provider.context_limit ?? defaultLimit ?? 1_000_000,
-    recent_ratio: provider.recent_ratio ?? defaultRecent ?? 0.05,
-    summary_ratio: provider.summary_ratio ?? defaultSummary ?? 0.05,
-  }
-}
+export { resolveProviderConfig } from '../history/context-config'
 
 /** append-only 装配:层 rank 越小越靠前(可缓存前缀),volatile 在尾部。 */
 const LAYER_RANK: Record<StabilityLayer, number> = {

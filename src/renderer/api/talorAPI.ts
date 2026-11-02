@@ -3,6 +3,8 @@ import type {
   ChatSession,
   ChatMessage,
   ChatStreamEvent,
+  ChatReasoningEvent,
+  ChatStatusEvent,
   ChatToolCallEvent,
   ChatToolResultEvent,
   Attachment,
@@ -88,6 +90,8 @@ declare global {
         }) => Promise<{ message_id: string }>
         abort: (sessionId: string) => Promise<void>
         onStream: (callback: (event: ChatStreamEvent) => void) => () => void
+        onReasoning: (callback: (event: ChatReasoningEvent) => void) => () => void
+        onStatus: (callback: (event: ChatStatusEvent) => void) => () => void
         onToolCall: (callback: (event: ChatToolCallEvent) => void) => () => void
         onToolResult: (callback: (event: ChatToolResultEvent) => void) => () => void
         onMessagePersisted: (
@@ -106,6 +110,14 @@ declare global {
       }
       skills: {
         listPlatform: () => Promise<Array<{ name: string; description: string }>>
+      }
+      plugins: {
+        list: () => Promise<import('../../shared/types/ipc').PluginInfo[]>
+        setEnabled: (
+          name: string,
+          enabled: boolean,
+        ) => Promise<import('../../shared/types/ipc').PluginInfo[]>
+        reload: () => Promise<import('../../shared/types/ipc').PluginInfo[]>
       }
       mcp: {
         list: () => Promise<import('../../preload/index').MCPServer[]>
@@ -319,6 +331,8 @@ const stubChat = {
   send: () => Promise.resolve({ message_id: '' }),
   abort: () => Promise.resolve(),
   onStream: () => () => {},
+  onReasoning: () => () => {},
+  onStatus: () => () => {},
   onToolCall: () => () => {},
   onToolResult: () => () => {},
   onMessagePersisted: () => () => {},
