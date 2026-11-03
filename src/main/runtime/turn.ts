@@ -2,7 +2,7 @@
 //
 // 与旧的 sendChat 同样的签名与约定：只经 onDone 报错，函数本身不抛异常；注册中止之后才负责清理。
 // 编排：校验 → 取目录快照、展开插件命令 → 注册中止 → 选 Agent 与模型 → 保存用户消息 → 取 history（跨轮摘要，
-// 上下文上限按模型窗口；摘要实现把最后一条消息当本轮输入去掉）→
+// 上下文上限按引擎的输入上限；摘要实现把最后一条消息当本轮输入去掉）→
 // 登记本会话的授权端口 → 启动运行并投影（含子孙运行，委托的子运行落到子会话）→ 等运行与投影结束 →
 // 记本运行自己的用量（总量减子运行）→ onDone。运行 id 用本轮的 messageId，messages 行的 trace_id 也是它。
 //
@@ -24,7 +24,6 @@ import {
 } from '../chat/attachments'
 import { resolveSessionProviderModel } from '../chat/provider-selector'
 import { streamRegistry } from '../chat/stream-registry'
-import { engineContextConfig } from '../history/context-config'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
 import { messageRepo, sessionRepo } from '../repos/session-repo'
 import { ConfigStore } from '../store/config-store'
@@ -34,7 +33,7 @@ import { currentCatalog, expandCommand, type CatalogSnapshot } from './catalog'
 import { createRunTreeProjection, ownNormalizedUsage } from './children'
 import { addSessionUsage, usageRemainder } from './projection'
 import { childTimeoutOf, getRuntime, type Runtime } from './engine'
-import { modelRefOf } from './models'
+import { historyConfigOf, modelRefOf } from './models'
 import { markInterrupted } from './lifecycle'
 import { historyFor } from './history-policy'
 import { taskFor } from './task'
@@ -140,7 +139,7 @@ async function runTurn(
     sessionRepo.touch(sessionId)
     const history = await historyFor({
       sessionId,
-      config: engineContextConfig(provider, modelId),
+      config: historyConfigOf(provider, modelId),
       signal: abort.signal,
     })
 
@@ -179,7 +178,7 @@ async function runTurn(
     await projection.idle()
     // 被引擎关闭打断（应用退出）的运行留一条不进 history 的中断提示
     if (result.status === 'aborted' && result.code === 'interrupted') {
-      markInterrupted(sessionId, messageId, { agentId })
+      markInterrupted(sessionId, messageId, { agentId, unfinished: true })
     }
     log.info(
       `[turn] end run=${messageId} status=${result.status} code=${result.code ?? '-'} steps=${result.steps}`,

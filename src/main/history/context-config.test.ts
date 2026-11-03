@@ -26,15 +26,16 @@ beforeEach(() => {
 })
 
 describe('modelContextWindow / engineContextConfig', () => {
-  it('AC-006 takes provider, known window, global setting, then the fallback', () => {
+  it('AC-006 takes the provider setting, then the global setting, then the fallback', () => {
     values.default_recent_ratio = 0.1
+    values.default_context_limit = 1_000_000
     expect(modelContextWindow(provider({ context_limit: 50000 }), 'deepseek-chat')).toBe(50000)
-    expect(modelContextWindow(provider(), 'deepseek-chat')).toBe(128000)
-    expect(modelContextWindow(provider(), 'claude-sonnet-4')).toBe(200000)
+    expect(modelContextWindow(provider(), 'deepseek-chat')).toBe(1_000_000)
+    expect(modelContextWindow(provider(), 'claude-sonnet-4')).toBe(1_000_000)
     values.default_context_limit = 300000
     expect(modelContextWindow(provider(), 'unknown-x')).toBe(300000)
     delete values.default_context_limit
-    expect(modelContextWindow(provider(), 'unknown-x')).toBe(128000)
+    expect(modelContextWindow(provider(), 'deepseek-chat')).toBe(128000)
     expect(FALLBACK_CONTEXT_WINDOW).toBe(128000)
 
     for (const [p, id] of [

@@ -36,17 +36,20 @@ function finishedWithText(last: ChatMessage): boolean {
   )
 }
 
-/** 为没做完的运行写一条中断提示；最终文本已落库时不写，返回 false。 */
+/**
+ * 为没做完的运行写一条中断提示；最终文本已落库时不写，返回 false。
+ * `unfinished`：引擎已确认运行被打断（退出时运行中），最后一行是半截文本也写提示。
+ */
 export function markInterrupted(
   sessionId: string,
   runId: string,
-  opts: { agentId: string; startedAt?: number },
+  opts: { agentId: string; startedAt?: number; unfinished?: boolean },
 ): boolean {
   const rows = messageRepo
     .listBySession(sessionId)
     .filter((m) => m.trace_id === runId && m.content_type !== 'notice')
   const last = rows.at(-1)
-  if (last && finishedWithText(last)) return false
+  if (!opts.unfinished && last && finishedWithText(last)) return false
   const createdAt =
     last?.created_at ??
     (opts.startedAt !== undefined ? new Date(opts.startedAt).toISOString() : undefined)

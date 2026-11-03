@@ -19,7 +19,11 @@ import {
 import { aiSdkProvider, type AiSdkModelConfig } from 'agent-engine/adapters/ai-sdk'
 import type { ReasoningConfig } from '@shared/types/models'
 import { getProviderById } from '../chat/provider-selector'
-import { modelContextWindow } from '../history/context-config'
+import {
+  engineContextConfig,
+  modelContextWindow,
+  type ProviderContextConfig,
+} from '../history/context-config'
 import { modelSupportsReasoning } from '../providers/capability/detector'
 import { getAdapter, mergeProviderOptions, resolveStreamOptions } from '../providers/model-adapter'
 import type { Provider } from '../store/config-store'
@@ -111,6 +115,23 @@ function capabilitiesOf(provider: Provider, modelId: string): ModelCapabilities 
     reasoning: modelSupportsReasoning(provider, modelId) ? 'optional' : 'none',
     systemAfterUser: true,
     parallelToolCalls: true,
+  }
+}
+
+/**
+ * 引擎的输入上限：窗口减输出预留，预留取模型输出上限与半个窗口的较小者
+ * （与引擎 core/run/estimate 的 outputReserveOf 相同，引擎没有导出它；设计 §3.5）。
+ */
+export function engineInputLimit(provider: Provider, modelId: string): number {
+  const caps = capabilitiesOf(provider, modelId)
+  return caps.contextLimit - Math.min(caps.maxOutputTokens, Math.floor(caps.contextLimit / 2))
+}
+
+/** 引擎路径跨轮摘要的配置：比例同 engineContextConfig，上限为引擎的输入上限。 */
+export function historyConfigOf(provider: Provider, modelId: string): ProviderContextConfig {
+  return {
+    ...engineContextConfig(provider, modelId),
+    context_limit: engineInputLimit(provider, modelId),
   }
 }
 

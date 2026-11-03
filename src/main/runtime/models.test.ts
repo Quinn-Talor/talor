@@ -14,7 +14,8 @@ vi.mock('../store/config-store', () => ({
 
 import { isModelCallError, type ModelInput, type ModelPort } from 'agent-engine'
 import type { Provider } from '../store/config-store'
-import { modelRefOf, parseModelRef, talorModels } from './models'
+import { engineContextConfig } from '../history/context-config'
+import { engineInputLimit, historyConfigOf, modelRefOf, parseModelRef, talorModels } from './models'
 
 function makeProvider(overrides: Partial<Provider> = {}): Provider {
   return {
@@ -104,6 +105,31 @@ describe('parseModelRef / modelRefOf', () => {
   })
 })
 
+describe('engineInputLimit / historyConfigOf', () => {
+  it('AC-004 subtracts the smaller of the output limit and half the window', () => {
+    expect(engineInputLimit(makeProvider({ context_limit: 128_000 }), 'm')).toBe(64_000)
+    expect(
+      engineInputLimit(makeProvider({ context_limit: 200_000, max_output_tokens: 8_000 }), 'm'),
+    ).toBe(192_000)
+    expect(engineInputLimit(makeProvider({ context_limit: 10_000 }), 'm')).toBe(5_000)
+    expect(engineInputLimit(makeProvider({ context_limit: 10_001 }), 'm')).toBe(5_001)
+  })
+
+  it('AC-005 gives the history the input limit and keeps the ratios', () => {
+    // 全局设置 500000（见 beforeEach），输出上限未配置时 64000
+    const provider = makeProvider()
+    const config = historyConfigOf(provider, 'deepseek-chat')
+    expect(config).toEqual({
+      ...engineContextConfig(provider, 'deepseek-chat'),
+      context_limit: 436_000,
+    })
+    expect(
+      historyConfigOf(makeProvider({ context_limit: 128_000, max_output_tokens: 8_000 }), 'm')
+        .context_limit,
+    ).toBe(120_000)
+  })
+})
+
 describe('talorModels', () => {
   it('AC-001 resolves an enabled provider with its capabilities and rejects unknown refs', () => {
     const { library } = setup(makeProvider({ context_limit: 200_000, supports_vision: true }))
@@ -127,9 +153,12 @@ describe('talorModels', () => {
     expect(library.resolve('talor:p1/m1')!.capabilities.contextLimit).toBe(500_000)
   })
 
-  it('C3 AC-007 takes the context limit of a known model from its real window', () => {
-    const { library } = setup(makeProvider())
-    expect(library.resolve('talor:p1/deepseek-chat')!.capabilities.contextLimit).toBe(128_000)
+  it('C3 AC-007 takes the configured window and output limit, not built-in values', () => {
+    const { library } = setup(makeProvider({ max_output_tokens: 8_000 }))
+    expect(library.resolve('talor:p1/deepseek-chat')!.capabilities).toMatchObject({
+      contextLimit: 500_000,
+      maxOutputTokens: 8_000,
+    })
   })
 
   it('AC-002 passes the provider headers and provider options to the model', async () => {

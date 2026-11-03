@@ -27,6 +27,7 @@ import { messageRepo } from '../repos/session-repo'
 import { getRuntime, shutdownRuntime, type Runtime } from './engine'
 import {
   INTERRUPTED_NOTE,
+  markInterrupted,
   recoverInterruptedRuns,
   shutdownForQuit,
   startEngineRuntime,
@@ -123,6 +124,29 @@ describe('startEngineRuntime', () => {
     expect(calls).toEqual([])
     await startEngineRuntime(deps('auto'))
     expect(calls).toEqual(['warmUp', 'recover'])
+  })
+})
+
+describe('markInterrupted', () => {
+  it('SESS-4 marks a run cut off mid-answer when the engine says it was interrupted', () => {
+    insertSession('s1')
+    insertMessage('u1', 's1', 'user', 'write', 'r1', '2026-10-31T01:00:01.000Z')
+    insertMessage(
+      'a1',
+      's1',
+      'assistant',
+      [{ type: 'text', text: '# 长江流域\n\n长江，全长约' }],
+      'r1',
+      '2026-10-31T01:00:02.000Z',
+    )
+    // 只看落库内容时，半截文本与完整答复分不开：不写
+    expect(markInterrupted('s1', 'r1', { agentId: '__chat__' })).toBe(false)
+    // 引擎确认被打断：写，排在半截文本之后
+    expect(markInterrupted('s1', 'r1', { agentId: '__chat__', unfinished: true })).toBe(true)
+    const rows = messageRepo.listBySession('s1')
+    expect(rows.map((m) => m.id).slice(0, 2)).toEqual(['u1', 'a1'])
+    expect(JSON.parse(rows.at(-1)!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
+    expect(rows.at(-1)!.content_type).toBe('notice')
   })
 })
 
