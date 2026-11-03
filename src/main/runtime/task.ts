@@ -187,11 +187,16 @@ export function historyOf(rows: ChatMessage[]): ModelMessage[] {
 const pad = (n: number) => String(n).padStart(2, '0')
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
-export function volatileOf(workspace: string, now: Date): Segment[] {
+/** 本会话上一轮之后权限规则变了（例如插件 hook 启用或停用）时附在尾部的说明。 */
+export const RULES_CHANGED_NOTE =
+  'Permission rules have changed since the previous turn of this session (for example a plugin hook was enabled or disabled). Actions that were denied earlier may now be allowed: if the user asks for one again, try it.'
+
+export function volatileOf(workspace: string, now: Date, rulesChanged = false): Segment[] {
   const text = [
     `Current date: ${localDate(now)}`,
     `Operating system: ${process.platform}`,
     `Workspace: ${workspace || '(not set)'}`,
+    ...(rulesChanged ? [RULES_CHANGED_NOTE] : []),
   ].join('\n')
   return [{ role: 'system', parts: [{ type: 'text', text }] }]
 }
@@ -203,12 +208,14 @@ export function taskFor(input: {
   history: ModelMessage[]
   maxSteps?: number
   now: Date
+  /** 本会话上一轮之后权限规则变了。 */
+  rulesChanged?: boolean
 }): Task {
   const { sessionId, workspace, maxSteps } = input
   return defineTask({
     input: [{ role: 'user', parts: userPartsOf(input.userContent) }],
     history: input.history,
-    volatile: volatileOf(workspace, input.now),
+    volatile: volatileOf(workspace, input.now, input.rulesChanged ?? false),
     ...(workspace ? { scope: { workspace } } : {}),
     subject: sessionId,
     ...(maxSteps !== undefined && maxSteps > 0 ? { budget: { maxSteps } } : {}),

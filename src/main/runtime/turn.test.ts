@@ -12,8 +12,8 @@ vi.mock('../store/config-store', () => ({
   ConfigStore: { getInstance: () => ({ get: mockGet }) },
 }))
 
-import type { RunResult } from 'agent-engine'
-import { chatErrorOf } from './turn'
+import type { RunResult, RunSummary } from 'agent-engine'
+import { chatErrorOf, rulesChangedSince } from './turn'
 
 const resultOf = (patch: Partial<RunResult>) =>
   ({ runId: 'r', status: 'completed', ...patch }) as RunResult
@@ -76,5 +76,32 @@ describe('chatErrorOf', () => {
         }),
       ),
     ).toBeUndefined()
+  })
+})
+
+describe('rulesChangedSince', () => {
+  const run = (patch: Partial<RunSummary>) =>
+    ({ runId: 'r', environmentFingerprint: 'fp-old', startedAt: 1, ...patch }) as RunSummary
+  const archiveOf = (runs: RunSummary[]) => ({ query: async () => runs })
+
+  it('compares the latest top-level run of the session with the current environment', async () => {
+    // 查询结果按开始时间倒序；最新的子运行不算
+    const runs = [
+      run({ runId: 'child', parentRunId: 'r2', environmentFingerprint: 'fp-new' }),
+      run({ runId: 'r2', environmentFingerprint: 'fp-old' }),
+      run({ runId: 'r1', environmentFingerprint: 'fp-older' }),
+    ]
+    expect(await rulesChangedSince(archiveOf(runs), 's1', 'fp-new')).toBe(true)
+    expect(await rulesChangedSince(archiveOf(runs), 's1', 'fp-old')).toBe(false)
+  })
+
+  it('is false for the first turn and when the archive cannot be read', async () => {
+    expect(await rulesChangedSince(archiveOf([]), 's1', 'fp')).toBe(false)
+    const broken = {
+      query: async () => {
+        throw new Error('archive closed')
+      },
+    }
+    expect(await rulesChangedSince(broken, 's1', 'fp')).toBe(false)
   })
 })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { ModelMessage } from 'agent-engine'
 import type { ChatMessage } from '../repos/session-repo'
-import { historyOf, taskFor, userPartsOf, volatileOf } from './task'
+import { historyOf, RULES_CHANGED_NOTE, taskFor, userPartsOf, volatileOf } from './task'
 
 const resultsOf = (message: ModelMessage | undefined) => {
   if (message?.role !== 'tool') throw new Error(`expected a tool message, got ${message?.role}`)
@@ -193,6 +193,23 @@ describe('taskFor', () => {
     expect(task.scope).toBeUndefined()
     expect(task.budget).toBeUndefined()
     expect((task.volatile![0]!.parts[0] as { text: string }).text).toContain('Workspace: (not set)')
+  })
+
+  it('tells the model when the permission rules changed since the previous turn', () => {
+    const text = (rulesChanged?: boolean) =>
+      (
+        taskFor({
+          sessionId: 's1',
+          workspace: '/w',
+          userContent: 'hi',
+          history: [],
+          now,
+          rulesChanged,
+        }).volatile![0]!.parts[0] as { text: string }
+      ).text
+    expect(text(true)).toContain(RULES_CHANGED_NOTE)
+    expect(text(false)).not.toContain(RULES_CHANGED_NOTE)
+    expect(text(undefined)).not.toContain(RULES_CHANGED_NOTE)
   })
 
   it('maps user content and volatile notes', () => {

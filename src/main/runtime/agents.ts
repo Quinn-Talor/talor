@@ -43,7 +43,8 @@ export const ENGINE_CHAT_PROMPT = `## Workflow
 ## Principles
 - When the user names a service or platform, search for its tools before checking for a local CLI; a missing local binary does not mean the capability is unavailable.
 - Confirm destructive actions before running them.
-- If a rule, hook or the user denies an action, do not try to achieve the same thing another way (another tool, a shell command, a different path); explain the denial or do the parts that are allowed.`
+- If a rule, hook or the user denies an action, do not try to achieve the same thing another way (another tool, a shell command, a different path); explain the denial or do the parts that are allowed.
+- A denial covers the turn it happened in. When the user asks for the action again in a later message, try it once more, since the rules or their decision may have changed; if it is denied again, explain.`
 
 /** 委托链深度上限，与旧路径 delegate-agent 的 MAX_DELEGATION_DEPTH 相同。 */
 export const MAX_DELEGATION_DEPTH = 3

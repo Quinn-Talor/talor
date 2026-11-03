@@ -198,6 +198,7 @@ describe('agentFor assembles every capability (A2)', () => {
     }
     // F24 AC-007：被拒绝后不换做法绕过
     expect(ENGINE_CHAT_PROMPT).toContain('do not try to achieve the same thing another way')
+    expect(ENGINE_CHAT_PROMPT).toContain('A denial covers the turn it happened in')
     const chat = agentFor(profile({ agentPrompt: 'legacy chat prompt' }), snapshot)
     expect(chat.instructions).toEqual([
       { role: 'system', parts: [{ type: 'text', text: ENGINE_CHAT_PROMPT }] },

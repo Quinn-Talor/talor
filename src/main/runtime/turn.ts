@@ -12,7 +12,7 @@
 
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import type { RunResult } from 'agent-engine'
+import type { Archive, RunResult } from 'agent-engine'
 import type { AgentProfile } from '@shared/types/agent'
 import type { AgentManager } from '../agent/agent-manager'
 import type { ChatCallbacks, ChatPorts, ChatSendParams } from '../chat/types'
@@ -71,6 +71,26 @@ export function chatErrorOf(
 export function profileForSession(sessionId: string, agentManager: AgentManager): AgentProfile {
   const agentId = sessionRepo.getById(sessionId)?.agent_id ?? '__chat__'
   return (agentManager.getAgent(agentId) ?? agentManager.getChatAgent()).profile
+}
+
+/**
+ * 本会话上一轮（最近的顶层运行）用的执行环境与现在的不同：插件 hook 等权限规则变了。
+ * 环境指纹由引擎按规则内容算出；没有上一轮或档案读不了时为 false。
+ */
+export async function rulesChangedSince(
+  archive: Pick<Archive, 'query'>,
+  sessionId: string,
+  fingerprint: string,
+): Promise<boolean> {
+  try {
+    const previous = (await archive.query({ subject: sessionId, limit: 20 })).find(
+      (r) => r.parentRunId === undefined,
+    )
+    return previous !== undefined && previous.environmentFingerprint !== fingerprint
+  } catch (err) {
+    log.warn('[turn] previous run lookup failed', err)
+    return false
+  }
 }
 
 /** 进行中的轮次：退出时等它们写完。 */
@@ -155,6 +175,11 @@ async function runTurn(
       history,
       maxSteps: ConfigStore.getInstance().get('max_react_steps'),
       now: (deps.now ?? (() => new Date()))(),
+      rulesChanged: await rulesChangedSince(
+        runtime.archive,
+        sessionId,
+        runtime.interactive.fingerprint,
+      ),
     })
 
     log.info(`[turn] start session=${sessionId} run=${messageId} model=${model}`)
