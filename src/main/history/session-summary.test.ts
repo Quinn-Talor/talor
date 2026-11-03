@@ -114,6 +114,23 @@ describe('SessionSummaryMemory.getContextRows', () => {
     expect(reused.summary).toContain('旧摘要')
   })
 
+  it('SESS-5 gives the summary model the plain-text user messages', async () => {
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      i === 0
+        ? { ...msg(0), content: JSON.stringify('请记住：本次评审的口令是 青鸟-7342') }
+        : i % 2 === 0
+          ? { ...msg(i), content: JSON.stringify(`第${i}份材料 ${'b'.repeat(300)}`) }
+          : msg(i),
+    )
+    vi.mocked(messageRepo.listBySession).mockReturnValue(rows)
+    await new SessionSummaryMemory().getContextRows('s1', config)
+    const prompts = vi
+      .mocked(generateText)
+      .mock.calls.map((c) => JSON.stringify((c[0] as { messages: unknown }).messages))
+    expect(prompts.join('\n')).toContain('user: 请记住：本次评审的口令是 青鸟-7342')
+    expect(prompts.join('\n')).toContain('user: 第2份材料')
+  })
+
   it('AC-008 returns the context gap text while compression fails and cools down', async () => {
     const core = new SessionSummaryMemory()
     const legacy = new ShortTermMemory()

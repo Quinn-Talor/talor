@@ -413,15 +413,18 @@ function createCompressionModel(config: ProviderContextConfig): LanguageModel {
 function renderMessageForCompression(msg: ChatMessage): string {
   let textContent: string
   try {
-    const blocks = JSON.parse(msg.content) as Array<{
-      type: string
-      text?: string
-      output?: { type: string; value: string } | string
-      input?: unknown
-      isError?: boolean
-      toolName?: string
-    }>
-    const texts: string[] = []
+    const blocks = JSON.parse(msg.content) as
+      | string
+      | Array<{
+          type: string
+          text?: string
+          output?: { type: string; value: string } | string
+          input?: unknown
+          isError?: boolean
+          toolName?: string
+        }>
+    // 纯文本的用户消息落库为 JSON 字符串，解析出来是字符串而不是片段数组
+    const texts: string[] = typeof blocks === 'string' ? [blocks] : []
     for (const b of Array.isArray(blocks) ? blocks : []) {
       if (b.type === 'text' && b.text) texts.push(b.text)
       else if (b.type === 'reasoning' && b.text) texts.push(`[reasoning: ${b.text}]`)
