@@ -39,6 +39,7 @@ function ctxFor(): ToolCtx {
     signal: new AbortController().signal,
     spawn: () => Promise.reject(new Error('no spawn')),
     progress: () => {},
+    callModel: () => Promise.resolve(undefined),
   }
 }
 

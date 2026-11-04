@@ -4,14 +4,12 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-const { createBatch, touch, addUsage } = vi.hoisted(() => ({
-  createBatch: vi.fn(),
+const { touch, addUsage } = vi.hoisted(() => ({
   touch: vi.fn(),
   addUsage: vi.fn(),
 }))
 
 vi.mock('../repos/session-repo', () => ({
-  messageRepo: { createBatch },
   sessionRepo: { touch, addUsage },
 }))
 
@@ -64,8 +62,22 @@ const finished = (callId: string, shown: string, isError = false, errorCode?: st
 
 const event = (body: Record<string, unknown>) => ({ seq: 0, at: 0, ...body }) as unknown as RunEvent
 
+type Row = {
+  id: string
+  role: string
+  content: unknown
+  trace_id?: string
+  agent_id: string
+  session_id: string
+}
+
+/** 每次"这一步已落库"通知时，折叠结果里新出现的行（内容解析回对象），即渲染端那次能拉到的新行。 */
+let batches: Row[][] = []
+
 function setup(blobs: Record<string, string> = {}) {
   const calls: unknown[][] = []
+  const seen = new Set<string>()
+  batches = []
   const record =
     (name: string) =>
     (...args: unknown[]) =>
@@ -74,7 +86,17 @@ function setup(blobs: Record<string, string> = {}) {
     onTextDelta: record('delta'),
     onToolCall: record('toolCall'),
     onToolResult: record('toolResult'),
-    onMessagePersisted: record('persisted'),
+    onMessagePersisted: (...args: unknown[]) => {
+      calls.push(['persisted', ...args])
+      const fresh = projection
+        .fold()
+        .rows()
+        .filter((r) => r.role !== 'user' && !seen.has(r.id))
+      for (const r of fresh) seen.add(r.id)
+      if (fresh.length > 0) {
+        batches.push(fresh.map((r) => ({ ...r, content: JSON.parse(r.content) as unknown })))
+      }
+    },
     onReasoningDelta: record('reasoning'),
     onRunStatus: record('status'),
     onDone: record('done'),
@@ -96,17 +118,10 @@ function setup(blobs: Record<string, string> = {}) {
   return { calls, feed, projection }
 }
 
-const batchRows = (n: number) =>
-  createBatch.mock.calls[n]![0] as Array<{
-    role: string
-    content: unknown
-    trace_id: string
-    agent_id: string
-    session_id: string
-  }>
+const batchRows = (n: number) => batches[n]!
 
 beforeEach(() => {
-  createBatch.mockReset()
+  batches = []
   touch.mockReset()
   addUsage.mockReset()
 })
@@ -131,7 +146,7 @@ describe('createProjection', () => {
       ['toolResult', 'run1', 'c1', 'read', 'file body', 7],
       ['persisted', 's1', 1],
     ])
-    expect(createBatch).toHaveBeenCalledTimes(1)
+    expect(batches).toHaveLength(1)
     const [assistant, tool] = batchRows(0)
     expect(assistant).toMatchObject({
       role: 'assistant',
@@ -245,23 +260,12 @@ describe('createProjection', () => {
     expect(batchRows(1)[0]).toMatchObject({ content: [{ type: 'text', text: '总结' }] })
   })
 
-  it('skips empty steps and stops persisting after a write failure', async () => {
-    const { calls, feed, projection } = setup()
-    createBatch.mockImplementationOnce(() => {
-      throw new Error('disk full')
-    })
+  it('skips empty steps', async () => {
+    const { calls, feed } = setup()
 
-    await feed([
-      responded(1, ''),
-      event({ t: 'step_ended', step: 1 }),
-      responded(2, 'a'),
-      event({ t: 'step_ended', step: 2 }),
-      responded(3, 'b'),
-      event({ t: 'step_ended', step: 3 }),
-    ])
+    await feed([responded(1, ''), event({ t: 'step_ended', step: 1 })])
 
-    expect(createBatch).toHaveBeenCalledTimes(1)
-    expect(projection.persistError()).toBeInstanceOf(Error)
+    expect(batches).toEqual([])
     expect(calls.filter((c) => c[0] === 'persisted')).toEqual([])
   })
 })
@@ -316,7 +320,7 @@ describe('turn phases (C1)', () => {
       evaluated(1, { complete: true }),
       event({ t: 'step_ended', step: 1 }),
     ])
-    expect(createBatch).not.toHaveBeenCalled()
+    expect(batches).toEqual([])
     expect(calls).toContainEqual(['status', 'run1', 'verifying'])
 
     await feed([delivered(1, 'delivered')])
@@ -332,7 +336,6 @@ describe('turn phases (C1)', () => {
   it('AC-003 marks returned and fallback steps as process, failed and stopped as answer', async () => {
     const phases: unknown[] = []
     for (const outcome of ['returned', 'fallback', 'failed', 'stopped']) {
-      createBatch.mockReset()
       const { calls, feed } = setup()
       await feed([
         responded(1, '答复'),
@@ -359,7 +362,6 @@ describe('turn phases (C1)', () => {
       { awaitInput: { code: 'x' } },
       { stop: { code: 'x', message: 'm' } },
     ]) {
-      createBatch.mockReset()
       const { feed } = setup()
       await feed([responded(1, 't'), evaluated(1, verdict), event({ t: 'step_ended', step: 1 })])
       phases.push(contentOf(0)[0]!.providerOptions)
@@ -371,7 +373,6 @@ describe('turn phases (C1)', () => {
       phaseMarker('answer'),
     ])
 
-    createBatch.mockReset()
     const { calls, feed } = setup()
     await feed([
       responded(1, '答复'),
@@ -384,7 +385,6 @@ describe('turn phases (C1)', () => {
     ])
     expect(calls).toContainEqual(['status', 'run1', 'idle'])
 
-    createBatch.mockReset()
     const fallback = setup()
     await fallback.feed([
       event({ t: 'fallback_generated', code: 'x', text: '总结', degradation: 1 }),
@@ -421,13 +421,13 @@ describe('turn phases (C1)', () => {
       await bare.subscriber.onEvent?.(e, { runId: 'run1' })
     }
     await bare.idle()
-    expect(createBatch).toHaveBeenCalledTimes(1)
+    expect(bare.fold().rows()).toHaveLength(1)
   })
 
   it('logs a delivery result that has no pending step and persists nothing', async () => {
     const { feed } = setup()
     await feed([delivered(1, 'delivered')])
-    expect(createBatch).not.toHaveBeenCalled()
+    expect(batches).toEqual([])
   })
 })
 
@@ -514,7 +514,7 @@ describe('intent steps (C2)', () => {
       finished('f1', 'b1'),
       event({ t: 'step_ended', step: 1 }),
     ])
-    expect(createBatch).not.toHaveBeenCalled()
+    expect(batches).toEqual([])
     expect(calls).toContainEqual(['status', 'run1', 'verifying'])
     await feed([delivered(1, 'delivered')])
     expect(contentOf(0)).toEqual([
@@ -529,7 +529,6 @@ describe('intent steps (C2)', () => {
     expect(batchRows(0)[1]).toMatchObject({ role: 'tool' })
     expect(JSON.stringify(batchRows(0)[1]!.content)).toContain('已记录')
 
-    createBatch.mockReset()
     const ask = setup({ b2: wrap('问题已发送给委托人') })
     await ask.feed([
       responded(1, '', [{ id: 'a1', name: 'ask_user', input: { question: 'q' } }]),
@@ -537,10 +536,9 @@ describe('intent steps (C2)', () => {
       finished('a1', 'b2'),
       event({ t: 'step_ended', step: 1 }),
     ])
-    expect(createBatch).toHaveBeenCalledTimes(1)
+    expect(batches).toHaveLength(1)
     expect(contentOf(0)[0]!.providerOptions).toEqual(phaseMarker('answer'))
 
-    createBatch.mockReset()
     const mixed = setup({ b2: wrap('q'), b3: wrap('x') })
     await mixed.feed([
       responded(1, '', [

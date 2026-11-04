@@ -2,20 +2,21 @@
 //
 // 订阅时带 children: true，父订阅者会收到全部子孙运行的事件，按 run.runId 分派：根运行交给 P1-B 的
 // createProjection；子运行在它的 run_started 时建一个子会话（沿用旧路径子会话的 sessions 行：
-// parent_session_id、parent_message_id、status running → completed | aborted），任务正文写成 user 行，
-// 之后的事件交给一个回调全空的 createProjection 落到子会话；run_ended 时写终态与本运行自己的用量。
+// parent_session_id、parent_message_id、status running → completed | aborted），元数据记 engine_run_id，
+// 界面消息由子运行的事件折叠（运行中登记为子会话的进行中的轮，结束后按 engine_run_id 从档案读出），
+// 不写 messages 表；之后的事件交给一个回调全空的 createProjection；run_ended 时写终态与本运行自己的用量。
 // 子孙运行不触发任何渲染端回调（与旧路径子 loop 一致）；子会话出错只记日志，不影响父会话。
 //
 // 允许依赖: agent-engine（类型）、chat/types（类型）、repos/session-repo、runtime/projection、
-//          runtime/models、@shared/types、electron-log、uuid
+//          runtime/models、runtime/live-turns、@shared/types、electron-log
 // 禁止依赖: ipc/*、db/*
 
 import log from 'electron-log'
-import { v4 as uuidv4 } from 'uuid'
 import type { BlobRef, NormalizedUsage, RunEvent, RunResult, RunUsage } from 'agent-engine'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ChatCallbacks } from '../chat/types'
-import { messageRepo, sessionRepo } from '../repos/session-repo'
+import { sessionRepo } from '../repos/session-repo'
+import { attachLiveFold, beginLiveTurn, endLiveTurn } from './live-turns'
 import { parseModelRef } from './models'
 import { addSessionUsage, createProjection, usageRemainder, type Projection } from './projection'
 
@@ -73,6 +74,7 @@ interface ChildEntry {
   opened: Promise<void>
   chain: Promise<void>
   sessionId?: string
+  runId?: string
   projection?: Projection
 }
 
@@ -143,16 +145,13 @@ export function createRunTreeProjection(opts: {
         ...(e.parentRunId ? { parent_message_id: e.parentRunId } : {}),
         status: 'running',
       })
-      messageRepo.create({
-        id: uuidv4(),
-        session_id: child.id,
-        role: 'user',
-        content: task,
-        agent_id: agentId,
-        trace_id: runId,
+      sessionRepo.setMetadata(child.id, {
+        ...sessionRepo.getMetadata(child.id),
+        engine_run_id: runId,
       })
       sessionOfRun.set(runId, child.id)
       entry.sessionId = child.id
+      entry.runId = runId
       entry.projection = createProjection({
         sessionId: child.id,
         messageId: runId,
@@ -160,6 +159,21 @@ export function createRunTreeProjection(opts: {
         callbacks: SILENT,
         getBlob,
       })
+      beginLiveTurn(child.id, {
+        runId,
+        userRow: {
+          id: `${runId}:u`,
+          session_id: child.id,
+          role: 'user',
+          content: JSON.stringify(task),
+          agent_id: agentId,
+          created_at: new Date(e.at).toISOString(),
+          trace_id: runId,
+        },
+      })
+      attachLiveFold(child.id, runId, entry.projection.fold())
+      // run_started 已被消费：交给子投影折叠出用户行
+      await entry.projection.subscriber.onEvent?.(e, { runId })
       log.info(
         `[children] child session=${child.id} run=${runId} parent=${parentSessionId} agent=${agentId}`,
       )
@@ -171,6 +185,7 @@ export function createRunTreeProjection(opts: {
   async function closeChild(entry: ChildEntry, result: RunResult): Promise<void> {
     if (!entry.sessionId || !entry.projection) return
     await entry.projection.idle()
+    if (entry.runId) endLiveTurn(entry.sessionId, entry.runId)
     sessionRepo.updateStatus(entry.sessionId, childSessionStatusOf(result.status))
     // 子投影已逐步记下用量，这里只补余数
     addSessionUsage(
@@ -220,7 +235,7 @@ export function createRunTreeProjection(opts: {
         if (children.size === seen) return
       }
     },
-    persistError: () => root.persistError(),
     recordedUsage: () => root.recordedUsage(),
+    fold: () => root.fold(),
   }
 }

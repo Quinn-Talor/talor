@@ -15,7 +15,7 @@ import { requestToolConfirm } from './tool-confirm'
 import { requestPermissionFromRenderer } from './permission'
 import { streamRegistry } from '../chat/stream-registry'
 import { isErrorOutput } from '../loop/stream-utils'
-import { dispatchTurn } from '../runtime/dispatch'
+import { sendTurn } from '../runtime/turn'
 import type { AgentManager } from '../agent/agent-manager'
 
 /** 渲染端传入的 snake_case 参数结构。 */
@@ -42,8 +42,8 @@ export function registerChatHandlers(agentManager: AgentManager): void {
     }
 
     const sid = raw.session_id
-    // 按运行时模式（off / auto / force）逐轮分派到旧路径或 agent-engine；回调与端口相同
-    const { messageId } = await dispatchTurn(
+    // 每一轮都在 agent-engine 上跑，会话的前文由引擎会话提供
+    const { messageId } = await sendTurn(
       {
         sessionId: sid,
         content: raw.content,
@@ -86,7 +86,7 @@ export function registerChatHandlers(agentManager: AgentManager): void {
             session_id: persistedSid,
             step_index: stepIdx,
           }),
-        // 引擎路径：推理模型的思考流与"核对中"状态（旧路径不调用）
+        // 推理模型的思考流与"核对中"状态
         onReasoningDelta: (mid, delta, stepIdx) =>
           send('chat:reasoning', {
             session_id: sid,

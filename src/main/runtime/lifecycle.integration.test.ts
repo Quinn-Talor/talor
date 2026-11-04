@@ -27,7 +27,7 @@ import { messageRepo } from '../repos/session-repo'
 import { agentFor } from './agents'
 import { catalogSnapshot } from './catalog'
 import { createRuntime } from './engine'
-import { INTERRUPTED_NOTE, recoverInterruptedRuns } from './lifecycle'
+import { INTERRUPTED_NOTE, rowsOfRun } from './turn-rows'
 
 const CREATE_TABLES = `
 CREATE TABLE sessions (
@@ -83,7 +83,7 @@ afterEach(() => {
 })
 
 describe('interrupted runs (A5a)', () => {
-  it('AC-007 marks a run the archive left unfinished', async () => {
+  it('AC-007 shows an interrupted notice for a run the archive left unfinished', async () => {
     const model = fakeModel({ replies: [{ text: 'ok' }] })
     const archiveA = memoryArchive()
     const first = createRuntime({
@@ -113,11 +113,12 @@ describe('interrupted runs (A5a)', () => {
       models: modelHub({ providers: [model], default: model.ref }),
       archive: archiveB,
     })
-    expect(await recoverInterruptedRuns(second)).toBe(1)
-    const notices = messageRepo.listBySession('s1').filter((m) => m.content_type === 'notice')
-    expect(notices).toHaveLength(1)
-    expect(notices[0]).toMatchObject({ trace_id: 'm1', agent_id: '__chat__' })
-    expect(JSON.parse(notices[0]!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
+    // 引擎创建时给没结束的运行补记中断结局；界面的提示行由读模型从结局折叠，不写 messages 表
+    expect((await second.engine.interrupted()).map((r) => r.runId)).toEqual(['m1'])
+    const rows = await rowsOfRun(archiveB, { runId: 'm1', sessionId: 's1', agentId: '__chat__' })
+    expect(rows.at(-1)).toMatchObject({ id: 'm1:notice', content_type: 'notice', trace_id: 'm1' })
+    expect(JSON.parse(rows.at(-1)!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
+    expect(messageRepo.listBySession('s1')).toEqual([])
     await first.engine.shutdown()
     await second.engine.shutdown()
   })

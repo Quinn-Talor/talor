@@ -1,10 +1,9 @@
-// agents:list-tools：模式为 off 时返回旧注册表的工具；否则返回引擎路径按能力目录选出的工具（修 T7）。
+// agents:list-tools：返回引擎按能力目录为 agent 选出的工具（修 T7）。
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockHandle, mode, registry, repo } = vi.hoisted(() => ({
+const { mockHandle, registry, repo } = vi.hoisted(() => ({
   mockHandle: vi.fn(),
-  mode: { value: 'off' as 'off' | 'auto' | 'force' },
   registry: {
     listRegisteredTools: vi.fn(() => [
       { name: 'create_issue', description: 'gh', parameters: {}, provider: 'github' },
@@ -41,7 +40,6 @@ vi.mock('electron-log', () => ({
 }))
 vi.mock('../mcp/client', () => ({ mcpRegistry: registry }))
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: repo }))
-vi.mock('../runtime/dispatch', () => ({ runtimeMode: () => mode.value }))
 
 import type { AgentProfile } from '@shared/types/agent'
 import type { AgentManager } from '../agent/agent-manager'
@@ -90,13 +88,7 @@ describe('agents:list-tools', () => {
     unregister.push(catalogRegistry.register('talor', talorCatalogSources(manager)))
   })
 
-  it('AC-008 keeps the legacy list when the runtime is off', () => {
-    mode.value = 'off'
-    expect(handler()(null, 'biz')).toBe(legacyTools)
-  })
-
   it('AC-008 lists the catalog tools of the engine path otherwise', () => {
-    mode.value = 'force'
     const tools = handler()(null, 'biz') as Array<{ name: string; provider?: string }>
     expect(tools.map((t) => t.name)).toEqual([
       'read',
@@ -112,12 +104,10 @@ describe('agents:list-tools', () => {
   })
 
   it('AC-008 still rejects an unknown agent', () => {
-    mode.value = 'force'
     expect(() => handler()(null, 'nope')).toThrow('Agent not found: nope')
   })
 
   it('B1 AC-020 lists feature and plugin capabilities from the global registry', () => {
-    mode.value = 'force'
     unregister.push(
       catalogRegistry.register('feature:f1', {
         agents: () => [

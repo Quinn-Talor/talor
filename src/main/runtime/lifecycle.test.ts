@@ -1,4 +1,4 @@
-// A5a：启动引擎、中断收尾、退出关闭。数据库用 :memory:，引擎用桩。
+// A5a：启动引擎、退出关闭、删除会话。数据库用 :memory:，引擎用桩。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { tmpdir } from 'os'
 import Database from 'better-sqlite3'
@@ -21,17 +21,8 @@ vi.mock('../store/config-store', () => ({
   ConfigStore: { getInstance: () => ({ get: () => undefined, getDelegation: () => ({}) }) },
 }))
 
-import log from 'electron-log'
-import type { RunSummary } from 'agent-engine'
-import { messageRepo } from '../repos/session-repo'
 import { getRuntime, shutdownRuntime, type Runtime } from './engine'
-import {
-  INTERRUPTED_NOTE,
-  markInterrupted,
-  recoverInterruptedRuns,
-  shutdownForQuit,
-  startEngineRuntime,
-} from './lifecycle'
+import { deleteEngineSession, shutdownForQuit, startEngineRuntime } from './lifecycle'
 
 const CREATE_TABLES = `
 CREATE TABLE sessions (
@@ -65,39 +56,6 @@ CREATE TABLE messages (
 );
 `
 
-const T0 = '2026-10-31T01:00:00.000Z'
-
-function insertSession(id: string, agentId = 'helper') {
-  currentDb
-    .instance!.prepare(
-      `INSERT INTO sessions (id, title, provider_id, agent_id, created_at, updated_at)
-       VALUES (?, 't', 'p1', ?, ?, ?)`,
-    )
-    .run(id, agentId, T0, T0)
-}
-
-function insertMessage(
-  id: string,
-  session: string,
-  role: string,
-  content: unknown,
-  trace: string,
-  at: string,
-) {
-  currentDb
-    .instance!.prepare(
-      `INSERT INTO messages (id, session_id, role, content, agent_id, created_at, trace_id)
-       VALUES (?, ?, ?, ?, 'helper', ?, ?)`,
-    )
-    .run(id, session, role, JSON.stringify(content), at, trace)
-}
-
-const summary = (patch: Partial<RunSummary>): RunSummary =>
-  ({ runId: 'r', rootRunId: 'r', startedAt: Date.parse(T0), steps: 0, ...patch }) as RunSummary
-
-const runtimeWith = (interrupted: () => Promise<RunSummary[]>) =>
-  ({ engine: { interrupted } }) as unknown as Runtime
-
 beforeEach(() => {
   currentDb.instance = new Database(':memory:')
   currentDb.instance.exec(CREATE_TABLES)
@@ -109,111 +67,10 @@ afterEach(() => {
 })
 
 describe('startEngineRuntime', () => {
-  it('AC-004 does nothing when off, otherwise warms up then recovers', async () => {
+  it('AC-004 only warms up the engine', async () => {
     const calls: string[] = []
-    const deps = (mode: 'off' | 'auto') => ({
-      mode: () => mode,
-      warmUp: () => void calls.push('warmUp'),
-      runtime: () => ({}) as Runtime,
-      recover: async () => {
-        calls.push('recover')
-        return 0
-      },
-    })
-    await startEngineRuntime(deps('off'))
-    expect(calls).toEqual([])
-    await startEngineRuntime(deps('auto'))
-    expect(calls).toEqual(['warmUp', 'recover'])
-  })
-})
-
-describe('markInterrupted', () => {
-  it('SESS-4 marks a run cut off mid-answer when the engine says it was interrupted', () => {
-    insertSession('s1')
-    insertMessage('u1', 's1', 'user', 'write', 'r1', '2026-10-31T01:00:01.000Z')
-    insertMessage(
-      'a1',
-      's1',
-      'assistant',
-      [{ type: 'text', text: '# 长江流域\n\n长江，全长约' }],
-      'r1',
-      '2026-10-31T01:00:02.000Z',
-    )
-    // 只看落库内容时，半截文本与完整答复分不开：不写
-    expect(markInterrupted('s1', 'r1', { agentId: '__chat__' })).toBe(false)
-    // 引擎确认被打断：写，排在半截文本之后
-    expect(markInterrupted('s1', 'r1', { agentId: '__chat__', unfinished: true })).toBe(true)
-    const rows = messageRepo.listBySession('s1')
-    expect(rows.map((m) => m.id).slice(0, 2)).toEqual(['u1', 'a1'])
-    expect(JSON.parse(rows.at(-1)!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
-    expect(rows.at(-1)!.content_type).toBe('notice')
-  })
-})
-
-describe('recoverInterruptedRuns', () => {
-  it('AC-006 marks unfinished top-level runs after their last row', async () => {
-    insertSession('s1')
-    insertMessage('u1', 's1', 'user', 'go', 'r1', '2026-10-31T01:00:01.000Z')
-    insertMessage(
-      'a1',
-      's1',
-      'assistant',
-      [{ type: 'tool-call', toolCallId: 'c1', toolName: 'read', input: {} }],
-      'r1',
-      '2026-10-31T01:00:02.000Z',
-    )
-    insertMessage(
-      't1',
-      's1',
-      'tool',
-      [{ type: 'tool-result', toolCallId: 'c1' }],
-      'r1',
-      '2026-10-31T01:00:02.000Z',
-    )
-    insertMessage('u5', 's1', 'user', 'again', 'r5', '2026-10-31T01:00:03.000Z')
-    insertMessage(
-      'a5',
-      's1',
-      'assistant',
-      [{ type: 'text', text: 'done' }],
-      'r5',
-      '2026-10-31T01:00:04.000Z',
-    )
-
-    const r6Start = Date.parse('2026-10-31T01:00:05.000Z')
-    const n = await recoverInterruptedRuns(
-      runtimeWith(async () => [
-        summary({ runId: 'r1', subject: 's1' }),
-        summary({ runId: 'r2', subject: 's1', parentRunId: 'r1' }),
-        summary({ runId: 'r3', subject: 'gone' }),
-        summary({ runId: 'r4' }),
-        summary({ runId: 'r5', subject: 's1' }),
-        summary({ runId: 'r6', subject: 's1', startedAt: r6Start }),
-      ]),
-    )
-
-    expect(n).toBe(2)
-    const notices = messageRepo.listBySession('s1').filter((m) => m.content_type === 'notice')
-    expect(notices.map((m) => [m.trace_id, m.agent_id, m.created_at])).toEqual([
-      ['r1', 'helper', '2026-10-31T01:00:02.000Z'],
-      ['r6', 'helper', new Date(r6Start).toISOString()],
-    ])
-    expect(JSON.parse(notices[0]!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
-    // 紧跟 r1 的最后一行，排在 r5 之前
-    const order = messageRepo.listBySession('s1').map((m) => m.id)
-    expect(order.indexOf('t1')).toBeLessThan(order.indexOf(notices[0]!.id))
-    expect(order.indexOf(notices[0]!.id)).toBeLessThan(order.indexOf('u5'))
-  })
-
-  it('AC-006 returns 0 with a warning when interrupted() rejects', async () => {
-    vi.mocked(log.warn).mockClear()
-    const n = await recoverInterruptedRuns(
-      runtimeWith(async () => {
-        throw new Error('archive closed')
-      }),
-    )
-    expect(n).toBe(0)
-    expect(vi.mocked(log.warn)).toHaveBeenCalled()
+    await startEngineRuntime({ warmUp: () => void calls.push('warmUp') })
+    expect(calls).toEqual(['warmUp'])
   })
 })
 
@@ -246,5 +103,63 @@ describe('shutdownForQuit', () => {
     const started = Date.now()
     expect(await shutdownForQuit(50)).toBe('timeout')
     expect(Date.now() - started).toBeLessThan(1000)
+  })
+})
+
+describe('deleteEngineSession', () => {
+  const ok = { ok: true as const, removedRuns: 2, removedBlobs: 5 }
+  const busy = { ok: false as const, code: 'session_busy' as const, message: 'busy' }
+
+  it('deletes the session through the engine', async () => {
+    const deleteSession = vi.fn(async () => ok)
+    expect(await deleteEngineSession('s1', { engine: () => ({ deleteSession }) })).toBe(true)
+    expect(deleteSession).toHaveBeenCalledWith('s1')
+  })
+
+  it('waits for the turn in progress once when the session is busy', async () => {
+    const calls: string[] = []
+    const deleteSession = vi.fn(async () => {
+      calls.push('delete')
+      return calls.length === 1 ? busy : ok
+    })
+    const waitForTurns = async () => void calls.push('wait')
+    expect(
+      await deleteEngineSession('s1', { engine: () => ({ deleteSession }), waitForTurns }),
+    ).toBe(true)
+    expect(calls).toEqual(['delete', 'wait', 'delete'])
+  })
+
+  it('gives up after the retry and when the archive still has an open run', async () => {
+    const stillBusy = vi.fn(async () => busy)
+    expect(
+      await deleteEngineSession('s1', {
+        engine: () => ({ deleteSession: stillBusy }),
+        waitForTurns: async () => {},
+      }),
+    ).toBe(false)
+    expect(stillBusy).toHaveBeenCalledTimes(2)
+    const open = vi.fn(async () => ({
+      ok: false as const,
+      code: 'session_open' as const,
+      message: 'open',
+    }))
+    expect(await deleteEngineSession('s1', { engine: () => ({ deleteSession: open }) })).toBe(false)
+    expect(open).toHaveBeenCalledTimes(1)
+  })
+
+  it('deletes from the archive when the engine was never created, and never throws', async () => {
+    const archive = { deleteSession: vi.fn(async () => ({ removedRuns: 1, removedBlobs: 1 })) }
+    expect(
+      await deleteEngineSession('s1', { engine: () => undefined, archive: () => archive }),
+    ).toBe(true)
+    expect(archive.deleteSession).toHaveBeenCalledWith('s1')
+    const broken = {
+      deleteSession: async () => {
+        throw new Error('archive closed')
+      },
+    }
+    expect(
+      await deleteEngineSession('s1', { engine: () => undefined, archive: () => broken }),
+    ).toBe(false)
   })
 })

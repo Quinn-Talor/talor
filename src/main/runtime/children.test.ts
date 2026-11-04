@@ -22,6 +22,7 @@ import type { AgentProfile } from '@shared/types/agent'
 import type { ChatCallbacks } from '../chat/types'
 import { engineAgentId } from './agents'
 import { childSessionStatusOf, childTitleOf, createRunTreeProjection, ownUsageOf } from './children'
+import { liveRows } from './live-turns'
 import { phaseMarker } from '@shared/turn-phase'
 
 const CREATE_TABLES = `
@@ -181,14 +182,29 @@ describe('child session helpers', () => {
 })
 
 describe('createRunTreeProjection', () => {
-  it('AC-006 projects a child run into a child session', async () => {
+  it('AC-007 projects a child run into a child session without writing messages', async () => {
     const { p } = projection()
-    await feed(p, 'c1', [
-      started('c1', 'm', '整理笔记'),
-      responded('已整理'),
-      stepEnded,
-      ended('completed'),
+    await feed(p, 'c1', [started('c1', 'm', '整理笔记'), responded('已整理'), stepEnded])
+    await p.idle()
+
+    const running = sessions().find((s) => s.parent_session_id === 's1')!
+    // 运行中：子会话的行来自子运行的折叠（进行中的轮）
+    expect(
+      liveRows(running.id as string).map((r) => ({
+        role: r.role,
+        content: JSON.parse(r.content) as unknown,
+        trace_id: r.trace_id,
+      })),
+    ).toEqual([
+      { role: 'user', content: '整理笔记', trace_id: 'c1' },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: '已整理', providerOptions: phaseMarker('answer') }],
+        trace_id: 'c1',
+      },
     ])
+
+    await feed(p, 'c1', [ended('completed')])
     await p.idle()
 
     const child = sessions().find((s) => s.parent_session_id === 's1')!
@@ -201,14 +217,10 @@ describe('createRunTreeProjection', () => {
       workspace: '/w',
       status: 'completed',
     })
-    expect(messagesOf(child.id as string)).toEqual([
-      { role: 'user', content: '整理笔记', trace_id: 'c1' },
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: '已整理', providerOptions: phaseMarker('answer') }],
-        trace_id: 'c1',
-      },
-    ])
+    expect(JSON.parse(child.metadata as string)).toMatchObject({ engine_run_id: 'c1' })
+    // 结束后由档案按 engine_run_id 读出；不写 messages 表
+    expect(liveRows(child.id as string)).toEqual([])
+    expect(messagesOf(child.id as string)).toEqual([])
     expect(messagesOf('s1')).toEqual([])
   })
 

@@ -11,7 +11,6 @@ vi.mock('../store/config-store', () => ({
 
 import type { Provider } from '../store/config-store'
 import {
-  engineContextConfig,
   FALLBACK_CONTEXT_WINDOW,
   modelContextWindow,
   resolveProviderConfig,
@@ -25,7 +24,7 @@ beforeEach(() => {
   for (const key of Object.keys(values)) delete values[key]
 })
 
-describe('modelContextWindow / engineContextConfig', () => {
+describe('modelContextWindow', () => {
   it('AC-006 takes the provider setting, then the global setting, then the fallback', () => {
     values.default_recent_ratio = 0.1
     values.default_context_limit = 1_000_000
@@ -37,17 +36,6 @@ describe('modelContextWindow / engineContextConfig', () => {
     delete values.default_context_limit
     expect(modelContextWindow(provider(), 'deepseek-chat')).toBe(128000)
     expect(FALLBACK_CONTEXT_WINDOW).toBe(128000)
-
-    for (const [p, id] of [
-      [provider({ context_limit: 50000 }), 'deepseek-chat'],
-      [provider(), 'deepseek-chat'],
-      [provider(), 'unknown-x'],
-    ] as const) {
-      expect(engineContextConfig(p, id)).toEqual({
-        ...resolveProviderConfig(p, id),
-        context_limit: modelContextWindow(p, id),
-      })
-    }
   })
 })
 

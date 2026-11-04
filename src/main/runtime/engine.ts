@@ -1,6 +1,6 @@
 // src/main/runtime/engine.ts — 业务层：全局引擎与 interactive 执行环境
 //
-// 引擎：Talor 模型库、~/.talor/runs.db 运行档案（runArchive 单例，与 Trace 面板共用，保留 30 天）、electron-log 诊断日志。
+// 引擎：Talor 模型库、~/.talor/runs.db 运行档案（runArchive 单例，与 Trace 面板共用；会话随会话保留，见 run-archive.ts）、electron-log 诊断日志。
 // interactive 执行环境（interactiveEnvironment）：委托人联系得上，审批人按会话找授权端口；章程须知；
 // 权限规则依次为工作区沙箱（Talor 敏感名单追加在引擎内置名单之后，不传 granted）、旧路径兜底危险模式、
 // 高风险审批；审批时限比授权窗口自带的 5 分钟早 10 秒，超时由引擎记为 APPROVAL_TIMEOUT。
@@ -47,7 +47,7 @@ import { electronLogger } from './logger'
 import { talorModels } from './models'
 import { ENGINE_NOTICE } from './notice'
 import { onPluginsChanged, pluginHooks } from './plugins'
-import { runArchive } from './run-archive'
+import { INTERACTIVE_ENVIRONMENT, runArchive } from './run-archive'
 import { TALOR_SENSITIVE_PATHS } from './tools'
 import { talorVault } from './vault'
 
@@ -92,7 +92,7 @@ export function interactiveEnvironment(deps: {
   caps?: Caps
 }): EnvironmentConfig {
   return {
-    name: 'interactive',
+    name: INTERACTIVE_ENVIRONMENT,
     principal: { reachable: true, ...(deps.approver ? { approver: deps.approver } : {}) },
     notice: [{ role: 'system', parts: [{ type: 'text', text: ENGINE_NOTICE }] }],
     permissions: [

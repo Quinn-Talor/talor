@@ -378,6 +378,20 @@ export const sessionRepo = {
   },
 
   /** 删除会话及其全部委托子孙会话（parent_session_id 无外键，需显式递归）。 */
+  /** 会话及其全部子孙会话的 id（delete 删除的就是这些）。 */
+  subtreeIds(id: string): string[] {
+    const rows = getDb()
+      .prepare(
+        `WITH RECURSIVE tree(id) AS (
+           SELECT id FROM sessions WHERE id = ?
+           UNION SELECT s.id FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+         )
+         SELECT id FROM tree`,
+      )
+      .all(id) as Array<{ id: string }>
+    return rows.map((r) => r.id)
+  },
+
   delete(id: string): void {
     const db = getDb()
     db.transaction(() => {

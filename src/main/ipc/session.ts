@@ -2,7 +2,7 @@
 // 允许依赖：providers/*、services/*、repos/*、shared/*    禁止依赖：loop/*
 
 import { ipcMain } from 'electron'
-import { sessionRepo, messageRepo, ChatSession, ChatMessage } from '../repos/session-repo'
+import { sessionRepo, ChatSession, ChatMessage } from '../repos/session-repo'
 import type { ReasoningConfig } from '@shared/types/models'
 import { ConfigStore } from '../store/config-store'
 import { getProviderModels } from '../providers/provider-fetcher'
@@ -10,6 +10,10 @@ import { checkModelAvailability } from '../providers/model-availability'
 import log from 'electron-log'
 import { streamRegistry } from '../chat/stream-registry'
 import { clearLimiter } from '../agent/delegate-agent'
+import { deleteEngineSession } from '../runtime/lifecycle'
+import { runArchive } from '../runtime/engine'
+import { liveRows } from '../runtime/live-turns'
+import { rowsOfRun, sessionRows } from '../runtime/turn-rows'
 
 export function registerSessionHandlers(): void {
   ipcMain.handle('session:list', (): ChatSession[] => {
@@ -128,16 +132,41 @@ export function registerSessionHandlers(): void {
     },
   )
 
-  ipcMain.handle('session:delete', (_, sessionId: string): void => {
+  ipcMain.handle('session:delete', async (_, sessionId: string): Promise<void> => {
     // 先停掉该会话正在跑的回合(子 agent 经父 abort 链一并停止),避免删除后工具/LLM 继续执行
     streamRegistry.abort(sessionId)
     clearLimiter(sessionId)
+    const ids = sessionRepo.subtreeIds(sessionId)
     sessionRepo.delete(sessionId)
+    // 引擎档案里的会话(含子会话自己开过的轮)一起删除;失败只记日志
+    for (const id of ids) await deleteEngineSession(id)
   })
 
-  ipcMain.handle('session:getMessages', (_, sessionId: string): ChatMessage[] => {
-    return messageRepo.listBySession(sessionId)
+  // 界面消息从引擎会话日志折叠（最近 20 轮 + 提示行），再接上进行中的轮；子会话读它的子运行
+  ipcMain.handle('session:getMessages', async (_, sessionId: string): Promise<ChatMessage[]> => {
+    const runId = sessionRepo.getMetadata(sessionId).engine_run_id
+    const rows =
+      typeof runId === 'string'
+        ? await rowsOfRun(runArchive(), {
+            runId,
+            sessionId,
+            agentId: sessionRepo.getById(sessionId)?.agent_id ?? '__chat__',
+          })
+        : (await sessionRows(runArchive(), sessionId)).messages
+    const live = liveRows(sessionId)
+    const liveIds = new Set(live.map((m) => m.id))
+    return [...rows.filter((m) => !liveIds.has(m.id)), ...live]
   })
+
+  ipcMain.handle(
+    'session:getEarlierMessages',
+    (
+      _,
+      sessionId: string,
+      beforeRunId: string,
+    ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> =>
+      sessionRows(runArchive(), sessionId, { before: beforeRunId }),
+  )
 
   ipcMain.handle('session:touch', (_, sessionId: string): void => {
     sessionRepo.touch(sessionId)

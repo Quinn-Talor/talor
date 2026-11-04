@@ -2,10 +2,10 @@
 
 import { describe, it, expect, vi } from 'vitest'
 
-const { mockHandle, sent, dispatchTurn } = vi.hoisted(() => ({
+const { mockHandle, sent, sendTurn } = vi.hoisted(() => ({
   mockHandle: vi.fn(),
   sent: [] as Array<[string, unknown]>,
-  dispatchTurn: vi.fn(),
+  sendTurn: vi.fn(),
 }))
 
 vi.mock('electron', () => ({ ipcMain: { handle: (...a: unknown[]) => mockHandle(...a) } }))
@@ -18,7 +18,7 @@ vi.mock('./window', () => ({
 }))
 vi.mock('./tool-confirm', () => ({ requestToolConfirm: vi.fn() }))
 vi.mock('./permission', () => ({ requestPermissionFromRenderer: vi.fn() }))
-vi.mock('../runtime/dispatch', () => ({ dispatchTurn }))
+vi.mock('../runtime/turn', () => ({ sendTurn }))
 
 import type { AgentManager } from '../agent/agent-manager'
 import type { ChatCallbacks } from '../chat/types'
@@ -26,7 +26,7 @@ import { registerChatHandlers } from './chat'
 
 describe('chat:send engine events', () => {
   it('AC-006 forwards reasoning deltas and run status to the renderer', async () => {
-    dispatchTurn.mockImplementation(async (_params: unknown, callbacks: ChatCallbacks) => {
+    sendTurn.mockImplementation(async (_params: unknown, callbacks: ChatCallbacks) => {
       callbacks.onReasoningDelta?.('m1', '想', 2)
       callbacks.onRunStatus?.('m1', 'verifying')
       return { messageId: 'm1' }

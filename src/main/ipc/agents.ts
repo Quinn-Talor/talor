@@ -15,7 +15,10 @@ import { checkDependencies } from '../agent/dependency-checker'
 import { validateProfile } from '../agent/validator'
 import { persistAgentProfile } from '../agent/profile-fs'
 import { previewAgent } from '../agent/preview'
-import { sessionRepo, messageRepo } from '../repos/session-repo'
+import { sessionRepo, type ChatMessage } from '../repos/session-repo'
+import { runArchive } from '../runtime/engine'
+import { pendingContextOf } from '../runtime/turn'
+import { sessionNotices, sessionRows, sessionTurns } from '../runtime/turn-rows'
 import { streamRegistry } from '../chat/stream-registry'
 import { getDefaultProvider } from '../chat/provider-selector'
 import type { AgentProfile } from '@shared/types/agent'
@@ -26,13 +29,19 @@ import { recommendMode } from '../agent/crystallizer-heuristics'
 import { v4 as uuidv4 } from 'uuid'
 import { mcpRegistry } from '../mcp/client'
 import { currentCatalog, engineToolsView } from '../runtime/catalog'
-import { runtimeMode } from '../runtime/dispatch'
 
 /**
  * 粗略统计 session 中失败的工具调用数量（用于 Crystallizer mode 启发式）。
  * 命中信号：tool-result 内 __talor_error 标志、output 含 "error"/"failed"。
  * 误差容忍 — 仅作为 guided 模式触发的近似指标。
  */
+/** 源会话的全部界面行（全文，不截断工具结果）：提炼快照与"源会话是否有新内容"都按它算。 */
+async function sourceMessages(sessionId: string): Promise<ChatMessage[]> {
+  return (
+    await sessionRows(runArchive(), sessionId, { turns: Number.POSITIVE_INFINITY, full: true })
+  ).messages
+}
+
 function countFailedToolCalls(messages: Array<{ content?: unknown }>): number {
   let count = 0
   for (const msg of messages) {
@@ -376,14 +385,14 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
   // ─── Agent Extraction (Workbench)：5 个 IPC handlers ────────────────
   // 替代 v2 的 agents:crystallize（不再切原 session 的 agent_id；改为新建独立工作台 session）
 
-  ipcMain.handle('agents:start-crystallize', (_event, raw: { session_id: string }) => {
+  ipcMain.handle('agents:start-crystallize', async (_event, raw: { session_id: string }) => {
     try {
       const source = sessionRepo.getById(raw.session_id)
       if (!source) {
         return { success: false, error: `Session not found: ${raw.session_id}` }
       }
 
-      const messages = messageRepo.listBySession(raw.session_id)
+      const messages = await sourceMessages(raw.session_id)
       const currentMsgCount = messages.length
       const snapshot = serializeS1History(messages)
       const delegated = sessionRepo.listDelegatedAgents(raw.session_id)
@@ -404,10 +413,11 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       // 原因：用户反馈"直接提取不可控" —— 应让用户先描述意图（要做什么 agent /
       // 风格 / 输出偏好），crystallizer 再综合 S1 历史 + 用户描述给草稿。
       //
-      // 启动时 backend 直接预置两条消息：
+      // 启动时预置两条只给界面看的提示行（会话元数据 notices）：
       //   1. user(snapshot)：S1 历史 + delegated_subagents 信息（前端会折叠显示）
       //   2. assistant(welcome)：欢迎 + 引导用户描述意图
-      // 都不走 chat.send，所以不触发 ReactLoop。等用户输入描述后才触发。
+      // 模型经前置输入（元数据 pending_context）在用户下一条消息之前收到快照与推荐模式：
+      // 引擎会话的前文只来自会话日志，预置行进不了模型输入。
       const buildSnapshotMessage = (variant: 'fresh' | 'updated', prevCount: number): string => {
         const header =
           variant === 'fresh'
@@ -445,23 +455,17 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         const meta = sessionRepo.getMetadata(existing.id)
         const lastCount = (meta.last_snapshot_message_count as number | undefined) ?? 0
         if (lastCount !== currentMsgCount) {
-          // S1 有新消息 → 注入"更新版历史"+"提示用户"两条
-          messageRepo.create({
-            id: uuidv4(),
-            session_id: existing.id,
-            role: 'user',
-            content: [{ type: 'text', text: buildSnapshotMessage('updated', lastCount) }],
-            agent_id: '__crystallizer__',
-          })
-          messageRepo.create({
-            id: uuidv4(),
-            session_id: existing.id,
-            role: 'assistant',
-            content: [{ type: 'text', text: WELCOME_UPDATED }],
-            agent_id: '__crystallizer__',
-          })
+          // S1 有新消息 → 提示行追加"更新版历史"+"提示用户"两条，前置输入追加更新版历史
+          const snapshotText = buildSnapshotMessage('updated', lastCount)
+          const afterTurn = (await sessionTurns(runArchive(), existing.id)).length
           sessionRepo.setMetadata(existing.id, {
             ...meta,
+            notices: [
+              ...sessionNotices(meta),
+              { id: uuidv4(), afterTurn, role: 'user', text: snapshotText },
+              { id: uuidv4(), afterTurn, role: 'assistant', text: WELCOME_UPDATED },
+            ],
+            pending_context: [...pendingContextOf(existing.id), `${snapshotText}\n\n${modeLine}`],
             last_snapshot_message_count: currentMsgCount,
             delegated_subagents: delegated,
           })
@@ -484,27 +488,19 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         agent_id: '__crystallizer__',
         // 不传 parent_session_id → null（顶层 session）
       })
+      const snapshotText = buildSnapshotMessage('fresh', 0)
       sessionRepo.setMetadata(workbench.id, {
+        notices: [
+          { id: uuidv4(), afterTurn: 0, role: 'user', text: snapshotText },
+          { id: uuidv4(), afterTurn: 0, role: 'assistant', text: WELCOME_FRESH },
+        ],
+        pending_context: [`${snapshotText}\n\n${modeLine}`],
         source_session_id: raw.session_id,
         last_snapshot_message_count: currentMsgCount,
         delegated_subagents: delegated,
         created_agents: [],
         crystallizer_mode: recommendation.mode,
         crystallizer_mode_reasons: recommendation.reasons,
-      })
-      messageRepo.create({
-        id: uuidv4(),
-        session_id: workbench.id,
-        role: 'user',
-        content: [{ type: 'text', text: buildSnapshotMessage('fresh', 0) }],
-        agent_id: '__crystallizer__',
-      })
-      messageRepo.create({
-        id: uuidv4(),
-        session_id: workbench.id,
-        role: 'assistant',
-        content: [{ type: 'text', text: WELCOME_FRESH }],
-        agent_id: '__crystallizer__',
       })
       log.info(
         `[Crystallize] start session=${source.id} → workbench=${workbench.id} reuse=false snapshot_msgs=${currentMsgCount}`,
@@ -639,9 +635,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         // 6. 维护 workbench.metadata.created_agents
         const wsMeta = sessionRepo.getMetadata(raw.workbench_session_id)
         const sourceSessionId = wsMeta.source_session_id as string | undefined
-        const sourceMsgCount = sourceSessionId
-          ? messageRepo.listBySession(sourceSessionId).length
-          : 0
+        const sourceMsgCount = sourceSessionId ? (await sourceMessages(sourceSessionId)).length : 0
         const created = (wsMeta.created_agents as Array<Record<string, unknown>> | undefined) ?? []
         created.push({
           id: profile.id,
@@ -714,8 +708,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
   ipcMain.handle('agents:list-tools', (_event, agentId: string) => {
     const agent = agentManager.getAgent(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
-    if (runtimeMode() === 'off') return agent.toolRegistry.listTools()
-    // 引擎路径：界面显示的就是能力目录为这个 agent 选出的工具
+    // 界面显示的就是能力目录为这个 agent 选出的工具
     const caps = currentCatalog().select(agent.profile)
     return engineToolsView(caps, mcpRegistry.listRegisteredTools())
   })

@@ -18,6 +18,7 @@ vi.mock('../db/index', () => ({
 
 import { memoryArchive, type Archive, type RunEvent } from 'agent-engine'
 import { runToolDurations, runTraceDetail, runTraceSummaries } from './run-trace'
+import { clearRowCache } from './turn-rows'
 
 type Body = Record<string, unknown> & { t: string }
 
@@ -28,10 +29,10 @@ const usage = (input: number, output: number, cacheRead = 0, cacheWrite = 0) => 
   cacheWrite,
 })
 
-const started = (sessionId: string, parentRunId?: string): Body => ({
+const started = (sessionId: string, parentRunId?: string, content?: string): Body => ({
   t: 'run_started',
   agent: { id: 'talor__chat__', fingerprint: 'fa' },
-  task: { fingerprint: 'ft', subject: sessionId },
+  task: { fingerprint: 'ft', subject: sessionId, ...(content ? { content } : {}) },
   environment: { name: 'interactive', fingerprint: 'fe', principalReachable: true },
   engine: { fingerprint: 'fg' },
   capabilities: [],
@@ -130,6 +131,7 @@ function insertMessage(
 }
 
 beforeEach(() => {
+  clearRowCache()
   currentDb.instance = new Database(':memory:')
   currentDb.instance.exec(`
     CREATE TABLE messages (
@@ -148,11 +150,17 @@ afterEach(() => {
 describe('runTraceSummaries', () => {
   it('AC-001 lists top-level runs of the session newest first', async () => {
     const archive = memoryArchive()
+    // 预览取自读模型：用户行来自本轮输入，输出取最后一条有文字的 assistant 行；不读 messages 表
+    const input = await archive.putBlob(
+      JSON.stringify({
+        input: [{ role: 'user', parts: [{ type: 'text', text: 'x'.repeat(250) }] }],
+      }),
+    )
     await append(archive, 'run-a', 1_000, [
-      started('s1'),
+      started('s1', undefined, input),
       { t: 'step_started', step: 1 },
       { t: 'context_built', step: 1, messages: [], tools: [], estimate: 0 },
-      responded(1, '', [{ id: 'c1', name: 'read', input: {} }]),
+      responded(1, '答复', [{ id: 'c1', name: 'read', input: {} }]),
       toolFinished('c1', 'sha256:x', 5),
       evaluated(1),
       { t: 'step_ended', step: 1 },
@@ -174,8 +182,7 @@ describe('runTraceSummaries', () => {
       started('s1', 'run-a'),
       ended('run-child', 'completed'),
     ])
-    insertMessage('u1', 'user', 'x'.repeat(250), 'run-a')
-    insertMessage('a1', 'assistant', [{ type: 'text', text: '答复' }], 'run-a')
+    insertMessage('u1', 'user', 'from messages table', 'run-a')
 
     const list = await runTraceSummaries(archive, 's1', 50)
 
@@ -268,7 +275,8 @@ describe('runTraceDetail', () => {
       status_message: 'TOOL_EXCEPTION',
     })
     expect(obs[4]!.level).toBe('DEBUG')
-    expect(detail.messages.map((m) => m.id)).toEqual(['m1'])
+    // 详情的消息由运行事件折叠，messages 表里的行不再出现
+    expect(detail.messages.map((m) => m.id)).toEqual(['run-1:u', 'run-1:s1:a', 'run-1:s1:t'])
     expect(await runTraceDetail(archive, 'missing')).toBeNull()
   })
 

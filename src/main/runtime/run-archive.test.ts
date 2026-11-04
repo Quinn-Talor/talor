@@ -10,7 +10,7 @@ vi.mock('electron-log', () => ({
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }))
 
 import { sqliteArchive } from 'agent-engine/adapters/sqlite'
-import { openRunArchive } from './run-archive'
+import { INTERACTIVE_ENVIRONMENT, openRunArchive } from './run-archive'
 
 let dir: string
 let file: string
@@ -92,5 +92,19 @@ describe('openRunArchive', () => {
     expect(() => openRunArchive(file)).toThrow()
     expect(existsSync(file)).toBe(true)
     expect(readdirSync(dir).filter((f) => f.endsWith('.bak'))).toEqual([])
+  })
+
+  it('keeps the runs of user sessions until the session is deleted, others for 30 days', () => {
+    let given: Parameters<typeof sqliteArchive>[0] | undefined
+    const open = ((opts: Parameters<typeof sqliteArchive>[0]) => {
+      given = opts
+      return sqliteArchive(opts)
+    }) as typeof sqliteArchive
+    openRunArchive(file, open)
+    expect(given?.retention).toEqual({
+      defaultDays: 30,
+      environments: { [INTERACTIVE_ENVIRONMENT]: Number.POSITIVE_INFINITY },
+    })
+    expect(INTERACTIVE_ENVIRONMENT).toBe('interactive')
   })
 })

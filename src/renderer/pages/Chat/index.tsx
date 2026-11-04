@@ -259,6 +259,50 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
     blockHandlersRef.current.onEmit(text)
   }, [])
 
+  // 往上滚动加载的更早的轮（主进程按轮分页）；最新一页仍由 messages 承载，按 id 去重拼接
+  // 带上所属会话：切换会话后自然失效，不用在 effect 里清空
+  const [earlierOf, setEarlierOf] = useState<{
+    sessionId: string | null
+    rows: ChatMessage[]
+    hasMore: boolean
+  }>({ sessionId: null, rows: [], hasMore: true })
+  const loadingEarlierRef = useRef(false)
+  const lastScrollTopRef = useRef(0)
+  const hasEarlier = earlierOf.sessionId === currentSessionId ? earlierOf.hasMore : true
+  const shownMessages = useMemo(() => {
+    const earlier = earlierOf.sessionId === currentSessionId ? earlierOf.rows : []
+    if (earlier.length === 0) return messages
+    const latest = new Set(messages.map((m) => m.id))
+    return [...earlier.filter((m) => !latest.has(m.id)), ...messages]
+  }, [earlierOf, currentSessionId, messages])
+  const isSubSession = sessions.find((s) => s.id === currentSessionId)?.parent_session_id != null
+
+  // 滚到顶部时取最早一轮之前的 20 轮；保持当前可见位置
+  const loadEarlier = useCallback(async () => {
+    const id = useChatStore.getState().currentSessionId
+    const first = shownMessages.find((m) => m.trace_id)
+    if (!id || !first?.trace_id || !hasEarlier || loadingEarlierRef.current) return
+    loadingEarlierRef.current = true
+    try {
+      const el = messagesContainerRef.current
+      const prevHeight = el?.scrollHeight ?? 0
+      const res = await talorAPI.session.getEarlierMessages(id, first.trace_id)
+      if (useChatStore.getState().currentSessionId !== id) return
+      setEarlierOf((prev) => ({
+        sessionId: id,
+        rows: [...res.messages, ...(prev.sessionId === id ? prev.rows : [])],
+        hasMore: res.hasMore,
+      }))
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop += el.scrollHeight - prevHeight
+      })
+    } catch (e) {
+      console.error('Failed to load earlier messages', e)
+    } finally {
+      loadingEarlierRef.current = false
+    }
+  }, [shownMessages, hasEarlier])
+
   // 性能关键: 消息列表渲染缓存 — 仅在 messages 变化时重算
   // 之前每次输入(setInput)都会让父组件重渲染,触发这段含 40+ JSON.parse 的 reduce,
   // 导致输入卡顿。useMemo 后输入完全不影响这段计算。
@@ -273,8 +317,8 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         }
       />
     )
-    const nodes = messages.reduce((acc, msg, idx) => {
-      const prev = idx > 0 ? messages[idx - 1] : undefined
+    const nodes = shownMessages.reduce((acc, msg, idx) => {
+      const prev = idx > 0 ? shownMessages[idx - 1] : undefined
       if (prev?.trace_id && prev.trace_id !== msg.trace_id) {
         acc.push(traceChip(prev.trace_id, prev.session_id, idx))
       }
@@ -287,7 +331,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
         ) : null
       // 引擎的意图调用（只对标为答复的行）画成卡片，卡片上的选择作为下一条用户消息发出
       if (msg.role === 'assistant') {
-        const next = messages[idx + 1]
+        const next = shownMessages[idx + 1]
         const intent = intentViewOf(msg.content, next?.role === 'tool' ? next.content : undefined)
         if (intent) {
           if (reasoningNote) acc.push(reasoningNote)
@@ -319,7 +363,7 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 toolName: b.toolName ?? '',
                 input: b.input,
               }))
-            const next = messages[idx + 1]
+            const next = shownMessages[idx + 1]
             let toolResults: Array<{
               type: 'tool-result'
               toolCallId: string
@@ -392,10 +436,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
       )
       return acc
     }, [] as React.ReactNode[])
-    const last = messages[messages.length - 1]
-    if (last?.trace_id) nodes.push(traceChip(last.trace_id, last.session_id, messages.length))
+    const last = shownMessages[shownMessages.length - 1]
+    if (last?.trace_id) nodes.push(traceChip(last.trace_id, last.session_id, shownMessages.length))
     return nodes
-  }, [messages, blockOnPickChoice, blockOnConfirmProposal, blockOnEmit, toolDurations])
+  }, [shownMessages, blockOnPickChoice, blockOnConfirmProposal, blockOnEmit, toolDurations])
 
   // Auto-select most recent session
   useEffect(() => {
@@ -1294,6 +1338,10 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
                 if (!el) return
                 const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
                 userScrolledUpRef.current = !atBottom
+                // 只在往上滚到顶部时加载：打开会话时从顶部平滑滚到底部的过程不算
+                const up = el.scrollTop < lastScrollTopRef.current
+                lastScrollTopRef.current = el.scrollTop
+                if (up && el.scrollTop < 40) void loadEarlier()
               }}
             >
               {messages.length === 0 && streamState !== 'streaming' ? (
@@ -1528,440 +1576,452 @@ export function ChatPage({ onOpenSettings }: ChatPageProps) {
               )}
 
               {/* Input card — workspace pill inside the card top row */}
-              <div
-                className="rounded-[14px] transition-all focus-within:shadow-[0_0_0_2px_rgba(59,130,246,0.18)]"
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  boxShadow: '0 1px 8px rgba(0,0,0,0.05)',
-                }}
-              >
-                {/* Workspace + top meta row */}
-                <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-                  <WorkspaceSelector
-                    sessionId={currentSessionId}
-                    workspace={currentWorkspace}
-                    onWorkspaceChange={(ws) => {
-                      setCurrentWorkspace(ws)
-                      loadSessions()
-                    }}
-                    disabled={streamState === 'streaming'}
-                  />
-                  {currentWorkspace && (
-                    <div className="ml-auto">
-                      <PermissionsPopover workspacePath={currentWorkspace} />
-                    </div>
-                  )}
+              {isSubSession ? (
+                <div className="text-[13px] text-ink-3 text-center py-3">
+                  子会话只记录委托过程，不能继续对话
                 </div>
-
-                {/* Textarea */}
-                <div className="px-4 pb-1">
-                  {ws.isOpen && (
-                    <div
-                      className="text-[11px] mb-1"
-                      style={{ color: '#7c3aed' }}
-                      data-testid="crystallize-input-hint"
-                    >
-                      🔮 Crystallizer 沉淀模式 — 关闭工作台回到 {currentAgentName}
-                    </div>
-                  )}
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={
-                      ws.isOpen
-                        ? '描述你想从对话中提取什么样的 agent...'
-                        : `给 ${currentAgentName} 发消息...`
-                    }
-                    disabled={streamState === 'streaming'}
-                    className="w-full resize-none outline-none bg-transparent text-[13px] leading-relaxed placeholder-[#94a3b8] disabled:opacity-50"
-                    style={{ color: '#334155', minHeight: 48, maxHeight: 160 }}
-                    rows={2}
-                  />
-                </div>
-
-                {/* Toolbar */}
-                <div className="flex items-center gap-1 px-2.5 pb-2.5">
-                  {/* Attachment */}
-                  <button
-                    onClick={handleAttachmentClick}
-                    disabled={isBusy}
-                    title="添加附件"
-                    className="flex items-center justify-center w-7 h-7 rounded-[7px] transition-colors hover:bg-[#f1f5f9] disabled:opacity-40"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      style={{ color: '#b0b9c6' }}
-                    >
-                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                    </svg>
-                  </button>
-
-                  <div className="w-px h-3 mx-1" style={{ background: '#e8ecf0' }} />
-
-                  {/* Tools badge + popover — agent 内置工具，排在 MCP 前面 */}
-                  <div className="relative" ref={toolsPopoverRef}>
-                    <button
-                      onClick={() => {
-                        const next = !showToolsPopover
-                        setShowToolsPopover(next)
-                        setShowMcpPopover(false)
-                        if (next) loadAgentTools(currentAgentId)
+              ) : (
+                <div
+                  className="rounded-[14px] transition-all focus-within:shadow-[0_0_0_2px_rgba(59,130,246,0.18)]"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 8px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  {/* Workspace + top meta row */}
+                  <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+                    <WorkspaceSelector
+                      sessionId={currentSessionId}
+                      workspace={currentWorkspace}
+                      onWorkspaceChange={(ws) => {
+                        setCurrentWorkspace(ws)
+                        loadSessions()
                       }}
-                      className="flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-all"
-                      style={{
-                        background: showToolsPopover ? 'rgba(16,185,129,0.12)' : 'transparent',
-                        color: showToolsPopover ? '#059669' : '#94a3b8',
-                      }}
-                    >
-                      <svg
-                        width="10"
-                        height="10"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                      >
-                        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                      </svg>
-                      Tools · {agentBuiltinTools.length}
-                    </button>
-                    {showToolsPopover && (
-                      <div
-                        className="absolute bottom-full left-0 mb-2 rounded-xl shadow-xl z-50 overflow-hidden"
-                        style={{
-                          width: 300,
-                          background: '#ffffff',
-                          border: '1px solid #e2e8f0',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-                        }}
-                      >
-                        <div
-                          className="flex items-center justify-between px-3 py-2.5 border-b"
-                          style={{ borderColor: '#f1f5f9' }}
-                        >
-                          <div>
-                            <div className="text-[11px] font-semibold" style={{ color: '#059669' }}>
-                              内置工具
-                            </div>
-                            <div className="text-[10px] mt-0.5" style={{ color: '#94a3b8' }}>
-                              {currentAgentName} 的内置工具
-                            </div>
-                          </div>
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-md shrink-0"
-                            style={{ background: 'rgba(16,185,129,0.1)', color: '#059669' }}
-                          >
-                            {agentBuiltinTools.length} 个
-                          </span>
-                        </div>
-                        <div className="p-1.5 overflow-y-auto" style={{ maxHeight: 360 }}>
-                          {agentBuiltinTools.map((t) => (
-                            <div
-                              key={t.name}
-                              className="flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#f8fafc] transition-colors"
-                            >
-                              <div
-                                className="flex items-center justify-center rounded-md shrink-0 mt-0.5"
-                                style={{
-                                  width: 20,
-                                  height: 20,
-                                  background:
-                                    t.riskLevel === 'HIGH'
-                                      ? 'rgba(239,68,68,0.08)'
-                                      : 'rgba(16,185,129,0.08)',
-                                }}
-                              >
-                                <svg
-                                  width="10"
-                                  height="10"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke={t.riskLevel === 'HIGH' ? '#ef4444' : '#059669'}
-                                  strokeWidth="2.5"
-                                >
-                                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                                </svg>
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span
-                                    className="text-[12px] font-medium"
-                                    style={{ color: '#334155' }}
-                                  >
-                                    {t.name}
-                                  </span>
-                                  {t.riskLevel === 'HIGH' && (
-                                    <span
-                                      className="text-[9px] px-1 py-0.5 rounded font-medium"
-                                      style={{
-                                        background: 'rgba(239,68,68,0.08)',
-                                        color: '#ef4444',
-                                      }}
-                                    >
-                                      HIGH
-                                    </span>
-                                  )}
-                                </div>
-                                <div
-                                  className="text-[11px] mt-0.5 line-clamp-2"
-                                  style={{ color: '#94a3b8' }}
-                                  title={t.description}
-                                >
-                                  {t.description}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                      disabled={streamState === 'streaming'}
+                    />
+                    {currentWorkspace && (
+                      <div className="ml-auto">
+                        <PermissionsPopover workspacePath={currentWorkspace} />
                       </div>
                     )}
                   </div>
 
-                  {/* MCP badge + popover — agent 绑定的 MCP 工具 */}
-                  <div className="relative" ref={mcpPopoverRef}>
+                  {/* Textarea */}
+                  <div className="px-4 pb-1">
+                    {ws.isOpen && (
+                      <div
+                        className="text-[11px] mb-1"
+                        style={{ color: '#7c3aed' }}
+                        data-testid="crystallize-input-hint"
+                      >
+                        🔮 Crystallizer 沉淀模式 — 关闭工作台回到 {currentAgentName}
+                      </div>
+                    )}
+                    <textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder={
+                        ws.isOpen
+                          ? '描述你想从对话中提取什么样的 agent...'
+                          : `给 ${currentAgentName} 发消息...`
+                      }
+                      disabled={streamState === 'streaming'}
+                      className="w-full resize-none outline-none bg-transparent text-[13px] leading-relaxed placeholder-[#94a3b8] disabled:opacity-50"
+                      style={{ color: '#334155', minHeight: 48, maxHeight: 160 }}
+                      rows={2}
+                    />
+                  </div>
+
+                  {/* Toolbar */}
+                  <div className="flex items-center gap-1 px-2.5 pb-2.5">
+                    {/* Attachment */}
                     <button
-                      onClick={() => {
-                        const next = !showMcpPopover
-                        setShowMcpPopover(next)
-                        setShowToolsPopover(false)
-                        // MCP 比 UI mount 慢:按需刷新一次,确保用户看到最新工具列表
-                        if (next) loadAgentTools(currentAgentId)
-                      }}
-                      className="flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-all"
-                      style={{
-                        background: showMcpPopover ? 'rgba(99,102,241,0.12)' : 'transparent',
-                        color: showMcpPopover ? '#6366f1' : '#94a3b8',
-                      }}
+                      onClick={handleAttachmentClick}
+                      disabled={isBusy}
+                      title="添加附件"
+                      className="flex items-center justify-center w-7 h-7 rounded-[7px] transition-colors hover:bg-[#f1f5f9] disabled:opacity-40"
                     >
                       <svg
-                        width="10"
-                        height="10"
+                        width="14"
+                        height="14"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2.5"
+                        strokeWidth="2"
+                        style={{ color: '#b0b9c6' }}
                       >
-                        <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                       </svg>
-                      MCP{agentMcpTools.length > 0 ? ` · ${agentMcpTools.length}` : ''}
                     </button>
-                    {showMcpPopover && (
-                      <div
-                        className="absolute bottom-full left-0 mb-2 rounded-xl shadow-xl z-50 overflow-hidden"
+
+                    <div className="w-px h-3 mx-1" style={{ background: '#e8ecf0' }} />
+
+                    {/* Tools badge + popover — agent 内置工具，排在 MCP 前面 */}
+                    <div className="relative" ref={toolsPopoverRef}>
+                      <button
+                        onClick={() => {
+                          const next = !showToolsPopover
+                          setShowToolsPopover(next)
+                          setShowMcpPopover(false)
+                          if (next) loadAgentTools(currentAgentId)
+                        }}
+                        className="flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-all"
                         style={{
-                          width: 320,
-                          background: '#ffffff',
-                          border: '1px solid #e2e8f0',
-                          boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                          background: showToolsPopover ? 'rgba(16,185,129,0.12)' : 'transparent',
+                          color: showToolsPopover ? '#059669' : '#94a3b8',
                         }}
                       >
-                        <div
-                          className="flex items-center justify-between px-3 py-2.5 border-b"
-                          style={{ borderColor: '#f1f5f9' }}
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
                         >
-                          <div>
-                            <div className="text-[11px] font-semibold" style={{ color: '#6366f1' }}>
-                              MCP 工具
-                            </div>
-                            <div className="text-[10px] mt-0.5" style={{ color: '#94a3b8' }}>
-                              {currentAgentName} 绑定的 MCP 工具
-                            </div>
-                          </div>
-                          <span
-                            className="text-[10px] px-1.5 py-0.5 rounded-md shrink-0"
-                            style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}
-                          >
-                            {agentMcpTools.length} 个
-                          </span>
-                        </div>
-                        {agentMcpTools.length === 0 ? (
+                          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                        </svg>
+                        Tools · {agentBuiltinTools.length}
+                      </button>
+                      {showToolsPopover && (
+                        <div
+                          className="absolute bottom-full left-0 mb-2 rounded-xl shadow-xl z-50 overflow-hidden"
+                          style={{
+                            width: 300,
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                          }}
+                        >
                           <div
-                            className="px-3 py-6 text-center text-[11px]"
-                            style={{ color: '#cbd5e1' }}
+                            className="flex items-center justify-between px-3 py-2.5 border-b"
+                            style={{ borderColor: '#f1f5f9' }}
                           >
-                            未配置 MCP Server
+                            <div>
+                              <div
+                                className="text-[11px] font-semibold"
+                                style={{ color: '#059669' }}
+                              >
+                                内置工具
+                              </div>
+                              <div className="text-[10px] mt-0.5" style={{ color: '#94a3b8' }}>
+                                {currentAgentName} 的内置工具
+                              </div>
+                            </div>
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-md shrink-0"
+                              style={{ background: 'rgba(16,185,129,0.1)', color: '#059669' }}
+                            >
+                              {agentBuiltinTools.length} 个
+                            </span>
                           </div>
-                        ) : (
-                          <div className="overflow-y-auto py-1.5" style={{ maxHeight: 300 }}>
-                            {Object.entries(
-                              agentMcpTools.reduce<Record<string, typeof agentMcpTools>>(
-                                (acc, t) => {
-                                  const key = t.provider ?? '未知来源'
-                                  ;(acc[key] ??= []).push(t)
-                                  return acc
-                                },
-                                {},
-                              ),
-                            ).map(([provider, tools]) => {
-                              const expanded = expandedMcpServers.has(provider)
-                              const toggle = () =>
-                                setExpandedMcpServers((prev) => {
-                                  const next = new Set(prev)
-                                  if (next.has(provider)) next.delete(provider)
-                                  else next.add(provider)
-                                  return next
-                                })
-                              return (
-                                <div key={provider}>
-                                  <button
-                                    onClick={toggle}
-                                    className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f8fafc] transition-colors"
+                          <div className="p-1.5 overflow-y-auto" style={{ maxHeight: 360 }}>
+                            {agentBuiltinTools.map((t) => (
+                              <div
+                                key={t.name}
+                                className="flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-[#f8fafc] transition-colors"
+                              >
+                                <div
+                                  className="flex items-center justify-center rounded-md shrink-0 mt-0.5"
+                                  style={{
+                                    width: 20,
+                                    height: 20,
+                                    background:
+                                      t.riskLevel === 'HIGH'
+                                        ? 'rgba(239,68,68,0.08)'
+                                        : 'rgba(16,185,129,0.08)',
+                                  }}
+                                >
+                                  <svg
+                                    width="10"
+                                    height="10"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke={t.riskLevel === 'HIGH' ? '#ef4444' : '#059669'}
+                                    strokeWidth="2.5"
                                   >
-                                    <div
-                                      className="flex items-center justify-center rounded-md shrink-0"
-                                      style={{
-                                        width: 22,
-                                        height: 22,
-                                        background: 'rgba(99,102,241,0.12)',
-                                      }}
-                                    >
-                                      <svg
-                                        width="11"
-                                        height="11"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="#6366f1"
-                                        strokeWidth="2.5"
-                                      >
-                                        <rect x="2" y="2" width="20" height="8" rx="2" />
-                                        <rect x="2" y="14" width="20" height="8" rx="2" />
-                                        <line x1="6" y1="6" x2="6.01" y2="6" />
-                                        <line x1="6" y1="18" x2="6.01" y2="18" />
-                                      </svg>
-                                    </div>
+                                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                                  </svg>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
                                     <span
-                                      className="text-[12px] font-semibold flex-1 text-left"
+                                      className="text-[12px] font-medium"
                                       style={{ color: '#334155' }}
                                     >
-                                      {provider}
+                                      {t.name}
                                     </span>
-                                    <span
-                                      className="text-[10px] px-1.5 py-0.5 rounded"
-                                      style={{
-                                        background: 'rgba(99,102,241,0.08)',
-                                        color: '#6366f1',
-                                      }}
-                                    >
-                                      {tools.length} tools
-                                    </span>
-                                    <svg
-                                      width="10"
-                                      height="10"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="#94a3b8"
-                                      strokeWidth="2.5"
-                                      className="shrink-0 transition-transform"
-                                      style={{
-                                        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                                      }}
-                                    >
-                                      <polyline points="6 9 12 15 18 9" />
-                                    </svg>
-                                  </button>
-                                  {expanded && (
-                                    <div
-                                      className="ml-3 border-l mb-1"
-                                      style={{ borderColor: '#e2e8f0' }}
-                                    >
-                                      {tools.map((t) => (
-                                        <div
-                                          key={t.name}
-                                          className="flex items-start gap-2 py-1.5 pl-3 pr-3 hover:bg-[#f8fafc] transition-colors"
-                                        >
-                                          <svg
-                                            width="10"
-                                            height="10"
-                                            viewBox="0 0 24 24"
-                                            fill="none"
-                                            stroke="#a5b4fc"
-                                            strokeWidth="2.5"
-                                            className="shrink-0 mt-0.5"
-                                          >
-                                            <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                                          </svg>
-                                          <div className="min-w-0">
-                                            <div
-                                              className="text-[11px] font-medium"
-                                              style={{ color: '#475569' }}
-                                            >
-                                              {t.name}
-                                            </div>
-                                            {t.description && (
-                                              <div
-                                                className="text-[10px] mt-0.5 line-clamp-1"
-                                                style={{ color: '#94a3b8' }}
-                                              >
-                                                {t.description}
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
+                                    {t.riskLevel === 'HIGH' && (
+                                      <span
+                                        className="text-[9px] px-1 py-0.5 rounded font-medium"
+                                        style={{
+                                          background: 'rgba(239,68,68,0.08)',
+                                          color: '#ef4444',
+                                        }}
+                                      >
+                                        HIGH
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div
+                                    className="text-[11px] mt-0.5 line-clamp-2"
+                                    style={{ color: '#94a3b8' }}
+                                    title={t.description}
+                                  >
+                                    {t.description}
+                                  </div>
                                 </div>
-                              )
-                            })}
+                              </div>
+                            ))}
                           </div>
-                        )}
-                      </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* MCP badge + popover — agent 绑定的 MCP 工具 */}
+                    <div className="relative" ref={mcpPopoverRef}>
+                      <button
+                        onClick={() => {
+                          const next = !showMcpPopover
+                          setShowMcpPopover(next)
+                          setShowToolsPopover(false)
+                          // MCP 比 UI mount 慢:按需刷新一次,确保用户看到最新工具列表
+                          if (next) loadAgentTools(currentAgentId)
+                        }}
+                        className="flex items-center gap-1 px-2 h-6 rounded-md text-[10px] font-medium transition-all"
+                        style={{
+                          background: showMcpPopover ? 'rgba(99,102,241,0.12)' : 'transparent',
+                          color: showMcpPopover ? '#6366f1' : '#94a3b8',
+                        }}
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                        >
+                          <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        MCP{agentMcpTools.length > 0 ? ` · ${agentMcpTools.length}` : ''}
+                      </button>
+                      {showMcpPopover && (
+                        <div
+                          className="absolute bottom-full left-0 mb-2 rounded-xl shadow-xl z-50 overflow-hidden"
+                          style={{
+                            width: 320,
+                            background: '#ffffff',
+                            border: '1px solid #e2e8f0',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                          }}
+                        >
+                          <div
+                            className="flex items-center justify-between px-3 py-2.5 border-b"
+                            style={{ borderColor: '#f1f5f9' }}
+                          >
+                            <div>
+                              <div
+                                className="text-[11px] font-semibold"
+                                style={{ color: '#6366f1' }}
+                              >
+                                MCP 工具
+                              </div>
+                              <div className="text-[10px] mt-0.5" style={{ color: '#94a3b8' }}>
+                                {currentAgentName} 绑定的 MCP 工具
+                              </div>
+                            </div>
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-md shrink-0"
+                              style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1' }}
+                            >
+                              {agentMcpTools.length} 个
+                            </span>
+                          </div>
+                          {agentMcpTools.length === 0 ? (
+                            <div
+                              className="px-3 py-6 text-center text-[11px]"
+                              style={{ color: '#cbd5e1' }}
+                            >
+                              未配置 MCP Server
+                            </div>
+                          ) : (
+                            <div className="overflow-y-auto py-1.5" style={{ maxHeight: 300 }}>
+                              {Object.entries(
+                                agentMcpTools.reduce<Record<string, typeof agentMcpTools>>(
+                                  (acc, t) => {
+                                    const key = t.provider ?? '未知来源'
+                                    ;(acc[key] ??= []).push(t)
+                                    return acc
+                                  },
+                                  {},
+                                ),
+                              ).map(([provider, tools]) => {
+                                const expanded = expandedMcpServers.has(provider)
+                                const toggle = () =>
+                                  setExpandedMcpServers((prev) => {
+                                    const next = new Set(prev)
+                                    if (next.has(provider)) next.delete(provider)
+                                    else next.add(provider)
+                                    return next
+                                  })
+                                return (
+                                  <div key={provider}>
+                                    <button
+                                      onClick={toggle}
+                                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[#f8fafc] transition-colors"
+                                    >
+                                      <div
+                                        className="flex items-center justify-center rounded-md shrink-0"
+                                        style={{
+                                          width: 22,
+                                          height: 22,
+                                          background: 'rgba(99,102,241,0.12)',
+                                        }}
+                                      >
+                                        <svg
+                                          width="11"
+                                          height="11"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="#6366f1"
+                                          strokeWidth="2.5"
+                                        >
+                                          <rect x="2" y="2" width="20" height="8" rx="2" />
+                                          <rect x="2" y="14" width="20" height="8" rx="2" />
+                                          <line x1="6" y1="6" x2="6.01" y2="6" />
+                                          <line x1="6" y1="18" x2="6.01" y2="18" />
+                                        </svg>
+                                      </div>
+                                      <span
+                                        className="text-[12px] font-semibold flex-1 text-left"
+                                        style={{ color: '#334155' }}
+                                      >
+                                        {provider}
+                                      </span>
+                                      <span
+                                        className="text-[10px] px-1.5 py-0.5 rounded"
+                                        style={{
+                                          background: 'rgba(99,102,241,0.08)',
+                                          color: '#6366f1',
+                                        }}
+                                      >
+                                        {tools.length} tools
+                                      </span>
+                                      <svg
+                                        width="10"
+                                        height="10"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="#94a3b8"
+                                        strokeWidth="2.5"
+                                        className="shrink-0 transition-transform"
+                                        style={{
+                                          transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                        }}
+                                      >
+                                        <polyline points="6 9 12 15 18 9" />
+                                      </svg>
+                                    </button>
+                                    {expanded && (
+                                      <div
+                                        className="ml-3 border-l mb-1"
+                                        style={{ borderColor: '#e2e8f0' }}
+                                      >
+                                        {tools.map((t) => (
+                                          <div
+                                            key={t.name}
+                                            className="flex items-start gap-2 py-1.5 pl-3 pr-3 hover:bg-[#f8fafc] transition-colors"
+                                          >
+                                            <svg
+                                              width="10"
+                                              height="10"
+                                              viewBox="0 0 24 24"
+                                              fill="none"
+                                              stroke="#a5b4fc"
+                                              strokeWidth="2.5"
+                                              className="shrink-0 mt-0.5"
+                                            >
+                                              <path d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                                            </svg>
+                                            <div className="min-w-0">
+                                              <div
+                                                className="text-[11px] font-medium"
+                                                style={{ color: '#475569' }}
+                                              >
+                                                {t.name}
+                                              </div>
+                                              {t.description && (
+                                                <div
+                                                  className="text-[10px] mt-0.5 line-clamp-1"
+                                                  style={{ color: '#94a3b8' }}
+                                                >
+                                                  {t.description}
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex-1" />
+
+                    {/* Send / Stop */}
+                    {streamState === 'streaming' ? (
+                      <button
+                        onClick={handleStop}
+                        className="flex items-center justify-center rounded-[8px] transition-colors hover:opacity-90"
+                        style={{ width: 30, height: 30, background: '#f1f5f9', color: '#64748b' }}
+                        title="停止生成"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                          <rect x="4" y="4" width="16" height="16" rx="2" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSend}
+                        disabled={isBusy || (!input.trim() && attachments.length === 0)}
+                        className="flex items-center justify-center rounded-[8px] transition-all hover:opacity-90 disabled:opacity-30"
+                        style={{
+                          width: 30,
+                          height: 30,
+                          background:
+                            input.trim() || attachments.length > 0
+                              ? 'linear-gradient(135deg, #3b82f6, #2563eb)'
+                              : '#e2e8f0',
+                          color: input.trim() || attachments.length > 0 ? '#ffffff' : '#94a3b8',
+                        }}
+                        title="发送 (Enter)"
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          style={{ marginLeft: 1 }}
+                        >
+                          <line x1="22" y1="2" x2="11" y2="13" />
+                          <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                        </svg>
+                      </button>
                     )}
                   </div>
-
-                  <div className="flex-1" />
-
-                  {/* Send / Stop */}
-                  {streamState === 'streaming' ? (
-                    <button
-                      onClick={handleStop}
-                      className="flex items-center justify-center rounded-[8px] transition-colors hover:opacity-90"
-                      style={{ width: 30, height: 30, background: '#f1f5f9', color: '#64748b' }}
-                      title="停止生成"
-                    >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
-                        <rect x="4" y="4" width="16" height="16" rx="2" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={isBusy || (!input.trim() && attachments.length === 0)}
-                      className="flex items-center justify-center rounded-[8px] transition-all hover:opacity-90 disabled:opacity-30"
-                      style={{
-                        width: 30,
-                        height: 30,
-                        background:
-                          input.trim() || attachments.length > 0
-                            ? 'linear-gradient(135deg, #3b82f6, #2563eb)'
-                            : '#e2e8f0',
-                        color: input.trim() || attachments.length > 0 ? '#ffffff' : '#94a3b8',
-                      }}
-                      title="发送 (Enter)"
-                    >
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        style={{ marginLeft: 1 }}
-                      >
-                        <line x1="22" y1="2" x2="11" y2="13" />
-                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                      </svg>
-                    </button>
-                  )}
                 </div>
-              </div>
+              )}
             </div>
           </>
         ) : (

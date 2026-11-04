@@ -14,8 +14,7 @@ vi.mock('../store/config-store', () => ({
 
 import { isModelCallError, type ModelInput, type ModelPort } from 'agent-engine'
 import type { Provider } from '../store/config-store'
-import { engineContextConfig } from '../history/context-config'
-import { engineInputLimit, historyConfigOf, modelRefOf, parseModelRef, talorModels } from './models'
+import { modelRefOf, parseModelRef, talorModels } from './models'
 
 function makeProvider(overrides: Partial<Provider> = {}): Provider {
   return {
@@ -105,31 +104,6 @@ describe('parseModelRef / modelRefOf', () => {
   })
 })
 
-describe('engineInputLimit / historyConfigOf', () => {
-  it('AC-004 subtracts the smaller of the output limit and half the window', () => {
-    expect(engineInputLimit(makeProvider({ context_limit: 128_000 }), 'm')).toBe(64_000)
-    expect(
-      engineInputLimit(makeProvider({ context_limit: 200_000, max_output_tokens: 8_000 }), 'm'),
-    ).toBe(192_000)
-    expect(engineInputLimit(makeProvider({ context_limit: 10_000 }), 'm')).toBe(5_000)
-    expect(engineInputLimit(makeProvider({ context_limit: 10_001 }), 'm')).toBe(5_001)
-  })
-
-  it('AC-005 gives the history the input limit and keeps the ratios', () => {
-    // 全局设置 500000（见 beforeEach），输出上限未配置时 64000
-    const provider = makeProvider()
-    const config = historyConfigOf(provider, 'deepseek-chat')
-    expect(config).toEqual({
-      ...engineContextConfig(provider, 'deepseek-chat'),
-      context_limit: 436_000,
-    })
-    expect(
-      historyConfigOf(makeProvider({ context_limit: 128_000, max_output_tokens: 8_000 }), 'm')
-        .context_limit,
-    ).toBe(120_000)
-  })
-})
-
 describe('talorModels', () => {
   it('AC-001 resolves an enabled provider with its capabilities and rejects unknown refs', () => {
     const { library } = setup(makeProvider({ context_limit: 200_000, supports_vision: true }))
@@ -200,6 +174,36 @@ describe('talorModels', () => {
     setProvider(null)
     const error = await call(port).catch((e: unknown) => e)
     expect(isModelCallError(error) && error.detail.code).toBe('MODEL_UNAVAILABLE')
+  })
+
+  it('declares the current call settings for the model fingerprint, without header values', () => {
+    const { library, setProvider } = setup(
+      makeProvider({
+        headers: { authorization: 'secret-1' },
+        provider_options: { openai: { user: 'u' } },
+      }),
+    )
+    const port = library.resolve('talor:p1/m1')!
+    const before = JSON.stringify(port.settings)
+    expect(before).toContain('"user":"u"')
+    expect(before).toContain('authorization')
+    expect(before).not.toContain('secret-1')
+
+    // 只换 header 的值（例如轮换凭据）不改变配置；改了 provider options 会变
+    setProvider(
+      makeProvider({
+        headers: { authorization: 'secret-2' },
+        provider_options: { openai: { user: 'u' } },
+      }),
+    )
+    expect(JSON.stringify(port.settings)).toBe(before)
+    setProvider(
+      makeProvider({
+        headers: { authorization: 'secret-2' },
+        provider_options: { openai: { user: 'v' } },
+      }),
+    )
+    expect(JSON.stringify(port.settings)).not.toBe(before)
   })
 })
 

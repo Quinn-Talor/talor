@@ -2,8 +2,8 @@
 //
 // 职责:给 history 产出"摘要 + 锚点 + recent 原文"的原始行。history 逼近上下文上限时把旧消息增量压缩为
 // 结构化摘要(落 session_summaries),之后每轮复用。实现原样迁自 memory/ShortTermMemory.ts;旧路径的
-// ShortTermMemory 包装本模块并把原始行转成 SDK 消息,引擎路径经 runtime/history-policy 用 historyOf 转换。
-// 旧路径与引擎共用，不随旧路径删除。
+// ShortTermMemory 包装本模块并把原始行转成 SDK 消息。只有旧路径使用:引擎路径的跨轮前文由引擎会话提供,
+// 本模块随旧路径删除(D2)。
 //
 // 不变量:返回的 rows 满足 tool_use/tool_result 配对 —— 不以孤立 tool 开头;history 末尾的
 // assistant(tool_use) 必在其中(其 tool_result 是当前 turn)。

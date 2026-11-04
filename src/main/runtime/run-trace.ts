@@ -4,9 +4,10 @@
 // buildTrace 得到层级，再映射成面板现有的 observation：run → AGENT、step → SPAN、model → GENERATION、
 // tool → TOOL、external → CHAIN、opinion → GUARDRAIL（DEBUG，面板默认隐藏）。GENERATION 的 input 写成
 // 面板的提示词索引（hash 为引擎的 blob 引用）。observation id 为 `${runId}:${n}`（前序遍历序号）。
+// 列表的输入 / 输出预览与详情的 messages 取自读模型（turn-rows），不读 messages 表。
 // 读 Trace 时运行档案文件不存在就不打开（不建 runs.db、不启动引擎）。
 //
-// 允许依赖: agent-engine、fs、runtime/run-archive、runtime/projection（toolOutputBody）、repos/session-repo、
+// 允许依赖: agent-engine、fs、runtime/run-archive、runtime/turn-rows（界面行与 toolOutputBody）、repos/session-repo（类型）、
 //          @shared/types/trace
 // 禁止依赖: ipc/*、db/*、runtime/engine（getRuntime 会启动引擎）
 
@@ -25,8 +26,8 @@ import type {
   TraceGetResult,
   TraceSummary,
 } from '@shared/types/trace'
-import { messageRepo, type ChatMessage } from '../repos/session-repo'
-import { toolOutputBody } from './projection'
+import type { ChatMessage } from '../repos/session-repo'
+import { rowsOfRun, toolOutputBody } from './turn-rows'
 import { runArchive, runsDbPath } from './run-archive'
 
 const PREVIEW_CHARS = 200
@@ -85,9 +86,10 @@ export async function runTraceSummaries(
   const runs = (await archive.query({ subject: sessionId, limit }))
     .filter((r) => r.parentRunId === undefined)
     .sort((a, b) => b.startedAt - a.startedAt)
-  return runs.map((r) => {
-    const msgs = messageRepo.listByTrace(r.runId).filter((m) => m.session_id === sessionId)
-    return {
+  const summaries: TraceSummary[] = []
+  for (const r of runs) {
+    const msgs = await rowsOfRun(archive, { runId: r.runId, sessionId, agentId: r.agentId })
+    summaries.push({
       id: r.runId,
       timestamp: iso(r.startedAt),
       end_time: r.endedAt !== undefined ? iso(r.endedAt) : null,
@@ -106,8 +108,9 @@ export async function runTraceSummaries(
         cache_creation_input_tokens: r.usage.cacheWrite,
         output_reasoning_tokens: 0,
       },
-    }
-  })
+    })
+  }
+  return summaries
 }
 
 async function readAll(archive: Archive, runId: string): Promise<RunEvent[]> {
@@ -281,7 +284,11 @@ export async function runTraceDetail(
     },
     observations,
     scores: [],
-    messages: messageRepo.listByTrace(runId),
+    messages: await rowsOfRun(archive, {
+      runId,
+      sessionId: started?.task.subject ?? ended?.origin?.subject ?? '',
+      agentId: started?.agent.id ?? ended?.origin?.agentId ?? '',
+    }),
   }
 }
 

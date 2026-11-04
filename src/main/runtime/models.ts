@@ -3,7 +3,7 @@
 // 模型引用 `talor:<providerId>/<modelId>[?reasoning=…]` 解析为转发端口：每次调用按当前 provider 配置
 // 重新创建模型实例与引擎端口，用户改了 API key、headers 不需要重建引擎。调用参数（reasoning、
 // provider_options、headers）与旧路径一致，交给引擎 aiSdkProvider 的 callSettings；会话覆盖的
-// reasoning 编进引用。
+// reasoning 编进引用。端口的 settings 取引擎端口的同名字段，供引擎算模型配置指纹。
 //
 // 允许依赖: agent-engine、ai（类型）、chat/provider-selector、history/context-config、providers/*、store/config-store、@shared/types
 // 禁止依赖: ipc/*、repos/*、db/*
@@ -19,11 +19,7 @@ import {
 import { aiSdkProvider, type AiSdkModelConfig } from 'agent-engine/adapters/ai-sdk'
 import type { ReasoningConfig } from '@shared/types/models'
 import { getProviderById } from '../chat/provider-selector'
-import {
-  engineContextConfig,
-  modelContextWindow,
-  type ProviderContextConfig,
-} from '../history/context-config'
+import { modelContextWindow } from '../history/context-config'
 import { modelSupportsReasoning } from '../providers/capability/detector'
 import { getAdapter, mergeProviderOptions, resolveStreamOptions } from '../providers/model-adapter'
 import type { Provider } from '../store/config-store'
@@ -118,23 +114,6 @@ function capabilitiesOf(provider: Provider, modelId: string): ModelCapabilities 
   }
 }
 
-/**
- * 引擎的输入上限：窗口减输出预留，预留取模型输出上限与半个窗口的较小者
- * （与引擎 core/run/estimate 的 outputReserveOf 相同，引擎没有导出它；设计 §3.5）。
- */
-export function engineInputLimit(provider: Provider, modelId: string): number {
-  const caps = capabilitiesOf(provider, modelId)
-  return caps.contextLimit - Math.min(caps.maxOutputTokens, Math.floor(caps.contextLimit / 2))
-}
-
-/** 引擎路径跨轮摘要的配置：比例同 engineContextConfig，上限为引擎的输入上限。 */
-export function historyConfigOf(provider: Provider, modelId: string): ProviderContextConfig {
-  return {
-    ...engineContextConfig(provider, modelId),
-    context_limit: engineInputLimit(provider, modelId),
-  }
-}
-
 function defaultCreateModel(provider: Provider, modelId: string): LanguageModel {
   return getAdapter(provider.type).createModel(provider, modelId)
 }
@@ -199,30 +178,36 @@ export function talorModels(
       if (!provider) throw unavailable(`provider ${providerId} 不可用`)
       return { ...provider, reasoning: target.reasoning ?? provider.reasoning }
     }
+    const enginePortOf = (provider: Provider): ModelPort => {
+      const model = createModel(provider, modelId)
+      if (typeof model === 'string') {
+        throw unavailable(`provider ${providerId} 返回了模型 id 而不是模型实例`)
+      }
+      return aiSdkProvider({
+        id: 'talor-call',
+        maxRetries: provider.max_retries ?? DEFAULT_MAX_RETRIES,
+        models: {
+          main: {
+            model,
+            vendor: VENDOR_OF[provider.type] ?? 'other',
+            capabilities: capabilitiesOf(provider, modelId),
+            callSettings: callSettingsOf(provider, modelId),
+          },
+        },
+      }).resolve('talor-call:main')!
+    }
     return {
       ref,
       get capabilities() {
         return capabilitiesOf(current(), modelId)
       },
+      // 模型配置指纹的输入：沿用引擎端口的算法（header 只取名字），用户改了参数下一轮就能看出来
+      get settings() {
+        return enginePortOf(current()).settings
+      },
       async call(input, opts) {
         const provider = current()
-        const model = createModel(provider, modelId)
-        if (typeof model === 'string') {
-          throw unavailable(`provider ${providerId} 返回了模型 id 而不是模型实例`)
-        }
-        const port = aiSdkProvider({
-          id: 'talor-call',
-          maxRetries: provider.max_retries ?? DEFAULT_MAX_RETRIES,
-          models: {
-            main: {
-              model,
-              vendor: VENDOR_OF[provider.type] ?? 'other',
-              capabilities: capabilitiesOf(provider, modelId),
-              callSettings: callSettingsOf(provider, modelId),
-            },
-          },
-        }).resolve('talor-call:main')!
-        return callWithTimeout(port, input, opts, provider.request_timeout_ms)
+        return callWithTimeout(enginePortOf(provider), input, opts, provider.request_timeout_ms)
       },
     }
   }

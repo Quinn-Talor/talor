@@ -1,7 +1,7 @@
 // src/main/history/context-config.ts — 业务层(history)：会话 history 的上下文配置与模型窗口
 //
 // 职责：provider + 模型 → 上下文上限与摘要比例。resolveProviderConfig 原样迁自 prompt/PromptPipeline
-// （旧路径的结果不变：未配上限时取全局设置）；引擎路径用 engineContextConfig，上限只取用户配置：
+// （旧路径的结果不变：未配上限时取全局设置）；引擎的模型窗口 modelContextWindow 只取用户配置：
 // provider 的 context_limit → 设置页的全局 default_context_limit → 128000（配置都缺失时）。
 // 旧路径与引擎共用，不随旧路径删除。
 //
@@ -59,12 +59,4 @@ export function modelContextWindow(provider: Provider, modelId: string): number 
   }
   log.debug(`[history] context window ${provider.id}/${modelId} = ${value} (${source})`)
   return value
-}
-
-/** 引擎路径的上下文配置：比例同 resolveProviderConfig，上限按模型窗口。 */
-export function engineContextConfig(provider: Provider, modelId: string): ProviderContextConfig {
-  return {
-    ...resolveProviderConfig(provider, modelId),
-    context_limit: modelContextWindow(provider, modelId),
-  }
 }

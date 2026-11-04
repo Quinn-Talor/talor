@@ -15,11 +15,11 @@ const { currentDb, configValues, generateText } = vi.hoisted(() => ({
   generateText: vi.fn(),
 }))
 
-// 压缩模型经 provider 适配器创建：凭据库不读真实的 Electron safeStorage
+// 凭据库不读真实的 Electron safeStorage
 vi.mock('../services/safe-storage', () => ({
   SafeStorageService: { getInstance: () => ({ getApiKey: () => null }) },
 }))
-// 跨轮摘要（C3）的压缩调用：只替换 generateText，其余用真实实现
+// 跨轮前文由引擎会话提供：Talor 不应自己调模型做摘要（替换 generateText 以便断言）
 vi.mock('ai', async (importOriginal) => ({
   ...(await importOriginal<typeof import('ai')>()),
   generateText,
@@ -70,7 +70,9 @@ import { toolRegistry } from '../tools/registry'
 import { sessionApprover } from './approval'
 import { catalogSnapshot, type CatalogSnapshot } from './catalog'
 import { createRuntime, getRuntime, type Runtime } from './engine'
-import { INTERRUPTED_NOTE, markInterrupted, shutdownForQuit } from './lifecycle'
+import { shutdownForQuit } from './lifecycle'
+import { liveRows } from './live-turns'
+import { clearRowCache, INTERRUPTED_NOTE, rowsOfRun, sessionRows } from './turn-rows'
 import { sendTurn } from './turn'
 import { phaseMarker } from '@shared/turn-phase'
 
@@ -194,14 +196,33 @@ const send = (content: string, chat?: AgentProfile) =>
     catalog,
   })
 
-const rows = () =>
-  currentDb
-    .instance!.prepare(
-      'SELECT role, content, trace_id FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC',
-    )
-    .all('s1') as Array<{ role: string; content: string; trace_id: string | null }>
+/** 界面看到的行：同 session:getMessages（档案折叠 + 进行中的轮；子会话读它的子运行），全文模式。 */
+async function rowsOf(sessionId: string) {
+  const runId = sessionRepo.getMetadata(sessionId).engine_run_id
+  const done =
+    typeof runId === 'string'
+      ? await rowsOfRun(runtime.archive, { runId, sessionId, agentId: 'helper', full: true })
+      : (
+          await sessionRows(runtime.archive, sessionId, {
+            turns: Number.POSITIVE_INFINITY,
+            full: true,
+          })
+        ).messages
+  const live = liveRows(sessionId)
+  const liveIds = new Set(live.map((m) => m.id))
+  return [...done.filter((m) => !liveIds.has(m.id)), ...live].map((r) => ({
+    role: r.role,
+    content: JSON.parse(r.content) as unknown,
+    trace_id: r.trace_id ?? null,
+    content_type: r.content_type,
+  }))
+}
 
-const parsed = () => rows().map((r) => ({ ...r, content: JSON.parse(r.content) as unknown }))
+const parsed = () => rowsOf('s1')
+
+/** messages 表的行数：引擎路径不写这张表。 */
+const tableRows = () =>
+  (currentDb.instance!.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).n
 
 const textOfInput = (input: ModelInput) => JSON.stringify(input.messages)
 
@@ -229,17 +250,9 @@ const childSession = () =>
     parent_message_id: string
   }
 
-const rowsOf = (sessionId: string) =>
-  (
-    currentDb
-      .instance!.prepare(
-        'SELECT role, content, trace_id FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC',
-      )
-      .all(sessionId) as Array<{ role: string; content: string; trace_id: string | null }>
-  ).map((r) => ({ ...r, content: JSON.parse(r.content) as unknown }))
-
 /** 每个 tool-call 都紧跟一条含它结果的 tool 行。 */
-function assertPaired(list = parsed()) {
+async function assertPaired(given?: Awaited<ReturnType<typeof rowsOf>>) {
+  const list = given ?? (await parsed())
   list.forEach((r, i) => {
     if (r.role !== 'assistant' || !Array.isArray(r.content)) return
     const ids = (r.content as Array<{ type: string; toolCallId?: string }>)
@@ -254,6 +267,7 @@ function assertPaired(list = parsed()) {
 }
 
 beforeEach(() => {
+  clearRowCache()
   workspace = mkdtempSync(join(tmpdir(), 'talor-turn-'))
   currentDb.instance = new Database(':memory:')
   currentDb.instance.exec(CREATE_TABLES)
@@ -298,42 +312,20 @@ describe('sendTurn', () => {
     const { messageId } = await send('hi')
 
     expect(done).toEqual([[messageId, undefined]])
-    const list = parsed()
+    const list = await parsed()
     expect(list.map((r) => r.role)).toEqual(['user', 'assistant'])
     expect(list[0]!.content).toBe('hi')
     expect(list[1]!.content).toEqual([
       { type: 'text', text: '你好！', providerOptions: phaseMarker('answer') },
     ])
     expect(list.every((r) => r.trace_id === messageId)).toBe(true)
+    expect(tableRows()).toBe(0)
     expect(statuses).toEqual(['verifying', 'idle'])
     const usage = currentDb
       .instance!.prepare('SELECT input_tokens, output_tokens FROM sessions WHERE id = ?')
       .get('s1') as { input_tokens: number; output_tokens: number }
     expect(usage.input_tokens).toBeGreaterThan(0)
     expect(usage.output_tokens).toBeGreaterThan(0)
-  })
-
-  it('A5a AC-008 keeps the interrupted-run notice out of the next model input', async () => {
-    useReplies([
-      { toolCalls: [{ name: 'ls', input: { path: '.' } }] },
-      { text: 'listed' },
-      { text: 'again ok' },
-    ])
-    const first = await send('list files')
-    // 第一轮的最后一行是工具结果之后的答复；改成模拟中断：删掉答复后补提示
-    currentDb
-      .instance!.prepare(
-        "DELETE FROM messages WHERE role = 'assistant' AND content LIKE '%listed%'",
-      )
-      .run()
-    expect(markInterrupted('s1', first.messageId, { agentId: '__chat__' })).toBe(true)
-
-    await send('again')
-
-    const last = textOfInput(model.inputs.at(-1)!)
-    expect(last).not.toContain(INTERRUPTED_NOTE)
-    expect(last).toContain('list files')
-    expect(last).toContain('again')
   })
 
   it('AC-008 gives the next turn the previous turn as history', async () => {
@@ -369,8 +361,8 @@ describe('sendTurn', () => {
     })
     expect(confirmTool).not.toHaveBeenCalled()
     expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('hi')
-    expect(parsed().map((r) => r.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
-    assertPaired()
+    expect((await parsed()).map((r) => r.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
+    await assertPaired()
   })
 
   it('AC-009 / A3 AC-013 does not write when the user rejects', async () => {
@@ -385,9 +377,9 @@ describe('sendTurn', () => {
     expect(existsSync(join(workspace, 'a.txt'))).toBe(false)
     expect(promptPermission).toHaveBeenCalledTimes(1)
     expect(confirmTool).not.toHaveBeenCalled()
-    const tool = parsed().find((r) => r.role === 'tool')!
+    const tool = (await parsed()).find((r) => r.role === 'tool')!
     expect(tool.content).toMatchObject([{ isError: true }])
-    assertPaired()
+    await assertPaired()
   })
 
   it('AC-012 gives the turn only the tools in the catalog', async () => {
@@ -402,9 +394,9 @@ describe('sendTurn', () => {
     expect(catalog).toHaveBeenCalledTimes(1)
     expect(existsSync(join(workspace, 'a.txt'))).toBe(false)
     expect(promptPermission).not.toHaveBeenCalled()
-    const tool = parsed().find((r) => r.role === 'tool')!
+    const tool = (await parsed()).find((r) => r.role === 'tool')!
     expect(tool.content).toMatchObject([{ toolName: 'write', isError: true }])
-    assertPaired()
+    await assertPaired()
   })
 
   it('A2 AC-008 finds an MCP tool through search_tool and calls it', async () => {
@@ -431,7 +423,7 @@ describe('sendTurn', () => {
     expect(model.inputs[0]!.tools.map((t) => t.name)).toContain('search_tool')
     expect(model.inputs[0]!.tools.map((t) => t.name)).not.toContain('crm__lookup')
     expect(crm.calls).toEqual([{ name: 'lookup', args: { id: 1 } }])
-    const list = parsed()
+    const list = await parsed()
     expect(list.map((r) => r.role)).toEqual([
       'user',
       'assistant',
@@ -446,7 +438,46 @@ describe('sendTurn', () => {
     expect(list[5]!.content).toEqual([
       { type: 'text', text: 'done', providerOptions: phaseMarker('answer') },
     ])
-    assertPaired()
+    await assertPaired()
+  })
+
+  it('carries the image an MCP tool returned into the next turn', async () => {
+    const crm = fakeMcpServer({
+      tools: [
+        {
+          name: 'shot',
+          description: '截图',
+          handler: () => ({
+            content: [
+              { type: 'text', text: '页面截图' },
+              { type: 'image', data: 'iVBOR', mimeType: 'image/png' },
+            ],
+          }),
+        },
+      ],
+    })
+    catalog.mockImplementation(catalogWithCrm)
+    useReplies(
+      [
+        { toolCalls: [{ name: 'crm__shot', input: {} }] },
+        { text: '页面正常' },
+        { text: '和上次一样' },
+      ],
+      crm,
+    )
+
+    await send('截个图')
+    await send('再看看')
+
+    const imagesIn = (input: ModelInput) =>
+      input.messages.flatMap((m) =>
+        m.role === 'tool' ? m.content.flatMap((r) => r.images ?? []) : [],
+      )
+    const image = { type: 'image', image: 'iVBOR', mediaType: 'image/png' }
+    // 同一轮里引擎直接给；下一轮由 history 带回
+    expect(imagesIn(model.inputs[1]!)).toEqual([image])
+    expect(imagesIn(model.inputs.at(-1)!)).toEqual([image])
+    await assertPaired()
   })
 
   it('A2 AC-009 finishes the turn when an MCP server cannot connect', async () => {
@@ -457,7 +488,7 @@ describe('sendTurn', () => {
     const { messageId } = await send('hello')
 
     expect(done).toEqual([[messageId, undefined]])
-    expect(parsed().map((r) => [r.role, r.content])).toEqual([
+    expect((await parsed()).map((r) => [r.role, r.content])).toEqual([
       ['user', 'hello'],
       ['assistant', [{ type: 'text', text: 'hi', providerOptions: phaseMarker('answer') }]],
     ])
@@ -492,19 +523,22 @@ describe('sendTurn', () => {
     expect(confirmTool).not.toHaveBeenCalled()
     expect(readFileSync(join(workspace, 'a.txt'), 'utf8')).toBe('hi')
 
-    expect(parsed().map((r) => r.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
-    expect(JSON.stringify(parsed()[2]!.content)).toContain('wrote')
-    assertPaired()
+    expect((await parsed()).map((r) => r.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
+    expect(JSON.stringify((await parsed())[2]!.content)).toContain('wrote')
+    await assertPaired()
 
     const child = childSession()
     expect(child).toMatchObject({ status: 'completed', parent_message_id: messageId })
-    const childRows = rowsOf(child.id)
+    const childRows = await rowsOf(child.id)
     expect(childRows.map((r) => r.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
     expect(childRows[0]!.content).toBe('write a note')
     expect(childRows[3]!.content).toEqual([
       { type: 'text', text: 'wrote', providerOptions: phaseMarker('answer') },
     ])
-    assertPaired(childRows)
+    await assertPaired(childRows)
+    // 子会话按子运行 id 读出，引擎路径不写 messages 表
+    expect(sessionRepo.getMetadata(child.id).engine_run_id).toEqual(expect.any(String))
+    expect(tableRows()).toBe(0)
 
     const usageOf = (id: string) =>
       currentDb.instance!.prepare('SELECT input_tokens FROM sessions WHERE id = ?').get(id) as {
@@ -530,7 +564,7 @@ describe('sendTurn', () => {
 
     expect(done).toEqual([[messageId, undefined]])
     expect(childSession()).toMatchObject({ status: 'aborted' })
-    assertPaired()
+    await assertPaired()
   })
 
   it('A5a AC-010 lets a turn in progress finish its writes before quitting', async () => {
@@ -544,16 +578,14 @@ describe('sendTurn', () => {
     const { messageId } = await pending
 
     expect(done).toEqual([[messageId, undefined]])
-    const list = currentDb
-      .instance!.prepare(
-        'SELECT role, content, content_type, trace_id FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC',
-      )
-      .all('s1') as Array<{ role: string; content: string; content_type: string; trace_id: string }>
+    // 中断提示由读模型从引擎补记的结局折叠出来，不写 messages 表
+    const list = await parsed()
     expect(list.map((r) => [r.role, r.content_type, r.trace_id])).toEqual([
-      ['user', 'blocks', messageId],
+      ['user', undefined, messageId],
       ['assistant', 'notice', messageId],
     ])
-    expect(JSON.parse(list[1]!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
+    expect(list[1]!.content).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
+    expect(tableRows()).toBe(0)
   })
 
   const sessionUsage = () =>
@@ -625,7 +657,7 @@ describe('sendTurn', () => {
     const input = JSON.stringify(model.inputs[0]!.messages)
     expect(input).toContain('Review: a.ts')
     expect(input).not.toContain('/alpha:review')
-    expect(parsed()[0]).toMatchObject({ role: 'user', content: 'Review: a.ts' })
+    expect((await parsed())[0]).toMatchObject({ role: 'user', content: 'Review: a.ts' })
     expect(catalog).toHaveBeenCalledTimes(1)
   })
 
@@ -638,8 +670,8 @@ describe('sendTurn', () => {
     const { messageId } = await pending
 
     expect(done).toEqual([[messageId, undefined]])
-    expect(parsed()[0]).toMatchObject({ role: 'user', content: 'wait' })
-    assertPaired()
+    expect((await parsed())[0]).toMatchObject({ role: 'user', content: 'wait' })
+    await assertPaired()
   })
 
   it('B2 AC-006 reports a UserPromptSubmit hook block through onDone without calling the model', async () => {
@@ -668,7 +700,8 @@ describe('sendTurn', () => {
 
     expect(done).toEqual([[messageId, { code: 'LLM_ERROR', message: 'blocked by policy' }]])
     expect(model.inputs).toHaveLength(0)
-    expect(parsed().map((r) => [r.role, r.content])).toEqual([['user', 'hello']])
+    // 被须知拦下的运行没有开始（无 run_started），不是会话的一轮：结束后界面不再显示这条输入，原因经 onDone 给出
+    expect(await parsed()).toEqual([])
   })
 
   it('AC-011 reports a model auth failure through onDone', async () => {
@@ -687,7 +720,8 @@ describe('sendTurn', () => {
     const { messageId } = await send('   ')
 
     expect(done).toEqual([[messageId, { code: 'LLM_ERROR', message: 'Empty message' }]])
-    expect(rows()).toEqual([])
+    expect(await parsed()).toEqual([])
+    expect(tableRows()).toBe(0)
     expect(model.inputs).toHaveLength(0)
   })
 })
@@ -703,13 +737,13 @@ describe('intent tools (C2)', () => {
     const { messageId } = await send('整理一下')
 
     expect(done).toEqual([[messageId, undefined]])
-    const list = parsed()
+    const list = await parsed()
     expect(list.map((r) => r.role)).toEqual(['user', 'assistant', 'tool'])
     expect(JSON.stringify(list[1]!.content)).toContain('ask_user')
     expect((list[1]!.content as Array<{ providerOptions?: unknown }>)[0]!.providerOptions).toEqual(
       phaseMarker('answer'),
     )
-    assertPaired(list)
+    await assertPaired(list)
   })
 
   it('AC-006 ends a report_blocked turn without error and keeps the call paired', async () => {
@@ -718,23 +752,62 @@ describe('intent tools (C2)', () => {
     const { messageId } = await send('删掉系统文件')
 
     expect(done).toEqual([[messageId, undefined]])
-    const list = parsed()
+    const list = await parsed()
     expect(list.map((r) => r.role)).toEqual(['user', 'assistant', 'tool'])
     expect(JSON.stringify(list[1]!.content)).toContain('report_blocked')
-    assertPaired(list)
+    await assertPaired(list)
   })
 })
 
-describe('cross-turn history (C3)', () => {
+describe('pending context (workbench snapshot)', () => {
+  it('AC-008 gives the model the pending context before the user input once, then clears it', async () => {
+    sessionRepo.setMetadata('s1', { pending_context: ['SNAPSHOT-MARKER 源对话'] })
+    useReplies([{ text: '好的' }, { text: '再说' }])
+
+    await send('提炼一下')
+
+    const first = model.inputs[0]!.messages
+    const text = JSON.stringify(first)
+    expect(text.indexOf('SNAPSHOT-MARKER')).toBeGreaterThan(-1)
+    expect(text.indexOf('SNAPSHOT-MARKER')).toBeLessThan(text.indexOf('提炼一下'))
+    expect(sessionRepo.getMetadata('s1').pending_context).toEqual([])
+    // 界面的用户行只是用户说的话
+    expect((await parsed())[0]).toMatchObject({ role: 'user', content: '提炼一下' })
+
+    await send('继续')
+    const last = textOfInput(model.inputs.at(-1)!)
+    expect(last.split('SNAPSHOT-MARKER').length - 1).toBe(1)
+  })
+
+  it('keeps the pending context when the run does not start', async () => {
+    sessionRepo.setMetadata('s1', { pending_context: ['SNAPSHOT-MARKER'] })
+    model = fakeModel({ provider: 'talor', model: 'p1/m1', replies: [{ text: 'x' }] })
+    runtime = createRuntime({
+      models: modelHub({ providers: [model] }),
+      archive: memoryArchive(),
+      approver: sessionApprover,
+      hooks: [{ event: 'UserPromptSubmit', command: 'policy' }],
+      hookRunner: createHookRunner({
+        exec: async () => ({ exitCode: 2, stdout: '', stderr: 'blocked', timedOut: false }),
+      }),
+    })
+
+    await send('提炼一下')
+
+    expect(sessionRepo.getMetadata('s1').pending_context).toEqual(['SNAPSHOT-MARKER'])
+  })
+})
+
+describe('cross-turn history (engine session)', () => {
   it('AC-011 saves the user message before reading history and sends each input once', async () => {
     const savedBeforeCall: boolean[] = []
     useReplies([
       () => {
-        savedBeforeCall.push(rows().some((r) => r.content === JSON.stringify('hi')))
+        savedBeforeCall.push(liveRows('s1').some((r) => r.content === JSON.stringify('hi')))
         return { text: '你好！' }
       },
       () => {
-        savedBeforeCall.push(rows().some((r) => r.content === JSON.stringify('again')))
+        savedBeforeCall.push(liveRows('s1').some((r) => r.content === JSON.stringify('again')))
         return { text: 'again ok' }
       },
     ])
@@ -749,39 +822,28 @@ describe('cross-turn history (C3)', () => {
     expect(count('"again"')).toBe(1)
   })
 
-  it('AC-011 summarises a long history by the model window and stores the summary', async () => {
-    ;(configValues.providers as Record<string, Record<string, unknown>>).p1!.context_limit = 2000
-    const insert = currentDb.instance!.prepare(
-      `INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, 's1', ?, ?, ?)`,
-    )
-    for (let i = 0; i < 40; i++) {
-      const marker = i === 0 ? 'EARLIEST-MARKER ' : `old message ${i} `
-      insert.run(
-        `old-${String(i).padStart(2, '0')}`,
-        i % 2 === 0 ? 'user' : 'assistant',
-        JSON.stringify([{ type: 'text', text: marker + 'x'.repeat(400) }]),
-        `2020-01-01T00:00:${String(i).padStart(2, '0')}.000Z`,
+  it('takes the earlier turns from the engine session, not from the messages table', async () => {
+    generateText.mockClear()
+    useReplies([{ text: '你好！' }, { text: 'again ok' }])
+    await send('hi')
+    // messages 表只给界面看：改动它不影响下一轮带入的前文
+    currentDb.instance!.prepare("DELETE FROM messages WHERE session_id = 's1'").run()
+    currentDb
+      .instance!.prepare(
+        `INSERT INTO messages (id, session_id, role, content, created_at)
+         VALUES ('fake', 's1', 'user', '"ROW-ONLY-MARKER"', '2020-01-01T00:00:00.000Z')`,
       )
-    }
-    generateText.mockResolvedValue({
-      text: '{"user_intent":"整理日志","key_facts":[],"pending_actions":[],"resolved_issues":[],"current_blocker":null}',
-      usage: { inputTokens: 1, outputTokens: 1 },
-    })
-    useReplies([{ text: 'ok' }])
+      .run()
 
-    const { messageId } = await send('继续')
+    await send('again')
 
-    expect(done).toEqual([[messageId, undefined]])
-    expect(generateText).toHaveBeenCalled()
-    const input = model.inputs[0]!.messages
-    const summary = input.find(
-      (m) => m.role === 'system' && JSON.stringify(m).includes('Conversation summary'),
-    )
-    expect(JSON.stringify(summary)).toContain('整理日志')
-    expect(JSON.stringify(input)).not.toContain('EARLIEST-MARKER')
-    const stored = currentDb
-      .instance!.prepare('SELECT session_id FROM session_summaries WHERE session_id = ?')
-      .all('s1')
-    expect(stored).toHaveLength(1)
+    const last = textOfInput(model.inputs.at(-1)!)
+    expect(last).toContain('"hi"')
+    expect(last).toContain('你好！')
+    expect(last).not.toContain('ROW-ONLY-MARKER')
+    expect(generateText).not.toHaveBeenCalled()
+    const turns = await runtime.archive.query({ session: 's1' })
+    expect(turns.map((t) => t.turn)).toEqual([2, 1])
+    expect(turns[0]!.continues).toBe(turns[1]!.runId)
   })
 })

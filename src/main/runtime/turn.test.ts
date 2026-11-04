@@ -82,17 +82,24 @@ describe('chatErrorOf', () => {
 describe('rulesChangedSince', () => {
   const run = (patch: Partial<RunSummary>) =>
     ({ runId: 'r', environmentFingerprint: 'fp-old', startedAt: 1, ...patch }) as RunSummary
-  const archiveOf = (runs: RunSummary[]) => ({ query: async () => runs })
+  const archiveOf = (runs: RunSummary[]) => {
+    const filters: unknown[] = []
+    return {
+      filters,
+      query: async (filter: { limit?: number }) => {
+        filters.push(filter)
+        return runs.slice(0, filter.limit)
+      },
+    }
+  }
 
-  it('compares the latest top-level run of the session with the current environment', async () => {
-    // 查询结果按开始时间倒序；最新的子运行不算
-    const runs = [
-      run({ runId: 'child', parentRunId: 'r2', environmentFingerprint: 'fp-new' }),
-      run({ runId: 'r2', environmentFingerprint: 'fp-old' }),
-      run({ runId: 'r1', environmentFingerprint: 'fp-older' }),
-    ]
-    expect(await rulesChangedSince(archiveOf(runs), 's1', 'fp-new')).toBe(true)
-    expect(await rulesChangedSince(archiveOf(runs), 's1', 'fp-old')).toBe(false)
+  it('compares the latest turn of the session with the current environment', async () => {
+    // 按会话查询只返回轮（子运行不带会话），按开始时间倒序
+    const runs = [run({ runId: 'r2', environmentFingerprint: 'fp-old' }), run({ runId: 'r1' })]
+    const archive = archiveOf(runs)
+    expect(await rulesChangedSince(archive, 's1', 'fp-new')).toBe(true)
+    expect(await rulesChangedSince(archive, 's1', 'fp-old')).toBe(false)
+    expect(archive.filters[0]).toEqual({ session: 's1', limit: 1 })
   })
 
   it('is false for the first turn and when the archive cannot be read', async () => {

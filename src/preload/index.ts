@@ -182,6 +182,11 @@ const talorAPI = {
     delete: (sessionId: string): Promise<void> => ipcRenderer.invoke('session:delete', sessionId),
     getMessages: (sessionId: string): Promise<ChatMessage[]> =>
       ipcRenderer.invoke('session:getMessages', sessionId),
+    getEarlierMessages: (
+      sessionId: string,
+      beforeRunId: string,
+    ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> =>
+      ipcRenderer.invoke('session:getEarlierMessages', sessionId, beforeRunId),
     touch: (sessionId: string): Promise<void> => ipcRenderer.invoke('session:touch', sessionId),
     updateWorkspace: (params: SessionUpdateWorkspaceParams): Promise<ChatSession | null> =>
       ipcRenderer.invoke('session:updateWorkspace', params),

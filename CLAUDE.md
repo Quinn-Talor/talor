@@ -208,6 +208,8 @@ npm run build         # electron-vite build + electron-builder 打包
 
 **最近重要变更**(详见 `git log`):
 
+- `refactor(runtime)`: **chat:send 只走 agent-engine,跨轮前文改用引擎会话** — 删 `runtime/dispatch.ts`(off/auto/force 分派)与 `runtime/history-policy.ts`;每轮 `start(..., { session: sessionId })`,前文/跨轮压缩/副作用台账由引擎从 `runs.db` 会话日志推导;删除会话时 `deleteEngineSession` 一起删引擎档案;interactive 环境的运行不按天数清理
+- `refactor(runtime)`: **界面消息也由会话日志推导,引擎路径不写 `messages` 表** — `runtime/turn-rows.ts` 把运行事件折叠成消息行(实时与事后同一个函数,按轮分页 20 轮,工具结果预览 2000 字);进行中的轮在 `runtime/live-turns.ts` 内存登记;子会话按元数据 `engine_run_id` 读子运行、界面只读;提炼工作台的源对话快照走元数据 `pending_context`(下一轮的前置输入)+ `notices`(只给界面看的提示行)。`messages` 表与旧路径(`loop/` `memory/` `prompt/` `chat/orchestrator` `history/session-summary`)已不可达,待 D2 一起删除
 - `chore(deps)`: **Vercel AI SDK v6 → v7**(providers v3 → v4);`CoreMessage` → `ModelMessage`;`allowSystemInMessages: true`(Talor 多层 system 刻意放 messages 数组);Ollama 改走官方 `@ai-sdk/openai-compatible`(删社区包)
 - `feat(token)`: **会话级 token 用量统计** — `usage-normalizer`(跨厂商归一,读 v7 统一 `inputTokenDetails`)+ `usage-recorder` 在 3 个 LLM 调用点(主对话/reflect/压缩)记录 → session 表 4 列(input/output/cache_read/cache_write);UI 接缝行展示(k/M 缩写,头部=全部 token 含缓存读)
 - `perf(prompt)`: **prompt 前缀缓存优化** — ① 时间戳粗化到日期级(去掉打碎前缀的毫秒戳)② append-only 分层装配(`PromptPlugin.layer`,稳定前缀连续在前/volatile 在尾)③ Anthropic `cacheControl` 断点(`cache-breakpoints.ts`,仅 anthropic);deepseek 实测缓存命中 ~80%

@@ -80,6 +80,10 @@ declare global {
         }) => Promise<{ available: boolean; model_id?: string }>
         delete: (sessionId: string) => Promise<void>
         getMessages: (sessionId: string) => Promise<ChatMessage[]>
+        getEarlierMessages: (
+          sessionId: string,
+          beforeRunId: string,
+        ) => Promise<{ messages: ChatMessage[]; hasMore: boolean }>
         touch: (sessionId: string) => Promise<void>
       }
       chat: {
@@ -324,6 +328,7 @@ const stubSession = {
   checkModelAvailability: () => Promise.resolve({ available: true }),
   delete: () => Promise.resolve(),
   getMessages: () => Promise.resolve([] as ChatMessage[]),
+  getEarlierMessages: () => Promise.resolve({ messages: [] as ChatMessage[], hasMore: false }),
   touch: () => Promise.resolve(),
 }
 

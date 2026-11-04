@@ -45,11 +45,6 @@ interface AppConfig {
   max_react_steps?: number
   delegation?: DelegationConfig
   trace?: TraceConfig
-  /**
-   * chat:send 的运行时：'off' 走旧的 ReAct 循环；'force' 走 agent-engine（src/main/runtime）；
-   * 'auto' 逐轮按能力覆盖分派。旧值 'legacy' 视为 'off'，'engine' 视为 'force'。
-   */
-  runtime?: 'off' | 'auto' | 'force' | 'legacy' | 'engine'
   /** 启用的插件名（~/.talor/plugins 下 Claude Code 格式的插件）。 */
   plugins?: { enabled: string[] }
 }
@@ -133,7 +128,6 @@ const DEFAULT_CONFIG: AppConfig = {
   default_summary_ratio: 0.05,
   delegation: DEFAULT_DELEGATION_CONFIG,
   trace: { ...DEFAULT_TRACE_CONFIG },
-  runtime: 'off',
 }
 
 /** 配置文件存在但不是合法 JSON 时移到 .bak,让后续以默认配置重建。 */

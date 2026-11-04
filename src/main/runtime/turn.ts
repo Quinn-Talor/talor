@@ -1,12 +1,15 @@
 // src/main/runtime/turn.ts — 业务层：chat:send 在 agent-engine 上的用例（一轮对话）
 //
 // 与旧的 sendChat 同样的签名与约定：只经 onDone 报错，函数本身不抛异常；注册中止之后才负责清理。
-// 编排：校验 → 取目录快照、展开插件命令 → 注册中止 → 选 Agent 与模型 → 保存用户消息 → 取 history（跨轮摘要，
-// 上下文上限按引擎的输入上限；摘要实现把最后一条消息当本轮输入去掉）→
-// 登记本会话的授权端口 → 启动运行并投影（含子孙运行，委托的子运行落到子会话）→ 等运行与投影结束 →
-// 记本运行自己的用量（总量减子运行）→ onDone。运行 id 用本轮的 messageId，messages 行的 trace_id 也是它。
+// 编排：校验 → 取目录快照、展开插件命令 → 注册中止 → 选 Agent 与模型 → 登记进行中的轮（用户行）→
+// 登记本会话的授权端口 → 以会话的一轮启动运行并投影（含子孙运行，委托的子运行落到子会话）→ 等运行与投影结束 →
+// 记本运行自己的用量（总量减子运行）→ onDone → 注销进行中的轮。运行 id 用本轮的 messageId，界面行的 trace_id 也是它。
+// 会话 id 就是引擎会话：前文、跨轮压缩与副作用台账都由引擎从会话日志推导（会话方案）；界面消息也从会话日志
+// 折叠（turn-rows），不写 messages 表。会话元数据里的前置输入（pending_context，例如提炼工作台的源对话快照）
+// 放在本轮用户输入之前，运行开始后清掉；受理失败时保留到下一轮。
+// 同一会话上一轮还没结束时引擎受理失败（session_busy），经 onDone 报错。
 //
-// 允许依赖: agent-engine（类型）、chat/*、history/context-config、repos/session-repo、store/config-store、runtime/*、
+// 允许依赖: agent-engine（类型）、chat/*、repos/session-repo、store/config-store、runtime/*、
 //          ipc/error-codes（classifyLlmError，沿用 chat/orchestrator 的做法）
 // 禁止依赖: ipc/* 的其他运行时 import、db/*
 
@@ -25,7 +28,7 @@ import {
 import { resolveSessionProviderModel } from '../chat/provider-selector'
 import { streamRegistry } from '../chat/stream-registry'
 import { classifyLlmError, type ChatErrorCode } from '../ipc/error-codes'
-import { messageRepo, sessionRepo } from '../repos/session-repo'
+import { sessionRepo, type ChatMessage } from '../repos/session-repo'
 import { ConfigStore } from '../store/config-store'
 import { agentFor, engineAgentId } from './agents'
 import { registerApprovalPort } from './approval'
@@ -33,9 +36,8 @@ import { currentCatalog, expandCommand, type CatalogSnapshot } from './catalog'
 import { createRunTreeProjection, ownNormalizedUsage } from './children'
 import { addSessionUsage, usageRemainder } from './projection'
 import { childTimeoutOf, getRuntime, type Runtime } from './engine'
-import { historyConfigOf, modelRefOf } from './models'
-import { markInterrupted } from './lifecycle'
-import { historyFor } from './history-policy'
+import { modelRefOf } from './models'
+import { attachLiveFold, beginLiveTurn, endLiveTurn } from './live-turns'
 import { taskFor } from './task'
 
 const CHAT_ERROR_OF_MODEL_ERROR: Readonly<Record<string, ChatErrorCode>> = {
@@ -74,7 +76,7 @@ export function profileForSession(sessionId: string, agentManager: AgentManager)
 }
 
 /**
- * 本会话上一轮（最近的顶层运行）用的执行环境与现在的不同：插件 hook 等权限规则变了。
+ * 本会话上一轮用的执行环境与现在的不同：插件 hook 等权限规则变了。
  * 环境指纹由引擎按规则内容算出；没有上一轮或档案读不了时为 false。
  */
 export async function rulesChangedSince(
@@ -83,13 +85,30 @@ export async function rulesChangedSince(
   fingerprint: string,
 ): Promise<boolean> {
   try {
-    const previous = (await archive.query({ subject: sessionId, limit: 20 })).find(
-      (r) => r.parentRunId === undefined,
-    )
+    // 会话的轮按开始时间倒序；子运行不带会话，查不到
+    const [previous] = await archive.query({ session: sessionId, limit: 1 })
     return previous !== undefined && previous.environmentFingerprint !== fingerprint
   } catch (err) {
     log.warn('[turn] previous run lookup failed', err)
     return false
+  }
+}
+
+/** 会话元数据里的前置输入；格式不对时为空。 */
+export function pendingContextOf(sessionId: string): string[] {
+  const raw = sessionRepo.getMetadata(sessionId).pending_context
+  return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
+}
+
+/** 本轮已带上的前置输入从元数据里删掉（期间新加的保留）。 */
+export function consumePendingContext(sessionId: string, used: readonly string[]): void {
+  try {
+    const metadata = sessionRepo.getMetadata(sessionId)
+    const rest = pendingContextOf(sessionId).filter((x) => !used.includes(x))
+    sessionRepo.setMetadata(sessionId, { ...metadata, pending_context: rest })
+    log.info(`[turn] pending context consumed session=${sessionId} parts=${used.length}`)
+  } catch (err) {
+    log.warn('[turn] pending context not cleared', err)
   }
 }
 
@@ -125,6 +144,7 @@ async function runTurn(
   const typed = params.content.trim()
   const attachments = params.attachments ?? []
   let registered = false
+  let live = false
   let unregisterPort: (() => void) | undefined
 
   try {
@@ -148,20 +168,19 @@ async function runTurn(
     const model = modelRefOf(provider.id, modelId, fellBack ? undefined : session?.reasoning)
 
     const userBlocks = buildUserBlocks(userContent, validated)
-    messageRepo.create({
-      id: uuidv4(),
+    const userRow: ChatMessage = {
+      id: `${messageId}:u`,
       session_id: sessionId,
       role: 'user',
-      content: userBlocks,
+      content: JSON.stringify(userBlocks),
       agent_id: agentId,
+      created_at: new Date().toISOString(),
       trace_id: messageId,
-    })
+    }
+    beginLiveTurn(sessionId, { runId: messageId, userRow })
+    live = true
     sessionRepo.touch(sessionId)
-    const history = await historyFor({
-      sessionId,
-      config: historyConfigOf(provider, modelId),
-      signal: abort.signal,
-    })
+    const preface = pendingContextOf(sessionId)
 
     const runtime = (deps.runtime ?? getRuntime)()
     // 审批走授权窗口（chat:permission-request）；没有端口时审批人按拒绝处理
@@ -172,7 +191,7 @@ async function runTurn(
       sessionId,
       workspace: session?.workspace ?? '',
       userContent: userBlocks,
-      history,
+      preface,
       maxSteps: ConfigStore.getInstance().get('max_react_steps'),
       now: (deps.now ?? (() => new Date()))(),
       rulesChanged: await rulesChangedSince(
@@ -186,7 +205,11 @@ async function runTurn(
     const agent = agentFor(profile, snapshot, {
       childTimeoutMs: childTimeoutOf(ConfigStore.getInstance().getDelegation()),
     })
-    const run = runtime.interactive.start(agent, task, { model, runId: messageId })
+    const run = runtime.interactive.start(agent, task, {
+      model,
+      runId: messageId,
+      session: sessionId,
+    })
     const projection = createRunTreeProjection({
       sessionId,
       messageId,
@@ -196,15 +219,19 @@ async function runTurn(
       profileOf: (id) => snapshot.agents.find((a) => engineAgentId(a.profile.id) === id)?.profile,
     })
     run.subscribe(projection.subscriber, { children: true })
+    attachLiveFold(sessionId, messageId, projection.fold())
+    if (preface.length > 0) {
+      run.subscribe({
+        onEvent(e) {
+          if (e.t === 'run_started') consumePendingContext(sessionId, preface)
+        },
+      })
+    }
     if (abort.signal.aborted) run.abort('user')
     else abort.signal.addEventListener('abort', () => run.abort('user'), { once: true })
 
     const result = await run.result
     await projection.idle()
-    // 被引擎关闭打断（应用退出）的运行留一条不进 history 的中断提示
-    if (result.status === 'aborted' && result.code === 'interrupted') {
-      markInterrupted(sessionId, messageId, { agentId, unfinished: true })
-    }
     log.info(
       `[turn] end run=${messageId} status=${result.status} code=${result.code ?? '-'} steps=${result.steps}`,
     )
@@ -215,13 +242,7 @@ async function runTurn(
       usageRemainder(ownNormalizedUsage(result.usage), projection.recordedUsage()),
     )
 
-    const persistError = projection.persistError()
-    if (persistError !== undefined) {
-      const reason = persistError instanceof Error ? persistError.message : String(persistError)
-      callbacks.onDone(messageId, { code: 'LLM_ERROR', message: `消息落库失败：${reason}` })
-    } else {
-      callbacks.onDone(messageId, chatErrorOf(result))
-    }
+    callbacks.onDone(messageId, chatErrorOf(result))
     return { messageId }
   } catch (error) {
     log.error('[turn] error:', error)
@@ -230,6 +251,7 @@ async function runTurn(
     return { messageId }
   } finally {
     unregisterPort?.()
+    if (live) endLiveTurn(sessionId, messageId)
     if (registered) streamRegistry.cleanup(sessionId, messageId)
   }
 }
