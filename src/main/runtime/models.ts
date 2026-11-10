@@ -102,11 +102,20 @@ export function callSettingsOf(provider: Provider, modelId: string): CallSetting
   }
 }
 
+/**
+ * 模型可接收的输入模态（文本恒可）。supports_vision 为真时声明图片；
+ * Anthropic / Google 原生支持 PDF，额外声明 pdf，其余提供商只放行图片。
+ */
+function inputsOf(provider: Provider): ModelCapabilities['inputs'] {
+  if (!provider.supports_vision) return []
+  return provider.type === 'anthropic' || provider.type === 'google' ? ['image', 'pdf'] : ['image']
+}
+
 function capabilitiesOf(provider: Provider, modelId: string): ModelCapabilities {
   return {
     contextLimit: modelContextWindow(provider, modelId),
     maxOutputTokens: provider.max_output_tokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
-    vision: provider.supports_vision,
+    inputs: inputsOf(provider),
     toolCalls: true,
     reasoning: modelSupportsReasoning(provider, modelId) ? 'optional' : 'none',
     systemAfterUser: true,

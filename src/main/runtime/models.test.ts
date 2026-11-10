@@ -113,13 +113,23 @@ describe('talorModels', () => {
     expect(port.capabilities).toMatchObject({
       contextLimit: 200_000,
       maxOutputTokens: 64_000,
-      vision: true,
+      inputs: ['image'],
       toolCalls: true,
       reasoning: 'none',
     })
     expect(library.resolve('talor:p1/ollama/qwen3:4b')).toBeDefined()
     expect(library.resolve('talor:missing/m')).toBeUndefined()
     expect(library.resolve('other:p1/m')).toBeUndefined()
+  })
+
+  it('AC-001 declares pdf input only for anthropic/google, and no media without vision', () => {
+    const cap = (type: Provider['type'], vision: boolean) =>
+      setup(makeProvider({ type, supports_vision: vision })).library.resolve('talor:p1/m1')!
+        .capabilities.inputs
+    expect(cap('anthropic', true)).toEqual(['image', 'pdf'])
+    expect(cap('google', true)).toEqual(['image', 'pdf'])
+    expect(cap('openai', true)).toEqual(['image'])
+    expect(cap('anthropic', false)).toEqual([])
   })
 
   it('AC-001 falls back to the configured default context limit', () => {
