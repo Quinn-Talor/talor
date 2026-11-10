@@ -26,23 +26,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 `
 
-const CREATE_MESSAGES = `
-CREATE TABLE IF NOT EXISTS messages (
-    id           TEXT PRIMARY KEY,
-    session_id   TEXT NOT NULL,
-    role         TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
-    content      TEXT NOT NULL,
-    content_type TEXT NOT NULL DEFAULT 'blocks',
-    agent_id     TEXT NOT NULL DEFAULT '__chat__',
-    created_at   TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-`
-
-const CREATE_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
-`
-
 const CREATE_MCP_SERVERS = `
 CREATE TABLE IF NOT EXISTS mcp_servers (
     id TEXT PRIMARY KEY,
@@ -59,25 +42,6 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 );
 `
 
-const CREATE_SESSION_SUMMARIES = `
-CREATE TABLE IF NOT EXISTS session_summaries (
-  session_id     TEXT NOT NULL PRIMARY KEY,
-  summary_text   TEXT NOT NULL,
-  covered_until  TEXT NOT NULL,
-  token_estimate INTEGER NOT NULL,
-  created_at     TEXT NOT NULL,
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-`
-
-/**
- * account_keys — 用户声明的第三方服务凭据(飞书 / GitHub / 自定义 skill 等)。
- * 替代旧的 ~/.talor/accounts.json。
- *
- * 一个 service 有多个 key;每个 key 可选 secret 标志。非 secret 字段明文存 value,
- * secret 字段走 safeStorage 加密后 base64 存 value,并把 is_encrypted 置 1。
- * 密文和明文共用 value 列,由 is_encrypted 区分读取路径(保持简单,避免双列)。
- */
 const CREATE_ACCOUNT_KEYS = `
 CREATE TABLE IF NOT EXISTS account_keys (
   service      TEXT NOT NULL,
@@ -90,160 +54,17 @@ CREATE TABLE IF NOT EXISTS account_keys (
 );
 `
 
-/**
- * side_effect_log — 副作用审计 (写 DB / 写文件 / 调外部 API 等)。
- * 供 forced summary 内嵌摘要 + UI 审计 + 用户回滚参考。
- *
- * 设计要点:
- *   - parent_session_id: 子 session 副作用归属父 (root_session) 聚合查询
- *   - confirmed_by (v4):
- *       'fallback'     — 代码 regex 兜底拦截危险关键字,用户 confirm
- *       'memory'       — SessionApprovalMemory pattern 自动通过
- *       'high-static'  — HIGH 静态工具 (bash/write/edit),系统生成 summary,用户 confirm
- *       'auto-low'     — 无风险信号,直接执行(理论上不进 ledger,保留枚举兜底)
- *   - user_decision: 'approved' / 'denied' / 'auto'
- *
- * 删除联动: session 删除时 FOREIGN KEY CASCADE 自动清理 entry。
- */
-const CREATE_SIDE_EFFECT_LOG = `
-CREATE TABLE IF NOT EXISTS side_effect_log (
-  id                  TEXT PRIMARY KEY,
-  session_id          TEXT NOT NULL,
-  parent_session_id   TEXT,
-  message_id          TEXT NOT NULL,
-  tool_call_id        TEXT NOT NULL,
-  step_index          INTEGER NOT NULL,
-  op                  TEXT NOT NULL,
-  target              TEXT NOT NULL,
-  preview             TEXT NOT NULL,
-  confirmed_by        TEXT NOT NULL CHECK(confirmed_by IN ('fallback','memory','auto-low','high-static')),
-  user_decision       TEXT NOT NULL CHECK(user_decision IN ('approved','denied','auto')),
-  created_at          TEXT NOT NULL,
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-`
-
-const CREATE_SIDE_EFFECT_INDEXES = `
-CREATE INDEX IF NOT EXISTS idx_side_effect_session ON side_effect_log(session_id);
-CREATE INDEX IF NOT EXISTS idx_side_effect_parent ON side_effect_log(parent_session_id);
-`
-
-/**
- * reflection_ledger — Reflector 决策审计。
- * Reflector 每次产出 hint / wrapUp / internalNudge / userOutput 时落一行, 供 UI debug
- * "系统如何引导 LLM" 与 reflect 数据驱动调优。
- */
-const CREATE_REFLECTION_LEDGER = `
-CREATE TABLE IF NOT EXISTS reflection_ledger (
-  id                       TEXT PRIMARY KEY,
-  session_id               TEXT NOT NULL,
-  step_index               INTEGER NOT NULL,
-  reflector                TEXT NOT NULL,
-  output_kind              TEXT NOT NULL CHECK(output_kind IN ('hint','wrap_up','internal_nudge','user_output')),
-  judge_complete           INTEGER,
-  judge_pending_items      TEXT,
-  correction_mask_count    INTEGER,
-  direct_output_text       TEXT,
-  direct_output_label      TEXT,
-  confidence               REAL NOT NULL,
-  reason                   TEXT,
-  created_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-`
-
-const CREATE_REFLECTION_LEDGER_INDEXES = `
-CREATE INDEX IF NOT EXISTS idx_reflection_session ON reflection_ledger(session_id, step_index);
-`
-
-/**
- * Turn trace 四表 — 字段对齐 Langfuse 对象模型(Trace / Observation / Score)。
- *
- *   traces        一轮对话一行,id = 该轮 messageId
- *   observations  trace 内每个工作单元(AGENT / CHAIN / GENERATION / TOOL / GUARDRAIL ...)
- *   scores        事后评价(用户反馈、评估结果)
- *   trace_blobs   GENERATION 输入消息按 sha256 在 trace 内去重存放
- *
- * 不加 CHECK 枚举:observation type 会随 Langfuse 扩展,CHECK 无法 ALTER 只能 DROP 重建;
- * 枚举校验在共享类型与 IPC zod schema 中完成。
- * 删除联动:session 删除 → traces 级联 → observations / scores / trace_blobs 级联。
- */
-const CREATE_TRACE_TABLES = `
-CREATE TABLE IF NOT EXISTS traces (
-    id          TEXT PRIMARY KEY,
-    timestamp   TEXT NOT NULL,
-    name        TEXT NOT NULL,
-    session_id  TEXT NOT NULL,
-    user_id     TEXT,
-    release     TEXT,
-    version     TEXT,
-    tags        TEXT NOT NULL DEFAULT '[]',
-    metadata    TEXT NOT NULL DEFAULT '{}',
-    input       TEXT,
-    output      TEXT,
-    environment TEXT NOT NULL,
-    end_time    TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_traces_session ON traces(session_id, timestamp);
-
-CREATE TABLE IF NOT EXISTS observations (
-    id                    TEXT PRIMARY KEY,
-    trace_id              TEXT NOT NULL,
-    parent_observation_id TEXT,
-    type                  TEXT NOT NULL,
-    name                  TEXT NOT NULL,
-    start_time            TEXT NOT NULL,
-    end_time              TEXT,
-    completion_start_time TEXT,
-    level                 TEXT NOT NULL DEFAULT 'DEFAULT',
-    status_message        TEXT,
-    provided_model_name   TEXT,
-    model_parameters      TEXT,
-    input                 TEXT,
-    output                TEXT,
-    metadata              TEXT NOT NULL DEFAULT '{}',
-    usage_details         TEXT,
-    cost_details          TEXT,
-    prompt_name           TEXT,
-    prompt_version        INTEGER,
-    version               TEXT,
-    environment           TEXT NOT NULL,
-    FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_observations_trace ON observations(trace_id, start_time);
-CREATE INDEX IF NOT EXISTS idx_observations_type ON observations(type, name);
-
-CREATE TABLE IF NOT EXISTS scores (
-    id             TEXT PRIMARY KEY,
-    trace_id       TEXT,
-    observation_id TEXT,
-    session_id     TEXT,
-    name           TEXT NOT NULL,
-    value          REAL NOT NULL DEFAULT 0,
-    string_value   TEXT,
-    data_type      TEXT NOT NULL,
-    source         TEXT NOT NULL,
-    comment        TEXT,
-    timestamp      TEXT NOT NULL,
-    environment    TEXT NOT NULL,
-    FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_scores_trace ON scores(trace_id);
-
-CREATE TABLE IF NOT EXISTS trace_blobs (
-    trace_id TEXT NOT NULL,
-    hash     TEXT NOT NULL,
-    bytes    INTEGER NOT NULL,
-    content  TEXT NOT NULL,
-    PRIMARY KEY (trace_id, hash),
-    FOREIGN KEY (trace_id) REFERENCES traces(id) ON DELETE CASCADE
-);
-`
-
-const DAY_MS = 86_400_000
+/** 只被已删除的旧运行时写过的表；启动时删除（顺序：先删依赖别人的表）。 */
+export const LEGACY_TABLES = [
+  'messages',
+  'session_summaries',
+  'side_effect_log',
+  'reflection_ledger',
+  'scores',
+  'observations',
+  'trace_blobs',
+  'traces',
+] as const
 
 let db: Database.Database | null = null
 
@@ -268,43 +89,7 @@ export function initChatDb(): Database.Database {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-  // Drop outdated sessions/messages tables before CREATE.
-  // Per project decision: do NOT preserve historical session data when schema
-  // changes. Schema is the source of truth; old data is wiped on upgrade.
-  recreateSessionsIfOutdated(db)
-
-  db.exec(CREATE_SESSIONS)
-  ensureSessionUsageColumns(db)
-  db.exec(CREATE_MESSAGES)
-  db.exec(CREATE_INDEX)
-  ensureMessagesTraceColumn(db)
-  db.exec(CREATE_MCP_SERVERS)
-  ensureMcpServerColumns(db)
-  db.exec(CREATE_SESSION_SUMMARIES)
-  db.exec(CREATE_ACCOUNT_KEYS)
-  // v3.7.2: CHECK 约束 schema 变化时直接 DROP + 重建。
-  // SQLite 不支持 ALTER TABLE 改 CHECK,只能 drop;按项目策略 (不保留历史数据)。
-  recreateSideEffectLogIfOutdated(db)
-  recreateReflectionLedgerIfOutdated(db)
-
-  db.exec(CREATE_SIDE_EFFECT_LOG)
-  db.exec(CREATE_SIDE_EFFECT_INDEXES)
-  db.exec(CREATE_REFLECTION_LEDGER)
-  db.exec(CREATE_REFLECTION_LEDGER_INDEXES)
-  // trace 表失败只降级观测,不阻断启动(观测 fail-open)。
-  try {
-    initTraceTables(db)
-  } catch (err) {
-    log.warn('[ChatDB] trace tables init failed:', err)
-  }
-
-  // Cleanup orphan running sub-sessions left from previous crashed runs.
-  cleanupOrphanRunningSubSessions(db)
-  try {
-    sweepOpenTraces(db, new Date().toISOString())
-  } catch (err) {
-    log.warn('[ChatDB] trace sweep failed:', err)
-  }
+  setupSchema(db)
 
   // 注：crystallizer 工作台 session 不在启动期清理。产品决策：派生 session 永久保留。
   // 即便 source S1 被用户删除，对应 workbench 仍在 DB 里（前端通过
@@ -316,17 +101,41 @@ export function initChatDb(): Database.Database {
 }
 
 /**
- * 检查 sessions / messages 表是否符合最新 schema；任一表 outdated（必需列
- * 缺失）则**连同两表一起 DROP**，让后续 `CREATE TABLE IF NOT EXISTS` 重建为
- * 干净的最新 schema。
- *
- * 设计决策：**不保留历史 session 数据**。schema 是 source of truth，
- * 升级时旧数据直接丢弃。messages 通过 FK 依赖 sessions，drop 顺序：
- * messages 先于 sessions。
- *
- * 必需列清单与各 CREATE_* DDL 同步；任一列缺失即触发重建。
- *
- * 全新数据库（两表都不存在）走 IF NOT EXISTS 创建路径，本函数 no-op。
+ * 建表与启动期修整（幂等）：先删旧表，再按需重建过时的 sessions，然后建表、补列、收尾中断的子会话。
+ * 设计决策：不保留历史 session 数据（schema 是 source of truth，升级时旧数据直接丢弃）。
+ */
+export function setupSchema(db: Database.Database): void {
+  dropLegacyTables(db)
+  recreateSessionsIfOutdated(db)
+
+  db.exec(CREATE_SESSIONS)
+  ensureSessionUsageColumns(db)
+  db.exec(CREATE_MCP_SERVERS)
+  ensureMcpServerColumns(db)
+  db.exec(CREATE_ACCOUNT_KEYS)
+
+  // Cleanup orphan running sub-sessions left from previous crashed runs.
+  cleanupOrphanRunningSubSessions(db)
+}
+
+/** 删除 LEGACY_TABLES 里实际存在的表；有删除时记一行日志。 */
+export function dropLegacyTables(db: Database.Database): void {
+  const existing = new Set(
+    (
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{
+        name: string
+      }>
+    ).map((r) => r.name),
+  )
+  const dropped = LEGACY_TABLES.filter((t) => existing.has(t))
+  for (const t of LEGACY_TABLES) db.exec(`DROP TABLE IF EXISTS ${t};`)
+  if (dropped.length > 0) log.info('[ChatDB] dropped legacy tables', dropped)
+}
+
+/**
+ * 检查 sessions 表是否符合最新 schema；必需列缺失则 DROP，让后续 `CREATE TABLE IF NOT EXISTS`
+ * 重建为干净的最新 schema。必需列清单与 CREATE_SESSIONS 同步。
+ * 全新数据库（表不存在）走 IF NOT EXISTS 创建路径，本函数 no-op。
  */
 export function recreateSessionsIfOutdated(db: Database.Database): void {
   const sessionsRequiredCols = [
@@ -344,83 +153,14 @@ export function recreateSessionsIfOutdated(db: Database.Database): void {
     'created_at',
     'updated_at',
   ]
-  const messagesRequiredCols = [
-    'id',
-    'session_id',
-    'role',
-    'content',
-    'content_type',
-    'agent_id',
-    'created_at',
-  ]
-
-  const sessionsMissing = collectMissingCols(db, 'sessions', sessionsRequiredCols)
-  const messagesMissing = collectMissingCols(db, 'messages', messagesRequiredCols)
-
-  if (sessionsMissing === null && messagesMissing === null) return // 全新 DB
-  if (sessionsMissing?.length === 0 && messagesMissing?.length === 0) return // 都最新
-
-  const reasons: string[] = []
-  if (sessionsMissing && sessionsMissing.length > 0)
-    reasons.push(`sessions(missing: ${sessionsMissing.join(', ')})`)
-  if (messagesMissing && messagesMissing.length > 0)
-    reasons.push(`messages(missing: ${messagesMissing.join(', ')})`)
+  const missing = collectMissingCols(db, 'sessions', sessionsRequiredCols)
+  if (missing === null || missing.length === 0) return // 全新 DB 或已最新
 
   log.info(
-    `[ChatDB] schema outdated [${reasons.join('; ')}]. ` +
-      `Dropping sessions + messages and recreating with fresh schema (old data discarded).`,
+    `[ChatDB] schema outdated [sessions(missing: ${missing.join(', ')})]. ` +
+      `Dropping sessions and recreating with fresh schema (old data discarded).`,
   )
-  db.exec('DROP TABLE IF EXISTS messages;')
   db.exec('DROP TABLE IF EXISTS sessions;')
-}
-
-/**
- * side_effect_log CHECK 约束 schema-drift 检测 + DROP 重建。
- *
- * SQLite 的 CHECK 约束无法 ALTER,且我们不保留 ledger 历史(开发期数据可丢)。
- * 启动时读 sqlite_master.sql 拿当前表定义,若 CHECK 列表与 v4 canonical 不一致 → DROP 重建。
- *
- * v4 canonical 枚举:fallback / memory / auto-low / high-static (移除 'pendingBlock')。
- */
-function recreateSideEffectLogIfOutdated(db: Database.Database): void {
-  const row = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='side_effect_log'")
-    .get() as { sql?: string } | undefined
-  if (!row || !row.sql) return // 全新 DB,后续 CREATE 走默认路径
-  // v4: 必须含 high-static + 不含 pendingBlock
-  const hasHighStatic = row.sql.includes("'high-static'")
-  const hasPendingBlock = row.sql.includes("'pendingBlock'")
-  if (hasHighStatic && !hasPendingBlock) return // schema 已是 v4 canonical
-  log.info(
-    '[ChatDB] side_effect_log CHECK constraint outdated (v4 schema migration). ' +
-      'Dropping and recreating (old ledger entries discarded).',
-  )
-  db.exec('DROP TABLE IF EXISTS side_effect_log;')
-}
-
-/**
- * reflection_ledger CHECK 约束 schema-drift 检测 + DROP 重建。
- *
- * v5 canonical 枚举: hint / wrap_up / internal_nudge / user_output
- * (替换旧 direct_output_end / direct_output_continue, 反映 reflect outcome
- * 接口的"内部引导 vs 用户回复"语义分离)。
- *
- * 启动时若表定义仍含旧 direct_output_* 枚举 → DROP 重建 (ledger 历史可丢)。
- */
-function recreateReflectionLedgerIfOutdated(db: Database.Database): void {
-  const row = db
-    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reflection_ledger'")
-    .get() as { sql?: string } | undefined
-  if (!row || !row.sql) return // 全新 DB
-  const hasOldKinds =
-    row.sql.includes("'direct_output_end'") || row.sql.includes("'direct_output_continue'")
-  const hasNewKinds = row.sql.includes("'internal_nudge'") && row.sql.includes("'user_output'")
-  if (!hasOldKinds && hasNewKinds) return // 已 v5 canonical
-  log.info(
-    '[ChatDB] reflection_ledger CHECK constraint outdated (v5 schema migration). ' +
-      'Dropping and recreating (old reflect entries discarded).',
-  )
-  db.exec('DROP TABLE IF EXISTS reflection_ledger;')
 }
 
 /** 返回缺失列名数组；表不存在返 null（区分"表不存在"vs"表存在但缺列"）。 */
@@ -464,33 +204,9 @@ export function cleanupOrphanRunningSubSessions(db: Database.Database): void {
   }
 }
 
-/** 建 trace 四表与索引(幂等)。只关乎观测:initChatDb 中失败只记 warn(fail-open)。 */
-export function initTraceTables(db: Database.Database): void {
-  db.exec(CREATE_TRACE_TABLES)
-}
-
-/**
- * 给 messages 补 trace_id 列与索引(幂等)。
- *
- * messageRepo 每次写消息都带这一列,属于必需迁移:initChatDb 中不包 try(失败即启动失败,
- * 同 ensureSessionUsageColumns),不能随 trace 四表一起 fail-open,否则消息写入全部失败。
- * 走"先查 PRAGMA 再 ALTER",不进 recreateSessionsIfOutdated 的必需列清单 —— 缺这一列
- * 只说明来自旧版本,不应触发整表 DROP。
- */
-export function ensureMessagesTraceColumn(db: Database.Database): void {
-  const cols = (db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>).map(
-    (c) => c.name,
-  )
-  if (!cols.includes('trace_id')) {
-    db.exec('ALTER TABLE messages ADD COLUMN trace_id TEXT')
-    log.info('[ChatDB] added messages.trace_id')
-  }
-  db.exec('CREATE INDEX IF NOT EXISTS idx_messages_trace ON messages(trace_id);')
-}
-
 /**
  * 给 mcp_servers 补 env_from_account 列(幂等):MCP 服务器引用账户凭据,
- * JSON 对象 { 子进程变量名: 账户 key 名 }。同 ensureMessagesTraceColumn,
+ * JSON 对象 { 子进程变量名: 账户 key 名 }。
  * 缺列只说明来自旧版本,先查 PRAGMA 再 ALTER,不包 try。
  */
 export function ensureMcpServerColumns(db: Database.Database): void {
@@ -501,51 +217,6 @@ export function ensureMcpServerColumns(db: Database.Database): void {
     db.exec('ALTER TABLE mcp_servers ADD COLUMN env_from_account TEXT')
     log.info('[ChatDB] added mcp_servers.env_from_account')
   }
-}
-
-/**
- * 启动期收尾:上次进程未正常结束留下的 open trace / observation(end_time IS NULL)
- * 统一以 nowIso 结束,observation 标 ERROR + ABORTED_BY_RESTART,
- * trace 的 metadata.exit_reason 记为 'aborted_by_restart'。
- */
-export function sweepOpenTraces(db: Database.Database, nowIso: string): void {
-  const sweep = db.transaction(() => {
-    const obs = db
-      .prepare(
-        `UPDATE observations
-            SET end_time = ?, level = 'ERROR', status_message = 'ABORTED_BY_RESTART'
-          WHERE end_time IS NULL`,
-      )
-      .run(nowIso)
-    const traces = db
-      .prepare(
-        `UPDATE traces
-            SET end_time = ?, updated_at = ?,
-                metadata = json_set(metadata, '$.exit_reason', 'aborted_by_restart')
-          WHERE end_time IS NULL`,
-      )
-      .run(nowIso, nowIso)
-    return { traces: traces.changes, observations: obs.changes }
-  })
-  const n = sweep()
-  if (n.traces > 0 || n.observations > 0) {
-    log.info(`[ChatDB] Swept ${n.traces} open traces, ${n.observations} open observations`)
-  }
-}
-
-/**
- * 删除 timestamp 早于 (nowIso - retentionDays 天) 的 trace;observations / scores /
- * trace_blobs 由外键级联删除(依赖 initChatDb 的 foreign_keys = ON)。
- * retentionDays <= 0 表示不清理。返回删除的 trace 数。
- */
-export function pruneTraces(db: Database.Database, retentionDays: number, nowIso: string): number {
-  if (retentionDays <= 0) return 0
-  const cutoff = new Date(Date.parse(nowIso) - retentionDays * DAY_MS).toISOString()
-  const info = db.prepare('DELETE FROM traces WHERE timestamp < ?').run(cutoff)
-  if (info.changes > 0) {
-    log.info(`[ChatDB] Pruned ${info.changes} traces older than ${retentionDays} days`)
-  }
-  return info.changes
 }
 
 /**

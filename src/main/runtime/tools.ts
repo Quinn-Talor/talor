@@ -5,12 +5,11 @@
 // 敏感路径；它对工作区外路径的越界确认只放行本次调用声明过的路径（引擎已经把关过），其余拒绝。
 // 工具以字符串或信封返回的失败转成确定性的引擎错误，执行抛异常转成 TOOL_EXCEPTION。
 //
-// 允许依赖: agent-engine、tools/*、loop/stream-utils（isErrorOutput）
+// 允许依赖: agent-engine、tools/*
 // 禁止依赖: ipc/*、repos/*、db/*
 
 import { isAbsolute, resolve } from 'path'
 import { toolError, type ToolAccess, type ToolDef } from 'agent-engine'
-import { isErrorOutput } from '../loop/stream-utils'
 import {
   HOME_SENSITIVE_ENTRIES,
   SYSTEM_SENSITIVE_ROOTS,
@@ -20,6 +19,7 @@ import {
 import { runToolPipeline } from '../tools/registry'
 import {
   DEFAULT_TOOL_TIMEOUT_MS,
+  isErrorOutput,
   isToolErrorEnvelope,
   type PermissionPort,
   type ToolDefinition,

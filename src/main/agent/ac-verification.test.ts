@@ -20,41 +20,15 @@ vi.mock('../db/index', () => ({
 
 import { validateProfile } from './validator'
 import { AgentLoader } from './loader'
-import { Agent } from './agent'
 import { AgentManager } from './agent-manager'
-import { BuiltinToolRegistry } from './builtin-registry'
 import { AccountStore } from '../accounts/account-store'
 import { parseSlashInvoke } from './slash-invoke-parser'
 import { extractDependenciesFromMessages } from './crystallizer'
 import { extractSkillCliBins } from '../skills/metadata-extractor'
 import { SkillRegistry } from '../skills/registry'
 import type { AgentProfile } from '@shared/types/agent'
-import type { ToolDefinition } from '../tools/types'
 
 // ── 公用 fixtures ────────────────────────────────────
-
-function makeTool(name: string): ToolDefinition {
-  return {
-    name,
-    description: `${name} tool`,
-    parameters: { type: 'object', properties: {} },
-    riskLevel:
-      name === 'bash' || name === 'write' || name === 'edit' ? ('HIGH' as const) : ('LOW' as const),
-    execute: async () => ({ output: `${name}-result` }),
-  }
-}
-
-const BUILTIN_TOOLS = [
-  makeTool('read'),
-  makeTool('write'),
-  makeTool('edit'),
-  makeTool('bash'),
-  makeTool('glob'),
-  makeTool('grep'),
-  makeTool('ls'),
-  makeTool('skill'),
-]
-const builtinRegistry = new BuiltinToolRegistry(BUILTIN_TOOLS)
 
 const VALID_PROFILE: AgentProfile = {
   id: 'sales-analyst-001',
@@ -153,55 +127,6 @@ describe('Block A: Agent 基础框架', () => {
       expect(loader.getById('sales-analyst-001')).toBeDefined()
     })
   })
-
-  describe('AC-A3-01: agent 声明 bash → 仅 bash + 基础工具', () => {
-    it('工具集 = { read, ls, glob, grep, skill, bash }', () => {
-      const agent = new Agent({
-        profile: {
-          ...VALID_PROFILE,
-          tools: ['bash'],
-        },
-        source: null,
-        builtinRegistry,
-        mcpRegistry: null,
-        skillRegistry: SkillRegistry.fromDir(null),
-      })
-      const names = agent.toolRegistry.getToolNames()
-      expect(names.sort()).toEqual(['bash', 'glob', 'grep', 'ls', 'read', 'skill'])
-    })
-  })
-
-  describe('AC-A3-02: agent 声明空工具 → 仅基础工具', () => {
-    it('工具集 = ALWAYS_AVAILABLE (read, ls, glob, grep, skill)', () => {
-      const agent = new Agent({
-        profile: { ...VALID_PROFILE, tools: [] },
-        source: null,
-        builtinRegistry,
-        mcpRegistry: null,
-        skillRegistry: SkillRegistry.fromDir(null),
-      })
-      const names = agent.toolRegistry.getToolNames()
-      // 空白名单 = 不过滤（平台 Agent 行为）
-      expect(names.length).toBe(8) // 全部 builtin
-    })
-  })
-
-  describe('AC-A3-03: 平台 Agent 不过滤', () => {
-    it('__chat__ 返回全部工具', () => {
-      const manager = new AgentManager()
-      manager.init({
-        builtinRegistry,
-        mcpRegistry: null,
-        skillRegistry: SkillRegistry.fromDir(null),
-      } as unknown as Parameters<AgentManager['init']>[0])
-      const chat = manager.getChatAgent()
-      const names = chat.toolRegistry.getToolNames()
-      expect(names).toHaveLength(8)
-      expect(names).toContain('bash')
-      expect(names).toContain('write')
-      expect(names).toContain('edit')
-    })
-  })
 })
 
 // ══════════════════════════════════════════════════════
@@ -268,29 +193,17 @@ describe('Block D: Agent 运行时', () => {
   describe('AC-D3-01: session 切换 agent（逻辑层）', () => {
     it('AgentManager 可获取不同 agent', () => {
       const manager = new AgentManager()
-      manager.init({
-        builtinRegistry,
-        mcpRegistry: null,
-        skillRegistry: SkillRegistry.fromDir(null),
-      } as unknown as Parameters<AgentManager['init']>[0])
+      manager.init({ skillRegistry: SkillRegistry.fromDir(null) })
 
       const chat = manager.getAgent('__chat__')
       expect(chat).not.toBeNull()
-      expect(chat!.id).toBe('__chat__')
+      expect(chat!.profile.id).toBe('__chat__')
 
-      manager.registerBusinessAgent('sales-analyst-001', {
-        profile: VALID_PROFILE,
-        source: null,
-        mcpRegistry: null,
-        skillRegistry: SkillRegistry.fromDir(null),
-      } as unknown as Parameters<AgentManager['registerBusinessAgent']>[1])
+      manager.registerBusinessAgent('sales-analyst-001', { profile: VALID_PROFILE, source: null })
 
       const sales = manager.getAgent('sales-analyst-001')
       expect(sales).not.toBeNull()
-      expect(sales!.id).toBe('sales-analyst-001')
-
-      // 切换 = 获取不同 agent 的 runtime
-      expect(sales!.toolRegistry.getToolNames()).not.toEqual(chat!.toolRegistry.getToolNames())
+      expect(sales!.profile.id).toBe('sales-analyst-001')
     })
   })
 
@@ -322,14 +235,10 @@ describe('Block E: 沉淀流程', () => {
   describe('AC-E1-01: 沉淀切换到 crystallizer（逻辑层）', () => {
     it('AgentManager 有 __crystallizer__ agent', () => {
       const manager = new AgentManager()
-      manager.init({
-        builtinRegistry,
-        mcpRegistry: null,
-        skillRegistry: SkillRegistry.fromDir(null),
-      } as unknown as Parameters<AgentManager['init']>[0])
+      manager.init({ skillRegistry: SkillRegistry.fromDir(null) })
       const cryst = manager.getAgent('__crystallizer__')
       expect(cryst).not.toBeNull()
-      expect(cryst!.id).toBe('__crystallizer__')
+      expect(cryst!.profile.id).toBe('__crystallizer__')
       // v2.0: crystallizer agentPrompt contains the schema instructions
       expect(cryst!.profile.agentPrompt).toBeTruthy()
       expect(cryst!.profile.agentPrompt!.toLowerCase()).toMatch(/analyz|依赖|workflow/)

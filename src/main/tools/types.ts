@@ -14,7 +14,7 @@ export interface ValidationResult {
  * 结构化错误信封。所有工具产出错误时优先使用,替代"错误前缀字符串"的脆弱约定。
  *
  * 消费者:
- *   - stream-utils.isErrorOutput 优先通过 __talor_error 标志位判错,
+ *   - isErrorOutput 优先通过 __talor_error 标志位判错,
  *     不再依赖 ERROR_OUTPUT_PATTERNS 正则命中 → 新错误前缀不会被漏识别
  *   - extractOutputText 把信封展开成 "[CODE] message\n(hint: ...)" 给 LLM 看
  *   - 死循环检测 / 兜底摘要据此可靠地判断"这步是否失败"
@@ -231,4 +231,92 @@ export interface ToolMetadata {
   schema?: Record<string, unknown>
   riskLevel?: 'HIGH' | 'LOW'
   provider?: string
+}
+
+/**
+ * 从 AI SDK 的 tool-result output 中提取文本。
+ *
+ * SDK 返回结构可能是：
+ *   - string：直接返回
+ *   - { type, value: string | object }：提取 value
+ *   - 其它：fallback 到 String(output)
+ */
+export function extractOutputText(output: unknown): string {
+  if (output === null || output === undefined) return ''
+  if (typeof output === 'string') return output
+  // ToolErrorEnvelope → 展开为人类可读形式供 LLM 阅读
+  if (isToolErrorEnvelope(output)) {
+    const e = output
+    return e.hint ? `[${e.code}] ${e.message}\n(hint: ${e.hint})` : `[${e.code}] ${e.message}`
+  }
+  if (typeof output === 'object' && 'value' in output) {
+    const v = (output as { value: unknown }).value
+    return typeof v === 'string' ? v : JSON.stringify(v)
+  }
+  return String(output)
+}
+
+/**
+ * 识别 builtin / MCP 工具返回的错误字符串。这些前缀是 tools/builtin/*.ts 与
+ * MCP 工具约定的失败信号，用于给界面提供结构化的"这一次调用失败了"的判断。
+ *
+ * 新加工具时若引入新的错误前缀，务必在此追加——否则 isError 字段会漏报。
+ */
+const ERROR_OUTPUT_PATTERNS: RegExp[] = [
+  /^File not found:/,
+  /^Path not found:/,
+  /^Not a (file|directory):/,
+  /^Cannot access /,
+  /^Cannot search /,
+  /^Cannot read binary file/,
+  /^Cannot resolve workspace path:/,
+  /^File too large:/,
+  /^Content too large:/,
+  /^Workspace not set\./,
+  /^Workspace does not exist:/,
+  /^Invalid regex pattern:/,
+  /^Invalid path:/,
+  /^Pattern (rejected|cannot be empty)/,
+  /^Dangerous command not allowed\./,
+  /^Command too long /,
+  /^Command timed out /,
+  /^Missing required parameter:/,
+  /^Invalid input for tool /,
+  /^Invalid input:/,
+  /^Invalid type for /,
+  /^Invalid value for /,
+  /^"[^"]+" on "[^"]+" /, // schema-check 的 min/max/length/pattern 违规消息
+  /^String not found in file:/,
+  /^Tool execution failed:/,
+  /^Tool not found:/,
+  /^\[exit: non-zero\]/,
+  /^User rejected the tool call\.?$/,
+  /^MCP server ".*" is disconnected/,
+  /^Tool execution (error|failed|exception):/,
+  /^Skill ".*" not found/,
+]
+
+function isBuiltinErrorText(text: string): boolean {
+  const head = text.trimStart().slice(0, 200)
+  return ERROR_OUTPUT_PATTERNS.some((re) => re.test(head))
+}
+
+/**
+ * AI SDK 用 type='error-text' / 'error-json' 标记失败；
+ * 新代码(MCP / verify block / schema check)用 ToolErrorEnvelope 结构化标识；
+ * 旧 builtin 工具仍用约定错误前缀(ERROR_OUTPUT_PATTERNS)。
+ * 三类都要识别,否则界面的 is_error 漏报。
+ */
+export function isErrorOutput(output: unknown): boolean {
+  // 优先级 1: 结构化错误信封(首选,新工具都用这个)
+  if (isToolErrorEnvelope(output)) return true
+  // 优先级 2: AI SDK 的 error-text / error-json
+  if (typeof output === 'object' && output !== null && 'type' in output) {
+    const t = (output as { type: unknown }).type
+    if (t === 'error-text' || t === 'error-json') return true
+  }
+  // 优先级 3: 兼容旧工具的错误前缀正则
+  const text = extractOutputText(output)
+  if (text && isBuiltinErrorText(text)) return true
+  return false
 }

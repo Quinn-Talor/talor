@@ -1,33 +1,20 @@
-// src/main/agent/agent-manager.test.ts — Schema 2.0 AgentManager tests
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+// src/main/agent/agent-manager.test.ts — AgentManager：profile 注册表
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
-vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
+vi.mock('electron-log', () => ({
+  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}))
+vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }))
 
-import { AgentManager } from './agent-manager'
-import { BuiltinToolRegistry } from './builtin-registry'
+import { AgentManager, CHAT_PROFILE } from './agent-manager'
+import { persistAgentProfile } from './profile-fs'
 import { SkillRegistry } from '../skills/registry'
-import type { ToolDefinition } from '../tools/types'
+import { agentFor } from '../runtime/agents'
+import { catalogSnapshot } from '../runtime/catalog'
 import type { AgentProfile } from '@shared/types/agent'
-
-function makeTool(name: string): ToolDefinition {
-  return {
-    name,
-    description: `${name} tool`,
-    parameters: { type: 'object', properties: {} },
-    execute: async () => ({ output: name }),
-  }
-}
-
-const builtinRegistry = new BuiltinToolRegistry([
-  makeTool('read'),
-  makeTool('write'),
-  makeTool('edit'),
-  makeTool('bash'),
-  makeTool('glob'),
-  makeTool('grep'),
-  makeTool('ls'),
-  makeTool('skill'),
-])
 
 const BUSINESS_PROFILE: AgentProfile = {
   id: 'sales_001',
@@ -45,156 +32,11 @@ Markdown report with # Summary header.`,
   tools: ['bash'],
 }
 
-describe('AgentManager (schema 2.0)', () => {
-  let manager: AgentManager
-
-  beforeEach(() => {
-    manager = new AgentManager()
-    manager.init({
-      builtinRegistry,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    } as unknown as Parameters<AgentManager['init']>[0])
-  })
-
-  it('init creates platform agents', () => {
-    expect(manager.isInitialized).toBe(true)
-    expect(manager.getAgent('__chat__')).not.toBeNull()
-    expect(manager.getAgent('__crystallizer__')).not.toBeNull()
-  })
-
-  it('AC-021: __chat__ has correct identity (v2.0 flat fields)', () => {
-    const chat = manager.getChatAgent()
-    expect(chat.id).toBe('__chat__')
-    expect(chat.name).toBe('Talor')
-  })
-
-  it('AC-022: __chat__.agentPrompt 区分 local-builtin 与 external-MCP 两类工具家族', () => {
-    const chat = manager.getChatAgent()
-    const prompt = chat.profile.agentPrompt
-    // 触发:两类工具家族明确分开
-    expect(prompt).toMatch(/built-in/i)
-    expect(prompt).toMatch(/MCP/)
-    // 引到 search_tool 作为外部能力入口
-    expect(prompt).toMatch(/search_tool/)
-    // 警告"用本地 CLI 判可用性"的反模式
-    expect(prompt).toMatch(/local CLI|local binary/i)
-    // 不触发:不硬编码具体服务/产品名,保持通用
-    expect(prompt).not.toMatch(/MySQL|PostgreSQL|MongoDB|Redis|SQLite/i)
-    expect(prompt).not.toMatch(/GitHub|Slack|Notion|Linear|Jira/i)
-  })
-
-  it('platform __chat__ has all tools (empty whitelist means all)', () => {
-    const chat = manager.getAgent('__chat__')!
-    const tools = chat.toolRegistry.getToolNames()
-    expect(tools.length).toBeGreaterThanOrEqual(8)
-    expect(tools).toContain('bash')
-    expect(tools).toContain('write')
-  })
-
-  it('platform __crystallizer__ has limited tools (locked to read)', () => {
-    const cryst = manager.getAgent('__crystallizer__')!
-    const tools = cryst.toolRegistry.getToolNames()
-    expect(tools).toContain('read')
-    expect(tools).not.toContain('bash')
-    expect(tools).not.toContain('write')
-  })
-
-  it('Crystallizer profile has 极简 schema fields and agentPrompt with workflow', () => {
-    const cryst = manager.getAgent('__crystallizer__')!
-    expect(cryst.profile.id).toBe('__crystallizer__')
-    expect(cryst.profile.agentPrompt).toContain('## Workflow')
-  })
-
-  it('getAgent returns null for unknown id', () => {
-    expect(manager.getAgent('nonexistent')).toBeNull()
-  })
-
-  it('registerBusinessAgent creates and stores agent', () => {
-    const agent = manager.registerBusinessAgent('sales_001', {
-      profile: BUSINESS_PROFILE,
-      source: '/tmp/agents/sales',
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    })
-    expect(agent.id).toBe('sales_001')
-    expect(manager.getAgent('sales_001')).toBe(agent)
-    expect(manager.listBusinessAgentIds()).toContain('sales_001')
-  })
-
-  it('unregisterBusinessAgent removes agent', () => {
-    manager.registerBusinessAgent('sales_001', {
-      profile: BUSINESS_PROFILE,
-      source: null,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    })
-    expect(manager.unregisterBusinessAgent('sales_001')).toBe(true)
-    expect(manager.getAgent('sales_001')).toBeNull()
-  })
-
-  it('getChatAgent throws if not initialized', () => {
-    const fresh = new AgentManager()
-    expect(() => fresh.getChatAgent()).toThrow('AgentManager not initialized')
-  })
-
-  it('business agent tools are filtered by whitelist', () => {
-    const agent = manager.registerBusinessAgent('sales_001', {
-      profile: BUSINESS_PROFILE,
-      source: null,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    })
-    const tools = agent.toolRegistry.getToolNames()
-    expect(tools).toContain('bash')
-    expect(tools).toContain('read')
-    expect(tools).not.toContain('write')
-  })
-})
-
-describe('AgentManager platform delegation (AC-031, AC-047)', () => {
-  let manager: AgentManager
-
-  beforeEach(() => {
-    manager = new AgentManager()
-    const stubRuntime = {
-      agentManager: {
-        getAgent: (id: string) => manager.getAgent(id),
-        listBusinessAgentIds: () => manager.listBusinessAgentIds(),
-      },
-      runReactLoop: async () => {},
-      sessionRepo: {} as unknown,
-      pipeline: {} as unknown,
-      config: { maxConcurrencyPerSession: 10, queueTimeoutMs: 5_000, executionTimeoutMs: 10_000 },
-      providerContextProvider: () => ({ model: {}, provider: {}, providerConfig: {} }),
-    } as unknown as Parameters<AgentManager['init']>[0]['delegationRuntime']
-    manager.init({
-      builtinRegistry,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-      delegationRuntime: stubRuntime,
-    } as unknown as Parameters<AgentManager['init']>[0])
-  })
-
-  it('AC-031/AC-047: __chat__ exposes delegate_agent + allowedAgentIds === null', () => {
-    const chat = manager.getAgent('__chat__')!
-    expect(chat.toolRegistry.getToolNames()).toContain('delegate_agent')
-    expect(chat.allowedAgentIds).toBeNull()
-  })
-
-  it('__crystallizer__ has delegate_agent tool but scope is empty []', () => {
-    const cryst = manager.getAgent('__crystallizer__')!
-    expect(cryst.toolRegistry.getToolNames()).toContain('delegate_agent')
-    expect(cryst.allowedAgentIds).toEqual([])
-  })
-})
-
-describe('AgentManager feature agents (内存自管,不落盘)', () => {
-  const FEATURE_PROFILE: AgentProfile = {
-    id: 'invest_research',
-    name: '投研主理人',
-    description: '投研建卡与跟踪。',
-    agentPrompt: `## Workflow
+const FEATURE_PROFILE: AgentProfile = {
+  id: 'invest_research',
+  name: '投研主理人',
+  description: '投研建卡与跟踪。',
+  agentPrompt: `## Workflow
 1. Build the card.
 
 ## Principles
@@ -202,77 +44,130 @@ describe('AgentManager feature agents (内存自管,不落盘)', () => {
 
 ## Output
 Markdown card.`,
-    // 不声明 tools(同真实 invest agent)→ allowedTools 空集 → feature 工具不被白名单过滤
-  }
+}
 
-  function freshManager(): AgentManager {
-    const m = new AgentManager()
-    m.init({
-      builtinRegistry,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    } as unknown as Parameters<AgentManager['init']>[0])
-    return m
-  }
+function freshManager(agentsDir?: string): AgentManager {
+  const m = new AgentManager()
+  m.init({ skillRegistry: SkillRegistry.fromDir(null), ...(agentsDir ? { agentsDir } : {}) })
+  return m
+}
 
-  it('registerFeatureAgent: 内存注册为业务 agent(可委托、source=null、无本地目录)', () => {
+describe('AgentManager stores profiles only', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'agent-manager-'))
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('AC-001 platform agents and user agents are { profile, source }', () => {
+    const agentDir = join(dir, 'sales_001')
+    mkdirSync(agentDir)
+    persistAgentProfile(BUSINESS_PROFILE, agentDir)
+    const m = freshManager(dir)
+
+    expect(m.isInitialized).toBe(true)
+    expect(m.getAgent('__chat__')).toEqual({ profile: CHAT_PROFILE, source: null })
+    const cryst = m.getAgent('__crystallizer__')!
+    expect(cryst.source).toBeNull()
+    expect(cryst.profile.agentPrompt).toContain('## Workflow')
+    expect(Object.keys(cryst).sort()).toEqual(['profile', 'source'])
+    const user = m.getAgent('sales_001')!
+    expect(user.source).toBe(agentDir)
+    expect(user.profile.id).toBe('sales_001')
+    expect(m.listBusinessAgentIds()).toEqual(['sales_001'])
+  })
+
+  it('AC-001 register / reload / unregister replace the stored entry', () => {
+    const m = freshManager()
+    const entry = { profile: BUSINESS_PROFILE, source: '/d' }
+    expect(m.registerBusinessAgent('u', entry)).toBe(entry)
+    expect(m.getAgent('u')).toBe(entry)
+
+    const reloaded = m.reloadUserAgent({ ...BUSINESS_PROFILE, name: 'new' }, '/e')
+    expect(m.getAgent('sales_001')).toEqual(reloaded)
+    expect(reloaded).toEqual({ profile: { ...BUSINESS_PROFILE, name: 'new' }, source: '/e' })
+
+    expect(m.unregisterBusinessAgent('u')).toBe(true)
+    expect(m.unregisterBusinessAgent('u')).toBe(false)
+    expect(m.getAgent('u')).toBeNull()
+    expect(m.getAgent('nonexistent')).toBeNull()
+  })
+
+  it('getChatAgent throws if not initialized', () => {
+    expect(() => new AgentManager().getChatAgent()).toThrow('AgentManager not initialized')
+    expect(() => new AgentManager().registerBusinessAgent('x', entryOf())).toThrow()
+  })
+})
+
+function entryOf() {
+  return { profile: BUSINESS_PROFILE, source: null }
+}
+
+describe('__chat__ profile', () => {
+  it('AC-002 the agentPrompt is the goal-driven prompt and the engine instruction', () => {
+    const prompt = CHAT_PROFILE.agentPrompt
+    expect(prompt).toContain('more tools are available than the ones listed')
+    expect(prompt).toContain('do not try to achieve the same thing another way')
+    expect(prompt).toContain('A denial covers the turn it happened in')
+    // 不点名工具或具体服务
+    for (const name of ['search_tool', 'delegate_agent', 'bash', 'MCP']) {
+      expect(prompt).not.toContain(name)
+    }
+    expect(prompt).not.toMatch(/MySQL|PostgreSQL|GitHub|Slack|Notion/i)
+
+    const snapshot = catalogSnapshot({
+      builtins: () => [],
+      mcpServers: () => [],
+      skills: () => [],
+      agents: () => [],
+    })
+    expect(agentFor(CHAT_PROFILE, snapshot).instructions).toEqual([
+      { role: 'system', parts: [{ type: 'text', text: prompt }] },
+    ])
+  })
+})
+
+describe('AgentManager feature agents (内存自管,不落盘)', () => {
+  it('registerFeatureAgent: 内存注册为业务 agent(source=null)', () => {
     const m = freshManager()
     m.registerFeatureAgent(FEATURE_PROFILE)
 
-    const agent = m.getAgent('invest_research')
-    expect(agent).not.toBeNull()
+    expect(m.getAgent('invest_research')).toEqual({ profile: FEATURE_PROFILE, source: null })
     expect(m.listBusinessAgentIds()).toContain('invest_research')
-    // 内存态:与平台 agent 一致,source=null → 不绑磁盘目录(无本地 skills/knowledge)
-    expect(agent!.source).toBeNull()
-    expect(agent!.skillsDir).toBeNull()
-  })
-
-  it('registerFeatureAgent(profile, tools): feature 工具注入该 agent', () => {
-    const m = freshManager()
-    m.registerFeatureAgent(FEATURE_PROFILE, [makeTool('compute_red_flags')])
-    expect(m.getAgent('invest_research')!.toolRegistry.getToolNames()).toContain(
-      'compute_red_flags',
-    )
-  })
-
-  it('getFeatureAgentProfiles 暴露已注册 feature profile(供 agents:list 只读列出)', () => {
-    const m = freshManager()
-    m.registerFeatureAgent(FEATURE_PROFILE)
     expect(m.getFeatureAgentProfiles().map((p) => p.id)).toEqual(['invest_research'])
   })
 
   it('fork-override: 同 id 已注册 → 跳过,不重复', () => {
     const m = freshManager()
     m.registerFeatureAgent(FEATURE_PROFILE)
-    m.registerFeatureAgent(FEATURE_PROFILE) // 第二次:businessAgents 已有 → 跳过
+    m.registerFeatureAgent(FEATURE_PROFILE)
     expect(m.getFeatureAgentProfiles()).toHaveLength(1)
   })
 
   it('B1 AC-003 featureAgentIds: Feature 承载的 id;被用户版覆盖、替换或注销后去掉', () => {
     const m = freshManager()
-    m.registerFeatureAgent(FEATURE_PROFILE, [makeTool('compute_red_flags')])
+    m.registerFeatureAgent(FEATURE_PROFILE)
     expect([...m.featureAgentIds()]).toEqual(['invest_research'])
 
     // 用户 agent 先注册同 id → feature 被跳过,不算 Feature 承载
     const overridden = freshManager()
     overridden.reloadUserAgent({ ...FEATURE_PROFILE, id: 'u' }, '/tmp/u')
-    overridden.registerFeatureAgent({ ...FEATURE_PROFILE, id: 'u' }, [makeTool('t')])
+    overridden.registerFeatureAgent({ ...FEATURE_PROFILE, id: 'u' })
     expect(overridden.featureAgentIds().has('u')).toBe(false)
 
     // 之后被用户版替换(reload / registerBusinessAgent)或注销 → 去掉
     m.reloadUserAgent(FEATURE_PROFILE, '/tmp/invest')
     expect(m.featureAgentIds().has('invest_research')).toBe(false)
     const replaced = freshManager()
-    replaced.registerFeatureAgent(FEATURE_PROFILE, [makeTool('x')])
-    replaced.registerBusinessAgent('invest_research', {
-      profile: FEATURE_PROFILE,
-      source: null,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    } as unknown as Parameters<AgentManager['registerBusinessAgent']>[1])
+    replaced.registerFeatureAgent(FEATURE_PROFILE)
+    replaced.registerBusinessAgent('invest_research', { profile: FEATURE_PROFILE, source: null })
     expect(replaced.featureAgentIds().has('invest_research')).toBe(false)
     const removed = freshManager()
-    removed.registerFeatureAgent(FEATURE_PROFILE, [makeTool('compute_red_flags')])
+    removed.registerFeatureAgent(FEATURE_PROFILE)
     removed.unregisterBusinessAgent('invest_research')
     expect(removed.featureAgentIds().has('invest_research')).toBe(false)
   })

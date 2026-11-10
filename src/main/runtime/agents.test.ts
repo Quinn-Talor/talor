@@ -17,13 +17,12 @@ import {
   agentFor,
   agentNameOf,
   delegateDescriptionOf,
-  ENGINE_CHAT_PROMPT,
   engineAgentId,
-  instructionsOf,
   MAX_DELEGATION_DEPTH,
   skillPackageOf,
 } from './agents'
 import { catalogSnapshot, type CatalogSources } from './catalog'
+import { CHAT_PROFILE } from '../agent/agent-manager'
 
 const snapshotOf = (overrides: Partial<CatalogSources> = {}) =>
   catalogSnapshot({
@@ -189,21 +188,14 @@ describe('agentFor assembles every capability (A2)', () => {
     expect(capabilityIds(feat)[0]).toBe('builtin')
   })
 
-  it('AC-004 gives __chat__ the goal-driven engine prompt and keeps business prompts', () => {
-    expect(instructionsOf(profile({ id: '__chat__', agentPrompt: 'legacy' }))).toBe(
-      ENGINE_CHAT_PROMPT,
-    )
-    for (const name of ['search_tool', 'delegate_agent', 'activate_skill', 'mcp__']) {
-      expect(ENGINE_CHAT_PROMPT).not.toContain(name)
-    }
-    // F24 AC-007：被拒绝后不换做法绕过
-    expect(ENGINE_CHAT_PROMPT).toContain('do not try to achieve the same thing another way')
-    expect(ENGINE_CHAT_PROMPT).toContain('A denial covers the turn it happened in')
-    const chat = agentFor(profile({ agentPrompt: 'legacy chat prompt' }), snapshot)
+  it('AC-004 gives __chat__ its goal-driven agentPrompt as the instructions', () => {
+    const chat = agentFor(CHAT_PROFILE, snapshot)
     expect(chat.instructions).toEqual([
-      { role: 'system', parts: [{ type: 'text', text: ENGINE_CHAT_PROMPT }] },
+      { role: 'system', parts: [{ type: 'text', text: CHAT_PROFILE.agentPrompt }] },
     ])
-    expect(instructionsOf(profile({ id: 'biz', agentPrompt: 'Biz.' }))).toBe('Biz.')
+    for (const name of ['search_tool', 'delegate_agent', 'activate_skill', 'mcp__']) {
+      expect(CHAT_PROFILE.agentPrompt).not.toContain(name)
+    }
   })
 
   it('AC-005 logs missing references once when the agent is built', () => {

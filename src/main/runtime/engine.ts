@@ -85,6 +85,10 @@ export interface Runtime {
   archive: Archive
   /** 换 hook：集合变化时重建执行环境，之后开始的运行用新的。 */
   setHooks(hooks: HookSpec[]): void
+  /** MCP 连接池（设置页读连接状态与工具列表用）。 */
+  mcp?: McpHost
+  /** 与连接池同一个凭据库。 */
+  vault?: Vault
 }
 
 export function interactiveEnvironment(deps: {
@@ -139,6 +143,8 @@ export function createRuntime(deps: {
   return {
     engine,
     archive: deps.archive,
+    ...(deps.mcp ? { mcp: deps.mcp } : {}),
+    ...(deps.vault ? { vault: deps.vault } : {}),
     get interactive() {
       return current.env
     },

@@ -242,3 +242,20 @@ describe('ToolExecuteContext', () => {
     expect(ctx.maxReadSizeBytes).toBe(5 * 1024 * 1024)
   })
 })
+
+describe('isErrorOutput', () => {
+  it('recognizes envelopes, AI SDK error parts and builtin error prefixes', async () => {
+    const { isErrorOutput } = await import('./types')
+    expect(isErrorOutput({ __talor_error: true, code: 'X', message: 'm' })).toBe(true)
+    expect(isErrorOutput({ type: 'error-text', value: 'boom' })).toBe(true)
+    expect(isErrorOutput('File not found: /a')).toBe(true)
+    expect(isErrorOutput({ type: 'text', value: 'Tool execution failed: x' })).toBe(true)
+  })
+
+  it('leaves normal output alone', async () => {
+    const { isErrorOutput } = await import('./types')
+    expect(isErrorOutput('hello')).toBe(false)
+    expect(isErrorOutput({ type: 'json', value: { ok: true } })).toBe(false)
+    expect(isErrorOutput(null)).toBe(false)
+  })
+})

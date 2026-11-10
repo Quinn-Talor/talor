@@ -30,15 +30,6 @@ describe('talorAPI.trace', () => {
       error_code: 'TRACE_NOT_FOUND',
     })
     expect(await talorAPI.trace.getBlob('t1', 'h')).toMatchObject({ status: 'failure' })
-    expect(
-      await talorAPI.trace.createScore({
-        trace_id: 't1',
-        name: 'user_feedback',
-        data_type: 'BOOLEAN',
-        value: 1,
-        source: 'ANNOTATION',
-      }),
-    ).toMatchObject({ status: 'failure', error_code: 'TRACE_WRITE_FAILED' })
     expect(await talorAPI.trace.toolDurations('s1')).toEqual({ status: 'success', durations: {} })
   })
 })

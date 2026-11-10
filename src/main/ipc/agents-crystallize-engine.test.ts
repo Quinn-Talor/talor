@@ -1,5 +1,5 @@
 // agents:start-crystallize（真实 handler）：源会话从引擎会话日志读；工作台的快照与欢迎语写成提示行，
-// 快照与推荐模式写成前置输入，不写 messages 表（引擎会话的前文只来自会话日志）。
+// 快照与推荐模式写成前置输入（引擎会话的前文只来自会话日志）。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3'
@@ -17,7 +17,6 @@ vi.mock('electron', () => ({
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
-vi.mock('../mcp/client', () => ({ mcpRegistry: { listRegisteredTools: () => [] } }))
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: { list: () => [] } }))
 vi.mock('../db/index', () => ({
   getDb: () => {
@@ -68,11 +67,6 @@ CREATE TABLE sessions (
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE messages (
-  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'blocks', agent_id TEXT NOT NULL DEFAULT '__chat__',
-  created_at TEXT NOT NULL, trace_id TEXT
-);
 `
 
 /** 源会话的一轮：用户问、助手答。 */
@@ -96,9 +90,6 @@ function start(sessionId: string) {
   return handle(null, { session_id: sessionId })
 }
 
-const messageRows = () =>
-  (currentDb.instance!.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).n
-
 beforeEach(() => {
   clearRowCache()
   archive.runs = {}
@@ -121,7 +112,7 @@ afterEach(() => {
 })
 
 describe('agents:start-crystallize on engine sessions', () => {
-  it('AC-008 writes the snapshot as notices and pending context, not as messages', async () => {
+  it('AC-008 writes the snapshot as notices and pending context', async () => {
     turn('src:1', '预算多少', '预算 58 万元')
     turn('src:2', '几个人', '4 个人')
 
@@ -140,7 +131,6 @@ describe('agents:start-crystallize on engine sessions', () => {
     expect(pending[0]).toContain('预算 58 万元')
     expect(pending[0]).toContain('默认采用')
     expect(meta.last_snapshot_message_count).toBe(4)
-    expect(messageRows()).toBe(0)
   })
 
   it('AC-008 appends an updated snapshot when the source has new turns', async () => {
@@ -159,6 +149,5 @@ describe('agents:start-crystallize on engine sessions', () => {
     expect(pending).toHaveLength(2)
     expect(pending[1]).toContain('4 个人')
     expect(meta.last_snapshot_message_count).toBe(4)
-    expect(messageRows()).toBe(0)
   })
 })

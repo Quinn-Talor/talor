@@ -1,12 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 
-const mockMessages: Array<{
-  id: string
-  session_id: string
-  role: string
-  content: string
-  created_at: string
-}> = []
 const mockSessions: Array<{
   id: string
   title: string
@@ -21,15 +14,6 @@ vi.mock('../db/index', () => {
   const db = {
     prepare: (sql: string) => ({
       run: (...args: unknown[]) => {
-        if (sql.includes('DELETE FROM messages WHERE session_id')) {
-          const sessionId = args[0] as string
-          let i = mockMessages.length - 1
-          while (i >= 0) {
-            if (mockMessages[i].session_id === sessionId) mockMessages.splice(i, 1)
-            i--
-          }
-          return { changes: 1 }
-        }
         if (sql.includes('UPDATE sessions SET model_id')) {
           const [modelId, updatedAt, sessionId] = args as [string, string, string]
           const s = mockSessions.find((s) => s.id === sessionId)

@@ -1,59 +1,45 @@
-// src/main/agent/agent-manager.ts — 业务层：Agent 管理器
+// src/main/agent/agent-manager.ts — 业务层：Agent 注册表
 //
-// 管理平台 Agent 单例 + 业务 Agent 生命周期。
-// 平台 Agent 共享全局 mcpRegistry/skillRegistry。
-// 业务 Agent 按 profile 创建独立 mcpRegistry（懒加载）+ 独立 skillRegistry。
+// 存平台 agent（__chat__ / __crystallizer__）与业务 agent 的 profile 及来源目录。能力（工具、MCP、skill、
+// 委托）由能力目录在每轮按 profile 计算（runtime/catalog.ts），这里只存 profile。
+//
+// 允许依赖: agent/loader、skills/registry、@shared/types
+// 禁止依赖: ipc/*、runtime/*
 
 import log from 'electron-log'
 import type { AgentProfile } from '@shared/types/agent'
-import { Agent } from './agent'
-import type { AgentOptions } from './agent'
 import { AgentLoader } from './loader'
-import type { BuiltinToolRegistry } from './builtin-registry'
-import type { McpToolSource } from './agent-toolset'
-import { SkillRegistry } from '../skills/registry'
-import type { McpRegistry } from '../mcp/client'
-import type { DelegationRuntime } from './delegate-agent'
-import type { ToolDefinition } from '../tools/types'
+import type { SkillRegistry } from '../skills/registry'
 
-export interface PlatformAgentDeps {
-  builtinRegistry: BuiltinToolRegistry
-  /** 平台 MCP registry — 持有 mcp_servers DB 表中所有已配 server。业务 agent 按 name 过滤。 */
-  mcpRegistry: McpRegistry
+/** AgentManager 存储的单位：profile 与来源目录（磁盘用户 agent 为其目录，平台与 Feature agent 为 null）。 */
+export interface RegisteredAgent {
+  profile: AgentProfile
+  source: string | null
+}
+
+export interface AgentManagerDeps {
   skillRegistry: SkillRegistry
   agentsDir?: string
-  /**
-   * 委托运行时。统一注入给所有 agent（含平台 + 业务）。
-   * 委托能力由 profile 字段决定：
-   *   - profile.subagents.allowAny=true → 全开放（仅 __chat__）
-   *   - profile.subagents.ids=[...] → 仅可委托列表内 agent
-   *   - 都没声明 → scope=[]，工具持有但 listing 为空
-   *
-   * 启动期由 main/index.ts 装配并注入。
-   */
-  delegationRuntime?: DelegationRuntime
 }
 
 // Schema 2.0: __chat__ platform agent — infrastructure, not a business agent.
 // 它是基础设施而非数字员工，没有"完成 X 任务"的具体语义。
-const CHAT_PROFILE: AgentProfile = {
+export const CHAT_PROFILE: AgentProfile = {
   id: '__chat__',
   name: 'Talor',
-  description:
-    'Talor general-purpose AI assistant. Coordinates with specialized business agents via delegate_agent.',
+  description: 'Talor general-purpose AI assistant. Coordinates with specialized business agents.',
+  // 目标驱动，不点名工具；工具的用法由各能力的说明给出。
   agentPrompt: `## Workflow
-1. Understand the user request and identify what it touches: local files/shell on this machine, or something outside it (a service, remote data, 3rd-party platform).
-2. Pick the right tool family:
-   - Local files / shell / local code editing → built-in tools (read/write/edit/bash/glob/grep/ls).
-   - Anything reaching outside this machine → MCP tools in your tool list. If no visible MCP tool matches, call search_tool to refresh the list before falling back to bash.
-3. Delegate well-scoped sub-tasks to registered business agents via delegate_agent.
-4. Return a clear, concise response.
+1. Work out what the request needs: something on this machine (files, shell, code) or something outside it (a service, a website, remote data, a third-party platform).
+2. Do local work with the built-in tools. For anything outside this machine, look for a matching tool first: more tools are available than the ones listed, and you can find them by searching. Fall back to a local command only when no tool matches.
+3. When an available skill matches the task, read it before acting.
+4. Return a clear, concise answer.
 
 ## Principles
-- Prefer direct tool use for common tasks.
-- When the user names a service or platform, scan MCP before checking a local CLI — a missing local binary doesn't mean the capability is unavailable.
-- Delegate to specialized agents when the task matches their profile.
-- Always confirm destructive actions before executing.`,
+- When the user names a service or platform, search for its tools before checking for a local CLI; a missing local binary does not mean the capability is unavailable.
+- Confirm destructive actions before running them.
+- If a rule, hook or the user denies an action, do not try to achieve the same thing another way (another tool, a shell command, a different path); explain the denial or do the parts that are allowed.
+- A denial covers the turn it happened in. When the user asks for the action again in a later message, try it once more, since the rules or their decision may have changed; if it is denied again, explain.`,
   subagents: {
     // 主对话默认全开放：可委托给所有已注册业务 agent
     allowAny: true,
@@ -159,39 +145,22 @@ Terse, evidence-based. Chinese when the user writes Chinese. Natural language on
   // No preferences — model not locked. Crystallizer uses session-selected provider/model.
 }
 
-/**
- * 把 agent.profile.mcpServers (string[] of platform MCP server names) 转换为
- * 受限的 McpToolSource — 仅暴露列在白名单的 server 的工具。
- *
- * 平台 MCP servers 在 Settings 配置(mcp_servers DB),全部加载到 platform mcpRegistry;
- * 这里只是 view filter,不复制不重连。
- */
-function buildAgentMcpToolSource(
-  platformRegistry: McpRegistry,
-  allowedServerNames: string[],
-): McpToolSource | null {
-  // 默认全给(与 builtin 一致:profile 不声明 mcpServers = 全部已配置 MCP);
-  // 显式声明则收窄到该子集。McpRegistry 结构上满足 McpToolSource(listRegisteredTools + execute)。
-  if (allowedServerNames.length === 0) return platformRegistry
-  return platformRegistry.filterByServerNames(allowedServerNames)
-}
-
 export class AgentManager {
-  private platformChat: Agent | null = null
-  private platformCrystallizer: Agent | null = null
-  private readonly businessAgents = new Map<string, Agent>()
+  private platformChat: RegisteredAgent | null = null
+  private platformCrystallizer: RegisteredAgent | null = null
+  private readonly businessAgents = new Map<string, RegisteredAgent>()
   /** Feature 声明并注册的 agent profile(origin=feature),供 getFeatureAgentProfiles / 只读门禁。 */
   private readonly featureProfiles: AgentProfile[] = []
   /** 当前由 Feature 承载(没有被用户版覆盖、替换或注销)的 agent id;能力目录按它排除核心来源里的 Feature agent。 */
   private readonly featureIds = new Set<string>()
 
-  private deps: PlatformAgentDeps | null = null
+  private deps: AgentManagerDeps | null = null
   private loader: AgentLoader | null = null
 
-  init(deps: PlatformAgentDeps): void {
+  init(deps: AgentManagerDeps): void {
     this.deps = deps
 
-    // 用户池 agent(磁盘 ~/.talor/agents)。v2.0 引用化:mcp/skill 按 name 从平台过滤。
+    // 用户池 agent(磁盘 ~/.talor/agents)。
     // 先于 feature 注册(feature 经 installFeatures 在 init 之后 registerFeatureAgent):
     // 同 id 时用户版已注册 → feature 跳过(fork-override,用户优先)。
     if (deps.agentsDir) {
@@ -199,122 +168,63 @@ export class AgentManager {
       this.loader.loadAll()
       log.info('[AgentManager] AgentLoader initialized, agents:', this.loader.size)
       for (const entry of this.loader.getAll()) {
-        this.businessAgents.set(entry.profile.id, this.buildAgent(entry.profile, entry.dirPath, []))
+        this.businessAgents.set(entry.profile.id, { profile: entry.profile, source: entry.dirPath })
       }
     }
 
-    // 平台 agent 装配。两个都接收 delegationRuntime；委托能力由
-    // profile.subagents 决定：
-    //   - __chat__:        subagents.allowAny=true → 可委托所有业务 agent
-    //   - __crystallizer__: 无 subagents → scope=[]
-    this.platformChat = new Agent({
-      profile: CHAT_PROFILE,
-      source: null,
-      builtinRegistry: deps.builtinRegistry,
-      mcpRegistry: deps.mcpRegistry,
-      skillRegistry: deps.skillRegistry,
-      delegationRuntime: deps.delegationRuntime,
-      // __chat__ 无 feature 工具 → 拿不到 invest 等业务工具(只能 delegate)。
-      featureTools: [],
-    })
-
-    this.platformCrystallizer = new Agent({
-      profile: CRYSTALLIZER_PROFILE,
-      source: null,
-      builtinRegistry: deps.builtinRegistry,
-      mcpRegistry: deps.mcpRegistry,
-      skillRegistry: deps.skillRegistry,
-      delegationRuntime: deps.delegationRuntime,
-      featureTools: [],
-    })
+    this.platformChat = { profile: CHAT_PROFILE, source: null }
+    this.platformCrystallizer = { profile: CRYSTALLIZER_PROFILE, source: null }
 
     log.info('[AgentManager] Initialized with platform agents: __chat__, __crystallizer__')
   }
 
-  getAgent(agentId: string): Agent | null {
+  getAgent(agentId: string): RegisteredAgent | null {
     if (agentId === '__chat__') return this.platformChat
     if (agentId === '__crystallizer__') return this.platformCrystallizer
     return this.businessAgents.get(agentId) ?? null
   }
 
-  getChatAgent(): Agent {
+  getChatAgent(): RegisteredAgent {
     if (!this.platformChat) throw new Error('AgentManager not initialized')
     return this.platformChat
   }
 
   /**
-   * 从 profile 构造一个业务 Agent 实例(mcp/skill 按 profile 引用从平台过滤)。
-   * source:磁盘用户 agent = dirPath(派生本地 skills/knowledge);feature agent = null。
-   * 用户池循环 + registerFeatureAgent 共用。
-   */
-  private buildAgent(profile: AgentProfile, source: string | null, tools: ToolDefinition[]): Agent {
-    if (!this.deps) throw new Error('AgentManager not initialized')
-    return new Agent({
-      profile,
-      source,
-      builtinRegistry: this.deps.builtinRegistry,
-      delegationRuntime: this.deps.delegationRuntime,
-      mcpRegistry: buildAgentMcpToolSource(this.deps.mcpRegistry, profile.mcpServers ?? []),
-      skillRegistry: this.deps.skillRegistry.filterByNames(profile.skills ?? []),
-      featureTools: tools,
-    })
-  }
-
-  /**
    * Feature 装配端口的落地(installFeatures 经 ports.registerAgent 调用):
-   * 把 feature 声明的 agent(连工具)内存注册为业务 agent,标 origin=feature(featureProfiles)。
+   * 把 feature 声明的 agent 内存注册为业务 agent,标 origin=feature(featureProfiles)。
+   * Feature 工具由能力目录登记(features/install.ts),这里不存。
    * 同 id 已注册(用户池)→ 跳过(fork-override,用户版优先)。须在 init() 之后调用。
    */
-  registerFeatureAgent(profile: AgentProfile, tools: ToolDefinition[] = []): void {
+  registerFeatureAgent(profile: AgentProfile): void {
     if (!this.deps) throw new Error('AgentManager.init() must run before feature registration')
     if (this.businessAgents.has(profile.id)) {
       log.info('[AgentManager] user agent overrides feature agent:', profile.id)
       return
     }
-    this.businessAgents.set(profile.id, this.buildAgent(profile, null, tools))
+    this.businessAgents.set(profile.id, { profile, source: null })
     this.featureProfiles.push(profile)
     this.featureIds.add(profile.id)
     log.info('[AgentManager] Registered feature agent:', profile.id)
   }
 
-  registerBusinessAgent(
-    agentId: string,
-    opts: Omit<AgentOptions, 'builtinRegistry' | 'delegationRuntime'>,
-  ): Agent {
+  registerBusinessAgent(agentId: string, entry: RegisteredAgent): RegisteredAgent {
     if (!this.deps) throw new Error('AgentManager not initialized')
-
-    const existing = this.businessAgents.get(agentId)
-    if (existing) {
+    if (this.businessAgents.has(agentId)) {
       log.info('[AgentManager] Replacing existing business agent:', agentId)
     }
-
-    // 业务 agent 也接收 delegationRuntime。能否真正委托由 profile 决定：
-    //   - profile.subagents 非空 → 可委托列表内 agent（受限 scope）
-    //   - profile.subagents 缺省 → scope=[]，工具持有但 listing 为空
-    // 数据驱动差异，不再用"业务 agent 不接收 runtime"做特殊隔离。
-    const agent = new Agent({
-      ...opts,
-      builtinRegistry: this.deps.builtinRegistry,
-      delegationRuntime: this.deps.delegationRuntime,
-      // 用户/业务 agent 经此路径(enable/duplicate)无 feature 工具;feature agent 走 registerFeatureAgent。
-      featureTools: [],
-    })
-    this.businessAgents.set(agentId, agent)
+    this.businessAgents.set(agentId, entry)
     this.featureIds.delete(agentId)
     log.info('[AgentManager] Registered business agent:', agentId)
-    return agent
+    return entry
   }
 
-  /**
-   * 用磁盘最新 profile 重建用户池 agent 的运行时实例（编辑保存后调用），
-   * 保证 chat / delegate 拿到的是新 profile 而非旧实例。
-   */
-  reloadUserAgent(profile: AgentProfile, dirPath: string): Agent {
-    const agent = this.buildAgent(profile, dirPath, [])
-    this.businessAgents.set(profile.id, agent)
+  /** 编辑保存后用磁盘最新 profile 替换用户池 agent。 */
+  reloadUserAgent(profile: AgentProfile, dirPath: string): RegisteredAgent {
+    const entry: RegisteredAgent = { profile, source: dirPath }
+    this.businessAgents.set(profile.id, entry)
     this.featureIds.delete(profile.id)
     log.info('[AgentManager] Reloaded user agent:', profile.id)
-    return agent
+    return entry
   }
 
   unregisterBusinessAgent(agentId: string): boolean {
@@ -334,27 +244,7 @@ export class AgentManager {
     return this.loader
   }
 
-  /**
-   * 公开访问 builtinRegistry / mcpRegistry,供 IPC `agents:preview`
-   * 等需要构造临时 Agent 实例的场景使用。避免反取 chat agent 内部字段。
-   */
-  getBuiltinRegistry(): import('./builtin-registry').BuiltinToolRegistry {
-    if (!this.deps) throw new Error('AgentManager not initialized')
-    return this.deps.builtinRegistry
-  }
-
-  getMcpToolSource(): import('./agent-toolset').McpToolSource | null {
-    if (!this.deps) throw new Error('AgentManager not initialized')
-    return this.deps.mcpRegistry ?? null
-  }
-
-  /** 公开平台 McpRegistry,供 IPC 装配时按 agent.profile.mcpServers 过滤。 */
-  getMcpRegistry(): McpRegistry | null {
-    if (!this.deps) throw new Error('AgentManager not initialized')
-    return this.deps.mcpRegistry ?? null
-  }
-
-  /** 公开平台 SkillRegistry,供 IPC 装配时按 agent.profile.skills 过滤。 */
+  /** 平台 SkillRegistry(能力目录的 skill 来源)。 */
   getPlatformSkillRegistry(): SkillRegistry | null {
     if (!this.deps) throw new Error('AgentManager not initialized')
     return this.deps.skillRegistry ?? null

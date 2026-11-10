@@ -1,33 +1,12 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { readdirSync, readFileSync, type Dirent } from 'fs'
 import { join } from 'path'
 import { fileURLToPath } from 'url'
-import Database from 'better-sqlite3'
 import { generateText } from 'ai'
 import { MockLanguageModelV4 } from 'ai/test'
-import { DEFAULT_TRACE_CONFIG } from '@shared/types/trace'
 
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 
-const { currentDb } = vi.hoisted(() => ({
-  currentDb: { instance: null as Database.Database | null },
-}))
-
-vi.mock('../db/index', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../db/index')>()
-  return {
-    ...actual,
-    getDb: () => {
-      if (!currentDb.instance) throw new Error('Test DB not initialized')
-      return currentDb.instance
-    },
-  }
-})
-
-import { initTraceTables } from '../db/index'
-import { traceRepo } from '../repos/trace-repo'
-import { runInScope } from '../observe/trace-context'
-import { traceRecorder } from '../observe/trace-recorder'
 import { mergeProviderOptions, resolveStreamOptions, type ModelAdapter } from './model-adapter'
 import { wrapModel } from './middleware'
 import type { Provider } from '../store/config-store'
@@ -166,11 +145,6 @@ describe('resolveStreamOptions — 按模型推理能力门控', () => {
 })
 
 describe('wrapModel（turn-trace AC-013）', () => {
-  afterEach(() => {
-    currentDb.instance?.close()
-    currentDb.instance = null
-  })
-
   /** 递归列出非测试 .ts 文件;并行测试会临时建删目录(如 ls 工具测试),扫描中消失的目录跳过。 */
   function listSourceFiles(dir: string): string[] {
     let entries: Dirent[]
@@ -187,13 +161,7 @@ describe('wrapModel（turn-trace AC-013）', () => {
     })
   }
 
-  it('AC-013: installs traceMiddleware even without provider middleware; wrapLanguageModel is called only here', async () => {
-    const db = new Database(':memory:')
-    db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY);`)
-    initTraceTables(db)
-    db.prepare(`INSERT INTO sessions (id) VALUES ('s-1')`).run()
-    currentDb.instance = db
-
+  it('AC-013: wraps the model even without provider middleware; wrapLanguageModel is called only here', async () => {
     const model = wrapModel(
       new MockLanguageModelV4({
         doGenerate: async () => ({
@@ -208,19 +176,8 @@ describe('wrapModel（turn-trace AC-013）', () => {
       }),
       undefined,
     )
-    const scope = traceRecorder.startTrace({
-      id: 't-wrap',
-      sessionId: 's-1',
-      name: 'turn',
-      input: 'hi',
-      rootName: 'agent:test',
-      config: DEFAULT_TRACE_CONFIG,
-    })
-    await runInScope(scope, () => generateText({ model, prompt: 'hello' }))
-    traceRecorder.endTrace('t-wrap', {})
-    expect(
-      traceRepo.listObservations('t-wrap').filter((o) => o.type === 'GENERATION'),
-    ).toHaveLength(1)
+    const result = await generateText({ model, prompt: 'hello' })
+    expect(result.text).toBe('ok')
 
     const mainDir = fileURLToPath(new URL('..', import.meta.url))
     const callers = listSourceFiles(mainDir).filter((f) =>

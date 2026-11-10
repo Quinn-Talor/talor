@@ -1,21 +1,15 @@
 // src/main/agent/dry-runner.ts — 业务层: Agent 沙箱试跑 (Schema 2.0 simplified)
 //
 // 不再做 acceptance / extractDeliverable / schema 校验 (deliverables 已删)。
-// 当前能力: 校验 profile + 渲染 first-iteration prompt + 报告资源估算。
+// 当前能力: 校验 profile + 给出发给模型的指令(agentPrompt 原文) + 报告资源估算。
 // 未来想做"输出符合 agentPrompt ## Output 段"的语义评估时,接 LLM-judge,
 // 不再走 schema 路径。
 //
-// 允许依赖: agent/*、prompt/*、shared/*
-// 禁止依赖: ipc/*、loop/*
+// 允许依赖: agent/*、shared/*
+// 禁止依赖: ipc/*
 
 import type { AgentProfile } from '@shared/types/agent'
 import { validateProfile } from './validator'
-import { Agent } from './agent'
-import { BuiltinToolRegistry } from './builtin-registry'
-import { SkillRegistry } from '../skills/registry'
-import { render } from '../prompt/render'
-import { buildRuntimeContext, type TemplateContext } from '../prompt/runtime-context'
-import { loadAgentSystemPromptTemplate } from '../prompt/template-loader'
 
 export interface DryRunIteration {
   iteration: number
@@ -47,14 +41,6 @@ export interface DryRunArgs {
   }>
 }
 
-const helpers = {
-  joinBackticks: (arr: unknown, sep: unknown = ' · ') => {
-    if (!Array.isArray(arr)) return ''
-    const s = typeof sep === 'string' ? sep : ' · '
-    return arr.map((x) => '`' + String(x) + '`').join(s)
-  },
-}
-
 export async function dryRunAgent(args: DryRunArgs): Promise<DryRunResult> {
   const validation = validateProfile(args.profile)
   if (!validation.valid) {
@@ -70,19 +56,7 @@ export async function dryRunAgent(args: DryRunArgs): Promise<DryRunResult> {
 
   const profile: AgentProfile = validation.profile
 
-  const emptyBuiltin = new BuiltinToolRegistry([])
-  const agent = new Agent({
-    profile,
-    source: null,
-    builtinRegistry: emptyBuiltin,
-    mcpRegistry: null,
-    skillRegistry: SkillRegistry.fromDir(null),
-    delegationRuntime: undefined,
-  })
-
-  const template = loadAgentSystemPromptTemplate()
-  const tplCtx: TemplateContext = buildRuntimeContext(agent)
-  const persistentPrompt = render(template, tplCtx as unknown as Record<string, unknown>, helpers)
+  const persistentPrompt = profile.agentPrompt
 
   const finalText = args.finalTextOverride ?? `[dry-run stub] User asked: ${args.userMessage}`
   const toolEvents = args.toolEventsOverride ?? []
@@ -105,7 +79,7 @@ export async function dryRunAgent(args: DryRunArgs): Promise<DryRunResult> {
     validatorIssues: validation.warnings,
     stub: true,
     notes: [
-      'Schema 2.0 dry-run: profile validated + first-iteration prompt rendered.',
+      'Schema 2.0 dry-run: profile validated; promptSent is the agentPrompt sent as instructions.',
       'No acceptance / deliverable validation in v2.0; output checking relies on prompt + LLM.',
     ],
   }

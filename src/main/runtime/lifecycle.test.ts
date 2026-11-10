@@ -44,16 +44,6 @@ CREATE TABLE sessions (
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE messages (
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL,
-  role         TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
-  content      TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'blocks',
-  agent_id     TEXT NOT NULL DEFAULT '__chat__',
-  created_at   TEXT NOT NULL,
-  trace_id     TEXT
-);
 `
 
 beforeEach(() => {

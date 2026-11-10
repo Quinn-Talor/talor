@@ -96,16 +96,6 @@ CREATE TABLE sessions (
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE messages (
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL,
-  role         TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
-  content      TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'blocks',
-  agent_id     TEXT NOT NULL DEFAULT '__chat__',
-  created_at   TEXT NOT NULL,
-  trace_id     TEXT
-);
 CREATE TABLE session_summaries (
   session_id     TEXT NOT NULL PRIMARY KEY,
   summary_text   TEXT NOT NULL,
@@ -220,10 +210,6 @@ async function rowsOf(sessionId: string) {
 
 const parsed = () => rowsOf('s1')
 
-/** messages 表的行数：引擎路径不写这张表。 */
-const tableRows = () =>
-  (currentDb.instance!.prepare('SELECT COUNT(*) AS n FROM messages').get() as { n: number }).n
-
 const textOfInput = (input: ModelInput) => JSON.stringify(input.messages)
 
 const HELPER: AgentProfile = {
@@ -319,7 +305,6 @@ describe('sendTurn', () => {
       { type: 'text', text: '你好！', providerOptions: phaseMarker('answer') },
     ])
     expect(list.every((r) => r.trace_id === messageId)).toBe(true)
-    expect(tableRows()).toBe(0)
     expect(statuses).toEqual(['verifying', 'idle'])
     const usage = currentDb
       .instance!.prepare('SELECT input_tokens, output_tokens FROM sessions WHERE id = ?')
@@ -536,9 +521,8 @@ describe('sendTurn', () => {
       { type: 'text', text: 'wrote', providerOptions: phaseMarker('answer') },
     ])
     await assertPaired(childRows)
-    // 子会话按子运行 id 读出，引擎路径不写 messages 表
+    // 子会话按子运行 id 读出
     expect(sessionRepo.getMetadata(child.id).engine_run_id).toEqual(expect.any(String))
-    expect(tableRows()).toBe(0)
 
     const usageOf = (id: string) =>
       currentDb.instance!.prepare('SELECT input_tokens FROM sessions WHERE id = ?').get(id) as {
@@ -578,14 +562,13 @@ describe('sendTurn', () => {
     const { messageId } = await pending
 
     expect(done).toEqual([[messageId, undefined]])
-    // 中断提示由读模型从引擎补记的结局折叠出来，不写 messages 表
+    // 中断提示由读模型从引擎补记的结局折叠出来
     const list = await parsed()
     expect(list.map((r) => [r.role, r.content_type, r.trace_id])).toEqual([
       ['user', undefined, messageId],
       ['assistant', 'notice', messageId],
     ])
     expect(list[1]!.content).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
-    expect(tableRows()).toBe(0)
   })
 
   const sessionUsage = () =>
@@ -721,7 +704,6 @@ describe('sendTurn', () => {
 
     expect(done).toEqual([[messageId, { code: 'LLM_ERROR', message: 'Empty message' }]])
     expect(await parsed()).toEqual([])
-    expect(tableRows()).toBe(0)
     expect(model.inputs).toHaveLength(0)
   })
 })
@@ -822,25 +804,16 @@ describe('cross-turn history (engine session)', () => {
     expect(count('"again"')).toBe(1)
   })
 
-  it('takes the earlier turns from the engine session, not from the messages table', async () => {
+  it('takes the earlier turns from the engine session', async () => {
     generateText.mockClear()
     useReplies([{ text: '你好！' }, { text: 'again ok' }])
     await send('hi')
-    // messages 表只给界面看：改动它不影响下一轮带入的前文
-    currentDb.instance!.prepare("DELETE FROM messages WHERE session_id = 's1'").run()
-    currentDb
-      .instance!.prepare(
-        `INSERT INTO messages (id, session_id, role, content, created_at)
-         VALUES ('fake', 's1', 'user', '"ROW-ONLY-MARKER"', '2020-01-01T00:00:00.000Z')`,
-      )
-      .run()
 
     await send('again')
 
     const last = textOfInput(model.inputs.at(-1)!)
     expect(last).toContain('"hi"')
     expect(last).toContain('你好！')
-    expect(last).not.toContain('ROW-ONLY-MARKER')
     expect(generateText).not.toHaveBeenCalled()
     const turns = await runtime.archive.query({ session: 's1' })
     expect(turns.map((t) => t.turn)).toEqual([2, 1])

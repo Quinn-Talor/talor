@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockHandle, repo, registry } = vi.hoisted(() => ({
+const { mockHandle, repo, status } = vi.hoisted(() => ({
   mockHandle: vi.fn(),
   repo: {
     getByName: vi.fn(),
@@ -8,13 +8,13 @@ const { mockHandle, repo, registry } = vi.hoisted(() => ({
     update: vi.fn((id: string, p: object) => ({ id, enabled: true, ...p })),
     getById: vi.fn(() => null),
   },
-  registry: { getConnectedServers: vi.fn(() => []), connectServer: vi.fn() },
+  status: { mcpServerTools: vi.fn(), testMcpConnection: vi.fn() },
 }))
 
 vi.mock('electron', () => ({ ipcMain: { handle: (...a: unknown[]) => mockHandle(...a) } }))
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: repo }))
-vi.mock('../mcp/client', () => ({ mcpRegistry: registry }))
+vi.mock('../runtime/mcp-status', () => status)
 
 import { registerMCPHandlers } from './mcp'
 

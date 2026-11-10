@@ -3,11 +3,9 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
-// risk-gate 经 side-effect-ledger 引入 db/index（electron）
-vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }))
 
 import type { ComponentCtx, RunInfo, ToolCallView } from 'agent-engine'
-import { talorFallbackRisk } from './fallback-risk'
+import { detectFallbackRisk, stripSqlNoise, talorFallbackRisk } from './fallback-risk'
 
 const run = {} as RunInfo
 const ctx = {} as ComponentCtx
@@ -36,5 +34,48 @@ describe('talorFallbackRisk', () => {
     )
     expect(await rule.permit(call('crm__get', 'low', { id: 1 }), run, ctx)).toBe('allow')
     expect(await rule.permit(call('crm__get', 'low', undefined), run, ctx)).toBe('allow')
+  })
+})
+
+describe('detectFallbackRisk', () => {
+  it('DROP TABLE → 命中', () => {
+    expect(detectFallbackRisk({ sql: 'DROP TABLE x' })).not.toBeNull()
+  })
+
+  it('INSERT/UPDATE/DELETE → 命中', () => {
+    expect(detectFallbackRisk({ sql: 'INSERT INTO x VALUES (1)' })).not.toBeNull()
+    expect(detectFallbackRisk({ sql: 'UPDATE x SET y=1' })).not.toBeNull()
+    expect(detectFallbackRisk({ sql: 'DELETE FROM x' })).not.toBeNull()
+  })
+
+  it('rm -rf 命中', () => {
+    expect(detectFallbackRisk({ command: 'rm -rf /tmp' })).not.toBeNull()
+  })
+
+  it('SELECT 不命中', () => {
+    expect(detectFallbackRisk({ sql: 'SELECT * FROM x' })).toBeNull()
+  })
+
+  it('字符串字面量中的 DROP 不误报 (stripSqlNoise)', () => {
+    expect(detectFallbackRisk({ sql: "SELECT 'DROP TABLE x' as msg" })).toBeNull()
+  })
+
+  it('SQL 注释中的 INSERT 不误报', () => {
+    expect(detectFallbackRisk({ sql: '-- INSERT INTO x\nSELECT 1' })).toBeNull()
+    expect(detectFallbackRisk({ sql: '/* DROP TABLE */ SELECT 1' })).toBeNull()
+  })
+})
+
+describe('stripSqlNoise', () => {
+  it('剥离行注释', () => {
+    expect(stripSqlNoise('SELECT 1 -- DROP TABLE x')).toBe('SELECT 1 ')
+  })
+
+  it('剥离块注释', () => {
+    expect(stripSqlNoise('SELECT /* INSERT */ 1')).toBe('SELECT  1')
+  })
+
+  it('剥离单引号字符串', () => {
+    expect(stripSqlNoise("SELECT 'DROP'")).toBe("SELECT ''")
   })
 })

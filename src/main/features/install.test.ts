@@ -4,7 +4,6 @@ vi.mock('electron-log', () => ({ default: { warn: vi.fn(), info: vi.fn(), error:
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: { list: () => [] } }))
 
 import { AgentManager } from '../agent/agent-manager'
-import { BuiltinToolRegistry } from '../agent/builtin-registry'
 import {
   catalogSnapshot,
   createCatalogRegistry,
@@ -122,11 +121,7 @@ describe('Feature 经端口登记目录来源 (B1)', () => {
 
   it('B1 AC-003 registers feature:<id>, and a user agent with the same id takes over', () => {
     const m = new AgentManager()
-    m.init({
-      builtinRegistry: new BuiltinToolRegistry([]),
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    } as unknown as Parameters<AgentManager['init']>[0])
+    m.init({ skillRegistry: SkillRegistry.fromDir(null) })
     const registry = createCatalogRegistry()
     registry.register('talor', talorCatalogSources(m))
     const register = vi.fn(featureSourcePort(registry, m))
@@ -134,7 +129,7 @@ describe('Feature 经端口登记目录来源 (B1)', () => {
       [feature('f1', { agents: () => [{ profile: profile('inv'), tools: [quote] }] })],
       ctx,
       {
-        registerAgent: (fa) => m.registerFeatureAgent(fa.profile, fa.tools ?? []),
+        registerAgent: (fa) => m.registerFeatureAgent(fa.profile),
         registerArtifactReader: vi.fn(),
         isMcpConfigured: () => true,
         registerCatalogSource: register,
@@ -157,12 +152,7 @@ describe('Feature 经端口登记目录来源 (B1)', () => {
     expect(agents()).toEqual([['inv', 'inv', ['quote']]])
 
     // agents:create-from-draft 以同 id 注册用户版
-    m.registerBusinessAgent('inv', {
-      profile: { ...profile('inv'), name: 'user' },
-      source: null,
-      mcpRegistry: null,
-      skillRegistry: SkillRegistry.fromDir(null),
-    } as unknown as Parameters<AgentManager['registerBusinessAgent']>[1])
+    m.registerBusinessAgent('inv', { profile: { ...profile('inv'), name: 'user' }, source: null })
     expect(m.featureAgentIds().has('inv')).toBe(false)
     expect(agents()).toEqual([['inv', 'user', []]])
 

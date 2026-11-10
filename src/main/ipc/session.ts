@@ -9,7 +9,6 @@ import { getProviderModels } from '../providers/provider-fetcher'
 import { checkModelAvailability } from '../providers/model-availability'
 import log from 'electron-log'
 import { streamRegistry } from '../chat/stream-registry'
-import { clearLimiter } from '../agent/delegate-agent'
 import { deleteEngineSession } from '../runtime/lifecycle'
 import { runArchive } from '../runtime/engine'
 import { liveRows } from '../runtime/live-turns'
@@ -135,7 +134,6 @@ export function registerSessionHandlers(): void {
   ipcMain.handle('session:delete', async (_, sessionId: string): Promise<void> => {
     // 先停掉该会话正在跑的回合(子 agent 经父 abort 链一并停止),避免删除后工具/LLM 继续执行
     streamRegistry.abort(sessionId)
-    clearLimiter(sessionId)
     const ids = sessionRepo.subtreeIds(sessionId)
     sessionRepo.delete(sessionId)
     // 引擎档案里的会话(含子会话自己开过的轮)一起删除;失败只记日志

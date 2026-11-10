@@ -12,7 +12,7 @@ Talor 是 **纯 Agent 平台** — Electron + TypeScript 桌面应用(v0.1.0,MIT
 - **前端**:React 19 + Tailwind + Zustand
 - **模型层**:Vercel AI SDK(Anthropic / OpenAI / Google / Ollama)
 - **工具**:7 个内置(bash / read / write / edit / glob / grep / ls)+ MCP 外部
-- **持久化**:better-sqlite3(sessions, messages, mcp_servers, account_keys)+ 文件(`~/.talor/agents/<id>/` + `~/.talor/skills/<name>/`)
+- **持久化**:better-sqlite3 `chat.db`(sessions, mcp_servers, account_keys)+ 引擎运行档案 `~/.talor/runs.db`(会话日志,对话内容以它为准)+ 文件(`~/.talor/agents/<id>/` + `~/.talor/skills/<name>/`)
 - **Agent Profile** · **极简 schema 8 字段**:`id` / `name` / `description` / `agentPrompt`(磁盘上拆为 sibling `prompt.md`)+ `tools?` / `skills?` / `mcpServers?` / `subagents?`
 - **核心差异化**:Crystallizer — 从对话历史一键提炼出可复用的 agent
 
@@ -24,25 +24,20 @@ Talor 是 **纯 Agent 平台** — Electron + TypeScript 桌面应用(v0.1.0,MIT
 src/
 ├── main/                   Electron 主进程(Node 环境)
 │   ├── ipc/               入口层:IPC handlers(不得被业务层依赖)
-│   ├── chat/              业务层:chat:send 用例编排、事件总线
-│   ├── agent/             业务层:Agent 运行时 / Profile 加载(Schema 2.0) / Crystallizer
-│   │   └── (含 agent-toolset.ts:Agent 视角的工具集组合,区别于 tools/registry.ts)
+│   ├── runtime/           业务层:agent-engine 接入 — 运行时(engine)、能力目录(catalog)、每轮(turn)、界面行投影(turn-rows / live-turns)、MCP 状态与测试连接(mcp-status)、Trace 读取(run-trace)、审批人(approval)、凭据库(vault)
+│   ├── chat/              业务层:一轮的输入准备(attachments / provider-selector / stream-registry)
+│   ├── agent/             业务层:Agent 注册表(agent-manager,只存 profile)/ Profile 加载(Schema 2.0) / Crystallizer
 │   │   └── (contract-guard.ts + naturalize.ts 已在 Schema 2.0 迁移中删除)
 │   │   └── (importer/exporter + agent-pack/ 已删除 — 平台定位不做迁移)
 │   ├── accounts/          业务层:第三方账户凭据(account-store)
 │   ├── tools/             业务层:内置工具仓库(registry) + path-guard
 │   │   └── builtin/      bash / read / write / edit / glob / grep / ls
-│   ├── loop/              业务层:ReAct 循环、stream utils、quote-verifier
-│   ├── prompt/            业务层:append-only 分层 pipeline + 7 plugins(System/Agent/UiBlock/ToolSelection/Memory/Message/RuntimeMeta)+ cache-breakpoints(Anthropic 前缀缓存断点)
-│   ├── memory/            业务层:ShortTermMemory (压缩 + 锚点)
-│   ├── mcp/               业务层:MCP 协议客户端(stdio / http transport)
 │   ├── permissions/       业务层:权限规则、path matcher
 │   ├── providers/         业务层:LLM provider 工厂、模型拉取/测试/可用性
-│   │   ├── (usage-normalizer + usage-recorder:跨厂商 token 用量归一→落库 session)
 │   │   ├── adapters/     anthropic / openai / google / ollama(经官方 @ai-sdk/openai-compatible)
 │   │   └── capability/   模型能力检测(detector) + 手动覆盖(updater)
 │   ├── skills/            业务层:skill 注册表 + metadata-extractor(SKILL.md frontmatter 解析)
-│   ├── repos/             基础设施:session/message/mcp-server CRUD
+│   ├── repos/             基础设施:session/mcp-server CRUD
 │   ├── db/                基础设施:SQLite 初始化、schema 迁移
 │   ├── store/             基础设施:ConfigStore (electron-store)
 │   └── services/          基础设施:safe-storage(Electron 平台能力封装)
@@ -75,9 +70,9 @@ src/
 做对应任务时读：
 
 - 加新工具 → `tools/builtin/read.ts`（最简范例）+ `patterns.md §P1`
-- 改 ReAct 循环 / 检测-反思-收尾机制 → `loop/react-loop.ts` + `loop/reflect/*` + `loop/detectors/*` + `overview.md` §「Agent 作业流程」+ `patterns.md §P4/§P9`
+- 改一轮的运行 / 能力装配 → `runtime/turn.ts` + `runtime/catalog.ts` + `runtime/agents.ts`（ReAct 循环、上下文、压缩、委托由 agent-engine 承载）
 - 加 IPC handler → `ipc/mcp.ts`（范式最完整）+ `standards.md §D`
-- 改 prompt → `prompt/PromptPipeline.ts` + `patterns.md §P8`
+- 改 agent 的指令 → profile 的 `agentPrompt`（`__chat__` 见 `agent/agent-manager.ts` 的 `CHAT_PROFILE`）
 - 加 Repo 方法 → `repos/session-repo.ts` + `patterns.md §P5`
 
 ---
@@ -88,9 +83,9 @@ src/
 
 不要用字符串前缀（如 `'Tool execution failed: ...'`）。错误识别走 `__talor_error: true` 结构化字段。详见 `standards.md §F-MUST-3` + `patterns.md §P2`。
 
-### 4.2 `assistant(tool_use)` + `tool(result)` 必须同事务落盘
+### 4.2 对话内容只来自引擎会话日志
 
-用 `messageRepo.createBatch`，不要两次独立 `create`。破坏配对不变量会让 session 永久废。详见 `standards.md §I-MUST-1` + `patterns.md §P6`。
+`tool_use` / `tool_result` 的配对与落盘由 agent-engine 的运行档案（`~/.talor/runs.db`）保证；Talor 不另存消息（`messages` 表已在 D2 删除）。界面行由 `runtime/turn-rows.ts` 从运行事件折叠，不要另建消息表或缓存去"补"对话内容。
 
 ### 4.3 任何文件路径必须走 `resolveToolPath`
 
@@ -104,7 +99,7 @@ bash 危险命令、敏感路径在 validate/path-guard 层就拦住。详见 `s
 
 Prompt 是软引导。任何"必须"级规则要有代码实现(`⟨unverifiable⟩`、`EDIT_AMBIGUOUS_MATCH`、context halt 都是这样来的)。
 
-**极简 schema 下**:`agentPrompt`(磁盘 `<agentDir>/prompt.md`)是 LLM 行为定义的唯一 prompt 层载体;`validateProfile` 6 条规则做结构校验(rule 2/3/5/7/12/13)。LLM 硬约束在代码层(validator + path-guard + quote-verifier),`agentPrompt` 只做软引导。
+**极简 schema 下**:`agentPrompt`(磁盘 `<agentDir>/prompt.md`)是 LLM 行为定义的唯一 prompt 层载体;`validateProfile` 6 条规则做结构校验(rule 2/3/5/7/12/13)。LLM 硬约束在代码层(validator + path-guard + 执行环境的权限规则),`agentPrompt` 只做软引导。
 
 详见 `standards.md §J-SHOULD-1` + `patterns.md §P4`。
 
@@ -129,14 +124,9 @@ Prompt 是软引导。任何"必须"级规则要有代码实现(`⟨unverifiable
 
 否则 `vi.mock` hoist 时 mock fn 还是 undefined。详见 `standards.md §L-MUST-2` + `patterns.md §P10`。
 
-### 4.10 prompt 重建不得劈开 message 线程(配对不变量的装配层)
+### 4.10 前文由引擎装配,Talor 不重建 prompt
 
-§4.2 讲的是「同事务落盘」;这里是它的孪生:**重新装配 prompt 时,`tool_use`(history 末尾)与 `tool_result`(当前 turn)之间不得插入任何消息**。否则 SDK `convertToLanguageModelPrompt` 抛 `AI_MissingToolResultsError`,工具回合续做必崩(v7 严格校验,v6 曾默默容忍)。两条具体约束:
-
-- **volatile plugin 排序**:`RuntimeMetaPlugin` 等「线程外旁注」必须排在 `MessagePlugin`(当前 turn)**之后**;runtime meta / hint / DEGRADED 都归 current-turn 之后的尾部。见 `PromptPipeline.getPlugins` 的数组顺序注释。
-- **`listBySession` 排序**:必须 `ORDER BY created_at ASC, rowid ASC` —— `createBatch` 给同批消息盖同一 `created_at`,只按 created_at 排会让 assistant/tool 顺序不确定、可能反转。rowid 是插入序 = 正确配对序。
-
-守护:`prompt-cache-stability.test.ts` 守稳定前缀字节一致;`PromptPipeline.test.ts` 守 tool_use/tool_result 相邻;`session-repo-message-order.test.ts` 守排序。
+每轮 `start(..., { session: sessionId })`,前文、跨轮压缩、`tool_use`/`tool_result` 相邻都由引擎从会话日志装配。Talor 要给模型的额外输入走引擎的输入(如提炼工作台的 `pending_context`),**不要**自己拼 messages 数组或插入旁注消息。
 
 ### 4.11 工具失败必须把命令实际输出原样带回(Principle 3)
 
@@ -185,7 +175,7 @@ npm run build         # electron-vite build + electron-builder 打包
 
 ### 7.2 改动前必读代码，不凭记忆
 
-尤其对 `react-loop.ts`、`registry.ts`、`PromptPipeline.ts` 这些核心模块 — 它们的精细度高，遗漏一个 hook 可能破坏死循环保护 / 配对不变量。
+尤其对 `runtime/turn.ts`、`runtime/catalog.ts`、`tools/registry.ts` 这些核心模块 — 它们的精细度高，遗漏一处可能破坏能力装配 / 审批 / 界面行投影。
 
 ### 7.3 遵守 `.claude/settings.local.json` 权限
 
@@ -208,8 +198,9 @@ npm run build         # electron-vite build + electron-builder 打包
 
 **最近重要变更**(详见 `git log`):
 
+- `refactor(runtime)`: **D2 删除旧运行时与 `messages` 表** — 删 `loop/` `prompt/` `memory/` `mcp/`、`chat/orchestrator`、旧 `Agent`/`agent-toolset`/`delegate-agent`/`builtin-registry`、`risk-gate`、旧 Trace(`trace-repo`/`trace-recorder`/trace 中间件)等;启动时 DROP `messages` 等八张旧表(`db/index.ts` 的 `LEGACY_TABLES`);`AgentManager` 只存 `{ profile, source }`;MCP 设置页状态/测试连接与聊天页工具列表改读引擎连接池(`runtime/mcp-status.ts`),删 `mcp:connect` 等四个通道;Trace 面板只读运行档案、去掉评分;`runtime/legacy-boundary.test.ts` 守旧路径零引用
 - `refactor(runtime)`: **chat:send 只走 agent-engine,跨轮前文改用引擎会话** — 删 `runtime/dispatch.ts`(off/auto/force 分派)与 `runtime/history-policy.ts`;每轮 `start(..., { session: sessionId })`,前文/跨轮压缩/副作用台账由引擎从 `runs.db` 会话日志推导;删除会话时 `deleteEngineSession` 一起删引擎档案;interactive 环境的运行不按天数清理
-- `refactor(runtime)`: **界面消息也由会话日志推导,引擎路径不写 `messages` 表** — `runtime/turn-rows.ts` 把运行事件折叠成消息行(实时与事后同一个函数,按轮分页 20 轮,工具结果预览 2000 字);进行中的轮在 `runtime/live-turns.ts` 内存登记;子会话按元数据 `engine_run_id` 读子运行、界面只读;提炼工作台的源对话快照走元数据 `pending_context`(下一轮的前置输入)+ `notices`(只给界面看的提示行)。`messages` 表与旧路径(`loop/` `memory/` `prompt/` `chat/orchestrator` `history/session-summary`)已不可达,待 D2 一起删除
+- `refactor(runtime)`: **界面消息也由会话日志推导,引擎路径不写 `messages` 表** — `runtime/turn-rows.ts` 把运行事件折叠成消息行(实时与事后同一个函数,按轮分页 20 轮,工具结果预览 2000 字);进行中的轮在 `runtime/live-turns.ts` 内存登记;子会话按元数据 `engine_run_id` 读子运行、界面只读;提炼工作台的源对话快照走元数据 `pending_context`(下一轮的前置输入)+ `notices`(只给界面看的提示行)
 - `chore(deps)`: **Vercel AI SDK v6 → v7**(providers v3 → v4);`CoreMessage` → `ModelMessage`;`allowSystemInMessages: true`(Talor 多层 system 刻意放 messages 数组);Ollama 改走官方 `@ai-sdk/openai-compatible`(删社区包)
 - `feat(token)`: **会话级 token 用量统计** — `usage-normalizer`(跨厂商归一,读 v7 统一 `inputTokenDetails`)+ `usage-recorder` 在 3 个 LLM 调用点(主对话/reflect/压缩)记录 → session 表 4 列(input/output/cache_read/cache_write);UI 接缝行展示(k/M 缩写,头部=全部 token 含缓存读)
 - `perf(prompt)`: **prompt 前缀缓存优化** — ① 时间戳粗化到日期级(去掉打碎前缀的毫秒戳)② append-only 分层装配(`PromptPlugin.layer`,稳定前缀连续在前/volatile 在尾)③ Anthropic `cacheControl` 断点(`cache-breakpoints.ts`,仅 anthropic);deepseek 实测缓存命中 ~80%
@@ -235,12 +226,7 @@ npm run build         # electron-vite build + electron-builder 打包
 
 **尚未实现 / 暂缓**:
 
-- KnowledgeBase(RAG) — 返回空
-- LongTermMemory(跨 session 持久记忆) — 返回空
 - AgentEditPage UI 下拉(IPC 已有,UI 仍是 JSON 编辑器)
-- 缓存优化 Phase 4(暂缓):epoch-based 压缩(压缩重写 history 前缀会丢 history 断点缓存)+ tools cumulative-append(search_tool 处工具列表伸缩抖动前缀);评估触发条件窄,待 live 数据再定
-- Anthropic 1h 扩展缓存 TTL:SDK 不自动加 `extended-cache-ttl` beta header,暂用默认 5m ephemeral
-- Phase 2 Anthropic 断点的 live 验证:需配 Anthropic provider 才能看 `cache_write→cache_read` 跳变(当前仅 openai/deepseek)
 
 ---
 

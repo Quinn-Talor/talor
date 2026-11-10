@@ -45,16 +45,6 @@ CREATE TABLE sessions (
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0
 );
-CREATE TABLE messages (
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL,
-  role         TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
-  content      TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'blocks',
-  agent_id     TEXT NOT NULL DEFAULT '__chat__',
-  created_at   TEXT NOT NULL,
-  trace_id     TEXT
-);
 `
 
 const HELPER: AgentProfile = {
@@ -137,13 +127,6 @@ const sessions = () =>
   db().prepare('SELECT * FROM sessions ORDER BY created_at, rowid').all() as Array<
     Record<string, unknown>
   >
-const messagesOf = (sessionId: string) =>
-  (
-    db()
-      .prepare('SELECT role, content, trace_id FROM messages WHERE session_id = ? ORDER BY rowid')
-      .all(sessionId) as Array<{ role: string; content: string; trace_id: string }>
-  ).map((r) => ({ ...r, content: JSON.parse(r.content) as unknown }))
-
 beforeEach(() => {
   currentDb.instance = new Database(':memory:')
   db().exec(CREATE_TABLES)
@@ -220,8 +203,6 @@ describe('createRunTreeProjection', () => {
     expect(JSON.parse(child.metadata as string)).toMatchObject({ engine_run_id: 'c1' })
     // 结束后由档案按 engine_run_id 读出；不写 messages 表
     expect(liveRows(child.id as string)).toEqual([])
-    expect(messagesOf(child.id as string)).toEqual([])
-    expect(messagesOf('s1')).toEqual([])
   })
 
   it('AC-007 closes the child session with its status and own usage', async () => {

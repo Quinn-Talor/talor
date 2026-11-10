@@ -1,7 +1,7 @@
 // MCP 配置导入导出改用 .mcp.json 格式；旧格式仍能导入（B1 AC-013、AC-014）。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockHandle, repo, registry } = vi.hoisted(() => ({
+const { mockHandle, repo, status } = vi.hoisted(() => ({
   mockHandle: vi.fn(),
   repo: {
     getByName: vi.fn(() => null),
@@ -13,13 +13,13 @@ const { mockHandle, repo, registry } = vi.hoisted(() => ({
     getById: vi.fn(() => null),
     list: vi.fn(() => [] as object[]),
   },
-  registry: { getConnectedServers: vi.fn(() => []), connectServer: vi.fn() },
+  status: { mcpServerTools: vi.fn(), testMcpConnection: vi.fn() },
 }))
 
 vi.mock('electron', () => ({ ipcMain: { handle: (...a: unknown[]) => mockHandle(...a) } }))
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: repo }))
-vi.mock('../mcp/client', () => ({ mcpRegistry: registry }))
+vi.mock('../runtime/mcp-status', () => status)
 
 import { parseMcpConfig } from 'agent-engine'
 import { registerMCPHandlers } from './mcp'

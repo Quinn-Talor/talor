@@ -23,7 +23,6 @@ vi.mock('../store/config-store', () => ({
 
 import { defineTask, memoryArchive, modelHub, type RunEvent } from 'agent-engine'
 import { fakeModel } from 'agent-engine/testing'
-import { messageRepo } from '../repos/session-repo'
 import { agentFor } from './agents'
 import { catalogSnapshot } from './catalog'
 import { createRuntime } from './engine'
@@ -48,16 +47,6 @@ CREATE TABLE sessions (
   output_tokens INTEGER NOT NULL DEFAULT 0,
   cache_read_tokens INTEGER NOT NULL DEFAULT 0,
   cache_write_tokens INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE messages (
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL,
-  role         TEXT NOT NULL CHECK(role IN ('user','assistant','system','tool')),
-  content      TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'blocks',
-  agent_id     TEXT NOT NULL DEFAULT '__chat__',
-  created_at   TEXT NOT NULL,
-  trace_id     TEXT
 );
 `
 
@@ -118,7 +107,6 @@ describe('interrupted runs (A5a)', () => {
     const rows = await rowsOfRun(archiveB, { runId: 'm1', sessionId: 's1', agentId: '__chat__' })
     expect(rows.at(-1)).toMatchObject({ id: 'm1:notice', content_type: 'notice', trace_id: 'm1' })
     expect(JSON.parse(rows.at(-1)!.content)).toEqual([{ type: 'text', text: INTERRUPTED_NOTE }])
-    expect(messageRepo.listBySession('s1')).toEqual([])
     await first.engine.shutdown()
     await second.engine.shutdown()
   })

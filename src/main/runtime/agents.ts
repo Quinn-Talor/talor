@@ -3,14 +3,14 @@
 // 能力为能力目录按 profile 选出的全部内容（选择规则见 runtime/catalog.ts），依次为：内置工具、意图工具
 // （intents，取代旧路径的 talor 块）、每个 MCP
 // 服务器一项 mcp 能力（引擎缺省延后呈现，经 search_tool 展开）、每个 skill 一项 skill 能力、该 agent 的
-// Feature 工具、每个委托目标一项 subagent 能力（深度 < 3 时；只有根 agent 的子 agent 设时长预算）。指令为 agentPrompt 原文；__chat__ 在引擎路径上用目标驱动的 ENGINE_CHAT_PROMPT，
-// 旧路径的 CHAT_PROFILE 不变（能力架构方案 §3.5、原则 5）。
+// Feature 工具、每个委托目标一项 subagent 能力（深度 < 3 时；只有根 agent 的子 agent 设时长预算）。指令为 agentPrompt 原文
+// （__chat__ 的见 agent/agent-manager.ts 的 CHAT_PROFILE）。
 // 按 profile 与目录版本缓存：来源变化后新开始的运行用新的 Agent，Agent 定义之后不再修改。
 //
-// 允许依赖: agent-engine、runtime/catalog（类型）、runtime/tools、skills/skill-tool、skills/types、@shared/types
+// 允许依赖: agent-engine、runtime/catalog（类型）、runtime/tools、skills/types、@shared/types
 // 禁止依赖: ipc/*、repos/*、db/*
 
-import { dirname } from 'path'
+import { dirname, resolve } from 'path'
 import log from 'electron-log'
 import {
   defineAgent,
@@ -25,7 +25,6 @@ import {
 } from 'agent-engine'
 import { hashOf } from 'agent-engine/sdk'
 import type { AgentProfile } from '@shared/types/agent'
-import { resolveRelativePaths } from '../skills/skill-tool'
 import type { ParsedSkill } from '../skills/types'
 import type { CatalogSnapshot } from './catalog'
 import { toEngineTool } from './tools'
@@ -33,20 +32,7 @@ import { toEngineTool } from './tools'
 /** 引擎的 Agent id 格式（agent-engine `defineAgent`）。 */
 const ENGINE_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
 
-/** 引擎路径上 __chat__ 的指令：目标驱动，不点名工具；工具的用法由各能力的说明给出。 */
-export const ENGINE_CHAT_PROMPT = `## Workflow
-1. Work out what the request needs: something on this machine (files, shell, code) or something outside it (a service, a website, remote data, a third-party platform).
-2. Do local work with the built-in tools. For anything outside this machine, look for a matching tool first: more tools are available than the ones listed, and you can find them by searching. Fall back to a local command only when no tool matches.
-3. When an available skill matches the task, read it before acting.
-4. Return a clear, concise answer.
-
-## Principles
-- When the user names a service or platform, search for its tools before checking for a local CLI; a missing local binary does not mean the capability is unavailable.
-- Confirm destructive actions before running them.
-- If a rule, hook or the user denies an action, do not try to achieve the same thing another way (another tool, a shell command, a different path); explain the denial or do the parts that are allowed.
-- A denial covers the turn it happened in. When the user asks for the action again in a later message, try it once more, since the rules or their decision may have changed; if it is denied again, explain.`
-
-/** 委托链深度上限，与旧路径 delegate-agent 的 MAX_DELEGATION_DEPTH 相同。 */
+/** 委托链深度上限。 */
 export const MAX_DELEGATION_DEPTH = 3
 /** 根 agent 的子运行时长缺省值，与委托配置 executionTimeoutMs 的默认值相同。 */
 export const DEFAULT_CHILD_TIMEOUT_MS = 1_800_000
@@ -64,8 +50,15 @@ export function engineAgentId(profileId: string): string {
   return `talor-${hashOf(profileId).slice(0, 16)}`
 }
 
-export function instructionsOf(profile: AgentProfile): string {
-  return profile.id === '__chat__' ? ENGINE_CHAT_PROMPT : profile.agentPrompt
+/** SKILL.md 正文里的相对链接改为以 SKILL.md 所在目录为基准的绝对路径；http(s) 与锚点链接不变。 */
+export function resolveRelativePaths(content: string, skillMdPath: string): string {
+  const skillDir = dirname(skillMdPath)
+  return content.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (_match, text: string, href: string) => {
+    if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('#')) {
+      return `[${text}](${href})`
+    }
+    return `[${text}](${resolve(skillDir, href)})`
+  })
 }
 
 /** SKILL.md → 引擎 skill 包：描述接上使用时机，正文里的相对链接改为绝对路径。 */
@@ -150,7 +143,7 @@ export function agentFor(
 
   const agent = defineAgent({
     id: engineAgentId(profile.id),
-    instructions: [{ role: 'system', parts: [{ type: 'text', text: instructionsOf(profile) }] }],
+    instructions: [{ role: 'system', parts: [{ type: 'text', text: profile.agentPrompt }] }],
     capabilities,
   })
   cache.set(key, agent)

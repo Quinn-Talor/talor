@@ -1,6 +1,6 @@
-// 能力目录与旧路径对齐（A1b AC-010）：用旧路径真实的 AgentManager / Agent 装配同一组 agent，
-// 逐个比较旧路径给出的能力集合与 catalogSnapshot().select(profile)。
-// 有意的差异写成断言：Feature 工具不再被内置工具白名单挡掉（T5）；委托目标不含自己。
+// 能力目录的选择规则（A1b AC-010）：真实的 AgentManager 登记一组 agent，逐个断言
+// catalogSnapshot().select(profile) 给出的能力集合（期望值即旧路径装配曾给出的集合，D2 删旧路径后固定下来）。
+// Feature 工具不被内置工具白名单挡掉（T5）；委托目标不含自己。
 
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
@@ -12,15 +12,11 @@ vi.mock('electron-log', () => ({
 }))
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }))
 
-import { BUILTIN_TOOL_NAMES, type AgentProfile } from '@shared/types/agent'
+import type { AgentProfile } from '@shared/types/agent'
 import { AgentManager } from '../agent/agent-manager'
-import { BuiltinToolRegistry } from '../agent/builtin-registry'
-import type { DelegationRuntime } from '../agent/delegate-agent'
-import type { Agent } from '../agent/agent'
 import type { MCPServer } from '../repos/mcp-server-repo'
 import { SkillRegistry } from '../skills/registry'
 import '../tools/builtin'
-import { toolRegistry } from '../tools/registry'
 import type { ToolDefinition } from '../tools/types'
 import {
   catalogSnapshot,
@@ -59,19 +55,6 @@ const SERVERS: MCPServer[] = [
     updated_at: AT,
   },
 ]
-const CONNECTED = SERVERS.filter((s) => s.enabled).map((s) => s.name)
-
-/** 旧路径的平台 MCP 注册表：只含连上的（启用的）服务器；按名字过滤得到视图。 */
-interface McpView {
-  names: string[]
-  listRegisteredTools(): []
-}
-const platformMcp = {
-  listRegisteredTools: () => [],
-  execute: async () => ({ output: '' }),
-  filterByServerNames: (names: string[]): McpView => ({ names, listRegisteredTools: () => [] }),
-}
-
 const investQuote: ToolDefinition = {
   name: 'invest_quote',
   description: 'quote',
@@ -115,14 +98,9 @@ beforeAll(() => {
   expect(skillRegistry.listNames().sort()).toEqual(['lark-doc', 'pdf'])
 
   manager = new AgentManager()
-  manager.init({
-    builtinRegistry: new BuiltinToolRegistry(toolRegistry.listAll()),
-    mcpRegistry: platformMcp as unknown as Parameters<AgentManager['init']>[0]['mcpRegistry'],
-    skillRegistry,
-    delegationRuntime: { agentManager: manager } as unknown as DelegationRuntime,
-  })
+  manager.init({ skillRegistry })
   for (const p of BUSINESS) manager.reloadUserAgent(p, join(skillsDir, p.id))
-  manager.registerFeatureAgent(FEATURE, [investQuote])
+  manager.registerFeatureAgent(FEATURE)
 
   // 目录由登记表组装：Talor 核心来源，再加 Feature 登记的来源（B1）
   const registry = createCatalogRegistry()
@@ -137,29 +115,8 @@ afterAll(() => {
   rmSync(skillsDir, { recursive: true, force: true })
 })
 
-const BUILTIN = new Set<string>(BUILTIN_TOOL_NAMES)
 const sorted = (xs: string[]) => [...xs].sort()
-
-/** 旧路径给这个 agent 的四类能力（注册层面）与暴露给模型的 Feature 工具。 */
-function legacy(agent: Agent) {
-  const exposed = agent.toolRegistry.listBuiltinTools().map((t) => t.name)
-  const mcp =
-    agent.mcpRegistry === (platformMcp as unknown)
-      ? CONNECTED
-      : (agent.mcpRegistry as unknown as McpView).names.filter((n) => CONNECTED.includes(n))
-  const delegates = (agent.allowedAgentIds ?? manager.listBusinessAgentIds()).filter(
-    (id) => manager.getAgent(id) !== null && !id.startsWith('__') && id !== agent.id,
-  )
-  return {
-    builtins: sorted(exposed.filter((n) => BUILTIN.has(n))),
-    skills: sorted(agent.skillRegistry.listNames()),
-    mcpServers: sorted(mcp),
-    delegates: sorted(delegates),
-    featureToolsExposed: exposed.filter((n) =>
-      (agent.id === FEATURE.id ? [investQuote] : []).some((t) => t.name === n),
-    ),
-  }
-}
+const ALL_BUILTINS = ['bash', 'edit', 'glob', 'grep', 'ls', 'read', 'write']
 
 function current(p: AgentProfile) {
   const caps = snapshot.select(p)
@@ -172,52 +129,47 @@ function current(p: AgentProfile) {
   }
 }
 
-describe('catalog aligns with the legacy agent assembly (AC-010)', () => {
-  const ids = ['__chat__', '__crystallizer__', 'plain', 'scoped', 'open', 'feat']
-
-  it.each(ids)('AC-010 %s gets the same builtins, skills, MCP servers and delegates', (id) => {
-    const agent = manager.getAgent(id)!
-    const before = legacy(agent)
-    const after = current(agent.profile)
-    expect(after.builtins).toEqual(before.builtins)
-    expect(after.skills).toEqual(before.skills)
-    expect(after.mcpServers).toEqual(before.mcpServers)
-    expect(after.delegates).toEqual(before.delegates)
-    // Feature 工具：新集合是全部，旧路径暴露的是它的子集
-    for (const name of before.featureToolsExposed) expect(after.featureTools).toContain(name)
-  })
+describe('catalog selection rules (AC-010)', () => {
+  // 平台 agent 拿全部 skill；业务 agent 只拿声明的 skill（未声明为空）
+  const SKILLS = ['lark-doc', 'pdf']
+  it.each([
+    [
+      '__chat__',
+      ALL_BUILTINS,
+      SKILLS,
+      ['github', 'notion'],
+      ['feat', 'open', 'plain', 'scoped'],
+      [],
+    ],
+    ['__crystallizer__', ['glob', 'grep', 'ls', 'read'], SKILLS, ['github', 'notion'], [], []],
+    ['plain', ALL_BUILTINS, [], ['github', 'notion'], [], []],
+    ['open', ALL_BUILTINS, [], ['github', 'notion'], ['feat', 'plain', 'scoped'], []],
+    ['feat', ['glob', 'grep', 'ls', 'read'], [], ['github', 'notion'], [], ['invest_quote']],
+  ])(
+    'AC-010 %s gets its builtins, skills, MCP servers, delegates and feature tools',
+    (id, builtins, skills, mcpServers, delegates, featureTools) => {
+      expect(current(manager.getAgent(id)!.profile)).toEqual({
+        builtins,
+        skills,
+        mcpServers,
+        delegates,
+        featureTools,
+      })
+    },
+  )
 
   it('AC-010 the matrix covers each selection rule', () => {
-    expect(current(profile('__chat__', { subagents: { allowAny: true } })).delegates).toEqual([
-      'feat',
-      'open',
-      'plain',
-      'scoped',
-    ])
-    expect(current(BUSINESS[1]!)).toMatchObject({
+    expect(current(BUSINESS[1]!)).toEqual({
       builtins: ['bash', 'glob', 'grep', 'ls', 'read'],
       skills: ['lark-doc'],
       mcpServers: ['github'],
       delegates: ['plain'],
+      featureTools: [],
     })
     expect(snapshot.select(BUSINESS[1]!).missing).toEqual({
       mcpServers: ['legacy', 'nope'],
       skills: ['missing'],
       subagents: ['ghost', '__chat__'],
     })
-    expect(current(BUSINESS[2]!)).toMatchObject({
-      mcpServers: ['github', 'notion'],
-      delegates: ['feat', 'plain', 'scoped'],
-    })
-    expect(current(manager.getAgent('__crystallizer__')!.profile)).toMatchObject({
-      builtins: ['glob', 'grep', 'ls', 'read'],
-      skills: ['lark-doc', 'pdf'],
-      delegates: [],
-    })
-  })
-
-  it('AC-010 no longer hides feature tools behind the builtin tool list (T5)', () => {
-    expect(legacy(manager.getAgent('feat')!).featureToolsExposed).toEqual([])
-    expect(current(FEATURE).featureTools).toEqual(['invest_quote'])
   })
 })

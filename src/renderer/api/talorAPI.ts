@@ -17,8 +17,6 @@ import type {
   PermissionRuleView,
 } from '@shared/types/permissions'
 import type {
-  ScoreCreateInput,
-  ScoreCreateResult,
   ToolDurationsResult,
   TraceBlobResult,
   TraceGetResult,
@@ -141,22 +139,6 @@ declare global {
         testConnection: (
           server: import('../../preload/index').MCPServerInput,
         ) => Promise<import('../../preload/index').MCPConnectionTestResult>
-        connect: (
-          serverId: string,
-        ) => Promise<{ status: string; message?: string; error_code?: string }>
-        disconnect: (
-          serverId: string,
-        ) => Promise<{ status: string; message?: string; error_code?: string }>
-        listTools: () => Promise<
-          Array<{
-            name: string
-            description: string
-            parameters: Record<string, unknown>
-            schema?: Record<string, unknown>
-            provider?: string
-          }>
-        >
-        connectedServers: () => Promise<string[]>
         getServerStatus: () => Promise<
           Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>
         >
@@ -269,7 +251,6 @@ declare global {
         list: (sessionId: string, limit?: number) => Promise<TraceListResult>
         get: (traceId: string) => Promise<TraceGetResult>
         getBlob: (traceId: string, hash: string) => Promise<TraceBlobResult>
-        createScore: (input: ScoreCreateInput) => Promise<ScoreCreateResult>
         toolDurations: (sessionId: string) => Promise<ToolDurationsResult>
       }
     }
@@ -368,10 +349,6 @@ const stubMcp = {
   importConfig: () => Promise.resolve([]),
   exportConfig: () => Promise.resolve('{}'),
   testConnection: () => Promise.resolve({ status: 'failure' }),
-  connect: () => Promise.resolve({ status: 'failure' }),
-  disconnect: () => Promise.resolve({ status: 'failure' }),
-  listTools: () => Promise.resolve([]),
-  connectedServers: () => Promise.resolve([]),
   getServerStatus: () => Promise.resolve([]),
 }
 
@@ -421,8 +398,6 @@ const stubTrace: Window['talorAPI']['trace'] = {
   get: () => Promise.resolve({ status: 'failure', error_code: 'TRACE_NOT_FOUND', message: 'stub' }),
   getBlob: () =>
     Promise.resolve({ status: 'failure', error_code: 'TRACE_NOT_FOUND', message: 'stub' }),
-  createScore: () =>
-    Promise.resolve({ status: 'failure', error_code: 'TRACE_WRITE_FAILED', message: 'stub' }),
   toolDurations: () => Promise.resolve({ status: 'success', durations: {} }),
 }
 

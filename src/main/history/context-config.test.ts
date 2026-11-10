@@ -10,12 +10,7 @@ vi.mock('../store/config-store', () => ({
 }))
 
 import type { Provider } from '../store/config-store'
-import {
-  FALLBACK_CONTEXT_WINDOW,
-  modelContextWindow,
-  resolveProviderConfig,
-} from './context-config'
-import { resolveProviderConfig as fromPipeline } from '../prompt/PromptPipeline'
+import { FALLBACK_CONTEXT_WINDOW, modelContextWindow } from './context-config'
 
 const provider = (patch: Partial<Provider> = {}) =>
   ({ id: 'p1', type: 'openai', name: 'P1', models: [], ...patch }) as unknown as Provider
@@ -36,25 +31,5 @@ describe('modelContextWindow', () => {
     delete values.default_context_limit
     expect(modelContextWindow(provider(), 'deepseek-chat')).toBe(128000)
     expect(FALLBACK_CONTEXT_WINDOW).toBe(128000)
-  })
-})
-
-describe('resolveProviderConfig (moved)', () => {
-  it('AC-007 gives the same result from the new and the old location', () => {
-    values.default_context_limit = 300000
-    values.default_summary_ratio = 0.2
-    for (const p of [provider(), provider({ context_limit: 50000, recent_ratio: 0.3 })]) {
-      expect(fromPipeline(p, 'deepseek-chat')).toEqual(resolveProviderConfig(p, 'deepseek-chat'))
-    }
-    // 旧路径不变：未配上限时仍取全局设置，不看模型窗口
-    expect(resolveProviderConfig(provider(), 'deepseek-chat')).toEqual({
-      provider: provider(),
-      modelId: 'deepseek-chat',
-      context_limit: 300000,
-      recent_ratio: 0.05,
-      summary_ratio: 0.2,
-    })
-    delete values.default_context_limit
-    expect(resolveProviderConfig(provider()).context_limit).toBe(1_000_000)
   })
 })

@@ -29,9 +29,7 @@ import { registerSkillHandlers } from './ipc/skills'
 import { registerAccountHandlers } from './ipc/accounts'
 import { registerPermissionHandlers } from './ipc/permission'
 import { registerTraceHandlers } from './ipc/trace'
-import { mcpRegistry } from './mcp/client'
-import { initChatDb, closeChatDb, getDb, pruneTraces } from './db/index'
-import { traceRecorder } from './observe/trace-recorder'
+import { initChatDb, closeChatDb, getDb } from './db/index'
 import { installFeatures } from './features/install'
 import { ArtifactReaderRegistry } from './features/artifact-readers'
 import { mcpServerRepo, setMcpAuthCipher, type SecretCipher } from './repos/mcp-server-repo'
@@ -39,16 +37,9 @@ import { runtimeCreated } from './runtime/engine'
 import { catalogRegistry, featureSourcePort, talorCatalogSources } from './runtime/catalog'
 import { shutdownForQuit, startEngineRuntime } from './runtime/lifecycle'
 import { AgentManager } from './agent/agent-manager'
-import { BuiltinToolRegistry } from './agent/builtin-registry'
+// 注册 7 个内置工具（模块副作用）：能力目录的内置工具来源读 toolRegistry
+import './tools/builtin'
 import { AccountStore } from './accounts/account-store'
-import type { DelegationRuntime } from './agent/delegate-agent'
-import { toolRegistry } from './tools/registry'
-import { sessionRepo } from './repos/session-repo'
-import { sharedPromptPipeline } from './chat/orchestrator'
-import { runReactLoop } from './loop/react-loop'
-import { getAdapter, resolveStreamOptions } from './providers/model-adapter'
-import { resolveSessionProviderModel } from './chat/provider-selector'
-import { resolveProviderConfig } from './history/context-config'
 import { SkillRegistry } from './skills/registry'
 import { SafeStorageService } from './services/safe-storage'
 import { safeStorage } from 'electron'
@@ -189,21 +180,6 @@ app.whenReady().then(() => {
   registerNavigationGuards()
   configStore.ensureInitialized()
   initChatDb()
-  traceRecorder.configureEnvironment({
-    environment: app.isPackaged ? 'production' : 'development',
-    release: app.getVersion(),
-  })
-  try {
-    pruneTraces(getDb(), configStore.getTrace().retentionDays, new Date().toISOString())
-  } catch (err) {
-    log.warn('[Main] trace prune failed:', err)
-  }
-
-  // Initialize Agent system — builtin tool definitions (skill / delegate_agent
-  // are NOT in BuiltinToolRegistry; they're agent-level instances created in
-  // Agent constructor when relevant runtime is injected).
-  const builtinToolDefs = toolRegistry.listAll()
-  const builtinRegistry = new BuiltinToolRegistry(builtinToolDefs)
   const agentsDir = join(app.getPath('home'), '.talor', 'agents')
   // Skills 统一存 Talor 平台目录 ~/.talor/skills/;business agent 仅按 name 引用,
   // 不再持有私有副本。skill-installer 在缺失时会从 ~/.claude/skills 等位置兜底 cp 过来,
@@ -229,38 +205,7 @@ app.whenReady().then(() => {
 
   registerAccountHandlers(accountStore)
 
-  // Compose DelegationRuntime: subagent execution dependencies bundle.
-  // Only platform agents receive this; business agents get undefined (architecture
-  // defense — they cannot delegate even if their profile forgot disabledTools).
-  const delegationRuntime: DelegationRuntime = {
-    agentManager,
-    runReactLoop,
-    sessionRepo,
-    pipeline: sharedPromptPipeline,
-    config: configStore.getDelegation(),
-    providerContextProvider: (parentSessionId: string) => {
-      // Mirror orchestrator's provider/model resolution path so subagent inherits
-      // parent's provider config (provider, modelId, streamOptions).
-      const session = sessionRepo.getById(parentSessionId)
-      const { provider, modelId } = resolveSessionProviderModel(session)
-      const adapter = getAdapter(provider.type)
-      const model = adapter.createModel(provider, modelId)
-      return {
-        model,
-        provider,
-        providerConfig: resolveProviderConfig(provider, modelId),
-        streamOptions: resolveStreamOptions(adapter, provider, modelId),
-      }
-    },
-  }
-
-  agentManager.init({
-    builtinRegistry,
-    mcpRegistry,
-    skillRegistry: platformSkillRegistry,
-    agentsDir,
-    delegationRuntime,
-  })
+  agentManager.init({ skillRegistry: platformSkillRegistry, agentsDir })
   log.info('[Main] Agent system initialized')
   // 能力目录的来源按登记顺序汇总:Talor 核心 → Feature → 插件(同名条目先登记的胜出)
   catalogRegistry.register('talor', talorCatalogSources(agentManager))
@@ -276,7 +221,7 @@ app.whenReady().then(() => {
     [],
     { db: getDb() },
     {
-      registerAgent: (fa) => agentManager.registerFeatureAgent(fa.profile, fa.tools ?? []),
+      registerAgent: (fa) => agentManager.registerFeatureAgent(fa.profile),
       registerArtifactReader: (a) => artifactReaders.register(a),
       isMcpConfigured: (name) => mcpServerRepo.list().some((s) => s.name === name),
       registerCatalogSource: featureSourcePort(catalogRegistry, agentManager),
@@ -288,9 +233,6 @@ app.whenReady().then(() => {
   reloadPlugins().catch((err) => log.warn('[Main] plugin load failed:', err))
 
   createWindow()
-  mcpRegistry.connectAllEnabled().catch((err) => {
-    log.warn('[Main] Failed to connect MCP servers:', err)
-  })
   // 引擎运行时(模式不是 off):启动时创建引擎并预连接 MCP 服务器,再收尾上次中断的运行
   startEngineRuntime().catch((err) => log.warn('[Main] engine start failed:', err))
 
@@ -301,20 +243,10 @@ app.whenReady().then(() => {
   })
 })
 
-// 退出前把仍在缓冲中的 trace 写盘(进行中的轮次下次启动由 sweepOpenTraces 收尾)。
-// macOS Cmd+Q 走 before-quit;Windows / Linux 关最后一个窗口会先 closeChatDb 再 quit,
-// 所以 window-all-closed 里要在关库之前先写盘,否则 before-quit 时 DB 已关闭。
 // 创建过引擎时,退出前限时等引擎关闭(停止进行中的运行、关 MCP 连接池)与进行中的轮次写完。
 let quitting = false
 app.on('before-quit', (event) => {
   if (quitting) return
-  traceRecorder.flushAll()
-  // stdio MCP server 是普通子进程,父进程退出不会带走它们
-  for (const id of mcpRegistry.getConnectedServers()) {
-    mcpRegistry.disconnectServer(id).catch((err) => {
-      log.warn('[Main] MCP disconnect on quit failed:', id, err)
-    })
-  }
   if (!runtimeCreated()) return
   event.preventDefault()
   quitting = true
@@ -323,7 +255,6 @@ app.on('before-quit', (event) => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    traceRecorder.flushAll()
     shutdownForQuit().finally(() => {
       closeChatDb()
       app.quit()

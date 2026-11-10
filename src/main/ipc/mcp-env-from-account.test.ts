@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockHandle, repo, registry, transport } = vi.hoisted(() => ({
+const { mockHandle, repo, status } = vi.hoisted(() => ({
   mockHandle: vi.fn(),
   repo: {
     getByName: vi.fn(() => null),
@@ -12,24 +12,13 @@ const { mockHandle, repo, registry, transport } = vi.hoisted(() => ({
     getById: vi.fn(() => null),
     list: vi.fn(() => [] as object[]),
   },
-  registry: { getConnectedServers: vi.fn(() => []), connectServer: vi.fn() },
-  transport: {
-    configs: [] as unknown[],
-    ctor: vi.fn(function (this: Record<string, unknown>, config: unknown) {
-      transport.configs.push(config)
-      this.connect = vi.fn(async () => {})
-      this.listTools = vi.fn(async () => [])
-      this.disconnect = vi.fn()
-    }),
-  },
+  status: { mcpServerTools: vi.fn(), testMcpConnection: vi.fn() },
 }))
 
 vi.mock('electron', () => ({ ipcMain: { handle: (...a: unknown[]) => mockHandle(...a) } }))
 vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }))
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: repo }))
-vi.mock('../mcp/client', () => ({ mcpRegistry: registry }))
-vi.mock('../mcp/transport/stdio', () => ({ StdioTransport: transport.ctor }))
-vi.mock('../mcp/transport/http', () => ({ HttpTransport: transport.ctor }))
+vi.mock('../runtime/mcp-status', () => status)
 
 import { registerMCPHandlers } from './mcp'
 
@@ -47,7 +36,7 @@ describe('MCP IPC carries envFromAccount', () => {
     repo.create.mockClear()
     repo.update.mockClear()
     repo.upsertFromConfig.mockClear()
-    transport.configs.length = 0
+    status.testMcpConnection.mockClear()
     registerMCPHandlers()
   })
 
@@ -90,6 +79,8 @@ describe('MCP IPC carries envFromAccount', () => {
       command: 'npx',
       envFromAccount: REFS,
     })
-    expect(transport.configs[0]).toMatchObject({ envFromAccount: REFS })
+    expect(status.testMcpConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ envFromAccount: REFS }),
+    )
   })
 })

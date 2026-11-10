@@ -116,29 +116,10 @@ async function append(archive: Archive, runId: string, base: number, bodies: Bod
   await archive.append(runId, events)
 }
 
-function insertMessage(
-  id: string,
-  role: string,
-  content: unknown,
-  traceId: string,
-  sessionId = 's1',
-) {
-  currentDb
-    .instance!.prepare(
-      `INSERT INTO messages (id, session_id, role, content, created_at, trace_id) VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .run(id, sessionId, role, JSON.stringify(content), new Date().toISOString(), traceId)
-}
-
 beforeEach(() => {
   clearRowCache()
   currentDb.instance = new Database(':memory:')
   currentDb.instance.exec(`
-    CREATE TABLE messages (
-      id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
-      content_type TEXT NOT NULL DEFAULT 'blocks', agent_id TEXT NOT NULL DEFAULT '__chat__',
-      created_at TEXT NOT NULL, trace_id TEXT
-    );
   `)
 })
 
@@ -182,7 +163,6 @@ describe('runTraceSummaries', () => {
       started('s1', 'run-a'),
       ended('run-child', 'completed'),
     ])
-    insertMessage('u1', 'user', 'from messages table', 'run-a')
 
     const list = await runTraceSummaries(archive, 's1', 50)
 
@@ -227,7 +207,6 @@ describe('runTraceDetail', () => {
       { t: 'step_ended', step: 1 },
       ended('run-1', 'completed'),
     ])
-    insertMessage('m1', 'user', 'hi', 'run-1')
 
     const detail = (await runTraceDetail(archive, 'run-1'))!
 

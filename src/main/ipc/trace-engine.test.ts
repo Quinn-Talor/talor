@@ -1,7 +1,6 @@
-// trace IPC 合并引擎运行档案（C3 AC-004 / AC-005）：真实 traceRepo + :memory: SQLite，运行档案为 memoryArchive。
+// trace IPC 只读引擎运行档案（D2 AC-007，原 C3 AC-004 / AC-005）：运行档案为 memoryArchive。
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import Database from 'better-sqlite3'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -10,11 +9,10 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }))
 
-const { mockHandle, currentDb, archiveState, getRuntime, runArchive } = vi.hoisted(() => {
+const { mockHandle, archiveState, getRuntime, runArchive } = vi.hoisted(() => {
   const archiveState = { path: '', archive: null as unknown }
   return {
     mockHandle: vi.fn(),
-    currentDb: { instance: null as Database.Database | null },
     archiveState,
     getRuntime: vi.fn(),
     runArchive: vi.fn(() => archiveState.archive),
@@ -24,16 +22,6 @@ const { mockHandle, currentDb, archiveState, getRuntime, runArchive } = vi.hoist
 vi.mock('electron', () => ({
   ipcMain: { handle: (...args: unknown[]) => mockHandle(...args) },
 }))
-vi.mock('../db/index', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../db/index')>()
-  return {
-    ...actual,
-    getDb: () => {
-      if (!currentDb.instance) throw new Error('Test DB not initialized')
-      return currentDb.instance
-    },
-  }
-})
 vi.mock('../runtime/run-archive', () => ({
   runsDbPath: () => archiveState.path,
   runArchive: () => runArchive(),
@@ -41,24 +29,12 @@ vi.mock('../runtime/run-archive', () => ({
 vi.mock('../runtime/engine', () => ({ getRuntime }))
 
 import { memoryArchive, type Archive, type RunEvent } from 'agent-engine'
-import { ensureMessagesTraceColumn, initTraceTables } from '../db/index'
 import { registerTraceHandlers } from './trace'
 
 function handler(channel: string): (...args: unknown[]) => Promise<unknown> {
   const call = mockHandle.mock.calls.find((c) => c[0] === channel)
   if (!call) throw new Error(`handler not registered for channel: ${channel}`)
   return call[1] as (...args: unknown[]) => Promise<unknown>
-}
-
-const db = () => currentDb.instance!
-
-function insertTrace(id: string, timestamp: string) {
-  db()
-    .prepare(
-      `INSERT INTO traces (id, timestamp, name, session_id, environment, end_time, created_at, updated_at)
-       VALUES (?, ?, 'turn', 's1', 'development', ?, ?, ?)`,
-    )
-    .run(id, timestamp, timestamp, timestamp, timestamp)
 }
 
 const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }
@@ -130,49 +106,28 @@ beforeEach(() => {
   archiveState.archive = memoryArchive()
   runArchive.mockClear()
   getRuntime.mockClear()
-  const d = new Database(':memory:')
-  d.pragma('foreign_keys = ON')
-  d.exec(`
-    CREATE TABLE sessions (id TEXT PRIMARY KEY);
-    CREATE TABLE messages (
-      id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
-      content_type TEXT NOT NULL DEFAULT 'blocks', agent_id TEXT NOT NULL DEFAULT '__chat__',
-      created_at TEXT NOT NULL
-    );
-  `)
-  initTraceTables(d)
-  ensureMessagesTraceColumn(d)
-  d.prepare(`INSERT INTO sessions (id) VALUES ('s1')`).run()
-  currentDb.instance = d
   mockHandle.mockClear()
   registerTraceHandlers()
 })
 
 afterEach(() => {
-  currentDb.instance?.close()
-  currentDb.instance = null
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe('trace IPC with the engine archive', () => {
-  it('AC-004 merges legacy traces and engine runs across the five channels', async () => {
+  it('AC-007 answers the four channels from the run archive only', async () => {
     writeFileSync(archiveState.path, '')
     const archive = archiveState.archive as Archive
-    insertTrace('t-old', '2026-10-19T10:00:00.000Z')
-    db()
-      .prepare(
-        `INSERT INTO observations (id, trace_id, type, name, start_time, end_time, metadata, environment)
-         VALUES ('o1', 't-old', 'TOOL', 'read', '2026-10-19T10:00:00.000Z', '2026-10-19T10:00:00.100Z', ?, 'development')`,
-      )
-      .run(JSON.stringify({ tool_call_id: 'c-old' }))
     const blob = await archive.putBlob(JSON.stringify({ role: 'user', content: 'hi' }))
+    await engineRun(archive, 'run-old', Date.parse('2026-10-19T10:00:00.000Z'), blob)
     await engineRun(archive, 'run-new', Date.parse('2026-10-20T10:00:00.000Z'), blob)
 
     const list = (await handler('trace:list')({}, { session_id: 's1' })) as {
       status: string
       traces: Array<{ id: string }>
     }
-    expect(list.traces.map((t) => t.id)).toEqual(['run-new', 't-old'])
+    expect(list).toMatchObject({ status: 'success' })
+    expect(list.traces.map((t) => t.id)).toEqual(['run-new', 'run-old'])
 
     const got = (await handler('trace:get')({}, { trace_id: 'run-new' })) as {
       status: string
@@ -180,15 +135,10 @@ describe('trace IPC with the engine archive', () => {
     }
     expect(got.status).toBe('success')
     expect(got.trace.metadata.source).toBe('engine')
-
-    const old = (await handler('trace:get')({}, { trace_id: 't-old' })) as {
-      status: string
-      trace: { id: string; metadata: Record<string, unknown> }
-      observations: Array<{ id: string }>
-    }
-    expect(old.status).toBe('success')
-    expect(old.trace.metadata.source).toBeUndefined()
-    expect(old.observations.map((o) => o.id)).toEqual(['o1'])
+    expect(await handler('trace:get')({}, { trace_id: 't-old' })).toMatchObject({
+      status: 'failure',
+      error_code: 'TRACE_NOT_FOUND',
+    })
 
     expect(await handler('trace:blob:get')({}, { trace_id: 'run-new', hash: blob })).toEqual({
       status: 'success',
@@ -201,45 +151,42 @@ describe('trace IPC with the engine archive', () => {
       ),
     ).toMatchObject({ status: 'failure', error_code: 'TRACE_NOT_FOUND' })
 
-    expect(
-      await handler('trace:score:create')(
-        {},
-        {
-          trace_id: 'run-new',
-          name: 'user_feedback',
-          data_type: 'BOOLEAN',
-          value: 1,
-          source: 'ANNOTATION',
-        },
-      ),
-    ).toMatchObject({ status: 'failure', error_code: 'TRACE_NOT_FOUND' })
-
     expect(await handler('trace:tool-durations')({}, { session_id: 's1' })).toEqual({
       status: 'success',
-      durations: { 'c-old': 100, 'c-new': 45 },
+      durations: { 'c-new': 45 },
     })
+    expect(mockHandle.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'trace:blob:get',
+      'trace:get',
+      'trace:list',
+      'trace:tool-durations',
+    ])
     expect(getRuntime).not.toHaveBeenCalled()
   })
 
-  it('AC-005 gives only legacy results and creates no runs.db when the archive file is missing', async () => {
-    insertTrace('t-old', '2026-10-19T10:00:00.000Z')
-
-    const list = (await handler('trace:list')({}, { session_id: 's1' })) as {
-      traces: Array<{ id: string }>
-    }
-    expect(list.traces.map((t) => t.id)).toEqual(['t-old'])
+  it('AC-007 gives empty results and creates no runs.db when the archive file is missing', async () => {
+    expect(await handler('trace:list')({}, { session_id: 's1' })).toEqual({
+      status: 'success',
+      traces: [],
+    })
     expect(await handler('trace:get')({}, { trace_id: 'x' })).toMatchObject({
       status: 'failure',
       error_code: 'TRACE_NOT_FOUND',
+    })
+    expect(await handler('trace:blob:get')({}, { trace_id: 'x', hash: 'h' })).toMatchObject({
+      error_code: 'TRACE_NOT_FOUND',
+    })
+    expect(await handler('trace:tool-durations')({}, { session_id: 's1' })).toEqual({
+      status: 'success',
+      durations: {},
     })
     expect(existsSync(archiveState.path)).toBe(false)
     expect(runArchive).not.toHaveBeenCalled()
     expect(getRuntime).not.toHaveBeenCalled()
   })
 
-  it('falls back to legacy results when reading the archive throws', async () => {
+  it('maps archive read errors to TRACE_READ_FAILED', async () => {
     writeFileSync(archiveState.path, '')
-    insertTrace('t-old', '2026-10-19T10:00:00.000Z')
     const broken = memoryArchive()
     broken.query = async () => {
       throw new Error('locked')
@@ -248,10 +195,9 @@ describe('trace IPC with the engine archive', () => {
       throw new Error('locked')
     }
     archiveState.archive = broken
-    const list = (await handler('trace:list')({}, { session_id: 's1' })) as {
-      traces: Array<{ id: string }>
-    }
-    expect(list.traces.map((t) => t.id)).toEqual(['t-old'])
+    expect(await handler('trace:list')({}, { session_id: 's1' })).toMatchObject({
+      error_code: 'TRACE_READ_FAILED',
+    })
     expect(await handler('trace:get')({}, { trace_id: 'x' })).toMatchObject({
       error_code: 'TRACE_READ_FAILED',
     })

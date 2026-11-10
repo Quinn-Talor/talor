@@ -2,7 +2,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDb } from '../db/index'
 import log from 'electron-log'
 import type { ReasoningConfig } from '@shared/types/models'
-import { currentTraceId } from '../observe/trace-context'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -26,18 +25,6 @@ export interface SessionRow {
   output_tokens: number
   cache_read_tokens: number
   cache_write_tokens: number
-}
-
-export interface MessageRow {
-  id: string
-  session_id: string
-  role: MessageRole
-  content: string // JSON SDK content (AssistantContent / UserContent / ToolContent / string)
-  content_type: string // 'blocks'
-  agent_id: string
-  created_at: string
-  /** 所属 turn trace;trace scope 外写入的消息为 NULL。 */
-  trace_id: string | null
 }
 
 export interface ChatSession {
@@ -119,27 +106,6 @@ function parseReasoning(raw: string | null | undefined): ReasoningConfig | undef
     return undefined
   } catch {
     return undefined
-  }
-}
-
-function rowToMessage(row: MessageRow): ChatMessage {
-  return {
-    id: row.id,
-    session_id: row.session_id,
-    role: row.role,
-    content: row.content,
-    agent_id: row.agent_id ?? '__chat__',
-    created_at: row.created_at,
-    ...(row.trace_id ? { trace_id: row.trace_id } : {}),
-    ...(row.content_type === 'notice' ? { content_type: 'notice' as const } : {}),
-  }
-}
-
-export function parseContent(content: string): unknown {
-  try {
-    return JSON.parse(content)
-  } catch {
-    return content
   }
 }
 
@@ -315,18 +281,6 @@ export const sessionRepo = {
     return this.getById(id)
   },
 
-  updateModelAndClearMessages(id: string, model_id: string): ChatSession | null {
-    const db = getDb()
-    const now = new Date().toISOString()
-    const info = db
-      .prepare('UPDATE sessions SET model_id = ?, updated_at = ? WHERE id = ?')
-      .run(model_id, now, id)
-    if (info.changes === 0) return null
-    db.prepare('DELETE FROM messages WHERE session_id = ?').run(id)
-    log.info('[SessionRepo] Updated model and cleared messages for session:', id, '->', model_id)
-    return this.getById(id)
-  },
-
   updateProvider(id: string, provider_id: string): void {
     const db = getDb()
     const now = new Date().toISOString()
@@ -470,166 +424,5 @@ export const sessionRepo = {
    */
   hasDelegation(sessionId: string): boolean {
     return this.listDelegatedAgents(sessionId).length > 0
-  },
-}
-
-export interface MessageCreateParams {
-  id: string
-  session_id: string
-  role: MessageRole
-  content: unknown // SDK content format — AssistantContent / UserContent / ToolContent / string
-  agent_id?: string
-  /** 缺省时取当前 trace scope 的 traceId(scope 外为 NULL);显式 null 强制不挂 trace。 */
-  trace_id?: string | null
-  /** 缺省 'blocks';'notice' 为不进模型输入的提示消息。 */
-  content_type?: 'blocks' | 'notice'
-  /** 缺省为当前时间;提示消息用它排到所属运行的最后一行之后。 */
-  created_at?: string
-}
-
-function effectiveTraceId(params: MessageCreateParams): string | null {
-  return params.trace_id !== undefined ? params.trace_id : currentTraceId()
-}
-
-/** SDK content(字符串或 part 数组)里的第一段非空文本;没有则 null。 */
-function firstText(content: unknown): string | null {
-  if (typeof content === 'string') return content.length > 0 ? content : null
-  if (!Array.isArray(content)) return null
-  for (const part of content) {
-    if (
-      part !== null &&
-      typeof part === 'object' &&
-      (part as { type?: unknown }).type === 'text' &&
-      typeof (part as { text?: unknown }).text === 'string' &&
-      (part as { text: string }).text.length > 0
-    ) {
-      return (part as { text: string }).text
-    }
-  }
-  return null
-}
-
-export const messageRepo = {
-  listBySession(sessionId: string): ChatMessage[] {
-    const db = getDb()
-    // 二级排序 rowid ASC 是配对不变量的关键:createBatch 给同批 assistant(tool_use)
-    // + tool(result) 盖同一个 created_at,仅按 created_at 排序时二者顺序由 SQLite 任意
-    // 决定,可能把 tool(result) 排到 tool_use 之前 → SDK 抛 AI_MissingToolResultsError
-    // (v7 严格校验下变成硬错误,v6 曾默默容忍)。rowid 是单调插入序,createBatch 先插
-    // assistant 后插 tool,故 rowid 升序即正确配对序。见 §4.2 配对不变量。
-    const rows = db
-      .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY created_at ASC, rowid ASC')
-      .all(sessionId) as MessageRow[]
-    return rows.map(rowToMessage)
-  },
-
-  create(params: MessageCreateParams): ChatMessage {
-    const db = getDb()
-    const now = params.created_at ?? new Date().toISOString()
-    const contentJson = JSON.stringify(params.content)
-    const agentId = params.agent_id ?? '__chat__'
-    const traceId = effectiveTraceId(params)
-    const contentType = params.content_type ?? 'blocks'
-    db.prepare(
-      `
-      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at, trace_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    ).run(
-      params.id,
-      params.session_id,
-      params.role,
-      contentJson,
-      contentType,
-      agentId,
-      now,
-      traceId,
-    )
-    return {
-      id: params.id,
-      session_id: params.session_id,
-      role: params.role,
-      content: contentJson,
-      agent_id: agentId,
-      created_at: now,
-      ...(traceId ? { trace_id: traceId } : {}),
-      ...(contentType === 'notice' ? { content_type: 'notice' as const } : {}),
-    }
-  },
-
-  /**
-   * 批量写入，所有行在同一事务里落盘。
-   *
-   * ReAct 循环每步会同时写 assistant(tool_use) + tool(result) 两行——两者必须
-   * 成对出现，否则 SDK 下次 rebuild prompt 时会抛 "Every tool_use must have a
-   * tool_result"，整个 session 废掉。单次 create 的话，两次 write 之间若进程
-   * 崩溃就会出现孤儿 tool_use；用事务把两行绑定为原子操作。
-   */
-  createBatch(items: MessageCreateParams[]): ChatMessage[] {
-    if (items.length === 0) return []
-    const db = getDb()
-    const stmt = db.prepare(`
-      INSERT INTO messages (id, session_id, role, content, content_type, agent_id, created_at, trace_id)
-      VALUES (?, ?, ?, ?, 'blocks', ?, ?, ?)
-    `)
-    const rows: ChatMessage[] = []
-    const tx = db.transaction((batch: MessageCreateParams[]) => {
-      const now = new Date().toISOString()
-      for (const params of batch) {
-        const contentJson = JSON.stringify(params.content)
-        const agentId = params.agent_id ?? '__chat__'
-        const traceId = effectiveTraceId(params)
-        stmt.run(params.id, params.session_id, params.role, contentJson, agentId, now, traceId)
-        rows.push({
-          id: params.id,
-          session_id: params.session_id,
-          role: params.role,
-          content: contentJson,
-          agent_id: agentId,
-          created_at: now,
-          ...(traceId ? { trace_id: traceId } : {}),
-        })
-      }
-    })
-    tx(items)
-    return rows
-  },
-
-  deleteBySession(sessionId: string): void {
-    const db = getDb()
-    db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId)
-  },
-
-  /** 一轮 trace 产生的全部消息(含委托子 session 的消息),排序同 listBySession。 */
-  listByTrace(traceId: string): ChatMessage[] {
-    const rows = getDb()
-      .prepare('SELECT * FROM messages WHERE trace_id = ? ORDER BY created_at ASC, rowid ASC')
-      .all(traceId) as MessageRow[]
-    return rows.map(rowToMessage)
-  },
-
-  /**
-   * 本轮(trace)在该 session 内最后一条非空 assistant 文本,作 trace output。
-   * 必须限定 session:委托子 session 的消息也带父 trace_id,不能把子 agent 的回复当成本轮输出。
-   * 读取失败只记 warn 返回 null(观测不改变业务结果)。
-   */
-  getLastAssistantText(sessionId: string, traceId: string): string | null {
-    try {
-      const rows = getDb()
-        .prepare(
-          `SELECT content FROM messages
-            WHERE session_id = ? AND trace_id = ? AND role = 'assistant'
-            ORDER BY created_at DESC, rowid DESC`,
-        )
-        .all(sessionId, traceId) as Array<{ content: string }>
-      for (const r of rows) {
-        const text = firstText(JSON.parse(r.content))
-        if (text !== null) return text
-      }
-      return null
-    } catch (err) {
-      log.warn('[SessionRepo] getLastAssistantText failed:', traceId, err)
-      return null
-    }
   },
 }

@@ -1,8 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ToolConfirmRequest, ToolConfirmResponse } from '@shared/types/message'
 import type {
-  ScoreCreateInput,
-  ScoreCreateResult,
   ToolDurationsResult,
   TraceBlobResult,
   TraceGetResult,
@@ -134,24 +132,6 @@ const talorAPI = {
     exportConfig: (): Promise<string> => ipcRenderer.invoke('mcp:servers:exportConfig'),
     testConnection: (server: MCPServerInput): Promise<MCPConnectionTestResult> =>
       ipcRenderer.invoke('mcp:servers:testConnection', server),
-    connect: (
-      serverId: string,
-    ): Promise<{ status: string; message?: string; error_code?: string }> =>
-      ipcRenderer.invoke('mcp:connect', serverId),
-    disconnect: (
-      serverId: string,
-    ): Promise<{ status: string; message?: string; error_code?: string }> =>
-      ipcRenderer.invoke('mcp:disconnect', serverId),
-    listTools: (): Promise<
-      Array<{
-        name: string
-        description: string
-        parameters: Record<string, unknown>
-        schema?: Record<string, unknown>
-        provider?: string
-      }>
-    > => ipcRenderer.invoke('mcp:tools:list'),
-    connectedServers: (): Promise<string[]> => ipcRenderer.invoke('mcp:servers:connected'),
     getServerStatus: (): Promise<
       Array<{ serverId: string; name: string; connected: boolean; toolCount: number }>
     > => ipcRenderer.invoke('mcp:servers:status'),
@@ -405,7 +385,7 @@ const talorAPI = {
       ipcRenderer.invoke('artifact:read', { type, id }),
   },
 
-  // turn trace 检视:列表 / 详情 / 模型输入 blob / 评分 / 历史工具耗时。
+  // turn trace 检视:列表 / 详情 / 模型输入 blob / 历史工具耗时。
   trace: {
     list: (sessionId: string, limit?: number): Promise<TraceListResult> =>
       ipcRenderer.invoke('trace:list', { session_id: sessionId, limit }),
@@ -413,8 +393,6 @@ const talorAPI = {
       ipcRenderer.invoke('trace:get', { trace_id: traceId }),
     getBlob: (traceId: string, hash: string): Promise<TraceBlobResult> =>
       ipcRenderer.invoke('trace:blob:get', { trace_id: traceId, hash }),
-    createScore: (input: ScoreCreateInput): Promise<ScoreCreateResult> =>
-      ipcRenderer.invoke('trace:score:create', input),
     toolDurations: (sessionId: string): Promise<ToolDurationsResult> =>
       ipcRenderer.invoke('trace:tool-durations', { session_id: sessionId }),
   },

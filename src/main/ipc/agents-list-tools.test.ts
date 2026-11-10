@@ -2,12 +2,23 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockHandle, registry, repo } = vi.hoisted(() => ({
+const { mockHandle, status, repo } = vi.hoisted(() => ({
   mockHandle: vi.fn(),
-  registry: {
-    listRegisteredTools: vi.fn(() => [
-      { name: 'create_issue', description: 'gh', parameters: {}, provider: 'github' },
-      { name: 'search', description: 'notion', parameters: {}, provider: 'notion' },
+  status: {
+    // 引擎连接池里各服务器的工具；notion 不在 biz 的 mcpServers 里，按服务器名过滤掉
+    mcpServerTools: vi.fn(async () => [
+      {
+        serverId: 'm1',
+        name: 'github',
+        connected: true,
+        tools: [{ name: 'create_issue', description: 'gh', inputSchema: { type: 'object' } }],
+      },
+      {
+        serverId: 'm2',
+        name: 'notion',
+        connected: true,
+        tools: [{ name: 'search', inputSchema: { type: 'object' } }],
+      },
     ]),
   },
   repo: {
@@ -38,7 +49,7 @@ vi.mock('electron', () => ({ ipcMain: { handle: (...a: unknown[]) => mockHandle(
 vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
-vi.mock('../mcp/client', () => ({ mcpRegistry: registry }))
+vi.mock('../runtime/mcp-status', () => status)
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: repo }))
 
 import type { AgentProfile } from '@shared/types/agent'
@@ -55,15 +66,14 @@ const BIZ: AgentProfile = {
   tools: ['bash'],
   mcpServers: ['github'],
 }
-const legacyTools = [{ name: 'bash', description: 'legacy', parameters: {} }]
 const INV: AgentProfile = { id: 'inv', name: 'Inv', description: 'inv', agentPrompt: 'x' }
 
 const manager = {
   getAgent: (id: string) =>
     id === 'biz'
-      ? { profile: BIZ, toolRegistry: { listTools: () => legacyTools } }
+      ? { profile: BIZ, source: null }
       : id === 'inv'
-        ? { profile: INV, toolRegistry: { listTools: () => legacyTools } }
+        ? { profile: INV, source: null }
         : null,
   listBusinessAgentIds: () => ['biz', 'inv'],
   featureAgentIds: () => new Set(['inv']),
@@ -76,7 +86,7 @@ function handler() {
   return mockHandle.mock.calls.find((c) => c[0] === 'agents:list-tools')![1] as (
     e: unknown,
     id: string,
-  ) => unknown
+  ) => Promise<unknown>
 }
 
 describe('agents:list-tools', () => {
@@ -88,8 +98,13 @@ describe('agents:list-tools', () => {
     unregister.push(catalogRegistry.register('talor', talorCatalogSources(manager)))
   })
 
-  it('AC-008 lists the catalog tools of the engine path otherwise', () => {
-    const tools = handler()(null, 'biz') as Array<{ name: string; provider?: string }>
+  it('AC-008 lists the catalog tools, MCP tools from the engine pool', async () => {
+    const tools = (await handler()(null, 'biz')) as Array<{
+      name: string
+      provider?: string
+      description: string
+      parameters: unknown
+    }>
     expect(tools.map((t) => t.name)).toEqual([
       'read',
       'glob',
@@ -99,15 +114,21 @@ describe('agents:list-tools', () => {
       'search_tool',
       'create_issue',
     ])
-    expect(tools.find((t) => t.name === 'create_issue')?.provider).toBe('github')
+    expect(tools.find((t) => t.name === 'create_issue')).toEqual({
+      name: 'create_issue',
+      description: 'gh',
+      parameters: { type: 'object' },
+      provider: 'github',
+    })
+    expect(status.mcpServerTools).toHaveBeenCalled()
     expect(tools.map((t) => t.name)).not.toContain('search')
   })
 
-  it('AC-008 still rejects an unknown agent', () => {
-    expect(() => handler()(null, 'nope')).toThrow('Agent not found: nope')
+  it('AC-008 still rejects an unknown agent', async () => {
+    await expect(handler()(null, 'nope')).rejects.toThrow('Agent not found: nope')
   })
 
-  it('B1 AC-020 lists feature and plugin capabilities from the global registry', () => {
+  it('B1 AC-020 lists feature and plugin capabilities from the global registry', async () => {
     unregister.push(
       catalogRegistry.register('feature:f1', {
         agents: () => [
@@ -135,7 +156,7 @@ describe('agents:list-tools', () => {
         ],
       }),
     )
-    const names = (handler()(null, 'inv') as Array<{ name: string }>).map((t) => t.name)
+    const names = ((await handler()(null, 'inv')) as Array<{ name: string }>).map((t) => t.name)
     expect(names).toContain('quote')
     expect(names).toContain('search_tool')
   })

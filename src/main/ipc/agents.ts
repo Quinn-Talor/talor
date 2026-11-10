@@ -10,7 +10,6 @@ import { join, sep as pathSep, resolve as pathResolve } from 'path'
 import { rmSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import log from 'electron-log'
 import { AgentManager } from '../agent/agent-manager'
-import { SkillRegistry } from '../skills/registry'
 import { checkDependencies } from '../agent/dependency-checker'
 import { validateProfile } from '../agent/validator'
 import { persistAgentProfile } from '../agent/profile-fs'
@@ -27,7 +26,7 @@ import { buildAgentList } from './agent-list'
 import { serializeS1History } from '../agent/draft-extractor'
 import { recommendMode } from '../agent/crystallizer-heuristics'
 import { v4 as uuidv4 } from 'uuid'
-import { mcpRegistry } from '../mcp/client'
+import { mcpServerTools } from '../runtime/mcp-status'
 import { currentCatalog, engineToolsView } from '../runtime/catalog'
 
 /**
@@ -175,7 +174,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     const modelId = provider.models?.[0]?.id ?? null
 
     const session = sessionRepo.create({
-      title: agent.name,
+      title: agent.profile.name,
       provider_id: provider.id,
       agent_id: agentId,
       model_id: modelId ?? undefined,
@@ -204,24 +203,8 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
       throw new Error(`Agent not found: ${id}`)
     }
 
-    // 引用化:skill / mcp 都从平台 registry 按 profile name 列表过滤
-    const platformSkills = agentManager.getPlatformSkillRegistry()
-    const skillRegistry = platformSkills
-      ? platformSkills.filterByNames(entry.profile.skills ?? [])
-      : SkillRegistry.fromPlatformDir(null)
-    const mcpRegistry = agentManager.getMcpRegistry()
-    const filteredMcp = !mcpRegistry
-      ? null
-      : (entry.profile.mcpServers ?? []).length > 0
-        ? mcpRegistry.filterByServerNames(entry.profile.mcpServers!)
-        : mcpRegistry // omit = 全给(与 builtin / agent-manager 一致)
-
-    agentManager.registerBusinessAgent(id, {
-      profile: entry.profile,
-      source: entry.dirPath,
-      mcpRegistry: filteredMcp,
-      skillRegistry,
-    })
+    // 能力(skill / MCP / 委托)由能力目录每轮按 profile 计算,这里只登记 profile
+    agentManager.registerBusinessAgent(id, { profile: entry.profile, source: entry.dirPath })
 
     loader.setStatus(id, 'ready')
     log.info('[agents:enable] Enabled agent:', id)
@@ -343,11 +326,7 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
    * 不创建/修改任何持久化数据.
    */
   ipcMain.handle('agents:preview', async (_event, profile: unknown) => {
-    // 共享 builtin/mcp registry 通过 AgentManager 公开 getter 获取
-    return previewAgent(profile, {
-      builtinRegistry: agentManager.getBuiltinRegistry(),
-      mcpRegistry: agentManager.getMcpToolSource(),
-    })
+    return previewAgent(profile, { snapshot: currentCatalog() })
   })
 
   /**
@@ -611,23 +590,10 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
         loader.loadAll()
         const newEntry = loader.getById(profile.id)
         if (newEntry) {
-          // 自动注册(用户审阅+保存=确认,减少摩擦)
-          // 引用化: 平台 mcpRegistry 按 name 过滤;skill 也从平台 registry 过滤
-          const platformSkills = agentManager.getPlatformSkillRegistry()
-          const skillRegistry = platformSkills
-            ? platformSkills.filterByNames(newEntry.profile.skills ?? [])
-            : SkillRegistry.fromPlatformDir(null)
-          const mcpRegistry = agentManager.getMcpRegistry()
-          const filteredMcp = !mcpRegistry
-            ? null
-            : (newEntry.profile.mcpServers ?? []).length > 0
-              ? mcpRegistry.filterByServerNames(newEntry.profile.mcpServers!)
-              : mcpRegistry // omit = 全给(与 builtin / agent-manager 一致)
+          // 自动注册(用户审阅+保存=确认,减少摩擦);能力由能力目录每轮按 profile 计算
           agentManager.registerBusinessAgent(profile.id, {
             profile: newEntry.profile,
             source: newEntry.dirPath,
-            mcpRegistry: filteredMcp,
-            skillRegistry,
           })
           loader.setStatus(profile.id, 'ready')
         }
@@ -705,12 +671,20 @@ export function registerAgentHandlers(agentManager: AgentManager): void {
     },
   )
 
-  ipcMain.handle('agents:list-tools', (_event, agentId: string) => {
+  ipcMain.handle('agents:list-tools', async (_event, agentId: string) => {
     const agent = agentManager.getAgent(agentId)
     if (!agent) throw new Error(`Agent not found: ${agentId}`)
-    // 界面显示的就是能力目录为这个 agent 选出的工具
+    // 界面显示的就是能力目录为这个 agent 选出的工具;MCP 工具来自引擎连接池
     const caps = currentCatalog().select(agent.profile)
-    return engineToolsView(caps, mcpRegistry.listRegisteredTools())
+    const mcpTools = (await mcpServerTools()).flatMap((s) =>
+      s.tools.map((t) => ({
+        name: t.name,
+        description: t.description ?? '',
+        parameters: t.inputSchema,
+        provider: s.name,
+      })),
+    )
+    return engineToolsView(caps, mcpTools)
   })
 
   ipcMain.handle(

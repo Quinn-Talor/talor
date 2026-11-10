@@ -14,7 +14,7 @@ vi.mock('../db/index', () => ({
   },
 }))
 
-import { sessionRepo, messageRepo } from './session-repo'
+import { sessionRepo } from './session-repo'
 
 const CREATE_SESSIONS_FULL = `
 CREATE TABLE sessions (
@@ -34,17 +34,6 @@ CREATE TABLE sessions (
 `
 
 const CREATE_MESSAGES_FULL = `
-CREATE TABLE messages (
-  id           TEXT PRIMARY KEY,
-  session_id   TEXT NOT NULL,
-  role         TEXT NOT NULL,
-  content      TEXT NOT NULL,
-  content_type TEXT NOT NULL DEFAULT 'blocks',
-  agent_id     TEXT NOT NULL DEFAULT '__chat__',
-  created_at   TEXT NOT NULL,
-  trace_id     TEXT,
-  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-);
 `
 
 describe('sessionRepo TASK-1 delegation extensions', () => {
@@ -197,49 +186,6 @@ describe('sessionRepo TASK-1 delegation extensions', () => {
       expect(sessionRepo.hasDelegation(session.id)).toBe(true)
     })
 
-    it('AC-018 (no-trigger): returns false when no delegate_agent tool_use in history', () => {
-      const session = sessionRepo.create({
-        title: 'Worker session',
-        provider_id: 'p1',
-        agent_id: '__chat__',
-      })
-
-      messageRepo.create({
-        id: 'm-1',
-        session_id: session.id,
-        role: 'user',
-        content: '帮我读个文件',
-        agent_id: '__chat__',
-      })
-      messageRepo.create({
-        id: 'm-2',
-        session_id: session.id,
-        role: 'assistant',
-        content: [
-          { type: 'tool_use', toolCallId: 'tc-1', toolName: 'read', input: { path: '/tmp' } },
-        ],
-        agent_id: '__chat__',
-      })
-
-      expect(sessionRepo.hasDelegation(session.id)).toBe(false)
-    })
-
-    it('AC-018 (no-trigger): returns false for session with only user message', () => {
-      const session = sessionRepo.create({
-        title: 'Empty',
-        provider_id: 'p1',
-      })
-      messageRepo.create({
-        id: 'm-1',
-        session_id: session.id,
-        role: 'user',
-        content: 'hi',
-        agent_id: '__chat__',
-      })
-
-      expect(sessionRepo.hasDelegation(session.id)).toBe(false)
-    })
-
     it('AC-018 (no-trigger): returns false for nonexistent sessionId', () => {
       expect(sessionRepo.hasDelegation('nonexistent-id')).toBe(false)
     })
@@ -267,24 +213,6 @@ describe('sessionRepo TASK-1 delegation extensions', () => {
 
       // 仍能准确判断（看的是 child sessions 表）
       expect(sessionRepo.hasDelegation(session.id)).toBe(true)
-    })
-
-    it('does not false-positive on unrelated message containing tool_use without delegate_agent', () => {
-      const session = sessionRepo.create({
-        title: 'Other tool',
-        provider_id: 'p1',
-      })
-      messageRepo.create({
-        id: 'm-1',
-        session_id: session.id,
-        role: 'assistant',
-        content: [
-          { type: 'tool_use', toolCallId: 'tc-1', toolName: 'bash', input: { command: 'ls' } },
-        ],
-        agent_id: '__chat__',
-      })
-
-      expect(sessionRepo.hasDelegation(session.id)).toBe(false)
     })
   })
 

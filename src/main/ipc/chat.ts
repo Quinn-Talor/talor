@@ -14,7 +14,7 @@ import { getMainWindow } from './window'
 import { requestToolConfirm } from './tool-confirm'
 import { requestPermissionFromRenderer } from './permission'
 import { streamRegistry } from '../chat/stream-registry'
-import { isErrorOutput } from '../loop/stream-utils'
+import { isErrorOutput } from '../tools/types'
 import { sendTurn } from '../runtime/turn'
 import type { AgentManager } from '../agent/agent-manager'
 

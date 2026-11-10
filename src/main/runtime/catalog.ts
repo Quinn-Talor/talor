@@ -309,8 +309,8 @@ const ENGINE_TOOL_META = {
 } satisfies Record<string, ToolMetadata>
 
 /**
- * 引擎路径给界面的工具列表（修 T7）：只来自目录为该 agent 选出的能力。MCP 工具取旧注册表里已连接服务器的
- * 工具列表（引擎宿主不建连读不到），按服务器名过滤，`provider` 为服务器名；其余工具不带 `provider`。
+ * 引擎路径给界面的工具列表（修 T7）：只来自目录为该 agent 选出的能力。MCP 工具取引擎连接池里各服务器的
+ * 工具列表（runtime/mcp-status），按服务器名过滤，`provider` 为服务器名；其余工具不带 `provider`。
  */
 export function engineToolsView(caps: AgentCapabilities, mcpTools: ToolMetadata[]): ToolMetadata[] {
   const meta = (def: ToolDefinition): ToolMetadata => ({
