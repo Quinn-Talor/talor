@@ -37,6 +37,7 @@
     "prebuild": "npm run rebuild:electron",
     "test": "npm run rebuild:node && (vitest run; rc=$?; npm run rebuild:electron; exit $rc)",
     "test:watch": "npm run rebuild:node && vitest",
+    "test:e2e": "node scripts/e2e/e2e.mjs",
     "prepare": "husky"
   },
   "dependencies": {
