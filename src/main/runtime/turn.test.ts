@@ -29,6 +29,7 @@ describe('chatErrorOf', () => {
     expect(failed('MODEL_TIMEOUT')?.code).toBe('LLM_TIMEOUT')
     expect(failed('MODEL_CONNECTION')?.code).toBe('LLM_CONNECTION_FAILED')
     expect(failed('MODEL_ERROR')?.code).toBe('LLM_ERROR')
+    expect(failed('model_unsuitable')?.code).toBe('MODEL_INPUT_UNSUPPORTED')
     expect(chatErrorOf(resultOf({ status: 'failed', code: 'engine_error' }))).toEqual({
       code: 'LLM_ERROR',
       message: 'engine_error',

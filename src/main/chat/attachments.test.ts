@@ -55,6 +55,29 @@ describe('validateAttachment', () => {
     await expect(validateAttachment(baseAtt())).rejects.toThrow('FILE_TOO_LARGE')
   })
 
+  it('图片超过 5MiB 抛 MEDIA_TOO_LARGE；5MiB 以内与文本文档不受影响', async () => {
+    mockAccess.mockResolvedValue(undefined)
+    mockLookup.mockReturnValue('image/png')
+    mockStat.mockResolvedValue({ size: 5 * 1024 * 1024 + 1 })
+    await expect(validateAttachment(baseAtt())).rejects.toThrow('MEDIA_TOO_LARGE')
+
+    mockStat.mockResolvedValue({ size: 5 * 1024 * 1024 })
+    mockReadFile.mockResolvedValue(Buffer.from('x'))
+    await expect(validateAttachment(baseAtt())).resolves.toMatchObject({ mime_type: 'image/png' })
+
+    mockLookup.mockReturnValue('text/plain')
+    mockStat.mockResolvedValue({ size: 10 * 1024 * 1024 })
+    mockReadFile.mockResolvedValue(Buffer.from('hello'))
+    await expect(validateAttachment(baseAtt())).resolves.toMatchObject({ mime_type: 'text/plain' })
+  })
+
+  it('PDF 超过 32MiB 抛 MEDIA_TOO_LARGE', async () => {
+    mockAccess.mockResolvedValue(undefined)
+    mockLookup.mockReturnValue('application/pdf')
+    mockStat.mockResolvedValue({ size: 32 * 1024 * 1024 + 1 })
+    await expect(validateAttachment(baseAtt())).rejects.toThrow('MEDIA_TOO_LARGE')
+  })
+
   it('不支持的 mime type 抛 UNSUPPORTED_FILE_TYPE', async () => {
     mockAccess.mockResolvedValue(undefined)
     mockStat.mockResolvedValue({ size: 1000 })

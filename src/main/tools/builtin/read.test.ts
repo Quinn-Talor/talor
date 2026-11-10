@@ -67,10 +67,28 @@ describe('read tool', () => {
     expect(result.output).toContain('too large')
   })
 
-  it('returns error for binary file', async () => {
-    const bin = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-    writeFileSync(join(TMP, 'image.png'), bin)
+  it('returns an image file as an image output the model can see', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+    writeFileSync(join(TMP, 'image.png'), png)
     const result = await toolRegistry.execute('read', { path: 'image.png' }, makeContext())
+    expect(result.output).toMatchObject({
+      __talor_image: true,
+      mediaType: 'image/png',
+      base64: png.toString('base64'),
+    })
+  })
+
+  it('refuses an image over the 5MiB engine limit instead of sending it', async () => {
+    const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(5 * 1024 * 1024)])
+    writeFileSync(join(TMP, 'big.jpg'), big)
+    const result = await toolRegistry.execute('read', { path: 'big.jpg' }, makeContext())
+    expect(String(result.output)).toContain('Image too large')
+  })
+
+  it('returns error for binary file', async () => {
+    const bin = Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00])
+    writeFileSync(join(TMP, 'prog.bin'), bin)
+    const result = await toolRegistry.execute('read', { path: 'prog.bin' }, makeContext())
     expect(result.output).toBe('Cannot read binary file')
   })
 

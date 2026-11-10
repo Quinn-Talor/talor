@@ -2,7 +2,7 @@ import { readFileSync, existsSync, statSync } from 'fs'
 import { z } from 'zod'
 import { toolRegistry } from '../registry'
 import type { ToolExecuteContext, ToolErrorEnvelope, VerifyResult } from '../types'
-import { DEFAULT_MAX_READ_SIZE_BYTES, isToolErrorEnvelope } from '../types'
+import { DEFAULT_MAX_READ_SIZE_BYTES, isToolErrorEnvelope, type ToolImageOutput } from '../types'
 import { resolveToolPath } from '../path-guard'
 
 const ReadInput = z.object({
@@ -28,10 +28,27 @@ function isBinaryFile(content: Buffer): boolean {
   return signatures.some((sig) => content.slice(0, 4).equals(Buffer.from(sig)))
 }
 
+/** 引擎对单张图片的上限（5MiB）；超过的不送给模型。 */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+function imageMediaType(content: Buffer): string | undefined {
+  if (content.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) return 'image/png'
+  if (content.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'image/jpeg'
+  if (content.subarray(0, 4).toString('latin1') === 'GIF8') return 'image/gif'
+  if (
+    content.subarray(0, 4).toString('latin1') === 'RIFF' &&
+    content.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
+  return undefined
+}
+
 const readTool = {
   name: 'read',
   description:
     'Read content of a file. Returns file content as string, or error message. ' +
+    'Image files (png/jpeg/gif/webp, up to 5MiB) are returned as images the model can see. ' +
     'Never use to locate skill definitions — skills live in memory, use the `skill` tool.',
   zodSchema: ReadInput,
   parameters: z.toJSONSchema(ReadInput) as Record<string, unknown>,
@@ -79,6 +96,21 @@ const readTool = {
       }
 
       const content = readFileSync(resolvedPath)
+      const mediaType = imageMediaType(content)
+      if (mediaType) {
+        if (content.byteLength > MAX_IMAGE_BYTES) {
+          return {
+            output: `Image too large: ${content.byteLength} bytes (max: ${MAX_IMAGE_BYTES}). Downscale it first.`,
+          }
+        }
+        const image: ToolImageOutput = {
+          __talor_image: true,
+          mediaType,
+          base64: content.toString('base64'),
+          label: `${params.path} (${mediaType}, ${content.byteLength} bytes)`,
+        }
+        return { output: image }
+      }
       if (isBinaryFile(content)) {
         return { output: 'Cannot read binary file' }
       }

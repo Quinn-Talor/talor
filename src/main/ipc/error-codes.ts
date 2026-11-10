@@ -20,6 +20,8 @@ export type ChatErrorCode =
   | 'FILE_NOT_FOUND' // 附件路径不存在
   | 'NETWORK_OFFLINE' // 预留：离线检测（当前未使用）
   | 'PROVIDER_NO_VISION' // provider 不支持视觉但用户上传了图片
+  | 'MEDIA_TOO_LARGE' // 图片 > 5MiB 或 PDF > 32MiB（引擎的媒体上限）
+  | 'MODEL_INPUT_UNSUPPORTED' // 引擎开跑前拒绝：模型没声明附件的模态（如 PDF）
 
 /**
  * 把任意异常对象映射为 ChatErrorCode。
@@ -58,5 +60,6 @@ export function classifyLlmError(error: unknown): ChatErrorCode {
   if (msg === 'UNSUPPORTED_FILE_TYPE') return 'UNSUPPORTED_FILE_TYPE'
   if (msg === 'FILE_NOT_FOUND') return 'FILE_NOT_FOUND'
   if (msg === 'PROVIDER_NO_VISION') return 'PROVIDER_NO_VISION'
+  if (msg === 'MEDIA_TOO_LARGE') return 'MEDIA_TOO_LARGE'
   return 'LLM_ERROR'
 }

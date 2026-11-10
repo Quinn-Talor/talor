@@ -45,5 +45,6 @@ describe('classifyLlmError', () => {
     expect(classifyLlmError(new Error('UNSUPPORTED_FILE_TYPE'))).toBe('UNSUPPORTED_FILE_TYPE')
     expect(classifyLlmError(new Error('FILE_NOT_FOUND'))).toBe('FILE_NOT_FOUND')
     expect(classifyLlmError(new Error('PROVIDER_NO_VISION'))).toBe('PROVIDER_NO_VISION')
+    expect(classifyLlmError(new Error('MEDIA_TOO_LARGE'))).toBe('MEDIA_TOO_LARGE')
   })
 })

@@ -90,6 +90,9 @@ export function agentNameOf(engineId: string): string | undefined {
   return names.get(engineId)
 }
 
+/** 视图里保留原图的工具结果图片张数。 */
+const KEEP_RECENT_IMAGES = 4
+
 export function agentFor(
   profile: AgentProfile,
   snapshot: CatalogSnapshot,
@@ -145,6 +148,8 @@ export function agentFor(
     id: engineAgentId(profile.id),
     instructions: [{ role: 'system', parts: [{ type: 'text', text: profile.agentPrompt }] }],
     capabilities,
+    // 读图 / 浏览器截图会让工具结果里的图片越积越多：视图只留最近几张，运行记录不变
+    model: { settings: { keepRecentImages: KEEP_RECENT_IMAGES } },
   })
   cache.set(key, agent)
   return agent

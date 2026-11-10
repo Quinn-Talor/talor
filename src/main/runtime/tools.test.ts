@@ -82,6 +82,19 @@ describe('toEngineTool output', () => {
     })
   })
 
+  it('turns an image tool output into engine content blocks the model can see', async () => {
+    const tool = fakeTool(async () => ({
+      output: { __talor_image: true, mediaType: 'image/png', base64: 'AAAA', label: 'a.png' },
+    }))
+    expect(await tool.execute({}, ctxFor())).toEqual({
+      __agent_content: true,
+      parts: [
+        { type: 'text', text: 'a.png' },
+        { type: 'image', image: 'AAAA', mediaType: 'image/png' },
+      ],
+    })
+  })
+
   it('AC-005 reports an exception as a transient TOOL_EXCEPTION', async () => {
     const tool = fakeTool(async () => {
       throw new Error('crashed')

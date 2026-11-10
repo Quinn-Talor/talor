@@ -45,6 +45,8 @@ const CHAT_ERROR_OF_MODEL_ERROR: Readonly<Record<string, ChatErrorCode>> = {
   RATE_LIMITED: 'RATE_LIMITED',
   MODEL_TIMEOUT: 'LLM_TIMEOUT',
   MODEL_CONNECTION: 'LLM_CONNECTION_FAILED',
+  // 引擎开跑前的模型适配检查：附件模态模型不接收
+  model_unsuitable: 'MODEL_INPUT_UNSUPPORTED',
 }
 
 /** 运行结果 → 渲染端错误；failed 与 stopped 报错（被 report_blocked 停住的不报错，受阻卡片说明原因），其余不报错。 */

@@ -9,7 +9,7 @@
 // 禁止依赖: ipc/*、repos/*、db/*
 
 import { isAbsolute, resolve } from 'path'
-import { toolError, type ToolAccess, type ToolDef } from 'agent-engine'
+import { toolContent, toolError, type ToolAccess, type ToolDef } from 'agent-engine'
 import {
   HOME_SENSITIVE_ENTRIES,
   SYSTEM_SENSITIVE_ROOTS,
@@ -21,6 +21,7 @@ import {
   DEFAULT_TOOL_TIMEOUT_MS,
   isErrorOutput,
   isToolErrorEnvelope,
+  isToolImageOutput,
   type PermissionPort,
   type ToolDefinition,
   type ToolResult,
@@ -84,6 +85,12 @@ const deterministic = (code: string, message: string, hint?: string) => ({
 export function toEngineOutput(result: ToolResult): unknown {
   if (result.error !== undefined) return toolError('TOOL_EXCEPTION', String(result.error))
   const out = result.output
+  if (isToolImageOutput(out)) {
+    return toolContent([
+      { type: 'text', text: out.label },
+      { type: 'image', image: out.base64, mediaType: out.mediaType },
+    ])
+  }
   if (isToolErrorEnvelope(out)) return deterministic(out.code, out.message, out.hint)
   // 字符串失败（bash 非零退出、超时等）依赖环境，下次可能不同：不强加类别，由引擎按错误码判为瞬时（F25）
   if (isErrorOutput(out)) {

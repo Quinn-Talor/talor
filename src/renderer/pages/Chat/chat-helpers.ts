@@ -13,6 +13,8 @@ const CHAT_ERROR_TEXT: Record<string, string> = {
   UNSUPPORTED_FILE_TYPE: '不支持的文件类型',
   FILE_NOT_FOUND: '文件不存在或无法访问',
   PROVIDER_NO_VISION: '当前模型不支持图片识别',
+  MEDIA_TOO_LARGE: '图片不能超过 5MB，PDF 不能超过 32MB',
+  MODEL_INPUT_UNSUPPORTED: '当前模型不支持这类附件，请换用支持的模型',
   AUTH_FAILED: '模型服务鉴权失败，请检查 API Key',
   RATE_LIMITED: '请求过于频繁，已被模型服务限流，请稍后再试',
   LLM_CONNECTION_FAILED: '无法连接模型服务，请检查网络或服务地址',

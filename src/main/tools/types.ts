@@ -307,6 +307,22 @@ function isBuiltinErrorText(text: string): boolean {
  * 旧 builtin 工具仍用约定错误前缀(ERROR_OUTPUT_PATTERNS)。
  * 三类都要识别,否则界面的 is_error 漏报。
  */
+/** 工具返回一张图片（read 读图片文件）：由 runtime/tools 转成引擎的内容块，视觉模型能直接看到。 */
+export interface ToolImageOutput {
+  __talor_image: true
+  mediaType: string
+  base64: string
+  label: string
+}
+
+export function isToolImageOutput(value: unknown): value is ToolImageOutput {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { __talor_image?: unknown }).__talor_image === true
+  )
+}
+
 export function isErrorOutput(output: unknown): boolean {
   // 优先级 1: 结构化错误信封(首选,新工具都用这个)
   if (isToolErrorEnvelope(output)) return true

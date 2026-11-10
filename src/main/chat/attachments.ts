@@ -17,6 +17,10 @@ import type { Provider } from '../store/config-store'
 /** 单附件最大 50MB。超过这个阈值 base64 编码后会显著撑大 IPC payload 和 DB row size。 */
 const MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024
 
+/** 引擎的媒体上限：单张图片 5MiB、单个 PDF 32MiB（超过会在开跑时被拒，这里提前给出明确错误）。 */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const MAX_PDF_BYTES = 32 * 1024 * 1024
+
 /** 视觉模型可接收的图片 mime。凡命中此列表的附件，validateAttachment 会就地读取并 base64 编码。 */
 const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
@@ -49,6 +53,7 @@ export interface ValidatedAttachment {
  * 错误消息采用字符串常量（不带 i18n），上层 classifyLlmError 按原样匹配：
  *   - FILE_NOT_FOUND         路径不存在（fs.access 失败）
  *   - FILE_TOO_LARGE         文件大小 > 50MB
+ *   - MEDIA_TOO_LARGE        图片 > 5MiB 或 PDF > 32MiB
  *   - UNSUPPORTED_FILE_TYPE  mime 不在白名单
  *
  * 注意：信任的是**实际文件**推断的 mime（mime.lookup(path)），不是前端传来的 mime_type，
@@ -69,6 +74,12 @@ export async function validateAttachment(att: {
   const actualMime = mime.lookup(att.path) || 'application/octet-stream'
   if (stats.size > MAX_ATTACHMENT_SIZE_BYTES) throw new Error('FILE_TOO_LARGE')
   if (!SUPPORTED_ATTACHMENT_TYPES.includes(actualMime)) throw new Error('UNSUPPORTED_FILE_TYPE')
+  if (SUPPORTED_IMAGE_TYPES.includes(actualMime) && stats.size > MAX_IMAGE_BYTES) {
+    throw new Error('MEDIA_TOO_LARGE')
+  }
+  if (BINARY_DOCUMENT_TYPES.includes(actualMime) && stats.size > MAX_PDF_BYTES) {
+    throw new Error('MEDIA_TOO_LARGE')
+  }
 
   const result: ValidatedAttachment = {
     ...att,
