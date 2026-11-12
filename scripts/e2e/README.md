@@ -11,7 +11,7 @@ npm run test:e2e          # 约 35 秒，退出码 0 = 全部通过
 要求：macOS（直接启动 `Electron.app` 二进制）；`better-sqlite3` 处于 Electron 版本（`npm run rebuild:electron`）；
 本机 9222 端口空闲（应用在 dev 模式下开远程调试端口）。
 
-覆盖：图片附件与 `data:` 前缀、跨轮与重启后保留、非视觉 / 超大图片 / PDF 的拒绝路径、`read` 读图、
+覆盖：意图工具（无 finish、ask_user / report_blocked 无正文结束、propose 回执与确认后执行）、完成审查（副作用台账、声称未执行被退回）、图片附件与 `data:` 前缀、跨轮与重启后保留、非视觉 / 超大图片 / PDF 的拒绝路径、`read` 读图、
 `keepRecentImages`、文本附件与 bash 回归、会话删除、退出清理、`chat.db` 无旧表。
 日志与结果写在 `talor-e2e-*` 临时目录（运行结束时打印路径）。
 

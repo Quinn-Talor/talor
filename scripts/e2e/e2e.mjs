@@ -51,9 +51,11 @@ const ELECTRON_BIN = join(ROOT, 'node_modules/electron/dist/Electron.app/Content
 if (!existsSync(join(ROOT, 'out/main/index.js'))) throw new Error('先构建：npx electron-vite build')
 const mock = spawn('node', [join(HERE, 'mock.mjs'), String(PORT_MOCK)], { stdio: 'ignore' })
 await sleep(800)
-const mockReset = (script) =>
-  fetch(`${MOCK}/__reset`, { method: 'POST', body: JSON.stringify({ script }) })
+// judge：完成审查的裁判回答队列（缺省判完成）
+const mockReset = (script, judge = []) =>
+  fetch(`${MOCK}/__reset`, { method: 'POST', body: JSON.stringify({ script, judge }) })
 const mockLog = async () => await (await fetch(`${MOCK}/__log`)).json()
+const mockJudge = async () => await (await fetch(`${MOCK}/__judge`)).json()
 
 // ---------- 应用进程 + CDP ----------
 let app,
@@ -79,7 +81,9 @@ async function launch(tag) {
     try {
       const list = await (await fetch('http://127.0.0.1:9222/json')).json()
       target = list.find((t) => t.type === 'page' && t.url.startsWith('file:'))
-    } catch {}
+    } catch {
+      // 调试端口还没起来：继续等
+    }
   }
   if (!target) throw new Error('应用没有起来 / 没有页面目标')
   ws = new WebSocket(target.webSocketDebuggerUrl)
@@ -126,7 +130,9 @@ function ev(expr) {
 async function quit() {
   try {
     ws.close()
-  } catch {}
+  } catch {
+    // 连接已断开：照常结束进程
+  }
   app.kill('SIGTERM')
   for (let i = 0; i < 40 && app.exitCode === null; i++) await sleep(250)
   if (app.exitCode === null) app.kill('SIGKILL')
@@ -142,7 +148,7 @@ const SEND = (a) => `(async (a) => {
   const end = Date.now() + 60000
   while (Date.now() < end && !evs.some((x) => x.done)) await new Promise((r) => setTimeout(r, 200))
   off(); off2()
-  const rows = (await api.session.getMessages(a.sid)).map((m) => ({ role: m.role, content: typeof m.content === 'string' ? m.content.slice(0, 300) : JSON.stringify(m.content).slice(0, 300) }))
+  const rows = (await api.session.getMessages(a.sid)).map((m) => ({ role: m.role, content: typeof m.content === 'string' ? m.content.slice(0, 2000) : JSON.stringify(m.content).slice(0, 2000) }))
   return { sendErr, done: evs.find((x) => x.done) ?? null, rows }
 })(${JSON.stringify(a)})`
 const send = (sid, content, attachments = []) => ev(SEND({ sid, content, attachments }))
@@ -163,6 +169,9 @@ const imgsOf = (body) =>
   )
 const decode = (url) => Buffer.from(url.split(',', 2)[1] ?? '', 'base64')
 const okDone = (r) => r?.done && !r.done.err
+/** 请求里 role 为 tool 的消息（工具结果）拼成的文本：只有工具真的执行了，它的输出才会出现在这里。 */
+const toolResults = (body) =>
+  JSON.stringify((body?.messages ?? []).filter((m) => m.role === 'tool').map((m) => m.content))
 
 let state = {}
 try {
@@ -331,20 +340,146 @@ try {
   // T10 回归：文本文件 read + bash（走审批）
   await mockReset([
     { tool: { name: 'read', args: { path: 'hello.txt' } } },
-    { tool: { name: 'bash', args: { command: 'echo bash-ran-ok' } } },
+    { tool: { name: 'bash', args: { command: 'echo bash-ran-$((1+1))' } } },
     { text: '完成' },
   ])
   const r10 = await send(await newSession(pt), '读 hello.txt 再 echo', [])
   log = await mockLog()
-  const t10 = JSON.stringify(log.map((l) => l.body.messages))
   check(
     'T10',
-    '回归：文本 read 与 bash（含自动批准）的结果都回到了模型',
+    '回归：文本 read 与 bash（含自动批准）真正执行，输出作为工具结果回到模型',
     okDone(r10) &&
       log.length === 3 &&
-      t10.includes('hello-from-file') &&
-      t10.includes('bash-ran-ok'),
+      toolResults(log[1]?.body).includes('hello-from-file') &&
+      toolResults(log[2]?.body).includes('bash-ran-2'),
     { reqs: log.length, done: r10.done },
+  )
+
+  // ---------- 引擎意图与完成审查（agent-engine 82148e1） ----------
+  const assistantRows = (r) => r.rows.filter((x) => x.role === 'assistant')
+  const hasCall = (r, tool) =>
+    assistantRows(r).some((x) => x.content.includes(`"toolName":"${tool}"`))
+  const toolNames = (body) => (body.tools ?? []).map((t) => t.function?.name)
+
+  // T15 ask_user 结束、没有正文：卡片照常显示，问题不重复成一条正文
+  const question = '要退哪一笔订单？'
+  await mockReset([{ tool: { name: 'ask_user', args: { question, options: ['A123', 'B456'] } } }])
+  const r15 = await send(await newSession(pt), '帮我处理退款', [])
+  log = await mockLog()
+  const first = log[0]?.body
+  const sys = JSON.stringify(first?.messages ?? [])
+  const names = first ? toolNames(first) : []
+  check(
+    'T14',
+    '意图工具：只提供 ask_user / propose / report_blocked，不再有 finish；说明里写明"完成时直接答复"与"需要审批的操作直接调用"',
+    ['ask_user', 'propose', 'report_blocked'].every((n) => names.includes(n)) &&
+      !names.includes('finish') &&
+      sys.includes('任务完成时直接给出答复') &&
+      sys.includes('需要审批的操作直接调用工具'),
+    {
+      intents: names.filter((n) => ['finish', 'ask_user', 'propose', 'report_blocked'].includes(n)),
+    },
+  )
+  check(
+    'T15',
+    'ask_user 结束且没有正文：本轮正常结束，显示提问卡片，问题没有重复成一条正文',
+    okDone(r15) &&
+      log.length === 1 &&
+      hasCall(r15, 'ask_user') &&
+      !assistantRows(r15).some((x) => x.content === question),
+    { reqs: log.length, done: r15.done, rows: r15.rows.map((x) => x.role) },
+  )
+
+  // T16 report_blocked 结束、没有正文：不报错，显示受阻卡片
+  const reason = '缺少订单号，无法退款'
+  await mockReset([{ tool: { name: 'report_blocked', args: { reason } } }])
+  const r16 = await send(await newSession(pt), '帮我退款', [])
+  check(
+    'T16',
+    'report_blocked 结束且没有正文：不报错，显示受阻卡片，原因没有重复成一条正文',
+    okDone(r16) &&
+      hasCall(r16, 'report_blocked') &&
+      !assistantRows(r16).some((x) => x.content === reason),
+    { done: r16.done },
+  )
+
+  // T17 propose：提议的工具结果写明"还没有执行"；确认后下一轮调用工具真正执行
+  const sp2 = await newSession(pt)
+  await mockReset([
+    {
+      tool: {
+        name: 'propose',
+        args: {
+          summary: '给订单 A123 退款 100 元',
+          actions: [{ tool: 'bash', input: { command: 'echo refund-$((40+2))' } }],
+        },
+      },
+    },
+  ])
+  const r17a = await send(sp2, '给订单 A123 退款 100 元', [])
+  await mockReset([
+    { tool: { name: 'bash', args: { command: 'echo refund-$((40+2))' } } },
+    { text: '退款操作执行完毕' },
+  ])
+  const r17b = await send(sp2, '确认执行提议：给订单 A123 退款 100 元', [])
+  log = await mockLog()
+  check(
+    'T17a',
+    'propose：本轮以提议卡片结束；下一轮请求里提议的工具结果写明"还没有执行"',
+    okDone(r17a) &&
+      hasCall(r17a, 'propose') &&
+      JSON.stringify(log[0]?.body.messages ?? []).includes('提议还没有执行'),
+    { done: r17a.done },
+  )
+  check(
+    'T17b',
+    'propose 确认后：下一轮调用 bash（经审批）真正执行，结果回到模型',
+    okDone(r17b) &&
+      log.length === 2 &&
+      toolNames(log[0].body).includes('bash') &&
+      toolResults(log[1]?.body).includes('refund-42'),
+    { reqs: log.length, done: r17b.done },
+  )
+
+  // T18 副作用台账进入完成审查：本轮没执行、但声称"已退款"，裁判能看到之前一轮执行过的 bash
+  await mockReset([{ text: '这笔之前已退款' }])
+  const r18 = await send(sp2, '退款了吗？', [])
+  const j18 = await mockJudge()
+  const j18text = JSON.stringify(j18.map((j) => j.body.messages))
+  check(
+    'T18',
+    '完成审查：声称已退款而本轮没有执行时调用裁判，裁判看到会话之前执行过的 bash（台账）并判完成',
+    okDone(r18) &&
+      j18.length === 1 &&
+      /第 \d+ 轮已执行 bash/.test(j18text) &&
+      j18text.includes('refund-$((40+2))') &&
+      assistantRows(r18).at(-1)?.content.includes('之前已退款'),
+    { judge: j18.length, ledger: (j18text.match(/第 \d+ 轮已执行 bash/) ?? [])[0] ?? null },
+  )
+
+  // T19 声称做了却没有执行：裁判判未完成 → 退回模型，模型改口后交付
+  const sn = await newSession(pt)
+  await mockReset([{ text: '好的，请说' }])
+  await send(sn, '你好', [])
+  const missing = '声称已退款，但没有执行任何退款操作'
+  await mockReset(
+    [{ text: '已退款' }, { text: '抱歉，退款还没有执行' }],
+    [{ complete: false, confidence: 0.9, missing: [missing] }],
+  )
+  const r19 = await send(sn, '给 A123 退款', [])
+  log = await mockLog()
+  const j19 = await mockJudge()
+  const j19text = JSON.stringify(j19.map((j) => j.body.messages))
+  check(
+    'T19',
+    '完成审查：没有任何执行记录却声称已退款 → 裁判判未完成，退回模型，模型改口后正常交付',
+    okDone(r19) &&
+      j19.length === 1 &&
+      !/轮已执行/.test(j19text) &&
+      log.length === 2 &&
+      JSON.stringify(log[1].body.messages).includes(missing) &&
+      assistantRows(r19).at(-1)?.content.includes('退款还没有执行'),
+    { reqs: log.length, judge: j19.length, done: r19.done },
   )
 
   // 记录重启前的会话行
@@ -410,7 +545,9 @@ try {
 } finally {
   try {
     await quit()
-  } catch {}
+  } catch {
+    // 应用可能已经退出：继续收尾
+  }
   mock.kill()
   const pass = results.filter((r) => r.ok).length
   console.log(`\n== ${pass}/${results.length} passed ==（日志目录 ${RUN}）`)

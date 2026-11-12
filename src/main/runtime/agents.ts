@@ -123,7 +123,7 @@ export function agentFor(
   if (caps.builtins.length > 0) {
     capabilities.push(tools(caps.builtins.map(toEngineTool), { id: 'builtin' }))
   }
-  // 意图工具（finish / ask_user / propose / report_blocked）取代旧路径的 talor 块（C2）
+  // 意图工具（ask_user / propose / report_blocked）取代旧路径的 talor 块（C2）；完成时直接答复
   capabilities.push(intents())
   capabilities.push(...caps.mcpServers.map((entry) => mcp(entry.spec)))
   capabilities.push(...caps.skills.map((parsed) => skill(skillPackageOf(parsed))))

@@ -1,4 +1,5 @@
-// src/renderer/components/IntentCard.tsx — 引擎意图调用（finish / ask_user / propose / report_blocked）的卡片
+// src/renderer/components/IntentCard.tsx — 引擎意图调用（ask_user / propose / report_blocked）的卡片
+// finish 卡片只用于显示旧运行记录：引擎已去掉 finish 意图。
 //
 // 复用旧 talor 块的卡片样式（DonePill、NeedInput、BlockedRow、Proposal 的 .prop 样式）与 Prose；
 // 卡片上的选择经 onReply 作为下一条用户消息发出（C2 TASK-2）。
