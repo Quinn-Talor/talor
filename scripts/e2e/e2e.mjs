@@ -482,6 +482,42 @@ try {
     { reqs: log.length, judge: j19.length, done: r19.done },
   )
 
+  // T20 Trace 面板读真实运行档案：根节点带会话与轮次，交付验收成为 EVALUATOR 节点，没通过的记 WARNING
+  const t20 = await ev(`(async () => {
+    const api = window.talorAPI
+    const list = await api.trace.list(${JSON.stringify(sn)}, 10)
+    if (list.status !== 'success') return { err: list }
+    const details = []
+    for (const t of list.traces) {
+      const d = await api.trace.get(t.id)
+      if (d.status !== 'success') return { err: d }
+      details.push(d.observations.map((o) => ({ type: o.type, level: o.level, name: o.name, md: o.metadata })))
+    }
+    return { details }
+  })()`)
+  const [latest = [], earlier = []] = t20.details ?? []
+  const evals = latest.filter((o) => o.type === 'EVALUATOR')
+  const rejected = evals.filter((o) => o.md.attempt === 1 && o.md.outcome === 'returned')
+  const accepted = evals.filter((o) => o.md.attempt === 2 && o.md.outcome === 'delivered')
+  check(
+    'T20',
+    'Trace：根节点带会话 id 与连续轮次；T19 的退回与交付各成一组验收节点，没通过的记 WARNING、不记 ERROR',
+    latest[0]?.type === 'AGENT' &&
+      latest[0].md.session === sn &&
+      earlier[0]?.md.session === sn &&
+      latest[0].md.turn === earlier[0].md.turn + 1 &&
+      rejected.some((o) => o.level === 'WARNING' && o.md.pass === false) &&
+      rejected.some((o) => o.name === 'output' && o.level === 'DEFAULT') &&
+      accepted.length >= 1 &&
+      accepted.every((o) => o.level === 'DEFAULT' && o.md.pass === true) &&
+      evals.every((o) => o.level !== 'ERROR'),
+    {
+      err: t20.err ?? null,
+      turns: [earlier[0]?.md.turn, latest[0]?.md.turn],
+      evals: evals.map((o) => [o.name, o.level, o.md.attempt, o.md.outcome]),
+    },
+  )
+
   // 记录重启前的会话行
   state.rows1 = (await ev(`window.talorAPI.session.getMessages(${JSON.stringify(s1)})`)).map(
     (m) => m.role,

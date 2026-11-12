@@ -2,8 +2,9 @@
 //
 // 列表读运行摘要（只列顶层运行，子运行的 subject 与父会话相同）；详情读一次运行的全部事件，经引擎的
 // buildTrace 得到层级，再映射成面板现有的 observation：run → AGENT、step → SPAN、model → GENERATION、
-// tool → TOOL、external → CHAIN、opinion → GUARDRAIL（DEBUG，面板默认隐藏）。GENERATION 的 input 写成
-// 面板的提示词索引（hash 为引擎的 blob 引用）。observation id 为 `${runId}:${n}`（前序遍历序号）。
+// tool → TOOL、external → CHAIN、opinion → GUARDRAIL（DEBUG，面板默认隐藏）、check（交付验收）→ EVALUATOR
+// （没通过记 WARNING：没通过的验收不是出错）。会话的一轮在 AGENT 的 metadata 里带 session 与 turn（来自引擎）。
+// GENERATION 的 input 写成面板的提示词索引（hash 为引擎的 blob 引用）。observation id 为 `${runId}:${n}`（前序遍历序号）。
 // 列表的输入 / 输出预览与详情的 messages 取自读模型（turn-rows），不读 messages 表。
 // 读 Trace 时运行档案文件不存在就不打开（不建 runs.db、不启动引擎）。
 //
@@ -42,6 +43,7 @@ const TYPE_OF: Record<TraceNode['kind'], ObservationType> = {
   tool: 'TOOL',
   external: 'CHAIN',
   opinion: 'GUARDRAIL',
+  check: 'EVALUATOR',
 }
 
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -197,6 +199,7 @@ export async function runTraceDetail(
     if (node.kind === 'opinion') level = 'DEBUG'
     else if (node.kind === 'tool' && attrs.isError === true) level = 'ERROR'
     else if (node.kind === 'model' && attrs.error !== undefined) level = 'ERROR'
+    else if (node.kind === 'check' && attrs.pass === false) level = 'WARNING'
     let statusMessage: string | null = null
     if (node.kind === 'tool' && typeof attrs.errorCode === 'string') statusMessage = attrs.errorCode
     if (node.kind === 'model' && typeof attrs.error === 'string') statusMessage = attrs.error

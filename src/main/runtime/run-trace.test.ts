@@ -259,6 +259,52 @@ describe('runTraceDetail', () => {
     expect(await runTraceDetail(archive, 'missing')).toBeNull()
   })
 
+  it('maps delivery checks to EVALUATOR and marks a failed check as WARNING, not ERROR', async () => {
+    const archive = memoryArchive()
+    await append(archive, 'run-c', 0, [
+      {
+        ...started('s1'),
+        session: { id: 's1', turn: 3, window: { version: 1, turnStarts: [], ledger: [] } },
+      },
+      { t: 'step_started', step: 1 },
+      { t: 'context_built', step: 1, messages: [], tools: [], estimate: 0 },
+      responded(1, '答复', []),
+      { ...evaluated(1), verdict: { complete: true, sources: ['default'] } },
+      { t: 'step_ended', step: 1 },
+      // 交付在步结束之后：验收节点挂在运行下
+      {
+        t: 'delivery_checked',
+        step: 1,
+        path: 'normal',
+        attempt: 1,
+        output: { ok: true },
+        checks: [{ source: 'completion', mode: 'gate', pass: false, issues: ['缺证据'] }],
+        outcome: 'returned',
+      },
+      ended('run-c', 'completed'),
+    ])
+    await append(archive, 'run-child', 0, [started('s1', 'run-c'), ended('run-child', 'completed')])
+
+    const obs = (await runTraceDetail(archive, 'run-c'))!.observations
+    const checks = obs.filter((o) => o.type === 'EVALUATOR')
+    expect(checks.map((o) => [o.name, o.level, o.status_message])).toEqual([
+      ['output', 'DEFAULT', null],
+      ['completion', 'WARNING', null],
+    ])
+    expect(checks[1]!.metadata).toMatchObject({
+      pass: false,
+      mode: 'gate',
+      attempt: 1,
+      outcome: 'returned',
+      issues: 1,
+    })
+    // 会话的一轮在根节点带会话 id 与轮次；子运行没有
+    expect(obs[0]!.metadata).toMatchObject({ session: 's1', turn: 3 })
+    const child = (await runTraceDetail(archive, 'run-child'))!.observations[0]!
+    expect(child.metadata).not.toHaveProperty('session')
+    expect(child.metadata).not.toHaveProperty('turn')
+  })
+
   it('records an unreadable blob as unknown with zero bytes', async () => {
     const archive = memoryArchive()
     const missing = `sha256:${'0'.repeat(64)}`
