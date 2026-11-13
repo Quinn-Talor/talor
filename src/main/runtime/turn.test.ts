@@ -12,7 +12,7 @@ vi.mock('../store/config-store', () => ({
   ConfigStore: { getInstance: () => ({ get: mockGet }) },
 }))
 
-import type { RunResult, RunSummary } from 'agent-engine'
+import type { RunResult, RunSummary } from '@talor/agent-engine'
 import { chatErrorOf, rulesChangedSince } from './turn'
 
 const resultOf = (patch: Partial<RunResult>) =>

@@ -4,7 +4,7 @@
 // 禁止依赖: ipc/*、repos/*、db/*
 
 import log from 'electron-log'
-import type { Logger } from 'agent-engine'
+import type { Logger } from '@talor/agent-engine'
 
 /** 引擎诊断日志写到 electron-log，前缀 `[engine]`。 */
 export function electronLogger(): Logger {

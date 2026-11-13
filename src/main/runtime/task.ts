@@ -8,7 +8,7 @@
 // 禁止依赖: ipc/*、repos/*、db/*
 
 import type { UserContent } from 'ai'
-import { defineTask, type ContentPart, type Segment, type Task } from 'agent-engine'
+import { defineTask, type ContentPart, type Segment, type Task } from '@talor/agent-engine'
 
 type Part = Record<string, unknown>
 

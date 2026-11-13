@@ -12,7 +12,7 @@
 // 禁止依赖: ipc/*、db/*
 
 import log from 'electron-log'
-import type { BlobRef, NormalizedUsage, RunEvent, RunResult, RunUsage } from 'agent-engine'
+import type { BlobRef, NormalizedUsage, RunEvent, RunResult, RunUsage } from '@talor/agent-engine'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ChatCallbacks } from '../chat/types'
 import { sessionRepo } from '../repos/session-repo'

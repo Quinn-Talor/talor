@@ -145,6 +145,8 @@ npm run lint          # ESLint
 npm run build         # electron-vite build + electron-builder 打包
 ```
 
+**升级 agent-engine**：引擎按 GitHub 发布 tag 引入（`"@talor/agent-engine": "github:Quinn-Talor/agent-engine#v0.1.1"`），升级 = 改 tag 后 `npm install`（npm 拉取该 tag 并用引擎的 `prepare` 构建 `dist`，锁文件记录 commit）。
+
 **native module 版本切换**：`better-sqlite3` 会在 Node 和 Electron 之间踩版本冲突。跑 `vitest` 前后切换需 `npx electron-rebuild -f -w better-sqlite3`。
 
 ---

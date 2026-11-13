@@ -18,8 +18,8 @@ import {
   type RunEvent,
   type RunStatus,
   type ToolDef,
-} from 'agent-engine'
-import { checkInvariants } from 'agent-engine/sdk'
+} from '@talor/agent-engine'
+import { checkInvariants } from '@talor/agent-engine/sdk'
 import { electronLogger } from './logger'
 
 export interface EngineSmokeResult {

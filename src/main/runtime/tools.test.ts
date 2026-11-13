@@ -8,7 +8,7 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import type { ToolCtx, ToolDef } from 'agent-engine'
+import type { ToolCtx, ToolDef } from '@talor/agent-engine'
 import '../tools/builtin'
 import { toolRegistry } from '../tools/registry'
 import type { ToolDefinition } from '../tools/types'

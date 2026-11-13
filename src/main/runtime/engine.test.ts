@@ -21,9 +21,9 @@ import {
   type Approver,
   type RunEvent,
   type McpHost,
-} from 'agent-engine'
-import { checkInvariants } from 'agent-engine/sdk'
-import { fakeMcpServer, fakeModel, type FakeReply } from 'agent-engine/testing'
+} from '@talor/agent-engine'
+import { checkInvariants } from '@talor/agent-engine/sdk'
+import { fakeMcpServer, fakeModel, type FakeReply } from '@talor/agent-engine/testing'
 import '../tools/builtin'
 import { toolRegistry } from '../tools/registry'
 import { agentFor } from './agents'

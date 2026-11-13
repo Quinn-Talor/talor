@@ -4,7 +4,7 @@
 // 允许依赖：runtime/mcp-status、repos/*、shared/*、agent-engine（parseMcpConfig 与类型）
 
 import { ipcMain } from 'electron'
-import { parseMcpConfig, type McpServerSpec, type SecretRef } from 'agent-engine'
+import { parseMcpConfig, type McpServerSpec, type SecretRef } from '@talor/agent-engine'
 import {
   mcpServerRepo,
   MCPServerType,

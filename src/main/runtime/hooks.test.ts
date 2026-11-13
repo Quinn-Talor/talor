@@ -24,8 +24,8 @@ import {
   type HookExecResult,
   type HookSpec,
   type McpHost,
-} from 'agent-engine'
-import { fakeMcpServer, fakeModel, type FakeReply } from 'agent-engine/testing'
+} from '@talor/agent-engine'
+import { fakeMcpServer, fakeModel, type FakeReply } from '@talor/agent-engine/testing'
 import type { AgentProfile } from '@shared/types/agent'
 import type { PermissionRequest, PermissionResponse } from '@shared/types/permissions'
 import { permissionStore } from '../permissions/permission-store'

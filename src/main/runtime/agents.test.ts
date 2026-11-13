@@ -6,7 +6,7 @@ vi.mock('electron-log', () => ({
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp' } }))
 
 import log from 'electron-log'
-import type { Agent } from 'agent-engine'
+import type { Agent } from '@talor/agent-engine'
 import type { AgentProfile } from '@shared/types/agent'
 import type { MCPServer } from '../repos/mcp-server-repo'
 import type { ParsedSkill } from '../skills/types'

@@ -14,8 +14,8 @@ import { join } from 'path'
 import Database from 'better-sqlite3'
 import { app } from 'electron'
 import log from 'electron-log'
-import { type Archive } from 'agent-engine'
-import { sqliteArchive } from 'agent-engine/adapters/sqlite'
+import { type Archive } from '@talor/agent-engine'
+import { sqliteArchive } from '@talor/agent-engine/adapters/sqlite'
 
 export const ARCHIVE_RETENTION_DAYS = 30
 /** 用户会话所在的执行环境（engine.ts 的 interactiveEnvironment）。 */

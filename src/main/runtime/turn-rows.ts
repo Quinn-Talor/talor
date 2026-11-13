@@ -13,7 +13,7 @@
 // 禁止依赖: ipc/*、db/*
 
 import log from 'electron-log'
-import type { Archive, BlobRef, ContentPart, RunEvent } from 'agent-engine'
+import type { Archive, BlobRef, ContentPart, RunEvent } from '@talor/agent-engine'
 import { isIntentCall } from '@shared/intents'
 import { phaseMarker, type TurnPhase } from '@shared/turn-phase'
 import { sessionRepo, type ChatMessage } from '../repos/session-repo'

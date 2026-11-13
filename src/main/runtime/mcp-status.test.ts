@@ -20,8 +20,8 @@ import {
   type McpHost,
   type McpServerSpec,
   type Vault,
-} from 'agent-engine'
-import { fakeMcpServer } from 'agent-engine/testing'
+} from '@talor/agent-engine'
+import { fakeMcpServer } from '@talor/agent-engine/testing'
 import type { MCPServer } from '../repos/mcp-server-repo'
 import type { Runtime } from './engine'
 import { mcpServerTools, testMcpConnection } from './mcp-status'

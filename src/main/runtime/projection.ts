@@ -12,7 +12,7 @@
 // 禁止依赖: ipc/* 的运行时 import、db/*
 
 import log from 'electron-log'
-import type { BlobRef, NormalizedUsage, RunSubscriber } from 'agent-engine'
+import type { BlobRef, NormalizedUsage, RunSubscriber } from '@talor/agent-engine'
 import type { ChatCallbacks } from '../chat/types'
 import { sessionRepo } from '../repos/session-repo'
 import { createTurnFold, toolOutputBody, type TurnFold } from './turn-rows'

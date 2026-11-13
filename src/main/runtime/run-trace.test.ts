@@ -16,7 +16,7 @@ vi.mock('../db/index', () => ({
   },
 }))
 
-import { memoryArchive, type Archive, type RunEvent } from 'agent-engine'
+import { memoryArchive, type Archive, type RunEvent } from '@talor/agent-engine'
 import { runToolDurations, runTraceDetail, runTraceSummaries } from './run-trace'
 import { clearRowCache } from './turn-rows'
 

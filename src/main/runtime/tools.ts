@@ -9,7 +9,7 @@
 // 禁止依赖: ipc/*、repos/*、db/*
 
 import { isAbsolute, resolve } from 'path'
-import { toolContent, toolError, type ToolAccess, type ToolDef } from 'agent-engine'
+import { toolContent, toolError, type ToolAccess, type ToolDef } from '@talor/agent-engine'
 import {
   HOME_SENSITIVE_ENTRIES,
   SYSTEM_SENSITIVE_ROOTS,

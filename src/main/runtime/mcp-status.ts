@@ -9,7 +9,7 @@
 // 禁止依赖: ipc/*、db/*
 
 import log from 'electron-log'
-import { mcpHost, type McpHost, type McpToolInfo, type Vault } from 'agent-engine'
+import { mcpHost, type McpHost, type McpToolInfo, type Vault } from '@talor/agent-engine'
 import { AccountStore } from '../accounts/account-store'
 import {
   mcpServerRepo,

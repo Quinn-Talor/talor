@@ -17,7 +17,7 @@ vi.mock('../db/index', () => ({
 }))
 
 import log from 'electron-log'
-import type { RunEvent, RunUsage } from 'agent-engine'
+import type { RunEvent, RunUsage } from '@talor/agent-engine'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ChatCallbacks } from '../chat/types'
 import { engineAgentId } from './agents'

@@ -18,7 +18,7 @@ vi.mock('../repos/session-repo', () => ({
   },
 }))
 
-import type { RunEvent, RunSummary } from 'agent-engine'
+import type { RunEvent, RunSummary } from '@talor/agent-engine'
 import { phaseMarker } from '@shared/turn-phase'
 import { createProjection } from './projection'
 import {

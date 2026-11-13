@@ -28,7 +28,7 @@ vi.mock('../runtime/run-archive', () => ({
 }))
 vi.mock('../runtime/engine', () => ({ getRuntime }))
 
-import { memoryArchive, type Archive, type RunEvent } from 'agent-engine'
+import { memoryArchive, type Archive, type RunEvent } from '@talor/agent-engine'
 import { registerTraceHandlers } from './trace'
 
 function handler(channel: string): (...args: unknown[]) => Promise<unknown> {

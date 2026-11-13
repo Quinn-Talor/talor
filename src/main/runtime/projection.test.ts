@@ -13,7 +13,7 @@ vi.mock('../repos/session-repo', () => ({
   sessionRepo: { touch, addUsage },
 }))
 
-import type { Notice, RunEvent } from 'agent-engine'
+import type { Notice, RunEvent } from '@talor/agent-engine'
 import type { ChatCallbacks } from '../chat/types'
 import { phaseMarker } from '@shared/turn-phase'
 import { createProjection, toolOutputBody, usageRemainder } from './projection'

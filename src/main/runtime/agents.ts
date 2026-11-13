@@ -22,8 +22,8 @@ import {
   type Agent,
   type Capability,
   type SkillPackage,
-} from 'agent-engine'
-import { hashOf } from 'agent-engine/sdk'
+} from '@talor/agent-engine'
+import { hashOf } from '@talor/agent-engine/sdk'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ParsedSkill } from '../skills/types'
 import type { CatalogSnapshot } from './catalog'

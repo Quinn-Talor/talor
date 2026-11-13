@@ -11,7 +11,7 @@ import {
   runTraceDetail,
   runTraceSummaries,
 } from '../runtime/run-trace'
-import type { Archive } from 'agent-engine'
+import type { Archive } from '@talor/agent-engine'
 import type {
   ToolDurationsResult,
   TraceBlobResult,

@@ -26,7 +26,7 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import type { AskRequest, RunInfo } from 'agent-engine'
+import type { AskRequest, RunInfo } from '@talor/agent-engine'
 import type { PermissionRequest, PermissionResponse } from '@shared/types/permissions'
 import { permissionStore } from '../permissions/permission-store'
 import { agentFor, engineAgentId } from './agents'

@@ -16,7 +16,7 @@ import {
   type HookSpec,
   type HookToolView,
   type PermissionRule,
-} from 'agent-engine'
+} from '@talor/agent-engine'
 
 /** hook 询问的标记：审批人看到它时直接询问用户，不查已记住的规则、不给"记住"。 */
 export const HOOK_ASK_REASON = 'plugin-hook'

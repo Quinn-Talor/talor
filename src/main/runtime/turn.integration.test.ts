@@ -51,14 +51,14 @@ import {
   memoryArchive,
   modelHub,
   type ModelInput,
-} from 'agent-engine'
+} from '@talor/agent-engine'
 import {
   fakeMcpServer,
   fakeModel,
   type FakeMcpServer,
   type FakeModel,
   type FakeReply,
-} from 'agent-engine/testing'
+} from '@talor/agent-engine/testing'
 import type { AgentManager } from '../agent/agent-manager'
 import type { AgentProfile } from '@shared/types/agent'
 import type { ChatCallbacks, ChatPorts } from '../chat/types'

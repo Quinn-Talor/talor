@@ -9,7 +9,7 @@
 // 禁止依赖: ipc/*、db/*
 
 import log from 'electron-log'
-import type { Archive, Engine } from 'agent-engine'
+import type { Archive, Engine } from '@talor/agent-engine'
 import { getRuntime, runArchive, runtimeCreated, shutdownRuntime, warmUpRuntime } from './engine'
 import { waitForTurns } from './turn'
 

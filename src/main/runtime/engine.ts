@@ -34,8 +34,8 @@ import {
   type McpServerSpec,
   type ModelHub,
   type Vault,
-} from 'agent-engine'
-import { hashOf } from 'agent-engine/sdk'
+} from '@talor/agent-engine'
+import { hashOf } from '@talor/agent-engine/sdk'
 import { mcpServerRepo, type MCPServer } from '../repos/mcp-server-repo'
 import { ConfigStore, type DelegationConfig } from '../store/config-store'
 import { DEFAULT_CHILD_TIMEOUT_MS, MAX_DELEGATION_DEPTH } from './agents'

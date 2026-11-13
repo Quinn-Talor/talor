@@ -7,7 +7,7 @@
 // 允许依赖: agent-engine（类型）
 // 禁止依赖: ipc/*、repos/*、db/*
 
-import type { PermissionRule } from 'agent-engine'
+import type { PermissionRule } from '@talor/agent-engine'
 
 const SUMMARY_CHARS = 200
 const INPUT_CHARS = 2000

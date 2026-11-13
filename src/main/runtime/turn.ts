@@ -15,7 +15,7 @@
 
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import type { Archive, RunResult } from 'agent-engine'
+import type { Archive, RunResult } from '@talor/agent-engine'
 import type { AgentProfile } from '@shared/types/agent'
 import type { AgentManager } from '../agent/agent-manager'
 import type { ChatCallbacks, ChatPorts, ChatSendParams } from '../chat/types'

@@ -20,7 +20,7 @@ import {
   type ModelResponse,
   type RunEvent,
   type TraceNode,
-} from 'agent-engine'
+} from '@talor/agent-engine'
 import type {
   ObservationRecord,
   ObservationType,

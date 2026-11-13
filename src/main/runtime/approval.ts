@@ -16,7 +16,7 @@
 
 import log from 'electron-log'
 import { v4 as uuidv4 } from 'uuid'
-import type { Approver, AskRequest } from 'agent-engine'
+import type { Approver, AskRequest } from '@talor/agent-engine'
 import { matchRules } from '../permissions/matcher'
 import { permissionStore } from '../permissions/permission-store'
 import { createPermissionPort, type PermissionUIPrompt } from '../permissions/port'

@@ -4,7 +4,7 @@ vi.mock('electron-log', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
-import type { ComponentCtx, RunInfo, ToolCallView } from 'agent-engine'
+import type { ComponentCtx, RunInfo, ToolCallView } from '@talor/agent-engine'
 import { detectFallbackRisk, stripSqlNoise, talorFallbackRisk } from './fallback-risk'
 
 const run = {} as RunInfo

@@ -18,7 +18,7 @@ import {
   type McpServerSpec,
   type ParsedPlugin,
   type SecretRef,
-} from 'agent-engine'
+} from '@talor/agent-engine'
 import type { BuiltinToolName } from '@shared/types/agent'
 import type { PluginInfo } from '@shared/types/ipc'
 import { ConfigStore } from '../store/config-store'

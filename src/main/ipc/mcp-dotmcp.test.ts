@@ -21,7 +21,7 @@ vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error:
 vi.mock('../repos/mcp-server-repo', () => ({ mcpServerRepo: repo }))
 vi.mock('../runtime/mcp-status', () => status)
 
-import { parseMcpConfig } from 'agent-engine'
+import { parseMcpConfig } from '@talor/agent-engine'
 import { registerMCPHandlers } from './mcp'
 
 function handler(channel: string) {

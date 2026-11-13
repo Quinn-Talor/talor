@@ -108,15 +108,17 @@ function ev(expr) {
   return new Promise((res, rej) => {
     const id = ++msgId
     pending.set(id, (d) =>
-      d.result?.exceptionDetails
-        ? rej(
-            new Error(
-              JSON.stringify(
-                d.result.exceptionDetails.exception?.description ?? d.result.exceptionDetails,
+      d.error
+        ? rej(new Error(`CDP ${JSON.stringify(d.error)}`))
+        : d.result?.exceptionDetails
+          ? rej(
+              new Error(
+                JSON.stringify(
+                  d.result.exceptionDetails.exception?.description ?? d.result.exceptionDetails,
+                ),
               ),
-            ),
-          )
-        : res(d.result.result.value),
+            )
+          : res(d.result.result.value),
     )
     ws.send(
       JSON.stringify({

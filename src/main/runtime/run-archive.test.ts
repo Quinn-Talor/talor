@@ -9,7 +9,7 @@ vi.mock('electron-log', () => ({
 }))
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }))
 
-import { sqliteArchive } from 'agent-engine/adapters/sqlite'
+import { sqliteArchive } from '@talor/agent-engine/adapters/sqlite'
 import { INTERACTIVE_ENVIRONMENT, openRunArchive } from './run-archive'
 
 let dir: string

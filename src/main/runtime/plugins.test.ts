@@ -18,8 +18,8 @@ vi.mock('../store/config-store', () => ({
     getInstance: () => ({ get: (key: string) => (key === 'plugins' ? config.plugins : undefined) }),
   },
 }))
-vi.mock('agent-engine', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('agent-engine')>()
+vi.mock('@talor/agent-engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@talor/agent-engine')>()
   return {
     ...actual,
     parsePlugin: (dir: string) => {
@@ -30,8 +30,8 @@ vi.mock('agent-engine', async (importOriginal) => {
 })
 
 import log from 'electron-log'
-import { createMcpHost, type AskRequest, type RunInfo } from 'agent-engine'
-import { fakeMcpServer } from 'agent-engine/testing'
+import { createMcpHost, type AskRequest, type RunInfo } from '@talor/agent-engine'
+import { fakeMcpServer } from '@talor/agent-engine/testing'
 import { registerApprovalPort, sessionApprover } from './approval'
 import {
   currentPlugins,

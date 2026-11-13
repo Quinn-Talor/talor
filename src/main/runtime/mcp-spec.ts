@@ -8,7 +8,7 @@
 // 允许依赖: agent-engine（类型）、repos/mcp-server-repo（类型）、runtime/vault
 // 禁止依赖: ipc/*、db/*
 
-import type { McpServerSpec, SecretRef } from 'agent-engine'
+import type { McpServerSpec, SecretRef } from '@talor/agent-engine'
 import type { MCPServer } from '../repos/mcp-server-repo'
 import { accountSecret, mcpAuthSecret } from './vault'
 

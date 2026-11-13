@@ -9,7 +9,7 @@
 // 允许依赖: agent-engine（类型）、accounts/account-store、repos/mcp-server-repo
 // 禁止依赖: ipc/*、db/*
 
-import type { Vault } from 'agent-engine'
+import type { Vault } from '@talor/agent-engine'
 import { AccountStore } from '../accounts/account-store'
 import { mcpServerRepo, type MCPServer } from '../repos/mcp-server-repo'
 

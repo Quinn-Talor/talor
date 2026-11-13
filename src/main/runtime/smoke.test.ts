@@ -5,8 +5,8 @@ const { logFns } = vi.hoisted(() => ({
 }))
 vi.mock('electron-log', () => ({ default: logFns }))
 
-import { memoryArchive, modelHub } from 'agent-engine'
-import { fakeModel, type FakeReply } from 'agent-engine/testing'
+import { memoryArchive, modelHub } from '@talor/agent-engine'
+import { fakeModel, type FakeReply } from '@talor/agent-engine/testing'
 import { electronLogger } from './logger'
 import { addTool, isSmokePassed, runEngineSmoke } from './smoke'
 

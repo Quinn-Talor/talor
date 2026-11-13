@@ -12,7 +12,7 @@ vi.mock('../store/config-store', () => ({
   ConfigStore: { getInstance: () => ({ get: mockGet }) },
 }))
 
-import { isModelCallError, type ModelInput, type ModelPort } from 'agent-engine'
+import { isModelCallError, type ModelInput, type ModelPort } from '@talor/agent-engine'
 import type { Provider } from '../store/config-store'
 import { modelRefOf, parseModelRef, talorModels } from './models'
 

@@ -66,6 +66,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^10.0.1",
+    "@talor/agent-engine": "github:Quinn-Talor/agent-engine#v0.1.1",
     "@types/mime-types": "^3.0.1",
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.10",
@@ -74,7 +75,6 @@
     "@types/semver": "^7.7.1",
     "@types/uuid": "^11.0.0",
     "@vitejs/plugin-react": "^6.0.1",
-    "agent-engine": "file:../../../../agent-engine",
     "autoprefixer": "^10.4.20",
     "chrome-remote-interface": "^0.34.0",
     "electron": "^41.3.0",
@@ -99,6 +99,9 @@
     "vite": "^8.0.10",
     "vitest": "^4.1.5",
     "zustand": "^5.0.3"
+  },
+  "allowScripts": {
+    "github:Quinn-Talor/agent-engine": true
   },
   "lint-staged": {
     "*.{ts,tsx}": [
